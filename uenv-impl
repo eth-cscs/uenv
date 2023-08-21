@@ -79,10 +79,22 @@ def colorize(string, color):
         return string
 
 def print_error(msg):
-    print(f"{colorize('[uenv error]', 'red')} {msg}", file=sys.stderr)
+    print(f"{colorize('[error]', 'red')} {msg}", file=sys.stderr)
+
+def print_warning(msg):
+    print(f"{colorize('[warning]', 'yellow')} {msg}", file=sys.stderr)
+
+def print_info(msg):
+    print(f"{colorize('[info]', 'cyan')} {msg}", file=sys.stderr)
 
 def echo_from_lines(lines):
     return [("echo '" + line + "'") for line in lines]
+
+def strip_image_prefix(s):
+    prefix = "file://"
+    if s.startswith(prefix):
+        return s[len(prefix):]
+    return s
 
 ###############################################################################
 # Types that read and represent uenv status
@@ -101,12 +113,21 @@ class environment:
         if ("UENV_MOUNT_FILE" in os.environ) and ("UENV_MOUNT_POINT" in os.environ):
             mnt = os.environ.get("UENV_MOUNT_POINT")
 
-            # todo: check whether an image has been mounted at UENV_MOUNT_POINT?
+            # TODO: check whether an image has been mounted at UENV_MOUNT_POINT?
             #   findmnt -n --mountpoint /user-environment
             # should return something like:
             #   /user-environment /dev/loop12 squashfs ro,nosuid,nodev,relatime
             self._uenvs = [uenv(pathlib.Path(mnt))]
 
+        # test for whether squashfs-mount 
+        elif "UENV_MOUNT_LIST" in os.environ:
+            raw = os.environ.get("UENV_MOUNT_LIST")
+            mounts = raw.split(',')
+            for m in mounts:
+                # remove 'file://' prefix from string.
+                m = strip_image_prefix(m)
+                img, mnt = m.split(":")
+                self._uenvs.append(uenv(pathlib.Path(mnt)))
 
     def load_status(self):
         modules = None
@@ -158,9 +179,9 @@ class uenv:
         self._image =  self.load_image(path)
 
     def load_image(self, path):
+        """return information (if any) about the image mounted at path"""
         empty_image = {"mount": path, "uenv": None}
 
-        """return information (if any) about the image mounted at path"""
         if not path.is_dir():
             return empty_image
 
@@ -173,8 +194,10 @@ class uenv:
                     env = json.load(fid)
                     return {"mount": path, "uenv": env}
                 except:
+                    print_error(f"unable to read environment configuration {env_file}")
                     return empty_image
 
+        print_warning(f"the environment mounted at {meta_path} has no configuration {env_file}")
         return empty_image
 
     @property
@@ -248,28 +271,133 @@ def generate_command(args):
     print_error(f"unknown command '{args.command}'")
     return " :"
 
+"""
+uenv start gromacs.squashfs,ddt.squashfs
+uenv start gromacs.squashfs,ddt.squashfs:/tools
+uenv start gromacs.squashfs:/user-environment,ddt.squashfs:/tools
+
+ultimately:
+
+uenv start gromacs:latest, ddt
+
+Specifying what to mount will use some "special characters"
+    the 2023 version of gromacs built for hoghant/a100 at /user-environment
+
+    gromacs@2023/hohgant/a100:/user-environment
+    |system=hohgant,arch=a100,gromacs:2023|/user-environment
+    $SCRATCH/gromacs.squashfs:/user-environment
+"""
+
+def parse_image_description(desc):
+    s = desc.split(':')
+    if len(s)==1:
+        return {"image": s[0], "mount": None}
+    elif len(s)==2:
+        return {"image": s[0], "mount": s[1]}
+    return None
+
+def parse_image_descriptions(s):
+    """
+    returns a list of {image, mount pairs} from the command line image argument
+    to `uenv start`.
+
+    when an error occurs, an error message is printed, and an empty list returned []
+    """
+    implicit_mounts = True
+    mounts = []
+
+    descriptions = s.split(',')
+    num_images = len(descriptions)
+
+    # TODO check for zero length input
+    if len(descriptions)==0:
+        print_error("No environment is provided")
+        return []
+
+    # inspect the first image
+    img = parse_image_description(descriptions[0])
+    if img is None:
+        # handle error
+        print_error(f"Invalid image description {descriptions[0]}")
+        return []
+    elif img["mount"] is None:
+        img["mount"] = "/user-environment"
+    else:
+        implicit_mounts = False
+
+    mounts.append(img)
+
+    if num_images==1:
+        return mounts
+
+    # inspect the second image
+    img = parse_image_description(descriptions[1])
+
+    if img is None:
+        # handle error
+        print_error(f"Invalid image description {descriptions[1]}")
+        return []
+    elif img["mount"] is None:
+        if implicit_mounts == True:
+            img["mount"] = "/tools"
+        else:
+            print_error(f"missing mount point in '{descriptions[1]}'")
+            return []
+
+    implicit_mounts = False
+    mounts.append(img)
+
+    for d in descriptions[2:]:
+        img = parse_image_description(d)
+
+        if img is None:
+            print_error(f"Invalid image description '{d}'")
+            return []
+        if img["mount"] is None:
+            print_error(f"missing mount point in '{d}'")
+            return []
+
+        mounts.append(img)
+
+    return mounts
+
+
 def generate_start_command(args):
     env = environment()
     if env.active:
         print_error(f'a uenv is already running')
         return shell_noop
 
-    img=args.image
-    img_path = pathlib.Path(img)
-    if not img_path.is_absolute():
-        img_path = pathlib.Path.cwd() / img_path
+    mounts=parse_image_descriptions(args.image)
 
-    if not img_path.is_file():
-        print_error(f"the user-environment {colorize(img, 'white')} does not exist")
-        return shell_noop
-    else:
-        return f"squashfs-mount {args.image} /user-environment bash"
+    mount_pairs = []
+    for m in mounts:
+        img_path = pathlib.Path(m["image"])
+        if not img_path.is_absolute():
+            img_path = pathlib.Path.cwd() / img_path
+        if not img_path.is_file():
+            print_error(f"the user-environment {colorize(img_path, 'white')} does not exist")
+            return shell_noop
+
+        mnt_path = pathlib.Path(m["mount"])
+        if not mnt_path.is_absolute():
+            mnt_path = pathlib.Path.cwd() / mnt_path
+        if not mnt_path.is_dir():
+            print_error(f"the mount point {colorize(mnt_path, 'white')} does not exist")
+            return shell_noop
+
+        mount_pairs.append(f"{img_path}:{mnt_path}")
+
+    mount_string = ' '.join(mount_pairs)
+
+    return f"squashfs-mount {mount_string} -- bash"
 
 def generate_modules_command(args):
     env = environment()
 
     if not env.active:
         print_error(f'there is no environment loaded')
+        return shell_noop
 
     uenv = env.uenvs[0]
 
@@ -291,6 +419,7 @@ def generate_view_command(args):
 
     if not env.active:
         print_error(f'there is no environment loaded')
+        return shell_noop
 
     uenv = env.uenvs[0]
 
@@ -322,38 +451,44 @@ def generate_status_command(args):
     for uenv in env.uenvs:
         if not first:
             lines.append("")
-            first = False
 
         if not uenv.is_uenv:
-            lines.append(f"{colorize(uenv['mount'], 'cyan')}")
+            lines.append(f"{colorize(uenv.mount, 'cyan')}")
             lines.append(f"  anonymous environment with no meta data")
         else:
             name = uenv.name
             description = uenv.description
             lines.append(f"{colorize(uenv.mount, 'cyan')}:{colorize(uenv.name, 'yellow')}")
-            lines.append(f"  {description}")
-            lines.append(f"")
+            if len(description.strip()) == 0:
+                lines.append(f"  no description")
+            else:
+                lines.append(f"  {description}")
             modules_avail = uenv.modules is not None
             if env.modules_loaded:
                 lines.append(f"  modules: {colorize('loaded', 'yellow')}")
             elif modules_avail:
                 lines.append(f"  modules: available")
             else:
-                lines.append(f"  modules: no modules provided")
+                lines.append(f"  modules: no modules available")
 
             loaded_view = env.loaded_view
             views = uenv.views
-            lines.append("  views:")
-            for v in views:
-                name = v["name"]
-                if name == loaded_view:
-                    name += f" {colorize('(loaded)', 'yellow')}"
+            if len(views)==0:
+                lines.append("  views: no views available")
+            else:
+                lines.append("  views:")
+                for v in views:
+                    name = v["name"]
+                    if name == loaded_view:
+                        name += f" {colorize('(loaded)', 'yellow')}"
 
-                description = v["description"]
-                if description != "":
-                    description = ": " + description
+                    description = v["description"]
+                    if description != "":
+                        description = ": " + description
 
-                lines.append(f"    {name}{description}")
+                    lines.append(f"    {name}{description}")
+
+        first = False
 
     return echo_from_lines(lines)
 
