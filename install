@@ -4,21 +4,27 @@ script_path=$(dirname "$(readlink -f "$BASH_SOURCE")")
 
 function usage {
     echo "uenv installer"
-    echo "Usage: install [--prefix=] [--help]"
+    echo "Usage: install [--prefix=] [--yes] [--help]"
     echo ""
     echo "--prefix  : the installation path (default \$HOME/.local)"
+    echo "--yes     : default response to all queries is yes"
     echo "--help    : print this message"
 }
 
 function prompt_bash_update {
     path=$1
+    always_yes=$2
 
-    # prompt the user
-    echo
-    read -p "Do you want to update $HOME/.bashrc to load uenv? [y/N] " response
+    response="yes"
+    if [ "$always_yes" != "yes" ]
+    then
+        # prompt the user
+        echo
+        read -p "Do you want to update $HOME/.bashrc to load uenv? [y/N] " response
 
-    # default to No if no input
-    response=${response:-N}
+        # default to No if no input
+        response=${response:-N}
+    fi
 
     # check the user's response
     case $response in
@@ -46,15 +52,19 @@ prefix="$HOME/.local"
 # get number of arguments
 arg_count=$#
 
+# default is to always query user for yes/no prompts
+always_yes=no
+
 # loop over all arguments
 for (( i=1; i<=$arg_count; i++ ))
 do
     arg=${!i}
     case $arg in
         --prefix=*)
-        echo "HELLO --prefix="
         prefix="${arg#*=}"
-        shift # remove the --prefix argument
+        ;;
+        --yes)
+        always_yes=yes
         ;;
         --help)
         usage
@@ -82,4 +92,4 @@ mkdir -p $prefix/libexec
 echo "installing $prefix/libexec/uenv-impl"
 cp $script_path/uenv-impl $prefix/libexec/uenv-impl
 
-prompt_bash_update "$prefix"
+prompt_bash_update "$prefix" "$always_yes"

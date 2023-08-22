@@ -8,32 +8,8 @@ jobs:
       - uses: actions/checkout@v2
       - name: setup
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y util-linux libmount-dev squashfs-tools wget
-          sudo mkdir -p /user-environment
-          sudo mkdir -p /user-profilers
-          sudo mkdir -p /user-tools
-          # install squashfs-mount
-          (
-            dd=$(mktemp -d)
-            cd "$dd"
-            git clone --depth=1 git@github.com:eth-cscs/squashfs-mount.git
-            cd squashfs-mount
-            sudo make install-suid
-          )
-          # install bash-bats
-          (
-            dd=$(mktemp -d)
-            cd "$dd"
-            sudo curl -L https://github.com/bats-core/bats-core/archive/refs/tags/v1.9.0.tar.gz | sudo tar xz
-            sudo mkdir bats-helpers
-            sudo git clone --depth 1 https://github.com/bats-core/bats-assert.git bats-helpers/bats-assert
-            sudo git clone --depth 1 https://github.com/bats-core/bats-support.git bats-helpers/bats-support
-          )
-      - name: build
-        run: |
-          sudo make install-suid
+          # create the test environment
+          ./test/setup
       - name: test
         run: |
-          export BATS_LIB_PATH=/bats-helpers
-          /bats-core-1.9.0/bin/bats ci/tests.bats
+          ./test/test

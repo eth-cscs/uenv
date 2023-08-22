@@ -1,0 +1,7 @@
+#!/bin/bash
+test_path=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+echo TEST PATH $test_path
+(
+    cd "$test_path"
+    BATS_LIB_PATH="$test_path/tmp/bats" ./tmp/bats/bats-core-1.9.0/bin/bats --show-output-of-passing-tests ./tests.bats
+)
