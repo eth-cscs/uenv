@@ -1,0 +1,103 @@
+#!/bin/bash
+#
+function usage {
+    echo "test configurator"
+    echo "Usage: setup [--full] [--help]"
+    echo ""
+    echo "--full    : install squashfs-mount - requires running as root"
+    echo "--help    : print this message"
+}
+
+full_install="no"
+
+# get number of arguments
+arg_count=$#
+# loop over all arguments
+for (( i=1; i<=$arg_count; i++ ))
+do
+    arg=${!i}
+    case $arg in
+        #--prefix=*)
+        #echo "HELLO --prefix="
+        #prefix="${arg#*=}"
+        #shift # remove the --prefix argument
+        #;;
+        --full)
+        full_install="yes"
+        ;;
+        --help)
+        usage
+        exit 0
+        ;;
+        *)
+        echo "Error: unknown argument $arg"
+        echo
+        usage
+        exit 1
+        ;;
+    esac
+done
+
+export TEST_PATH=$(pwd)/tmp
+
+echo "===== configuring tests in $TEST_PATH"
+echo "        full install: $full_install"
+
+if [ -d "$TEST_PATH" ]
+then
+    echo ===== removing old test path
+    [[ -d "$TEST_PATH/bin" ]] && sudo rm -rf "$TEST_PATH/bin/squashfs-mount"
+    rm -rf "$TEST_PATH"
+fi
+
+
+mkdir -p "$TEST_PATH"
+cd "$TEST_PATH"
+
+echo ===== installing bats-core and helpers
+export BATS_PATH="$TEST_PATH/bats"
+(
+    mkdir "$BATS_PATH"
+    cd "$BATS_PATH"
+    echo "        install bats-core..."
+    curl -s -L https://github.com/bats-core/bats-core/archive/refs/tags/v1.9.0.tar.gz | tar xz
+    echo "        install bats-assert..."
+    git clone --quiet --depth 1 https://github.com/bats-core/bats-assert.git bats-assert
+    echo "        install bats-support..."
+    git clone --quiet --depth 1 https://github.com/bats-core/bats-support.git bats-support
+)
+
+if [ "$full_install" == "yes" ]
+then
+    echo "===== installing squashfs-mount"
+    echo "        cloning from github"
+    git clone --quiet https://github.com/eth-cscs/squashfs-mount.git
+    cd squashfs-mount
+    echo "        make install -> $TEST_PATH/bin"
+    sudo make install-suid prefix="" DESTDIR=$TEST_PATH > install_out
+fi
+
+export SQFS_PATH="$TEST_PATH/images"
+echo ===== creating squashfs images in $SQFS_PATH
+(
+    mkdir -p "$SQFS_PATH"
+    cd "$SQFS_PATH"
+
+    echo "        $SQFS_PATH/tools.squashfs"
+    mkdir tools
+    echo "hello tools" >> tools/file.txt
+    mksquashfs tools tools.sqashfs -quiet -no-progress
+
+    echo "        $SQFS_PATH/uenv.squashfs"
+    mkdir uenv
+    echo "hello uenv" >> uenv/file.txt
+    mksquashfs uenv uenv.sqashfs -quiet -no-progress
+)
+
+export MNT_PATH="$TEST_PATH/mnt"
+echo ===== creating mount points in $MNT_PATH
+echo "        $MNT_PATH/tools"
+mkdir -p "$MNT_PATH/tools"
+echo "        $MNT_PATH/user-environment"
+mkdir -p "$MNT_PATH/user-environment"
+
