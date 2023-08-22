@@ -1,11 +1,12 @@
 #!/bin/bash
+
 test_path=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 echo TEST PATH $test_path
 (
+    echo "2 $1"
+
+    flags=""
+    [[ "$1" == "--verbose" ]] && flags="--show-output-of-passing-tests"
     cd "$test_path"
-    echo "TEST PATH $test_path"
-    echo "CURRENT PATH $PWD"
-    x=$(ls tmp)
-    echo $x
-    BATS_LIB_PATH="$test_path/tmp/bats" ./tmp/bats/bats-core-1.9.0/bin/bats --show-output-of-passing-tests ./tests.bats
+    BATS_LIB_PATH="$test_path/tmp/bats" ./tmp/bats/bats-core-1.9.0/bin/bats $flags ./tests.bats
 )
