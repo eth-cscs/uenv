@@ -17,7 +17,7 @@ function setup() {
 
     "$repo_path/install" --prefix="$repo_path" --yes
 
-    [[ -f "$base_path/bin/squashfs-mount" ]] && export PATH="$base_path/bin/squashfs-mount:$PATH"
+    [[ -f "$base_path/bin/squashfs-mount" ]] && export PATH="$base_path/bin:$PATH"
 
     echo $PATH
 
