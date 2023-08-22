@@ -2,7 +2,8 @@
 test_path=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 echo TEST PATH $test_path
 (
-    cd "TEST PATH $test_path"
+    cd "$test_path"
+    echo "TEST PATH $test_path"
     echo "CURRENT PATH $PWD"
     x=$(ls tmp)
     echo $x
