@@ -10,7 +10,7 @@ jobs:
         run: |
           # create the test environment
           cd test
-          ./setup
+          ./setup --full
       - name: test
         run: |
           ./test/test

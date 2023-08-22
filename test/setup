@@ -17,11 +17,6 @@ for (( i=1; i<=$arg_count; i++ ))
 do
     arg=${!i}
     case $arg in
-        #--prefix=*)
-        #echo "HELLO --prefix="
-        #prefix="${arg#*=}"
-        #shift # remove the --prefix argument
-        #;;
         --full)
         full_install="yes"
         ;;
