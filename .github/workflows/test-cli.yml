@@ -8,6 +8,9 @@ jobs:
       - uses: actions/checkout@v2
       - name: setup
         run: |
+          # create the mount points
+          sudo mkdir /user-environment
+          sudo mkdir /user-tools
           # create the test environment
           ./test/setup --full
       - name: test
