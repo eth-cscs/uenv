@@ -12,18 +12,19 @@ function setup() {
     export mount_path="$base_path/mnt"
 
     # make a backup of ~/.bashrc
-    echo "make a back up of ~/.bashrc -> $base_path/bashrc"
+    echo "=== make a back up of ~/.bashrc -> $base_path/bashrc"
     cp ~/.bashrc "$base_path/bashrc"
 
     "$repo_path/install" --prefix="$repo_path" --yes
 
     [[ -d "$base_path/bin" ]] && export PATH="$base_path/bin:$PATH"
+    echo "BIN: $(ls $base_path/bin)"
 
-    which squashfs-mount
+    echo "SQUASHFS-MOUNT BINARY: $(which squashfs-mount)"
 }
 
 function teardown() {
-    echo "reset bashrc"
+    echo "=== reset bashrc"
 
     cp "$base_path/bashrc" ~/.bashrc
 }

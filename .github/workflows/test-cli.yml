@@ -9,8 +9,8 @@ jobs:
       - name: setup
         run: |
           # create the test environment
-          cd test
-          ./setup --full
+          ./test/setup --full
       - name: test
         run: |
-          ./test/test
+          # run the tests
+          ./test/test --verbose

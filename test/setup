@@ -33,7 +33,8 @@ do
     esac
 done
 
-export TEST_PATH=$(pwd)/tmp
+this_path=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+export TEST_PATH="$this_path/tmp"
 
 echo "===== configuring tests in $TEST_PATH"
 echo "        full install: $full_install"

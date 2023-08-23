@@ -1,10 +1,7 @@
 #!/bin/bash
 
 test_path=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-echo TEST PATH $test_path
 (
-    echo "2 $1"
-
     flags=""
     [[ "$1" == "--verbose" ]] && flags="--show-output-of-passing-tests"
     cd "$test_path"
