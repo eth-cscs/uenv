@@ -25,9 +25,16 @@ The installation script will prompt you whether it should add the line, and prov
 
 ```bash
 uenv start $SCRATCH/images/gromacs.sqfs
+uenv start $SCRATCH/images/gromacs.sqfs:/user-environment
 ```
 
 Will start a new shell with the environment `gromacs.sqfs` mounted at `/user-environment`.
+
+```bash
+uenv start $SCRATCH/images/gromacs.sqfs,debugger.sqfs:/user-tools
+```
+
+Will start a new shell with the environment `gromacs.sqfs` mounted at `/user-environment`, and `debugger.sqfs` mounted at `/user-tools`
 
 ### Stopping an environment
 
