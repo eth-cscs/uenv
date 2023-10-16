@@ -140,18 +140,8 @@ class environment:
 
         self._uenvs = []
 
-        # test for the original mount method
-        if ("UENV_MOUNT_FILE" in os.environ) and ("UENV_MOUNT_POINT" in os.environ):
-            mnt = os.environ.get("UENV_MOUNT_POINT")
-
-            # TODO: check whether an image has been mounted at UENV_MOUNT_POINT?
-            #   findmnt -n --mountpoint /user-environment
-            # should return something like:
-            #   /user-environment /dev/loop12 squashfs ro,nosuid,nodev,relatime
-            self._uenvs = [uenv(pathlib.Path(mnt))]
-
         # test for the multi-mount method
-        elif "UENV_MOUNT_LIST" in os.environ:
+        if "UENV_MOUNT_LIST" in os.environ:
             # take care to strip white space and trailing commas
             raw = os.environ.get("UENV_MOUNT_LIST").strip().strip(',')
             mounts = raw.split(',')
@@ -160,6 +150,17 @@ class environment:
                 m = strip_image_prefix(m)
                 img, mnt = m.split(":")
                 self._uenvs.append(uenv(pathlib.Path(mnt)))
+
+        # test for the original mount method
+        elif ("UENV_MOUNT_FILE" in os.environ) and ("UENV_MOUNT_POINT" in os.environ):
+            mnt = os.environ.get("UENV_MOUNT_POINT")
+
+            # TODO: check whether an image has been mounted at UENV_MOUNT_POINT?
+            #   findmnt -n --mountpoint /user-environment
+            # should return something like:
+            #   /user-environment /dev/loop12 squashfs ro,nosuid,nodev,relatime
+            self._uenvs = [uenv(pathlib.Path(mnt))]
+
 
     # TODO: these need to parse env variables for multi-mount points
     def load_status(self):
