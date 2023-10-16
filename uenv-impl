@@ -102,7 +102,7 @@ def strip_image_prefix(s):
         return s[len(prefix):]
     return s
 
-# inspect the output of "squasfs-mount --version"
+# inspect the output of "squashfs-mount --version"
 # return the minor version, e.g. 0.5 returns 5
 def get_uenv_version():
     try:
@@ -510,7 +510,12 @@ def generate_start_command(args, env):
 
     mount_string = ' '.join(mount_pairs)
 
-    return f"squashfs-mount {mount_string} -- bash"
+    # TODO: remove once support for old slurm plugin no longer required
+    main_mount=mount_pairs[0].split(":")
+    return [f"export UENV_MOUNT_FILE={main_mount[0]}",
+            f"export UENV_MOUNT_POINT={main_mount[1]}",
+            f"squashfs-mount {mount_string} -- bash",
+            "unset UENV_MOUNT_FILE; unset UENV_MOUNT_POINT;"]
 
 def generate_modules_command(args, env):
 
