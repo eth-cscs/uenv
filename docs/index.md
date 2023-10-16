@@ -54,3 +54,34 @@ To get the status of all loaded environments:
 ```bash
 uenv status
 ```
+
+### Modules
+
+If a loaded uenv provides modules, these can be enabled using the `module use` command.
+
+```bash
+uenv module [environments]
+```
+
+where `[environments]'` is an optional list of environments to load.
+
+Use the modules provided by `/user-environment`:
+```bash
+uenv modules use /user-environment
+```
+
+Use the modules provided by the loaded uenv with name `gromacs/2023`:
+```bash
+uenv modules use gromacs/2023
+```
+
+Use the modules provided by the main uenv
+```bash
+uenv modules use
+```
+
+Use the modules provided by the uenv mounted at `/user-tools` and the uenv with name `gromacs/2023`
+```bash
+uenv modules use gromacs/2023 /user-tools
+```
+

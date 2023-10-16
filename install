@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-version=0.1-dev
+version=2-dev
 script_path=$(dirname "$(readlink -f "$BASH_SOURCE")")
 
 function usage {
