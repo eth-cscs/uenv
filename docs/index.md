@@ -31,7 +31,7 @@ uenv start $SCRATCH/images/gromacs.sqfs:/user-environment
 Will start a new shell with the environment `gromacs.sqfs` mounted at `/user-environment`.
 
 ```bash
-uenv start $SCRATCH/images/gromacs.sqfs,debugger.sqfs:/user-tools
+uenv start $SCRATCH/images/gromacs.sqfs debugger.sqfs:/user-tools
 ```
 
 Will start a new shell with the environment `gromacs.sqfs` mounted at `/user-environment`, and `debugger.sqfs` mounted at `/user-tools`
@@ -57,30 +57,42 @@ uenv status
 
 ### Modules
 
-If a loaded uenv provides modules, these can be enabled using the `module use` command.
+Uenv can be configured to provide modules, however not all uenv provide modules.
+If a uenv provides modules, they are not directly available for querying and accessing using `module avail` or `module load` etc.
+
+To find information about which running uenv provide modules, and whether modules have been activated:
 
 ```bash
-uenv module [environments]
+uenv modules
 ```
 
-where `[environments]'` is an optional list of environments to load.
+If a loaded uenv provides modules, these can be enabled using the `modules use` command:
 
-Use the modules provided by `/user-environment`:
+```bash
+uenv modules use [environments]
+```
+
+where `[environments]'` is a list of uenv whose modules are to be made available.
+
+!!! info
+    If `[environments]` is not provided, the module files from all loaded uenv that provide modules will be made available.
+
+**Example 1**: use the modules provided by `/user-environment`:
 ```bash
 uenv modules use /user-environment
 ```
 
-Use the modules provided by the loaded uenv with name `gromacs/2023`:
+**Example 2**: use the modules provided by the loaded uenv with name `gromacs/2023`:
 ```bash
 uenv modules use gromacs/2023
 ```
 
-Use the modules provided by the main uenv
+**Example 3**: the modules provided by all loaded uenv that provide modules:
 ```bash
 uenv modules use
 ```
 
-Use the modules provided by the uenv mounted at `/user-tools` and the uenv with name `gromacs/2023`
+**Example 4**: use the modules provided by the uenv mounted at `/user-tools` and the uenv with name `gromacs/2023`
 ```bash
 uenv modules use gromacs/2023 /user-tools
 ```

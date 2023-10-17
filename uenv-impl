@@ -155,14 +155,18 @@ class environment:
         elif ("UENV_MOUNT_FILE" in os.environ) and ("UENV_MOUNT_POINT" in os.environ):
             mnt = os.environ.get("UENV_MOUNT_POINT")
 
-            # TODO: check whether an image has been mounted at UENV_MOUNT_POINT?
-            #   findmnt -n --mountpoint /user-environment
-            # should return something like:
-            #   /user-environment /dev/loop12 squashfs ro,nosuid,nodev,relatime
             self._uenvs = [uenv(pathlib.Path(mnt))]
 
+        # TODO: check whether an image has been mounted at each _uenv[]
+        #   findmnt -n --mountpoint /user-environment
+        #   findmnt -n --mountpoint {str(_uenv[i]).mount}
+        # should return something like:
+        #   /user-environment /dev/loop12 squashfs ro,nosuid,nodev,relatime
 
-    # TODO: these need to parse env variables for multi-mount points
+
+    # Read environment variables set by previous calls to uenv, that record which
+    # views and modules have been loaded.
+    # Additionally read the vcluster name, if set.
     def load_status(self):
         modules = None
         if os.environ.get('UENV_MODULE_PATH') is not None:
@@ -527,22 +531,26 @@ def generate_modules_command(args, env):
         return shell_noop
 
     # generate a list of all the mounted environments that provide modules
-    module_envs = [{"name": e.name, "mount": e.mount, "modules": e.modules, "loaded": e.modules_loaded}
+    module_envs = [
+        {"name": e.name, "mount": e.mount, "modules": e.modules, "loaded": e.modules_loaded}
             for e in env.uenvs
                 if (e.modules is not None) and e.is_native_mounted]
 
     print_debug(f"modules are provided by {module_envs}")
 
-    # No use command - print the status of the modules
+    # No use command, i.e. the folloing CLI command was made:
+    #   uenv modules
+    # print the status of the modules
     if not args.modules_command=="use":
         if len(module_envs)==0:
             return "echo 'no loaded environments provide modules'"
         output = ["echo 'the following loaded uenv provide modules:'"]
+        loaded = colorize("(loaded)", "yellow")
         for e in module_envs:
             name = e["name"]
             mount = e["mount"]
             if e["loaded"]:
-                output.append(f"echo '  {name}:{mount} (loaded)'")
+                output.append(f"echo '  {name}:{mount} {loaded}'")
             else:
                 output.append(f"echo '  {name}:{mount}'")
             output.append(shell_noop)
