@@ -555,10 +555,17 @@ def generate_modules_command(args, env):
                 output.append(f"echo '  {name}:{mount}'")
             output.append(shell_noop)
         return output
+    # uenv modules use images[]
     else:
         images = args.image
         mounts=[]
-        if len(images)>0:
+        # no images were specified, i.e. the user simpley requested:
+        #   uenv modules use
+        # in which case the list of mounts is the mount points for all images
+        # that provide modules.
+        if len(images)==0:
+            mounts = [e["mount"] for e in module_envs]
+        else:
             for i in images:
                 matches = [e.mount for e in env.uenvs
                         if (e.matches_name(i))
@@ -569,8 +576,6 @@ def generate_modules_command(args, env):
                     return shell_noop
                 print_debug(f"  uenv {i} mounted at {matches[0]}")
                 mounts.append(matches[0])
-        else:
-            mounts = [e["mount"] for e in env.uenvs]
 
         modulepaths = [str(p / 'modules') for p in mounts]
         for p in modulepaths:
