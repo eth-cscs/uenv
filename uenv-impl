@@ -278,7 +278,7 @@ class uenv:
 
         if mnt is not None:
             print_debug(f"image at {self.mount} has native mount {mnt} set in meta data")
-            return mnt
+            return pathlib.Path(mnt)
 
         # check whether it can be inferred from a view path
         for e in self.views:
