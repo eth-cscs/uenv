@@ -22,6 +22,10 @@ def make_argparser():
     parser.add_argument("--verbose", action="store_true")
     subparsers = parser.add_subparsers(dest="command")
 
+    run_parser = subparsers.add_parser("run",
+            help="run a command in a user environment")
+    run_parser.add_argument("runline", nargs=argparse.REMAINDER, type=str)
+
     start_parser = subparsers.add_parser("start",
             help="start a user environment")
     start_parser.add_argument("image", nargs='+', type=str,
@@ -214,7 +218,7 @@ class environment:
     # true if the squashfs-mount utility is too old for this version of uenv.
     @property
     def old_api(self):
-        return self._uenv_version < 5
+        return (not self.has_squashfs_mount) or (self._uenv_version < 5)
 
 class uenv:
     """
@@ -382,6 +386,8 @@ def generate_command(args):
         print_error(f"the version of squashfs-mount on this system is too old.")
         return shell_noop
 
+    if args.command == "run":
+        return generate_run_command(args, env)
     if args.command == "start":
         return generate_start_command(args, env)
     elif args.command == "stop":
@@ -421,10 +427,11 @@ def parse_image_description(desc):
         return {"image": s[0], "mount": s[1]}
     return None
 
-def parse_image_descriptions(mnt_list):
+def generate_image_pairs(mnt_list):
     """
-    Returns a list of {image, mount pairs} from the command line image argument
-    to `uenv start args`.
+    Returns a list of {image, mount pairs} from the command line image argument to:
+    `uenv start [mnt_list]`.
+    `uenv run [mnt_list] -- cmd`.
 
     when an error occurs, an error message is printed, and an empty list returned []
     """
@@ -486,14 +493,8 @@ def parse_image_descriptions(mnt_list):
 
     return mounts
 
-
-def generate_start_command(args, env):
-    print_debug(f"parsing start command with arguments: {args.image}")
-    if env.active:
-        print_error("a uenv is already running")
-        return shell_noop
-
-    mounts=parse_image_descriptions(args.image)
+def parse_image_descriptions(mnt_list):
+    mounts = generate_image_pairs(mnt_list)
 
     mount_pairs = []
     for m in mounts:
@@ -502,17 +503,72 @@ def generate_start_command(args, env):
             img_path = pathlib.Path.cwd() / img_path
         if not img_path.is_file():
             print_error(f"the user environment {colorize(img_path, 'white')} does not exist")
-            return shell_noop
+            return []
 
         mnt_path = pathlib.Path(m["mount"])
         if not mnt_path.is_absolute():
             mnt_path = pathlib.Path.cwd() / mnt_path
         if not mnt_path.is_dir():
             print_error(f"the mount point {colorize(mnt_path, 'white')} does not exist")
-            return shell_noop
+            return []
 
         mount_pairs.append(f"{img_path}:{mnt_path}")
         print_debug(f"  mounting: {img_path}:{mnt_path}")
+
+    return mount_pairs
+
+def split_runline(args):
+    images = []
+    cmd = None
+    cmdargs = []
+
+    if any(a=="--" for a in args):
+        dashpos=args.index("--")
+        images = args[:dashpos]
+        remainder = args[dashpos+1:]
+        if len(remainder)>0:
+            cmd = remainder[0]
+            cmdargs = remainder[1:]
+    else:
+        images = args
+
+    return images, cmd, cmdargs
+
+def generate_run_command(args, env):
+    print_debug(f"parsing run command with arguments: {args.command}")
+    if env.active:
+        print_error("a uenv is already running")
+        return shell_noop
+
+    images, cmd, cmdargs = split_runline(args.runline)
+
+    print_debug(f"images: {images}")
+    print_debug(f"cmd: {cmd}")
+    print_debug(f"cmdargs: {cmdargs}")
+
+    mount_pairs=parse_image_descriptions(images)
+    if mount_pairs==[]:
+        return shell_noop
+
+    mount_string = ' '.join(mount_pairs)
+
+    # TODO: remove once support for old slurm plugin no longer required
+    main_mount=mount_pairs[0].split(":")
+    return [f"export UENV_MOUNT_FILE={main_mount[0]}",
+            f"export UENV_MOUNT_POINT={main_mount[1]}",
+            f"squashfs-mount {mount_string} -- {cmd}",
+            "unset UENV_MOUNT_FILE; unset UENV_MOUNT_POINT;"]
+
+
+def generate_start_command(args, env):
+    print_debug(f"parsing start command with arguments: {args.image}")
+    if env.active:
+        print_error("a uenv is already running")
+        return shell_noop
+
+    mount_pairs=parse_image_descriptions(args.image)
+    if mount_pairs==[]:
+        return shell_noop
 
     mount_string = ' '.join(mount_pairs)
 

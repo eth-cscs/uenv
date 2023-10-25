@@ -7,6 +7,7 @@ function usage {
     echo "Usage:   uenv [--version] [--help] <command> [<args>]"
     echo ""
     echo "the following commands are available"
+    echo "  run             run a command in an environment"
     echo "  start           start a new shell with an environment loaded"
     echo "  stop            stop a shell with an environment loaded"
     echo "  status          print information about each running environment"
@@ -16,7 +17,7 @@ function usage {
 
 function uenv {
     if [ "$1" = "--version" ]; then
-        echo "uenv version ${VERSION}";
+        echo "${VERSION}";
     elif [[ $# -eq 0 || "$1" = "--help" || "$1" = "-h" ]]; then
         usage;
     else
