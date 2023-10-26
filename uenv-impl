@@ -551,12 +551,13 @@ def generate_run_command(args, env):
         return shell_noop
 
     mount_string = ' '.join(mount_pairs)
+    cmdargs_string = ' '.join([f'"{arg}"' for arg in cmdargs])
 
     # TODO: remove once support for old slurm plugin no longer required
     main_mount=mount_pairs[0].split(":")
     return [f"export UENV_MOUNT_FILE={main_mount[0]}",
             f"export UENV_MOUNT_POINT={main_mount[1]}",
-            f"squashfs-mount {mount_string} -- {cmd}",
+            f"squashfs-mount {mount_string} -- {cmd} {cmdargs_string}",
             "unset UENV_MOUNT_FILE; unset UENV_MOUNT_POINT;"]
 
 

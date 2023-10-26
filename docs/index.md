@@ -47,6 +47,20 @@ uenv stop
 !!! info
     The history of commands that were typed in the shell will be lost to the calling shell.
 
+### Running a command in an environment
+
+The `uenv run` command can be used to execute a single command in a shell with the desired environment loaded.
+This is particularly useful for workflows that might execute steps with different environments.
+
+Some examples:
+
+```bash
+uenv run $SCRATCH/images/gromacs.sqfs -- ls -ahl /user-environment
+uenv run $SCRATCH/images/gromacs.sqfs:/user-environment $SCRATCH/images/tools.squashfs:/user-tools -- ls -ahl /user-environment /user-tools
+```
+
+Will start run a command in an environment with the , before returning to the calling shell.
+
 ### Status
 
 To get the status of all loaded environments:
