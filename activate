@@ -2,7 +2,7 @@ export UENV_CMD=@@prefix@@/libexec/uenv-impl
 export UENV_VERSION=@@version@@
 
 function usage {
-    echo "uenv - for using user environments [version ${UENV_VERSION}]"
+    echo "uenv - for using user environments [version @@version@@]"
     echo ""
     echo "Usage:   uenv [--version] [--help] <command> [<args>]"
     echo ""
@@ -17,7 +17,7 @@ function usage {
 
 function uenv {
     if [ "$1" = "--version" ]; then
-        echo "${UENV_VERSION}";
+        echo "@@version@@";
     elif [[ $# -eq 0 || "$1" = "--help" || "$1" = "-h" ]]; then
         usage;
     else

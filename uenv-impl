@@ -12,7 +12,7 @@ import pathlib
 import sys
 import subprocess
 
-VERSION="2-dev"
+VERSION="@@version@@"
 
 shell_noop=" :"
 

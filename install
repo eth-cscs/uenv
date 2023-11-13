@@ -92,5 +92,6 @@ sed "s|@@version@@|$version|g" -i $prefix/bin/activate-uenv
 mkdir -p $prefix/libexec
 echo "installing $prefix/libexec/uenv-impl"
 cp $script_path/uenv-impl $prefix/libexec/uenv-impl
+sed "s|@@version@@|$version|g" -i $prefix/libexec/uenv-impl
 
 prompt_bash_update "$prefix" "$always_yes"
