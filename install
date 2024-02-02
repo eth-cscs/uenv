@@ -14,8 +14,10 @@ function usage {
 }
 
 function prompt_bash_update {
-    activate_script=$1
+    prefix=$1
     always_yes=$2
+
+    activate_script=$prefix/bin/activate-uenv
 
     response="yes"
     if [ "$always_yes" != "yes" ]
@@ -42,7 +44,7 @@ function prompt_bash_update {
         *)
             # if anything other than yes, do nothing
             echo
-            echo "$HOME/.bashrc is umodified - you can update it yourself:"
+            echo "$HOME/.bashrc is unmodified - you can update it yourself:"
             echo "echo \"source ${activate_script}\" >> $HOME/.bashrc"
             ;;
     esac
