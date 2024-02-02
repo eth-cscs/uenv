@@ -5,29 +5,32 @@ export UENV_ROOT=@@prefix@@
 export UENV_CMD=@@impl@@
 export UENV_VERSION=@@version@@
 
-function uenv_usage {
-    echo "uenv - for using user environments [version @@version@@]"
-    echo ""
-    echo "Usage:   uenv [--version] [--help] <command> [<args>]"
-    echo ""
-    echo "the following commands are available"
-    echo "  run             run a command in an environment"
-    echo "  start           start a new shell with an environment loaded"
-    echo "  stop            stop a shell with an environment loaded"
-    echo "  status          print information about each running environment"
-    echo "  modules         view module status and activate with --use"
-    echo "  view            activate a view"
-}
-
 function uenv {
+    function uenv_usage {
+        echo "uenv - for using user environments [version @@version@@]"
+        echo ""
+        echo "Usage:   uenv [--version] [--help] <command> [<args>]"
+        echo ""
+        echo "the following commands are available"
+        echo "  run             run a command in an environment"
+        echo "  start           start a new shell with an environment loaded"
+        echo "  stop            stop a shell with an environment loaded"
+        echo "  status          print information about each running environment"
+        echo "  modules         view module status and activate with --use"
+        echo "  view            activate a view"
+    }
+
     if [ "$1" = "--version" ]; then
         echo "@@version@@";
     elif [[ $# -eq 0 || "$1" = "--help" || "$1" = "-h" ]]; then
-        usage;
+        uenv_usage;
     elif [[ " $* " =~ [[:space:]](-h|--help)[[:space:]] ]]; then
         echo "$($UENV_CMD "$@")"
     else
         eval "$($UENV_CMD "$@")"
     fi
+
+    unset -f uenv_usage
 }
 
+export -f uenv
