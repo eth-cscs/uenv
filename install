@@ -7,13 +7,14 @@ function usage {
     echo "uenv installer"
     echo "Usage: install [--prefix=] [--yes] [--help]"
     echo ""
-    echo "--prefix  : the installation path (default \$HOME/.local)"
+    echo "--prefix  : the installation path (default /opt/uenv)"
+    echo "--user    : install locally for this user (default prefix \$HOME/.local)"
     echo "--yes     : default response to all queries is yes"
     echo "--help    : print this message"
 }
 
 function prompt_bash_update {
-    path=$1
+    activate_script=$1
     always_yes=$2
 
     response="yes"
@@ -33,7 +34,7 @@ function prompt_bash_update {
             # if yes, create the directory
             echo "" >> $HOME/.bashrc
             echo "# configure the user-environment (uenv) utility" >> $HOME/.bashrc
-            echo "source ${path}/bin/activate-uenv" >> $HOME/.bashrc
+            echo "source ${activate_script}" >> $HOME/.bashrc
 
             echo
             echo "$HOME/.bashrc has been updated."
@@ -42,19 +43,23 @@ function prompt_bash_update {
             # if anything other than yes, do nothing
             echo
             echo "$HOME/.bashrc is umodified - you can update it yourself:"
-            echo "echo \"source ${path}/bin/activate-uenv\" >> $HOME/.bashrc"
+            echo "echo \"source ${activate_script}\" >> $HOME/.bashrc"
             ;;
     esac
 }
 
 # set the default installation location
-prefix="$HOME/.local"
+prefix_local="$HOME/.local"
+prefix_system="/opt"
 
 # get number of arguments
 arg_count=$#
 
 # default is to always query user for yes/no prompts
 always_yes=no
+
+# default install system wide
+local_install=no
 
 # loop over all arguments
 for (( i=1; i<=$arg_count; i++ ))
@@ -64,8 +69,14 @@ do
         --prefix=*)
         prefix="${arg#*=}"
         ;;
+        --local)
+        local_install=yes
+        ;;
         --yes)
         always_yes=yes
+        ;;
+        --debug)
+        uenv_debug=yes
         ;;
         --help)
         usage
@@ -80,18 +91,40 @@ do
     esac
 done
 
+if [ "$local_install" == "yes" ]
+then
+    prefix="${prefix:-$prefix_local}"
+else
+    prefix="${prefix:-$prefix_system}/uenv"
+fi
+
+[[ "x$uenv_debug" == xyes ]] && show=echo || show=""
+
 echo "installing uenv version $version in $prefix"
-echo
+echo "local install: $local_install"
 
-mkdir -p $prefix/bin
-echo "installing $prefix/bin/activate-uenv"
-cp $script_path/activate $prefix/bin/activate-uenv
-sed "s|@@prefix@@|$prefix|g" -i $prefix/bin/activate-uenv
-sed "s|@@version@@|$version|g" -i $prefix/bin/activate-uenv
+$show mkdir -p "$prefix/libexec"
+if [ "$local_install" == "no" ]
+then
+    $show chmod -R 755 "$prefix"
+    init_path="/etc/profile.d/uenv.sh"
+else
+    $show mkdir -p "$prefix/bin"
+    init_path="$prefix/bin/activate-uenv"
+fi
 
-mkdir -p $prefix/libexec
-echo "installing $prefix/libexec/uenv-impl"
-cp $script_path/uenv-impl $prefix/libexec/uenv-impl
-sed "s|@@version@@|$version|g" -i $prefix/libexec/uenv-impl
+impl_path="$prefix/libexec/uenv-impl"
+echo "installing $impl_path"
+$show cp "$script_path/uenv-impl" "$impl_path"
+$show sed "s|@@version@@|$version|g" -i "$impl_path"
+$show chmod 755 "$impl_path"
 
-prompt_bash_update "$prefix" "$always_yes"
+# Copy the initialisation script
+echo "installing $init_path"
+$show cp "$script_path/activate" "$init_path"
+$show sed "s|@@impl@@|$impl_path|g"  -i "$init_path"
+$show sed "s|@@prefix@@|$prefix|g"   -i "$init_path"
+$show sed "s|@@version@@|$version|g" -i "$init_path"
+$show chmod 644 "$init_path"
+
+[[ "$local_install" == "yes" ]] && prompt_bash_update "$prefix" "$always_yes"

@@ -1,7 +1,11 @@
-export UENV_CMD=@@prefix@@/libexec/uenv-impl
+# only run if bash or zsh
+[ -n "${BASH_VERSION:-}" -o -n "${ZSH_VERSION:-}" ] || return 0
+
+export UENV_ROOT=@@prefix@@
+export UENV_CMD=@@impl@@
 export UENV_VERSION=@@version@@
 
-function usage {
+function uenv_usage {
     echo "uenv - for using user environments [version @@version@@]"
     echo ""
     echo "Usage:   uenv [--version] [--help] <command> [<args>]"
@@ -26,3 +30,4 @@ function uenv {
         eval "$($UENV_CMD "$@")"
     fi
 }
+
