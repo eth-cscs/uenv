@@ -8,7 +8,7 @@ function usage {
     echo "Usage: install [--prefix=] [--yes] [--help]"
     echo ""
     echo "--prefix  : the installation path (default /opt/uenv)"
-    echo "--user    : install locally for this user (default prefix \$HOME/.local)"
+    echo "--local   : install locally for this user (default prefix \$HOME/.local)"
     echo "--yes     : default response to all queries is yes"
     echo "--help    : print this message"
 }
