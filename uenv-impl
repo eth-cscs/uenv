@@ -147,8 +147,8 @@ def parse_uenv_modules(desc):
     return [pathlib.Path(p) for p in desc.split(',')]
 
 def parse_uenv_view(desc):
-    path, name = desc.split(':')
-    return {"path": pathlib.Path(path), "name": name}
+    mount, uenv, name = desc.split(':')
+    return {"path": pathlib.Path(mount), "uenv": uenv, "name": name}
 
 ###############################################################################
 # Types that read and represent uenv status
@@ -673,40 +673,97 @@ def generate_modules_command(args, env):
     return shell_noop
 
 def generate_view_command(args, env):
-
     if not env.active:
         print_error(f'there is no environment loaded')
         return shell_error
 
-    name = args.view_name
+    requested_view = args.view_name
 
-    # handle the case where `uenv view` is called with no further arguments
-    # print information, then quit
-    if name is None:
+    # key=uenv name, value=list of views for that uenv
+    # only uenv with views are added to the dictionary
+    available_views = {}
+    # key=view name, value=list of uenv that provide a view with that name
+    view2uenv = {}
+    for uenv in env.uenvs:
+        name = uenv.name
+        views = [v["name"] for v in uenv.views]
+        if len(views)>0:
+            available_views[name] = views
+        for v in views:
+            view2uenv.setdefault(v, []).append(uenv)
+
+    def help_message(final_op=shell_noop):
         output = []
-        output.append("echo 'hello world'")
-        output.append(shell_noop)
+        if not available_views:
+            output.append("echo 'no views are provided by the loaded uenv'")
+        output.append("echo 'the following views are available:'")
+        output.append("echo ''")
+        # if only one uenv provides views, there is no need to disambiguate view names
+        disambiguate = len(available_views)>1
+        for name, views in available_views.items():
+            for view in views:
+                output.append(f"echo '{name}:{view}'")
+                if disambiguate:
+                    output.append(f"echo '  uenv view {name}:{view}'")
+                else:
+                    output.append(f"echo '  uenv view {view}'")
+        output.append(final_op)
         return output
 
+    # handle the case where `uenv view` is called with no further arguments
+    # print status information and suggested commands before quitting without error
+    if requested_view is None:
+        # handle the case that a view is already loaded
+        if env.loaded_view is not None:
+            loaded_view = f"{env.loaded_view['uenv']}:{env.loaded_view['name']}"
+            return [f"echo 'the view {colorize(loaded_view, 'cyan')} is loaded'",
+                    shell_noop]
+        else:
+            return help_message()
+
     if env.loaded_view is not None:
-        print_error(f'a view is already loaded: {env.loaded_view}')
+        loaded_view = f"{env.loaded_view['uenv']}:{env.loaded_view['name']}"
+        print_error(f"the view {colorize(loaded_view, 'cyan')} is already loaded")
         return shell_error
 
-    uenv = env.uenvs[0]
+    view_components = requested_view.split(':')
 
-    print_debug(f"trying to load view {name} in env loaded at {uenv.mount}")
+    # handle the case where no uenv name was provided
+    # e.g. "develop"
+    if len(view_components)==1:
+        vname = requested_view
+        uenvs = view2uenv.get(vname, [None])
+        # more than one uenv provides a view with the requested name
+        if len(uenvs)>1:
+            print_error(f'the view"{name}" is provided by {[e.name for e in uenvs]}. Use `uenv view` to see the available options.')
+            return help_message(shell_error)
+        # this will be either
+        #   the single uenv that provides the view
+        #   None -> no matching image
+        uenv = uenvs[0]
 
-    available_views = [v["name"] for v in uenv.views]
-    if name in available_views:
-        i = available_views.index(name)
-        path = uenv.views[i]['activate']
-        return [f"source '{path}'",
-                f"export UENV_VIEW={uenv.mount}:{name}",]
+    # handle the case where both uenv name and view are provided
+    # e.g. "prgenv-gnu:default"
     else:
-        print_error(f'the view "{name}" is not one of the available views: {available_views}')
-        return shell_error
+        ename = view_components[0]
+        vname = view_components[1]
+        # find all uenvs that provide this view
+        uenvs = view2uenv.get(vname, [])
+        # this will be either
+        #   the uenv that provides the view
+        #   None -> no matching image
+        uenv = next((e for e in uenvs if e.name==ename), None)
 
-    return shell_noop
+    # no view with the requested name exists
+    if uenv is None:
+        print_error(f'the view "{requested_view}" is not available')
+        return help_message(shell_error)
+
+    path = next((v['activate'] for v in uenv.views if v['name']==vname))
+
+    return [f"echo 'loading the view {uenv.name}:{vname} with activation script {path}'",
+            f"source '{path}'",
+            f"export UENV_VIEW={uenv.mount}:{uenv.name}:{vname}",]
 
 def generate_status_command(args, env):
     num_env = len(env.uenvs)
