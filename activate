@@ -6,6 +6,8 @@ export UENV_CMD=@@impl@@
 export UENV_VERSION=@@version@@
 
 function uenv {
+    local _last_exitcode=$?
+
     function uenv_usage {
         echo "uenv - for using user environments [version @@version@@]"
         echo ""
@@ -31,6 +33,7 @@ function uenv {
     fi
 
     unset -f uenv_usage
+    return $_exitcode
 }
 
 export -f uenv

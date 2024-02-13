@@ -15,6 +15,7 @@ import subprocess
 VERSION="@@version@@"
 
 shell_noop=" :"
+shell_error="local _exitcode=1"
 
 def make_argparser():
 
@@ -403,7 +404,7 @@ def generate_command(args):
     env = environment()
     if env.old_api:
         print_error(f"the version of squashfs-mount on this system is too old.")
-        return shell_noop
+        return shell_error
 
     if args.command == "run":
         return generate_run_command(args, env)
@@ -419,7 +420,7 @@ def generate_command(args):
         return generate_modules_command(args, env)
 
     print_error(f"unknown command '{args.command}'")
-    return shell_noop
+    return shell_error
 
 """
 uenv start gromacs.squashfs ddt.squashfs
@@ -557,7 +558,7 @@ def generate_run_command(args, env):
     print_debug(f"parsing run command with arguments: {args.command}")
     if env.active:
         print_error("a uenv is already running")
-        return shell_noop
+        return shell_error
 
     images, cmd, cmdargs = split_runline(args.runline)
 
@@ -567,7 +568,7 @@ def generate_run_command(args, env):
 
     mount_pairs=parse_image_descriptions(images)
     if mount_pairs==[]:
-        return shell_noop
+        return shell_error
 
     mount_string = ' '.join(mount_pairs)
     cmdargs_string = ' '.join([f'"{arg}"' for arg in cmdargs])
@@ -577,6 +578,7 @@ def generate_run_command(args, env):
     return [f"export UENV_MOUNT_FILE={main_mount[0]}",
             f"export UENV_MOUNT_POINT={main_mount[1]}",
             f"squashfs-mount {mount_string} -- {cmd} {cmdargs_string}",
+            'local _exitcode=$?',
             "unset UENV_MOUNT_FILE; unset UENV_MOUNT_POINT;"]
 
 
@@ -584,11 +586,11 @@ def generate_start_command(args, env):
     print_debug(f"parsing start command with arguments: {args.image}")
     if env.active:
         print_error("a uenv is already running")
-        return shell_noop
+        return shell_error
 
     mount_pairs=parse_image_descriptions(args.image)
     if mount_pairs==[]:
-        return shell_noop
+        return shell_error
 
     mount_string = ' '.join(mount_pairs)
 
@@ -597,6 +599,7 @@ def generate_start_command(args, env):
     return [f"export UENV_MOUNT_FILE={main_mount[0]}",
             f"export UENV_MOUNT_POINT={main_mount[1]}",
             f"squashfs-mount {mount_string} -- bash",
+            "local _exitcode=$?",
             "unset UENV_MOUNT_FILE; unset UENV_MOUNT_POINT;"]
 
 def generate_modules_command(args, env):
@@ -605,7 +608,7 @@ def generate_modules_command(args, env):
 
     if not env.active:
         print_error(f'there is no environment loaded')
-        return shell_noop
+        return shell_error
 
     # generate a list of all the mounted environments that provide modules
     module_envs = [
@@ -655,7 +658,7 @@ def generate_modules_command(args, env):
                             and (e.is_native_mounted)]
                 if len(matches)==0:
                     print_error(f"no uenv matching {i} provides modules")
-                    return shell_noop
+                    return shell_error
                 print_debug(f"  uenv {i} mounted at {matches[0]}")
                 mounts.append(matches[0])
 
@@ -673,7 +676,7 @@ def generate_view_command(args, env):
 
     if not env.active:
         print_error(f'there is no environment loaded')
-        return shell_noop
+        return shell_error
 
     name = args.view_name
 
@@ -687,7 +690,7 @@ def generate_view_command(args, env):
 
     if env.loaded_view is not None:
         print_error(f'a view is already loaded: {env.loaded_view}')
-        return shell_noop
+        return shell_error
 
     uenv = env.uenvs[0]
 
@@ -701,6 +704,7 @@ def generate_view_command(args, env):
                 f"export UENV_VIEW={uenv.mount}:{name}",]
     else:
         print_error(f'the view "{name}" is not one of the available views: {available_views}')
+        return shell_error
 
     return shell_noop
 
@@ -767,9 +771,9 @@ def generate_stop_command(args, env):
 
     if not env.active:
         print_error(f"there is no running environment to stop")
-        return shell_noop
+        return shell_error
 
-    return "exit 0"
+    return "exit $_last_exitcode"
 
 
 if __name__ == "__main__":
