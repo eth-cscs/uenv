@@ -65,6 +65,8 @@ def make_argparser():
     views_parser = subparsers.add_parser("view",
             help="activate a view")
     views_parser.add_argument("view_name",
+            nargs='?',
+            default=None,
             help="the name of the view to load")
 
     return parser
@@ -673,12 +675,21 @@ def generate_view_command(args, env):
         print_error(f'there is no environment loaded')
         return shell_noop
 
+    name = args.view_name
+
+    # handle the case where `uenv view` is called with no further arguments
+    # print information, then quit
+    if name is None:
+        output = []
+        output.append("echo 'hello world'")
+        output.append(shell_noop)
+        return output
+
     if env.loaded_view is not None:
         print_error(f'a view is already loaded: {env.loaded_view}')
         return shell_noop
 
     uenv = env.uenvs[0]
-    name = args.view_name
 
     print_debug(f"trying to load view {name} in env loaded at {uenv.mount}")
 
