@@ -17,7 +17,14 @@ VERSION="@@version@@"
 shell_noop=" :"
 
 def make_argparser():
-    parser = argparse.ArgumentParser()
+
+    class MultilineFormatter(argparse.HelpFormatter):
+        def _split_lines(self, text, width):
+            if text.startswith('R|'):
+                return text[2:].splitlines()
+            return argparse.HelpFormatter._split_lines(self, text, width)
+
+    parser = argparse.ArgumentParser(formatter_class=MultilineFormatter)
     parser.add_argument("--no-color", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     subparsers = parser.add_subparsers(dest="command")
@@ -35,15 +42,25 @@ def make_argparser():
             help="stop a running user environment")
 
     status_parser = subparsers.add_parser("status",
-            help="print information about running environments")
+            help="R|Print the status of each uenv that is loaded.")
 
     modules_parser = subparsers.add_parser("modules",
-            help="use modules if they are available")
+            help="use modules if they are available",
+            formatter_class=MultilineFormatter)
     modules_subparsers = modules_parser.add_subparsers(dest="modules_command")
     modules_use_parser = modules_subparsers.add_parser("use",
-            help="use modules if they are available")
+            help="R|Make any modules provided by the uenv available.\n"
+            "\n"
+            "Example: the modules provided by all active uenv:\n"
+            "\n"
+            "    uenv modules use\n"
+            "\n"
+            "Example: the modules of the currently mounted uenv named prgenv-gnu:\n"
+            "\n"
+            "    uenv modules use prgenv-gnu\n"
+            )
     modules_use_parser.add_argument("image", nargs='*', type=str,
-            help="the uenv(s) with the modules to load")
+            help="(optional) the uenv(s) with the modules to load")
 
     views_parser = subparsers.add_parser("view",
             help="activate a view")
@@ -603,15 +620,20 @@ def generate_modules_command(args, env):
         if len(module_envs)==0:
             return "echo 'no loaded environments provide modules'"
         output = ["echo 'the following loaded uenv provide modules:'"]
+        output.append("echo ''")
         loaded = colorize("(loaded)", "yellow")
+        not_loaded = colorize("(not loaded)", "red")
         for e in module_envs:
             name = e["name"]
             mount = e["mount"]
             if e["loaded"]:
-                output.append(f"echo '  {name}:{mount} {loaded}'")
+                output.append(f"echo '{name} {loaded}'")
             else:
-                output.append(f"echo '  {name}:{mount}'")
-            output.append(shell_noop)
+                output.append(f"echo '{name} {not_loaded}'")
+                output.append(f"echo '    to make the modules available: uenv modules use {name}'")
+            output.append("echo ''")
+        output.append("echo 'to make all modules available: uenv modules use'")
+        output.append(shell_noop)
         return output
     # uenv modules use images[]
     else:
