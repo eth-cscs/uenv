@@ -716,14 +716,14 @@ def generate_view_command(args, env):
         # handle the case that a view is already loaded
         if env.loaded_view is not None:
             loaded_view = f"{env.loaded_view['uenv']}:{env.loaded_view['name']}"
-            return [f"echo 'the view {colorize(loaded_view, 'cyan')} is loaded'",
+            return [f"echo 'the view {colorize(loaded_view, 'yellow')} is loaded'",
                     shell_noop]
         else:
             return help_message()
 
     if env.loaded_view is not None:
         loaded_view = f"{env.loaded_view['uenv']}:{env.loaded_view['name']}"
-        print_error(f"the view {colorize(loaded_view, 'cyan')} is already loaded")
+        print_error(f"the view {colorize(loaded_view, 'yellow')} is already loaded")
         return shell_error
 
     view_components = requested_view.split(':')
