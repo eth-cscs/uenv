@@ -695,7 +695,7 @@ def generate_status_command(args, env):
             lines.append(f"  anonymous environment with no meta data")
         else:
             name = uenv.name
-            description = uenv.description
+            description = uenv.description or ""
             lines.append(f"{colorize(uenv.mount, 'cyan')}:{colorize(uenv.name, 'yellow')}")
             if len(description.strip()) == 0:
                 lines.append(f"  no description")
