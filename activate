@@ -30,31 +30,30 @@ function uenv {
 
     if [ "$1" = "--version" ]; then
         echo "@@version@@";
-        break
-    fi
-
-    flags=""
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -?*|--*)
-                flags="$flags $1"
-                shift
-                ;;
-            *)
-                break
-                ;;
-        esac
-    done
-
-    if [[ $# -eq 0 ]]; then
-        uenv_usage;
-    elif [ "$1" = "image" ]; then
-        shift;
-        $UENV_IMG_CMD $flags "$@"
-    elif [[ " $* " =~ [[:space:]](-h|--help)[[:space:]] ]]; then
-        echo "$($UENV_CMD $flags "$@")"
     else
-        eval "$($UENV_CMD $flags "$@")"
+        flags=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                -?*|--*)
+                    flags="$flags $1"
+                    shift
+                    ;;
+                *)
+                    break
+                    ;;
+            esac
+        done
+
+        if [[ $# -eq 0 ]]; then
+            uenv_usage;
+        elif [ "$1" = "image" ]; then
+            shift;
+            $UENV_IMG_CMD $flags "$@"
+        elif [[ " $* " =~ [[:space:]](-h|--help)[[:space:]] ]]; then
+            echo "$($UENV_CMD $flags "$@")"
+        else
+            eval "$($UENV_CMD $flags "$@")"
+        fi
     fi
 
     unset -f uenv_usage

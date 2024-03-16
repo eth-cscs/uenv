@@ -73,9 +73,9 @@ class DataStore:
 
     # return a list of records that match a sha
     def get_record(self, sha: str) -> Record:
-        if is_full_sha256(sha):
+        if names.is_full_sha256(sha):
             return self._images.get(sha, [])
-        elif is_short_sha256(sha):
+        elif names.is_short_sha256(sha):
             return self._images.get(self._short_sha[sha], [])
         raise ValueError(f"{sha} is not a valid sha256 or short (16 character) sha")
 
