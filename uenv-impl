@@ -11,6 +11,7 @@ import os
 import pathlib
 import sys
 import subprocess
+import textwrap
 
 prefix = pathlib.Path(__file__).parent.resolve()
 libpath = prefix / 'lib'
@@ -30,7 +31,19 @@ shell_noop=" :"
 shell_error="local _exitcode=1"
 
 def make_argparser():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+            prog="uenv",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description=textwrap.dedent(
+f"""\
+Interact, manage and query with CSCS uenv.
+
+For more information on how to use individual commands use the --help flag.
+
+{colorize("Example", "blue")}: get help on the start command
+    {colorize("uenv start --help", "white")}
+"""
+                ))
     parser.add_argument("--no-color", action="store_true", help="disable color output")
     parser.add_argument("--verbose", action="store_true", help="verbose output for debugging")
     parser.add_argument("-r", "--repo",
@@ -41,7 +54,21 @@ def make_argparser():
 
     #### run
     run_parser = subparsers.add_parser("run",
-            help="run a command in a user environment")
+            help="run a command in a user environment",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=textwrap.dedent(
+f"""\
+Run a command in an environment.
+
+{colorize("Example", "blue")}: run the script job.sh in an evironmnent
+    {colorize("uenv run prgenv-gnu ./job.sh", "white")}
+This will mount prgenv-gnu, execute job.sh, then return to the calling shell.
+
+{colorize("Example", "blue")}: the run command can be used when 
+    {colorize("uenv run gromacs/23.1 ./simulation.sh", "white")}
+    {colorize("uenv run paraview ./render.sh", "white")}
+"""
+                ))
     run_parser.add_argument("runline", nargs=argparse.REMAINDER, type=str)
 
     #### start

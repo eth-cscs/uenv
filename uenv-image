@@ -33,7 +33,7 @@ def make_argparser():
             formatter_class=argparse.RawDescriptionHelpFormatter,
             description=textwrap.dedent(
 f"""\
-The one-stop shop for using uenv.
+Manage and query uenv images.
 
 For more information on how to use individual commands use the --help flag.
 
