@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 
 from record import Record
 import terminal
@@ -7,30 +8,94 @@ import names
 
 UENV_CLI_API_VERSION=1
 
+create_db_command = """
+BEGIN;
+
+PRAGMA foreign_keys=on;
+
+CREATE TABLE images (
+    sha256 TEXT PRIMARY KEY CHECK(length(sha256)==64),
+    short_sha TEXT UNIQUE CHECK(length(short_sha)==16),
+    date TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    uarch TEXT NOT NULL,
+    system TEXT NOT NULL
+);
+
+CREATE TABLE uenv (
+    version_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    UNIQUE (name, version)
+);
+
+CREATE TABLE tags (
+    version_id INTEGER,
+    tag TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    PRIMARY KEY (version_id, tag),
+    FOREIGN KEY (version_id)
+        REFERENCES uenv (version_id)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE,
+    FOREIGN KEY (sha256)
+        REFERENCES images (sha256)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE
+);
+
+COMMIT;
+"""
+
 class DataStore:
 
-    def __init__(self):
-        # all images store with (key,value) = (sha256,Record)
-        self._images = {}
-        self._short_sha = {}
-
-        self._store = {"system": {}, "uarch": {}, "name": {}, "version": {}, "tag": {}}
+    def __init__(self, path=None):
+        """
+        if path is a string, attempt to open the database at that location,
+        otherwise creat a new in-memory database
+        """
+        if path is None:
+            self._store = sqlite3.connect(":memory:")
+            self._store.executescript(create_db_command)
+        else:
+            self._store = sqlite3.connect(path)
 
     def add_record(self, r: Record):
-        sha = r.sha256
         short_sha = r.sha256[:16]
-        self._images.setdefault(sha, []).append(r)
-        # check for (exceedingly unlikely) collision
-        if short_sha in self._short_sha:
-            old_sha = self._short_sha[short_sha]
-            if sha != old_sha:
-                terminal.error('image hash collision:\n  {sha}\n  {old_sha}')
-        self._short_sha[sha[:16]] = sha
-        self._store["system"] .setdefault(r.system, []).append(sha)
-        self._store["uarch"]  .setdefault(r.uarch, []).append(sha)
-        self._store["name"]   .setdefault(r.name, []).append(sha)
-        self._store["version"].setdefault(r.version, []).append(sha)
-        self._store["tag"]    .setdefault(r.tag, []).append(sha)
+
+        cursor = self._store.cursor()
+
+        cursor.execute("BEGIN;")
+        cursor.execute("PRAGMA foreign_keys=on;")
+        cursor.execute("INSERT OR IGNORE INTO images (sha256, short_sha, date, size, uarch, system) VALUES (?, ?, ?, ?, ?, ?)",
+                       (r.sha256, short_sha, r.date, r.size, r.uarch, r.system))
+        # Insert a new name/version to the uenv table if no existing images with that pair exist
+        cursor.execute("INSERT OR IGNORE INTO uenv (name, version) VALUES (?, ?)",
+                       (r.name, r.version))
+        # Retrieve the version_id of the name/version pair
+        # This requires a SELECT query to get the correct version_id whether or not
+        # a new row was added in the last INSERT
+        cursor.execute("SELECT version_id FROM uenv WHERE name = ? AND version = ?",
+                       (r.name, r.version))
+        version_id = cursor.fetchone()[0]
+        # Check whether an image with the same tag already exists in the repos
+        cursor.execute("SELECT version_id, tag, sha256 FROM tags WHERE version_id = ? AND tag = ?",
+                       (version_id, r.tag))
+        existing_tag = cursor.fetchone()
+        # If the tag exists, update the entry in the table with the new sha256
+        if existing_tag:
+            cursor.execute("UPDATE tags SET sha256 = ? WHERE version_id = ? AND tag = ?",
+                           (r.sha256, version_id, r.tag))
+        # Else add a new row
+        else:
+            cursor.execute("INSERT INTO tags (version_id, tag, sha256) VALUES (?, ?, ?)",
+                           (version_id, r.tag, r.sha256))
+        # Commit the transaction
+        self._store.commit()
+
+    def dump(self):
+        for line in self._store.iterdump():
+            print(f"{line}")
 
     def find_records(self, **constraints):
         if not constraints:
@@ -42,13 +107,14 @@ class DataStore:
 
         if "sha" in constraints:
             sha = constraints["sha"]
-            matching_records_sets = [set()]
-            if len(sha)<64:
-                if sha in self._short_sha:
-                    matching_records_sets = [set([self._short_sha[sha]])]
-            else:
-                if sha in self._images:
-                    matching_records_sets = [set([sha])]
+
+            #matching_records_sets = [set()]
+            #if len(sha)<64:
+            #    if sha in self._short_sha:
+            #        matching_records_sets = [set([self._short_sha[sha]])]
+            #else:
+            #    if sha in self._images:
+            #        matching_records_sets = [set([sha])]
         else:
             # Find matching records for each constraint
             matching_records_sets = [
