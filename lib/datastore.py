@@ -44,6 +44,22 @@ CREATE TABLE tags (
             ON UPDATE CASCADE
 );
 
+-- for convenient generation of the Record type used internally by uenv-image
+CREATE VIEW records AS
+SELECT
+    images.system    AS system,
+    images.uarch     AS uarch,
+    uenv.name        AS name,
+    uenv.version     AS version,
+    tags.tag         AS tag,
+    images.date      AS date,
+    images.size      AS size,
+    tags.sha256      AS sha256,
+    images.short_sha AS short_sha
+FROM tags
+    INNER JOIN uenv   ON uenv.version_id = tags.version_id
+    INNER JOIN images ON images.sha256   = tags.sha256;
+
 COMMIT;
 """
 
@@ -51,16 +67,26 @@ class DataStore:
 
     def __init__(self, path=None):
         """
-        if path is a string, attempt to open the database at that location,
-        otherwise creat a new in-memory database
+        If path is a string, attempt to open the database at that location,
+
+        Otherwise creat a new empty in-memory database.
+
+        raises an execption if opening an on-disk database and the file is not
+        found, or if sqlite3 raises and execption when opening the databse.
         """
         if path is None:
             self._store = sqlite3.connect(":memory:")
             self._store.executescript(create_db_command)
         else:
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"repository database file {path} does not exist")
             self._store = sqlite3.connect(path)
 
     def add_record(self, r: Record):
+        """
+        Add a record to the database.
+        """
+
         short_sha = r.sha256[:16]
 
         cursor = self._store.cursor()
@@ -94,42 +120,61 @@ class DataStore:
         self._store.commit()
 
     def dump(self):
-        for line in self._store.iterdump():
+        """
+        Dump the contents of the internal database to stdout.
+        For debugging purposes only.
+        """
+        uenv_tbl = self._store.execute("SELECT * FROM uenv")
+        image_tbl = self._store.execute("SELECT * FROM images")
+        tags_tbl = self._store.execute("SELECT * FROM tags")
+        records_tbl = self._store.execute("SELECT * FROM records")
+
+        print()
+        print("== TABLE images ==")
+        print(f"{'sha256':64s} {'id':16s} {'date':10s} {'size':11s} {'uearch':8s} {'system':12s}")
+        for line in image_tbl:
+            print(f"{line[0]:64s} {line[1]:16s} {line[2]:10s} {line[3]:11d} {line[4]:8s} {line[5]:12s}")
+        print()
+        print("== TABLE uenv ==")
+        print(f"{'id':4s} {'name':16s} {'version':16s}")
+        for line in uenv_tbl:
+            print(f"{line[0]:4d} {line[1]:16s} {line[2]:16s}")
+        print()
+        print("== TABLE tags ==")
+        print(f"{'id':4s} {'tag':16s} {'sha256':16s}")
+        for line in tags_tbl:
+            print(f"{line[0]:4d} {line[1]:16s} {line[2]:64s}")
+        print()
+        print("== TABLE records ==")
+        for line in records_tbl:
             print(f"{line}")
+
+    def to_record(self, r):
+        return Record(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7])
 
     def find_records(self, **constraints):
         if not constraints:
             raise ValueError("At least one constraint must be provided")
 
         for field in constraints:
-            if (field != "sha") and (field not in self._store):
+            if (field != "sha") and (field not in ['system', 'uarch', 'name', 'version', 'tag', 'sha']):
                 raise ValueError(f"Invalid field: {field}. Must be one of 'system', 'uarch', 'name', 'version', 'tag', 'sha'")
 
         if "sha" in constraints:
             sha = constraints["sha"]
 
-            #matching_records_sets = [set()]
-            #if len(sha)<64:
-            #    if sha in self._short_sha:
-            #        matching_records_sets = [set([self._short_sha[sha]])]
-            #else:
-            #    if sha in self._images:
-            #        matching_records_sets = [set([sha])]
+            if len(sha)<64:
+                items = self._store.execute(f"SELECT * FROM records WHERE short_sha = '{sha}'")
+            else:
+                items = self._store.execute(f"SELECT * FROM records WHERE sha256 = '{sha}'")
         else:
+            query_criteria = " AND ".join([f"{field} = '{value}'"
+                                           for field, value in constraints.items()])
+
             # Find matching records for each constraint
-            matching_records_sets = [
-                set(self._store[field].get(value, [])) for field, value in constraints.items()
-            ]
+            items = self._store.execute(f"SELECT * FROM records WHERE {query_criteria}")
 
-        # Intersect all sets of matching records
-        if matching_records_sets:
-            unique = set.intersection(*matching_records_sets)
-        else:
-            unique = set()
-
-        results = []
-        for sha in unique:
-            results += (self._images[sha])
+        results = [self.to_record(r) for r in items];
         results.sort(reverse=True)
         return results
 
@@ -139,64 +184,73 @@ class DataStore:
 
     # return a list of records that match a sha
     def get_record(self, sha: str) -> Record:
+        """
+        Return a list of records that match the sha (either full 64 or short 16 character sha)
+        If there are no matches, an empty list is returned.
+        If an invalid sha is passed, a ValueError is raised.
+        """
+        if not names.is_valid_sha(sha):
+            raise ValueError(f"{sha} is not a valid sha256 (neither full 64 or short 16 character form)")
         if names.is_full_sha256(sha):
-            return self._images.get(sha, [])
+            results = self._store.execute(f"SELECT * FROM records WHERE sha256 = '{sha}'")
         elif names.is_short_sha256(sha):
-            return self._images.get(self._short_sha[sha], [])
-        raise ValueError(f"{sha} is not a valid sha256 or short (16 character) sha")
+            results = self._store.execute(f"SELECT * FROM records WHERE short_sha  = '{sha}'")
+
+        return [self.to_record(r) for r in results]
 
     # Convert to a dictionary that can be written to file as JSON
     # The serialisation and deserialisation are central: able to represent
     # uenv that are available in both JFrog and filesystem directory tree.
-    def serialise(self, version: int=UENV_CLI_API_VERSION):
-        image_list = []
-        for x in self._images.values():
-            image_list += x
-        terminal.info(f"serialized image list in datastore: {image_list}")
-        return {
-                "API_VERSION": version,
-                "images": [img.dictionary for img in image_list]
-        }
+    #def serialise(self, version: int=UENV_CLI_API_VERSION):
+    #    image_list = []
+    #    for x in self._images.values():
+    #        image_list += x
+    #    terminal.info(f"serialized image list in datastore: {image_list}")
+    #    return {
+    #            "API_VERSION": version,
+    #            "images": [img.dictionary for img in image_list]
+    #    }
 
     # Convert to a dictionary that can be written to file as JSON
     # The serialisation and deserialisation are central: able to represent
     # uenv that are available in both JFrog and filesystem directory tree.
-    @classmethod
-    def deserialise(cls, datastore):
-        result = cls()
-        for img in datastore["images"]:
-            result.add_record(Record.from_dictionary(img))
+    #@classmethod
+    #def deserialise(cls, datastore):
+    #    result = cls()
+    #    for img in datastore["images"]:
+    #        result.add_record(Record.from_dictionary(img))
 
-class FileSystemCache():
+class FileSystemRepo():
     def __init__(self, path: str):
         self._path = path
-        self._index = path + "/index.json"
+        self._index = path + "/index.db"
+
+        if not os.path.exists(self._path):
+            # error: repository does not exists
+            raise FileNotFoundError(f"uenv image repository not found {self._path}: the path does not exist.")
 
         if not os.path.exists(self._index):
-            # error: cache does not exists
-            raise FileNotFoundError(f"filesystem cache not found {self._path}")
+            # error: index does not exists
+            raise FileNotFoundError(f"uenv image repository not found: the index database is missing {self._index}.")
 
-        with open(self._index, "r") as fid:
-            raw = json.loads(fid.read())
-            self._database = DataStore()
-            for img in raw["images"]:
-                self._database.add_record(Record.fromjson(img))
+        self._database = DataStore(self._index)
 
     @staticmethod
     def create(path: str, exists_ok: bool=False):
+        terminal.info(f"FileSystemRepo: create new repo in {path}")
         if not os.path.exists(path):
-            terminal.info(f"FileSyStemCache: creating path {path}")
+            terminal.info(f"FileSystemRepo: creating path {path}")
             os.makedirs(path)
-        index_file = f"{path}/index.json"
-        if not os.path.exists(index_file):
-            terminal.info(f"FileSyStemCache: creating empty index {index_file}")
-            empty_config = { "API_VERSION": UENV_CLI_API_VERSION, "images": [] }
-            with open(index_file, "w") as f:
-                # default serialisation is str to serialise the pathlib.PosixPath
-                f.write(json.dumps(empty_config, sort_keys=True, indent=2, default=str))
-                f.write("\n")
 
-        terminal.info(f"FileSyStemCache: available {index_file}")
+        index_file = f"{path}/index.db"
+        if not os.path.exists(index_file):
+            terminal.info(f"FileSystemRepo: creating new index {index_file}")
+            store = sqlite3.connect(index_file)
+            store.executescript(create_db_command)
+        elif not exists_ok:
+            raise FileExistsError(f"A repository already exists in the location {path}.")
+
+        terminal.info(f"FileSystemRepo: created empty repository with database {index_file}")
 
     @property
     def database(self):
@@ -213,13 +267,11 @@ class FileSystemCache():
     # Return the full record for a given hash
     # Returns None if no image with that hash is stored in the repo.
     def get_record(self, sha256: str):
-        if not names.is_valid_sha(sha256):
-            raise ValueError(f"{sha256} is not a valid image sha256 (neither full 64 or short 16 character form)")
+        """
+        Return a list of records that match the sha256 (either full 64 or short 16 character sha)
+        If there are no matches, an empty list is returned.
+        If an invalid sha is passed, a ValueError is raised.
+        """
         return self._database.get_record(sha256)
 
-    def publish(self):
-        with open(self._index, "w") as f:
-            # default serialisation is str to serialise the pathlib.PosixPath
-            f.write(json.dumps(self._database.serialise(), sort_keys=True, indent=2, default=str))
-            f.write("\n")
 

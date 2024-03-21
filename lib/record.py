@@ -66,7 +66,7 @@ class Record:
         return f"{self.system}/{self.uarch}/{self.name}/{self.version}:{self.tag}/{self.sha256}"
 
     def __repr__(self):
-        return f"Record({self.system}, {self.uarch}, {self.name}, {self.version}, {self.tag})"
+        return f"Record({self.system}, {self.uarch}, {self.name}, {self.version}, {self.tag}, {self.sha256[:16]})"
 
     @property
     def system(self):
