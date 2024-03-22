@@ -57,6 +57,10 @@ def error(message, abort=True):
     if abort:
         exit(1)
 
+# for printing messages to the terminal
+def stdout(message):
+    print(f"{message}", file=sys.stdout)
+
 def warning(message):
     print(f"{colorize('[warning]', 'yellow')} {message}", file=sys.stderr)
 

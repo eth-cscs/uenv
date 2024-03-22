@@ -307,6 +307,15 @@ def inspect_string(record: record.Record, image_path, format_string: str) -> str
     except Exception as err:
         terminal.error(f"unable to format {str(err)}")
 
+def image_size_string(size):
+    if size<1024:
+        return f"{size:<}B"
+    elif size<1024*1024:
+        return f"{(size/1024):<.0f}kB"
+    elif size<1024*1024*1024:
+        return f"{(size/(1024*1024)):<.0f}MB"
+    return f"{(size/(1024*1024*1024)):<.1f}GB"
+
 # pretty print a list of Record
 def print_records(records):
     if len(records)>0:
@@ -317,16 +326,8 @@ def print_records(records):
             label = namestr + ":" + tagstr
             short_date = r.date[:10]
             datestr = r.date
-            S = r.size
-            if S<1024:
-                size_str = f"{S:<} bytes"
-            elif S<1024*1024:
-                size_str = f"{(S/1024):<.0f} kB"
-            elif S<1024*1024*1024:
-                size_str = f"{(S/(1024*1024)):<.0f} MB"
-            else:
-                size_str = f"{(S/(1024*1024*1024)):<.1f} GB"
-            print(f"{label:<40}{r.uarch:6}{short_date:10} {r.sha256[:16]:16} {size_str:<10}")
+            size = image_size_string(r.size)
+            print(f"{label:<40}{r.uarch:6}{short_date:10} {r.sha256[:16]:16} {size:<10}")
 
 if __name__ == "__main__":
 
@@ -389,6 +390,10 @@ if __name__ == "__main__":
                         "more than one uarch matches the the requested uenv. "
                         "Specify the desired uarch with the --uarch flag")
 
+            # There can be more than one tag associated with a squashfs image.
+            # so here we get a list of all name/version:tag combinations associated
+            # with the sha256.
+            records = remote_database.get_record(records[0].sha256)
             t = records[0]
             source_address = jfrog.address(t, 'build' if args.build else 'deploy')
 
@@ -401,15 +406,18 @@ if __name__ == "__main__":
 
             # if the record isn't already in the filesystem repo download it
             if not cache.database.get_record(t.sha256):
-                terminal.info(f"downloading {t.sha256}")
+                terminal.stdout(f"downloading image {t.sha256} {image_size_string(t.size)}")
                 # download the image using oras
                 oras.run_command(["pull", "-o", image_path, source_address])
-                # add the record to the cache
-                terminal.info(f"updating file system cache")
-                cache.add_record(t)
             else:
-                terminal.info(f"image {t.sha256} is already in the cache")
-            terminal.info(f"image downloaded at {image_path}/store.squashfs")
+                terminal.stdout(f"image {t.sha256} is already available locally")
+            # update all the tags associated with the image.
+            terminal.info(f"updating the local repository database")
+            for r in records:
+                terminal.stdout(f"updating local reference {r.name}/{r.version}:{r.tag}")
+                cache.add_record(r)
+
+            terminal.stdout(f"image available at {image_path}/store.squashfs")
 
         sys.exit(0)
 
