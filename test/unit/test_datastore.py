@@ -13,11 +13,26 @@ prgenvgnu_records = [
     record.Record("santis", "gh200", "prgenv-gnu", "24.2",  "v1",     "monday", 1024, "b"*64),
 ]
 
+icon_records = [
+    record.Record("santis", "gh200", "icon", "2024", "latest", "2024/02/12", 1024, "1"*64),
+    record.Record("santis", "gh200", "icon", "2024", "v2",     "2024/02/12", 1024, "1"*64),
+    record.Record("santis", "gh200", "icon", "2024", "v1",     "2023/01/01", 5024, "2"*64),
+]
+
 def create_prgenv_repo(con):
     # add some records that will be inserted into the database
     # these defined different versions of prgenv-gnu
     # there are three unique images, two of which have two tags applied
     for r in prgenvgnu_records:
+        con.add_record(r)
+
+def create_full_repo(con):
+    # create a repo with icon and prgenv-gnu images
+    # there are three unique images, two of which have two tags applied
+    for r in prgenvgnu_records:
+        con.add_record(r)
+
+    for r in icon_records:
         con.add_record(r)
 
 class TestInMemory(unittest.TestCase):
@@ -51,8 +66,45 @@ class TestInMemory(unittest.TestCase):
         self.assertEqual("v1", results[0].tag)
 
     def test_find_records(self):
-        # TODO test different search criteria
-        pass
+        store = datastore.DataStore(path=None)
+        create_full_repo(store)
+
+        self.assertEqual(3, len(store.find_records(name="icon")))
+        self.assertEqual(5, len(store.find_records(name="prgenv-gnu")))
+
+        self.assertEqual(1, len(store.find_records(name="icon", tag="v1")))
+        self.assertEqual(1, len(store.find_records(name="icon", tag="v2")))
+        self.assertEqual(1, len(store.find_records(name="icon", tag="latest")))
+        self.assertEqual(0, len(store.find_records(name="icon", tag="happydays")))
+
+        self.assertEqual(2, len(store.find_records(name="prgenv-gnu", tag="v1")))
+        self.assertEqual(1, len(store.find_records(name="prgenv-gnu", tag="v2")))
+
+        self.assertEqual(3, len(store.find_records(tag="v1")))
+        self.assertEqual(2, len(store.find_records(tag="v2")))
+        self.assertEqual(3, len(store.find_records(tag="latest")))
+
+        self.assertEqual(3, len(store.find_records(version="2024")))
+        self.assertEqual(3, len(store.find_records(version="23.11")))
+        self.assertEqual(0, len(store.find_records(name="icon", version="23.11")))
+        self.assertEqual(3, len(store.find_records(name="prgenv-gnu", version="23.11")))
+
+        self.assertEqual(3, len(store.find_records(name="icon", version="2024")))
+        self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="latest")))
+        self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="v1")))
+        self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="v2")))
+        self.assertEqual(store.find_records(name="icon", version="2024", tag="latest"),
+                         store.find_records(name="icon", version="2024", tag="v2"))
+
+        self.assertEqual(8, len(store.find_records(uarch="gh200")))
+        self.assertEqual(8, len(store.find_records(system="santis")))
+
+        self.assertEqual(store.find_records(system="santis"),
+                         store.find_records(uarch="gh200"))
+
+        # expect an exception when an invalid field is passed (sustem is a typo for system)
+        with self.assertRaises(ValueError):
+            result = store.find_records(sustem="santis")
 
     def test_get_record(self):
         store = self.store
@@ -113,25 +165,22 @@ class TestRepositoryCreate(unittest.TestCase):
         self.path = scratch.make_scratch_path("repository_create")
 
     def test_create_new_repo(self):
+        # create a new repository with database on disk
         datastore.FileSystemRepo.create(self.path.as_posix())
+
+        # verify that the file was created
+        self.assertTrue((self.path / "index.db").is_file())
+
+        # now open a connection to the repository
         repo = datastore.FileSystemRepo(self.path.as_posix())
         record = prgenvgnu_records[0]
         repo.add_record(record)
         sha = record.sha256
-        self.assertEqual(repo.get_record(sha)[0].sha256, sha)
+        self.assertEqual(repo.database.get_record(sha)[0].sha256, sha)
 
     def tearDown(self):
         shutil.rmtree(self.path, ignore_errors=True)
         pass
-
-
-# to test:
-#   that no database existing is handled correctly
-#       - path already exists
-#       - path does not exist
-#   that repository creation works correctly
-#   that adding records to a repository works (and that after the databse has been saved, the correct state is persisted)
-#   when an image with >1 tags is pulled from JFrog, all tags are added to the databse correctly
 
 if __name__ == '__main__':
     unittest.main()

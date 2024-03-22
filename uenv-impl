@@ -19,7 +19,6 @@ sys.path = [libpath.as_posix()] + sys.path
 
 import alps
 import datastore
-import flock
 import names
 import record
 import terminal
@@ -527,19 +526,17 @@ def parse_image_descriptions(mnt_list):
             # TODO: the uarch will have to be set for systems with more than one uarch
             #img_filter["uarch"]  = "gh200"
 
-            with flock.Lock(f"{repo_path}/index.json", flock.Lock.READ) as lk:
-                fscache = datastore.FileSystemCache(repo_path)
+            fscache = datastore.FileSystemRepo(repo_path)
+            records = fscache.database.find_records(**img_filter)
 
-                records = fscache.database.find_records(**img_filter)
+            if len(records)==0:
+                terminal.error(f"no uenv matches the spec: {uenv}")
+                sys.exit(1)
 
-                if len(records)==0:
-                    terminal.error(f"no uenv matches the spec: {uenv}")
-                    sys.exit(1)
+            terminal.info(f"selected image {records[0]} from repository  {repo_path}")
 
-                terminal.info(f"selected image {records[0]} from repository  {repo_path}")
-
-                uenv_path = fscache.image_path(records[0]) + "/store.squashfs"
-                terminal.info(f"lookup {uenv} returned {uenv_path}")
+            uenv_path = fscache.image_path(records[0]) + "/store.squashfs"
+            terminal.info(f"lookup {uenv} returned {uenv_path}")
         else:
             uenv_path = uenv_path.resolve()
 

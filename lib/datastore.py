@@ -180,7 +180,8 @@ class DataStore:
 
     @property
     def images(self):
-        return self._images
+        items = self._store.execute(f"SELECT * FROM records")
+        return [self.to_record(r) for r in items]
 
     # return a list of records that match a sha
     def get_record(self, sha: str) -> Record:
@@ -197,28 +198,6 @@ class DataStore:
             results = self._store.execute(f"SELECT * FROM records WHERE short_sha  = '{sha}'")
 
         return [self.to_record(r) for r in results]
-
-    # Convert to a dictionary that can be written to file as JSON
-    # The serialisation and deserialisation are central: able to represent
-    # uenv that are available in both JFrog and filesystem directory tree.
-    #def serialise(self, version: int=UENV_CLI_API_VERSION):
-    #    image_list = []
-    #    for x in self._images.values():
-    #        image_list += x
-    #    terminal.info(f"serialized image list in datastore: {image_list}")
-    #    return {
-    #            "API_VERSION": version,
-    #            "images": [img.dictionary for img in image_list]
-    #    }
-
-    # Convert to a dictionary that can be written to file as JSON
-    # The serialisation and deserialisation are central: able to represent
-    # uenv that are available in both JFrog and filesystem directory tree.
-    #@classmethod
-    #def deserialise(cls, datastore):
-    #    result = cls()
-    #    for img in datastore["images"]:
-    #        result.add_record(Record.from_dictionary(img))
 
 class FileSystemRepo():
     def __init__(self, path: str):
@@ -263,15 +242,4 @@ class FileSystemRepo():
     # will return a path even for images that are not stored
     def image_path(self, r: Record) -> str:
         return self._path + "/images/" + r.sha256
-
-    # Return the full record for a given hash
-    # Returns None if no image with that hash is stored in the repo.
-    def get_record(self, sha256: str):
-        """
-        Return a list of records that match the sha256 (either full 64 or short 16 character sha)
-        If there are no matches, an empty list is returned.
-        If an invalid sha is passed, a ValueError is raised.
-        """
-        return self._database.get_record(sha256)
-
 

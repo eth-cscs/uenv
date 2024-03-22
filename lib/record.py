@@ -56,10 +56,11 @@ class Record:
         if other.name   < self.name: return False
         if self.version < other.version: return True
         if other.version< self.version: return False
+        # tag is a special case: latest is the hihgest
         if self.tag=="latest"  and other.tag!="latest": return False
         if other.tag=="latest" and self.tag!="latest":  return True
         if self.tag     < other.tag: return True
-        #if other.tag    < self.tag: return False
+        if other.tag    < self.tag: return False
         return False
 
     def __str__(self):
@@ -103,10 +104,6 @@ class Record:
     @property
     def size(self):
         return self._bytes
-
-    @property
-    def datestring(self):
-        return self.date.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
     @property
     def path(self):

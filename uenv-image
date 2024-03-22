@@ -19,7 +19,6 @@ sys.path = [libpath.as_posix()] + sys.path
 
 import alps
 import datastore
-import flock
 import jfrog
 import names
 import oras
@@ -292,7 +291,7 @@ def get_filter(args):
     terminal.info(f"get_filter: filter {img_filter}")
     return img_filter
 
-def inspect_string(record: record.Record, cache: datastore.FileSystemCache, format_string: str) -> str:
+def inspect_string(record: record.Record, image_path, format_string: str) -> str:
     try:
         return format_string.format(
             system = record.system,
@@ -302,8 +301,8 @@ def inspect_string(record: record.Record, cache: datastore.FileSystemCache, form
             version = record.version,
             tag = record.tag,
             sha256 = record.sha256,
-            path = cache.image_path(record),
-            sqfs = cache.image_path(record) + "/store.squashfs",
+            path = image_path,
+            sqfs = image_path + "/store.squashfs",
         )
     except Exception as err:
         terminal.error(f"unable to format {str(err)}")
@@ -316,7 +315,8 @@ def print_records(records):
             namestr = f"{r.name}/{r.version}"
             tagstr = f"{r.tag}"
             label = namestr + ":" + tagstr
-            datestr = r.date.strftime("%Y-%m-%d")
+            short_date = r.date[:10]
+            datestr = r.date
             S = r.size
             if S<1024:
                 size_str = f"{S:<} bytes"
@@ -326,7 +326,7 @@ def print_records(records):
                 size_str = f"{(S/(1024*1024)):<.0f} MB"
             else:
                 size_str = f"{(S/(1024*1024*1024)):<.1f} GB"
-            print(f"{label:<40}{r.uarch:6}{datestr:10} {r.sha256[:16]:16} {size_str:<10}")
+            print(f"{label:<40}{r.uarch:6}{short_date:10} {r.sha256[:16]:16} {size_str:<10}")
 
 if __name__ == "__main__":
 
@@ -396,25 +396,20 @@ if __name__ == "__main__":
 
             terminal.info(f"repo path: {repo_path}")
 
-            with flock.Lock(f"{repo_path}/index.json", flock.Lock.WRITE) as lk:
-                cache = datastore.FileSystemCache(repo_path)
+            cache = datastore.FileSystemRepo(repo_path)
+            image_path = cache.image_path(t)
 
-                image_path = cache.image_path(t)
-
-                # if the record isn't already in the filesystem repo download it
-                if not cache.get_record(t.sha256):
-                    terminal.info(f"downloading {t.sha256}")
-                    # download the image using oras
-                    oras.run_command(["pull", "-o", image_path, source_address])
-                    # add the record to the cache
-                    terminal.info(f"updating file system cache")
-                    cache.add_record(t)
-                    # publish the updated index
-                    terminal.info(f"publishing file system cache")
-                    cache.publish()
-                else:
-                    terminal.info(f"image {t.sha256} is already in the cache")
-                terminal.info(f"image downloaded at {image_path}/store.squashfs")
+            # if the record isn't already in the filesystem repo download it
+            if not cache.database.get_record(t.sha256):
+                terminal.info(f"downloading {t.sha256}")
+                # download the image using oras
+                oras.run_command(["pull", "-o", image_path, source_address])
+                # add the record to the cache
+                terminal.info(f"updating file system cache")
+                cache.add_record(t)
+            else:
+                terminal.info(f"image {t.sha256} is already in the cache")
+            terminal.info(f"image downloaded at {image_path}/store.squashfs")
 
         sys.exit(0)
 
@@ -423,11 +418,16 @@ if __name__ == "__main__":
 
         img_filter = get_filter(args)
 
-        with flock.Lock(f"{repo_path}/index.json", flock.Lock.READ) as lk:
-            fscache = datastore.FileSystemCache(repo_path)
+        try:
+            fscache = datastore.FileSystemRepo(repo_path)
+        except FileNotFoundError as err:
+            terminal.error(f"""the local repository {repo_path} does not exist.
+If the repo does not exist, you can try creating it first: {terminal.colorize(f"uenv image create {repo_path}", "white")}
+""")
 
-            records = fscache.database.find_records(**img_filter)
-            print_records(records)
+
+        records = fscache.database.find_records(**img_filter)
+        print_records(records)
 
         sys.exit(0)
 
@@ -436,18 +436,21 @@ if __name__ == "__main__":
 
         img_filter = get_filter(args)
 
-        with flock.Lock(f"{repo_path}/index.json", flock.Lock.READ) as lk:
-            fscache = datastore.FileSystemCache(repo_path)
+        try:
+            fscache = datastore.FileSystemRepo(repo_path)
+        except FileNotFoundError as err:
+            terminal.error(f"""the local repository {repo_path} does not exist.
+If the repo does not exist, you can try creating it first: {terminal.colorize(f"uenv image create {repo_path}", "white")}
+""")
+        records = fscache.database.find_records(**img_filter)
 
-            records = fscache.database.find_records(**img_filter)
+        if len(records)==0:
+            terminal.error(f"no uenv matches the spec: {args.uenv}")
+            sys.exit(1)
 
-            if len(records)==0:
-                terminal.error(f"no uenv matches the spec: {args.uenv}")
-                sys.exit(1)
-
-            path = fscache.image_path(records[0])
-            formatted_output = inspect_string(records[0], fscache, args.format)
-            print(formatted_output)
+        path = fscache.image_path(records[0])
+        formatted_output = inspect_string(records[0], fscache.image_path(record), args.format)
+        print(formatted_output)
 
         sys.exit(0)
 
@@ -455,7 +458,7 @@ if __name__ == "__main__":
         terminal.info(f"repo path: {repo_path}")
 
         try:
-            datastore.FileSystemCache.create(repo_path, exists_ok=args.exists_ok)
+            datastore.FileSystemRepo.create(repo_path, exists_ok=args.exists_ok)
         except Exception as err:
             terminal.error(f"unable to find or initialise the local registry: {str(err)}")
 
