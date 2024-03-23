@@ -6,15 +6,15 @@ import record
 import scratch
 
 prgenvgnu_records = [
-    record.Record("santis", "gh200", "prgenv-gnu", "23.11", "latest", "monday", 1024, "a"*64),
+    record.Record("santis", "gh200", "prgenv-gnu", "23.11", "default", "monday", 1024, "a"*64),
     record.Record("santis", "gh200", "prgenv-gnu", "23.11", "v2",     "monday", 1024, "a"*64),
     record.Record("santis", "gh200", "prgenv-gnu", "23.11", "v1",     "monday", 1024, "c"*64),
-    record.Record("santis", "gh200", "prgenv-gnu", "24.2",  "latest", "monday", 1024, "b"*64),
+    record.Record("santis", "gh200", "prgenv-gnu", "24.2",  "default", "monday", 1024, "b"*64),
     record.Record("santis", "gh200", "prgenv-gnu", "24.2",  "v1",     "monday", 1024, "b"*64),
 ]
 
 icon_records = [
-    record.Record("santis", "gh200", "icon", "2024", "latest", "2024/02/12", 1024, "1"*64),
+    record.Record("santis", "gh200", "icon", "2024", "default", "2024/02/12", 1024, "1"*64),
     record.Record("santis", "gh200", "icon", "2024", "v2",     "2024/02/12", 1024, "1"*64),
     record.Record("santis", "gh200", "icon", "2024", "v1",     "2023/01/01", 5024, "2"*64),
 ]
@@ -53,13 +53,13 @@ class TestInMemory(unittest.TestCase):
 
         results = self.store.find_records(sha="a"*64)
         self.assertEqual(2, len(results))
-        self.assertEqual("latest", results[0].tag)
-        self.assertEqual("v2", results[1].tag)
+        self.assertEqual("v2", results[0].tag)
+        self.assertEqual("default", results[1].tag)
 
         results = self.store.find_records(sha="b"*64)
         self.assertEqual(2, len(results))
-        self.assertEqual("latest", results[0].tag)
-        self.assertEqual("v1", results[1].tag)
+        self.assertEqual("v1", results[0].tag)
+        self.assertEqual("default", results[1].tag)
 
         results = self.store.find_records(sha="c"*64)
         self.assertEqual(1, len(results))
@@ -74,7 +74,7 @@ class TestInMemory(unittest.TestCase):
 
         self.assertEqual(1, len(store.find_records(name="icon", tag="v1")))
         self.assertEqual(1, len(store.find_records(name="icon", tag="v2")))
-        self.assertEqual(1, len(store.find_records(name="icon", tag="latest")))
+        self.assertEqual(1, len(store.find_records(name="icon", tag="default")))
         self.assertEqual(0, len(store.find_records(name="icon", tag="happydays")))
 
         self.assertEqual(2, len(store.find_records(name="prgenv-gnu", tag="v1")))
@@ -82,7 +82,7 @@ class TestInMemory(unittest.TestCase):
 
         self.assertEqual(3, len(store.find_records(tag="v1")))
         self.assertEqual(2, len(store.find_records(tag="v2")))
-        self.assertEqual(3, len(store.find_records(tag="latest")))
+        self.assertEqual(3, len(store.find_records(tag="default")))
 
         self.assertEqual(3, len(store.find_records(version="2024")))
         self.assertEqual(3, len(store.find_records(version="23.11")))
@@ -90,10 +90,10 @@ class TestInMemory(unittest.TestCase):
         self.assertEqual(3, len(store.find_records(name="prgenv-gnu", version="23.11")))
 
         self.assertEqual(3, len(store.find_records(name="icon", version="2024")))
-        self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="latest")))
+        self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="default")))
         self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="v1")))
         self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="v2")))
-        self.assertEqual(store.find_records(name="icon", version="2024", tag="latest"),
+        self.assertEqual(store.find_records(name="icon", version="2024", tag="default"),
                          store.find_records(name="icon", version="2024", tag="v2"))
 
         self.assertEqual(8, len(store.find_records(uarch="gh200")))
@@ -139,10 +139,10 @@ class TestInMemory(unittest.TestCase):
     def test_replace_tag(self):
         v2 = record.Record("santis", "gh200", "prgenv-gnu", "24.2", "v2", "monday", 1024,
                            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
-        latest = record.Record("santis", "gh200", "prgenv-gnu", "24.2", "latest", "monday", 1024,
+        latest = record.Record("santis", "gh200", "prgenv-gnu", "24.2", "default", "monday", 1024,
                            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
 
-        # before insertion of the new records, the sha bbb... matches two tags: latest and v1
+        # before insertion of the new records, the sha bbb... matches two tags: default and v1
         results = self.store.find_records(sha="b"*64)
         self.assertEqual(2, len(results))
 
@@ -153,11 +153,11 @@ class TestInMemory(unittest.TestCase):
         self.assertEqual(1, len(results))
         self.assertEqual("v1", results[0].tag)
 
-        # after insertion of the new record, the sha ddd... matches two tags: latest and v2
+        # after insertion of the new record, the sha ddd... matches two tags: default and v2
         results = self.store.find_records(sha="d"*64)
         self.assertEqual(2, len(results))
-        self.assertEqual("latest", results[0].tag)
-        self.assertEqual("v2", results[1].tag)
+        self.assertEqual("v2", results[0].tag)
+        self.assertEqual("default", results[1].tag)
 
 class TestRepositoryCreate(unittest.TestCase):
 

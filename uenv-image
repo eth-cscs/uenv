@@ -60,7 +60,7 @@ Display detailed information about a uenv.
 It is an error if no uenv matching the requested spec is on the local filesystem.
 
 {colorize("Example", "blue")} - get information about a uenv
-  {colorize("uenv image inspect prgenv-gnu/24.2:latest", "white")}
+  {colorize("uenv image inspect prgenv-gnu/24.2:v1", "white")}
 
 {colorize("Example", "blue")} - it is also possible to get the path of the most relevant version/tag
 of a uenv, or use an explicit sha:
@@ -128,8 +128,8 @@ downloaded uenv with the list command. For more information:
 {colorize("Example", "blue")} - find all uenv with name prgenv-gnu and version 24.2 on this cluster:
   {colorize("uenv image find prgenv-gnu/24.2", "white")}
 
-{colorize("Example", "blue")} - find the uenv with name prgenv-gnu, version 24.2 and tag "latest" on this cluster:
-  {colorize("uenv image find prgenv-gnu/24.2:latest", "white")}
+{colorize("Example", "blue")} - find the uenv with name prgenv-gnu, version 24.2 and tag "v2" on this cluster:
+  {colorize("uenv image find prgenv-gnu/24.2:v2", "white")}
 
 {colorize("Example", "blue")} - find all uenv with the name prgenv-gnu for uarch target gh200 on this cluster:
   {colorize("uenv image find prgenv-gnu --uarch=gh200", "white")}
@@ -160,7 +160,7 @@ Pull a uenv from the CSCS registry.
   {colorize("uenv image pull prgenv-gnu/24.2", "white")}
 
 {colorize("Example", "blue")} - pull a specific version and tag of prgenv-gnu:
-  {colorize("uenv image pull prgenv-gnu/24.2:latest", "white")}
+  {colorize("uenv image pull prgenv-gnu/24.2:v2", "white")}
 
 {colorize("Example", "blue")} - pull using the unique sha256 of an uenv.
   {colorize("uenv image pull 3313739553fe6553f789a35325eb6954a37a7b85cdeab943d0878a05edaac998", "white")}
@@ -199,8 +199,8 @@ List uenv that are available.
 {colorize("Example", "blue")} - list all uenv with name prgenv-gnu and version 24.2:
   {colorize("uenv image ls prgenv-gnu/24.2", "white")}
 
-{colorize("Example", "blue")} - list the uenv with name prgenv-gnu, version 24.2 and tag "latest":
-  {colorize("uenv image ls prgenv-gnu/24.2:latest", "white")}
+{colorize("Example", "blue")} - list the uenv with name prgenv-gnu, version 24.2 and tag "v2":
+  {colorize("uenv image ls prgenv-gnu/24.2:v2", "white")}
 
 {colorize("Example", "blue")} - list all uenv with the name prgenv-gnu for uarch target gh200:
   {colorize("uenv image ls prgenv-gnu --uarch=gh200", "white")}
@@ -228,9 +228,6 @@ Deploy a uenv from the build repo to the deploy repo, where all users can access
 {colorize("Attention", "red")}: this operation can only be performed by CSCS staff with appropriate
 access rights and a JFrog token configured for oras.
 
-{colorize("Attention", "red")}: deployment a new version of a uenv with the :latest tag will modify the version that is
-provided by default to all users on the system.
-
 The recommended method for deploying images is to first find the sha256 of the image
 in the build namespace that you wish to deploy
 
@@ -241,17 +238,16 @@ in the build namespace that you wish to deploy
 
 In this example, we choose the most recent build with sha256 e901b85c7652802e
 
-{colorize("uenv image deploy e901b85c7652802e --tags=latest,v1", "white")}
+{colorize("uenv image deploy e901b85c7652802e --tags=v1", "white")}
 
 Then check that it has been deployed:
 
 {colorize("uenv image find e901b85c7652802e", "white")}
 {colorize("uenv/version:tag                        uarch date       sha256           size", "gray")}
-{colorize("icon-wcp/v1:latest                      gh200 2024-03-11 e901b85c7652802e 7.8 GB", "gray")}
 {colorize("icon-wcp/v1:v1                          gh200 2024-03-11 e901b85c7652802e 7.8 GB", "gray")}
 """
                                           )
-    deploy_parser.add_argument("--tags", required=False, default="latest", help="Comma separated list of tags.", type=str)
+    deploy_parser.add_argument("--tags", required=True, help="Comma separated list of tags to apply to the deployed image.", type=str)
     deploy_parser.add_argument("source", nargs=1, type=str, metavar="SOURCE",
                                help="The full name/version:tag or sha256 of the uenv to deploy.")
 
@@ -456,8 +452,9 @@ If the repo does not exist, you can try creating it first: {terminal.colorize(f"
             terminal.error(f"no uenv matches the spec: {args.uenv}")
             sys.exit(1)
 
-        path = fscache.image_path(records[0])
-        formatted_output = inspect_string(records[0], fscache.image_path(record), args.format)
+        r = records[0]
+        path = fscache.image_path(r)
+        formatted_output = inspect_string(r, path, args.format)
         print(formatted_output)
 
         sys.exit(0)

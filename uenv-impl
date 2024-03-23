@@ -63,16 +63,22 @@ Run a command in an environment.
     {colorize("uenv run prgenv-gnu ./job.sh", "white")}
 This will mount prgenv-gnu, execute job.sh, then return to the calling shell.
 
-{colorize("Example", "blue")}: the run command can be used when 
+{colorize("Example", "blue")}: the run command can be used to execute workflow steps with separate environments:
     {colorize("uenv run gromacs/23.1 ./simulation.sh", "white")}
     {colorize("uenv run paraview ./render.sh", "white")}
 """
                 ))
+    run_parser.add_argument("-a", "--uarch",
+                             help="The micro-architecture (uarch) to target. May be required to disambiguate uenv on systems with more than one node uarch. Available options are zen2, zen3, a100, mi200, gh200.",
+                             required=False, type=str)
     run_parser.add_argument("runline", nargs=argparse.REMAINDER, type=str)
 
     #### start
     start_parser = subparsers.add_parser("start",
             help="start a user environment")
+    start_parser.add_argument("-a", "--uarch",
+                             help="The micro-architecture (uarch) to target. May be required to disambiguate uenv on systems with more than one node uarch. Available options are zen2, zen3, a100, mi200, gh200.",
+                             required=False, type=str)
     start_parser.add_argument("image", nargs='+', type=str,
             help="the uenv to start")
 
@@ -416,7 +422,7 @@ uenv start gromacs.squashfs:/user-environment ddt.squashfs:/tools
 
 ultimately:
 
-uenv start gromacs:latest ddt
+uenv start gromacs/2023.1 ddt
 
 Specifying what to mount will use some "special characters"
     the 2023 version of gromacs built for hoghant/a100 at /user-environment
@@ -502,7 +508,7 @@ def generate_image_pairs(mnt_list):
 
     return mounts
 
-def parse_image_descriptions(mnt_list):
+def parse_image_descriptions(mnt_list, repo, uarch):
     mounts = generate_image_pairs(mnt_list)
 
     mount_pairs = []
@@ -513,24 +519,28 @@ def parse_image_descriptions(mnt_list):
         if not uenv_path.is_file():
             terminal.info(f"no file matching description found")
 
-            # TODO support --repo CLI argument
-            repo_path = alps.uenv_repo_path(None)
+            repo_path = alps.uenv_repo_path(repo)
             terminal.info(f"looking in the repository {repo_path}")
 
             img_filter = names.create_filter(uenv, require_complete=False)
-            if os.environ.get('CLUSTER_NAME') is not None:
-                img_filter["system"] = os.environ.get('CLUSTER_NAME')
+            cluster = os.environ.get('CLUSTER_NAME')
+            if cluster is not None:
+                img_filter["system"] = cluster
             else:
-                terminal.warning("the CLUSTER_NAME environment variable is not set")
+                # make it a hard error if the target vCluster can't be determined
+                terminal.error("the CLUSTER_NAME environment variable is not set", abort=False)
+                return []
 
-            # TODO: the uarch will have to be set for systems with more than one uarch
-            #img_filter["uarch"]  = "gh200"
+            if uarch is not None:
+                img_filter["uarch"]  = uarch
+
+            terminal.info(f"search filter {img_filter}")
 
             fscache = datastore.FileSystemRepo(repo_path)
             records = fscache.database.find_records(**img_filter)
 
             if len(records)==0:
-                terminal.error(f"no uenv matches the spec: {uenv}")
+                terminal.error(f"no uenv{' on '+cluster if cluster else ''} matches the spec: {uenv}{'@'+uarch if uarch else ''}")
                 sys.exit(1)
 
             terminal.info(f"selected image {records[0]} from repository  {repo_path}")
@@ -582,14 +592,14 @@ def generate_run_command(args, env):
     terminal.info(f"cmd: {cmd}")
     terminal.info(f"cmdargs: {cmdargs}")
 
-    mount_pairs=parse_image_descriptions(images)
+    mount_pairs=parse_image_descriptions(images, args.repo, args.uarch)
     if mount_pairs==[]:
         return shell_error
 
     mount_string = ' '.join(mount_pairs)
     cmdargs_string = ' '.join([f'"{arg}"' for arg in cmdargs])
 
-    # TODO: remove once support for old slurm plugin no longer required
+    # TODO: remove UENV_MOUNT_* variables when support for the old slurm plugin no longer required
     main_mount=mount_pairs[0].split(":")
     return [f"export UENV_MOUNT_FILE={main_mount[0]}",
             f"export UENV_MOUNT_POINT={main_mount[1]}",
@@ -604,13 +614,13 @@ def generate_start_command(args, env):
         terminal.error("a uenv is already running", abort=False)
         return shell_error
 
-    mount_pairs=parse_image_descriptions(args.image)
+    mount_pairs=parse_image_descriptions(args.image, args.repo, args.uarch)
     if mount_pairs==[]:
         return shell_error
 
     mount_string = ' '.join(mount_pairs)
 
-    # TODO: remove once support for old slurm plugin no longer required
+    # TODO: remove UENV_MOUNT_* variables when support for the old slurm plugin no longer required
     main_mount=mount_pairs[0].split(":")
     return [f"export UENV_MOUNT_FILE={main_mount[0]}",
             f"export UENV_MOUNT_POINT={main_mount[1]}",
