@@ -63,6 +63,56 @@ FROM tags
 COMMIT;
 """
 
+class RecordSet():
+    def __init__(self, records, request):
+        self._shas = set([r.sha256 for r in records])
+        self._records = records
+        sha2record = {}
+        for sha in self._shas:
+            sha2record[sha] = [r for r in records if r.sha256==sha]
+        self._sha2record = sha2record
+        self._request = request
+
+    @property
+    def shas(self):
+        return list(self._shas)
+
+    @property
+    def records(self):
+        return self._records
+
+    @property
+    def request(self):
+        return self._request
+
+    @property
+    def sha2record(self):
+        return self._sha2record
+
+    @property
+    def is_unique_sha(self):
+        return len(self._shas)==1
+
+    @property
+    def is_unique_record(self):
+        return len(self._records)==1
+
+    @property
+    def is_empty(self):
+        return len(self._shas)==0
+
+    def ambiguous_request_message(self):
+        """
+        Generate the message to print when a request returns an ambiguous result.
+        """
+        lines = []
+        lines = [f"more than one uenv matches the spec {terminal.colorize(self.request, 'yellow')}",
+                 f"the options are:"]
+        for r in self._records:
+            lines.append(f"  {terminal.colorize(r.full_name, 'white'):34}  {terminal.colorize(r.sha256[:16], 'cyan')}")
+
+        return lines
+
 class DataStore:
 
     def __init__(self, path=None):
@@ -167,6 +217,8 @@ class DataStore:
                 items = self._store.execute(f"SELECT * FROM records WHERE short_sha = '{sha}'")
             else:
                 items = self._store.execute(f"SELECT * FROM records WHERE sha256 = '{sha}'")
+
+            request = sha
         else:
             query_criteria = " AND ".join([f"{field} = '{value}'"
                                            for field, value in constraints.items()])
@@ -174,14 +226,24 @@ class DataStore:
             # Find matching records for each constraint
             items = self._store.execute(f"SELECT * FROM records WHERE {query_criteria}")
 
+            request = ""
+            if "name" in constraints:
+                request = constraints["name"]
+                if "version" in constraints:
+                    request = request + f"/{constraints['version']}"
+                if "tag" in constraints:
+                    request = request + f":{constraints['tag']}"
+            if "uarch" in constraints:
+                request = request + f"@{constraints['uarch']}"
+
         results = [self.to_record(r) for r in items];
         results.sort(reverse=True)
-        return results
+        return RecordSet(results, request)
 
     @property
     def images(self):
         items = self._store.execute(f"SELECT * FROM records")
-        return [self.to_record(r) for r in items]
+        return RecordSet([self.to_record(r) for r in items], "all")
 
     # return a list of records that match a sha
     def get_record(self, sha: str) -> Record:
@@ -197,7 +259,7 @@ class DataStore:
         elif names.is_short_sha256(sha):
             results = self._store.execute(f"SELECT * FROM records WHERE short_sha  = '{sha}'")
 
-        return [self.to_record(r) for r in results]
+        return RecordSet([self.to_record(r) for r in results], sha)
 
 class FileSystemRepo():
     def __init__(self, path: str):

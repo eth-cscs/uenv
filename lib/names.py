@@ -19,6 +19,7 @@ def is_valid_sha(sha:str) -> bool:
 #       "prgenv_gnu"              -> ("prgenv_gnu", None,    None,     None)
 #       "prgenv_gnu/23.11"        -> ("prgenv_gnu", "23.11", None,     None)
 #       "prgenv_gnu/23.11:latest" -> ("prgenv_gnu", "23.11", "latest", None)
+#       "prgenv_gnu:v2"           -> ("prgenv_gnu", None,    "v2",     None)
 #       "3313739553fe6553"        -> (None,         None,    None,     "3313739553fe6553")
 def parse_uenv_string(uenv: str) -> dict:
     name = version = tag = sha = None
@@ -30,10 +31,15 @@ def parse_uenv_string(uenv: str) -> dict:
         # todo: assert no more than 1 ':'
         # todo: assert that '/' is before ':'
         splits = uenv.split("/",1)
-        name = splits[0]
         if len(splits)>1:
+            name = splits[0]
             splits = splits[1].split(":",1)
             version = splits[0]
+            if len(splits)>1:
+                tag = splits[1]
+        else:
+            splits =  uenv.split(":",1)
+            name = splits[0]
             if len(splits)>1:
                 tag = splits[1]
 

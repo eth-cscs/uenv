@@ -313,17 +313,19 @@ def image_size_string(size):
     return f"{(size/(1024*1024*1024)):<.1f}GB"
 
 # pretty print a list of Record
-def print_records(records):
-    if len(records)>0:
-        print(terminal.colorize(f"{'uenv/version:tag':40}{'uarch':6}{'date':10} {'sha256':16} {'size':<10}", "yellow"))
-        for r in records:
+def print_records(recordset):
+    records = recordset.records
+
+    if not recordset.is_empty:
+        terminal.stdout(terminal.colorize(f"{'uenv/version:tag':40}{'uarch':6}{'date':10} {'sha256':16} {'size':<10}", "yellow"))
+        for r in recordset.records:
             namestr = f"{r.name}/{r.version}"
             tagstr = f"{r.tag}"
             label = namestr + ":" + tagstr
             short_date = r.date[:10]
             datestr = r.date
             size = image_size_string(r.size)
-            print(f"{label:<40}{r.uarch:6}{short_date:10} {r.sha256[:16]:16} {size:<10}")
+            terminal.stdout(f"{label:<40}{r.uarch:6}{short_date:10} {r.sha256[:16]:16} {size:<10}")
 
 if __name__ == "__main__":
 
@@ -353,44 +355,34 @@ if __name__ == "__main__":
         except RuntimeError as err:
             terminal.error(f"{str(err)}")
 
-        terminal.info(f"downloaded jfrog meta data: build->{len(build.images)}, deploy->{len(deploy.images)}")
+        terminal.info(f"downloaded jfrog meta data: build->{len(build.images.records)}, deploy->{len(deploy.images.records)}")
 
         remote_database = build if args.build else deploy
 
-        records = remote_database.find_records(**img_filter)
+        results = remote_database.find_records(**img_filter)
 
-        terminal.info(f"The following records matched the query: {records}")
+        terminal.info(f"The following records matched the query: {results.records}")
+
+        # verify that there is at least one image that matches the query
+        if results.is_empty:
+            terminal.error(f"no uenv matches the spec: {colorize(results.request, 'white')}")
 
         if args.command == "find":
-            if len(records)>0:
-                print_records(records)
-            else:
-                print("no images match the query")
+            print_records(results)
 
         elif args.command == "pull":
-            # verify that there is at least one image that matches the query
-            if len(records)==0:
-                terminal.error(f"no images match the query {args.uenv}")
-
-            # check that there is only one matching uenv
-            if len(set([r.name for r in records]))>1:
-                print_records(records)
-                print()
-                terminal.error(f"ambiguous uenv {args.uenv}")
-
-            # check that there is only one matching uenv
-            if len(set([r.uarch for r in records]))>1:
-                print_records(records)
-                print()
-                terminal.error(
-                        "more than one uarch matches the the requested uenv. "
-                        "Specify the desired uarch with the --uarch flag")
+            if not results.is_unique_sha:
+                message = results.ambiguous_request_message()
+                terminal.error(message[0], abort=False)
+                for line in message[1:]:
+                    terminal.stderr(line)
+                exit(1)
 
             # There can be more than one tag associated with a squashfs image.
             # so here we get a list of all name/version:tag combinations associated
             # with the sha256.
-            records = remote_database.get_record(records[0].sha256)
-            t = records[0]
+            records = remote_database.get_record(results.shas[0])
+            t = records.records[0]
             source_address = jfrog.address(t, 'build' if args.build else 'deploy')
 
             terminal.info(f"pulling {t} from {source_address} {t.size/(1024*1024):.0f} MB")
@@ -409,7 +401,7 @@ if __name__ == "__main__":
                 terminal.stdout(f"image {t.sha256} is already available locally")
             # update all the tags associated with the image.
             terminal.info(f"updating the local repository database")
-            for r in records:
+            for r in records.records:
                 terminal.stdout(f"updating local reference {r.name}/{r.version}:{r.tag}")
                 cache.add_record(r)
 
@@ -446,16 +438,22 @@ If the repo does not exist, you can try creating it first: {terminal.colorize(f"
             terminal.error(f"""the local repository {repo_path} does not exist.
 If the repo does not exist, you can try creating it first: {terminal.colorize(f"uenv image create {repo_path}", "white")}
 """)
-        records = fscache.database.find_records(**img_filter)
+        results = fscache.database.find_records(**img_filter)
 
-        if len(records)==0:
-            terminal.error(f"no uenv matches the spec: {args.uenv}")
+        if results.is_empty:
+            terminal.error(f"no uenv matches the spec: {colorize(results.request, 'white')}")
+
+        if not results.is_unique_sha:
+            message = results.ambiguous_request_message()
+            terminal.error(message[0], abort=False)
+            for line in message[1:]:
+                terminal.stderr(line)
             sys.exit(1)
 
-        r = records[0]
+        r = results.records[0]
         path = fscache.image_path(r)
         formatted_output = inspect_string(r, path, args.format)
-        print(formatted_output)
+        terminal.stdout(formatted_output)
 
         sys.exit(0)
 
@@ -478,7 +476,7 @@ If the repo does not exist, you can try creating it first: {terminal.colorize(f"
         try:
             img_filter = names.create_filter(source, require_complete=True)
         except names.IncompleteUenvName as err:
-            terminal.error(f"source {source} must have be of the form name/version:tag or sha256.")
+            terminal.error(f"source {source} is not fully qualified: use name/version:tag or sha256.")
 
         # query JFrog for the list of images
         try:
@@ -488,14 +486,13 @@ If the repo does not exist, you can try creating it first: {terminal.colorize(f"
 
         terminal.info(f"downloaded jfrog build meta data: {len(build_database.images)} images")
 
-
         # expect that src has [name, version, tag] keys
-        records = build_database.find_records(**img_filter)
+        results = build_database.find_records(**img_filter)
 
-        if not (len(records)==1):
+        if results.is_empty:
             terminal.error(f"source {source} is not an image in the build repository")
 
-        source_record = records[0]
+        source_record = results.records[0]
         terminal.info(f"the source is {source_record}")
 
         target_record = copy.deepcopy(source_record)

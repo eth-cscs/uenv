@@ -119,3 +119,6 @@ class Record:
                 "size": self.size
             }
 
+    @property
+    def full_name(self):
+        return f"{self.name}/{self.version}:{self.tag}"

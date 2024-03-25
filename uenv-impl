@@ -537,16 +537,25 @@ def parse_image_descriptions(mnt_list, repo, uarch):
             terminal.info(f"search filter {img_filter}")
 
             fscache = datastore.FileSystemRepo(repo_path)
-            records = fscache.database.find_records(**img_filter)
+            result = fscache.database.find_records(**img_filter)
 
-            if len(records)==0:
-                terminal.error(f"no uenv{' on '+cluster if cluster else ''} matches the spec: {uenv}{'@'+uarch if uarch else ''}")
-                sys.exit(1)
+            if result.is_empty:
+                terminal.error(f"no uenv matches the spec: {terminal.colorize(result.request, 'white')}", abort=False)
+                return []
 
-            terminal.info(f"selected image {records[0]} from repository  {repo_path}")
+            if not result.is_unique_sha:
+                message = result.ambiguous_request_message()
+                terminal.error(message[0], abort=False)
+                for line in message[1:]:
+                    terminal.stderr(line)
+                return []
 
-            uenv_path = fscache.image_path(records[0]) + "/store.squashfs"
+            record = result.records[0]
+            terminal.info(f"selected image {record} from repository  {repo_path}")
+
+            uenv_path = fscache.image_path(record) + "/store.squashfs"
             terminal.info(f"lookup {uenv} returned {uenv_path}")
+            terminal.info("loading {record.full_name}  {record.short_sha}")
         else:
             uenv_path = uenv_path.resolve()
 
@@ -741,7 +750,7 @@ def generate_status_command(args, env):
         else:
             name = uenv.name
             description = uenv.description or ""
-            lines.append(f"{colorize(uenv.mount, 'cyan')}:{colorize(uenv.name, 'yellow')}")
+            lines.append(f"{colorize(uenv.mount, 'cyan')}:{colorize(uenv.name, 'white')}")
             if len(description.strip()) == 0:
                 lines.append(f"  no description")
             else:

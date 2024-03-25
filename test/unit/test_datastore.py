@@ -52,55 +52,65 @@ class TestInMemory(unittest.TestCase):
         #store.dump()
 
         results = self.store.find_records(sha="a"*64)
-        self.assertEqual(2, len(results))
-        self.assertEqual("v2", results[0].tag)
-        self.assertEqual("default", results[1].tag)
+        records = results.records
+        self.assertTrue(results.is_unique_sha)
+        self.assertEqual(2, len(records))
+        self.assertEqual("v2", records[0].tag)
+        self.assertEqual("default", records[1].tag)
 
         results = self.store.find_records(sha="b"*64)
-        self.assertEqual(2, len(results))
-        self.assertEqual("v1", results[0].tag)
-        self.assertEqual("default", results[1].tag)
+        records = results.records
+        self.assertTrue(results.is_unique_sha)
+        self.assertFalse(results.is_empty)
+        self.assertFalse(results.is_unique_record)
+        self.assertEqual(2, len(records))
+        self.assertEqual("v1", records[0].tag)
+        self.assertEqual("default", records[1].tag)
 
         results = self.store.find_records(sha="c"*64)
-        self.assertEqual(1, len(results))
-        self.assertEqual("v1", results[0].tag)
+        records = results.records
+        self.assertTrue(results.is_unique_sha)
+        self.assertFalse(results.is_empty)
+        self.assertTrue(results.is_unique_record)
+        self.assertEqual(1, len(records))
+        self.assertEqual("v1", records[0].tag)
 
     def test_find_records(self):
         store = datastore.DataStore(path=None)
         create_full_repo(store)
 
-        self.assertEqual(3, len(store.find_records(name="icon")))
-        self.assertEqual(5, len(store.find_records(name="prgenv-gnu")))
+        self.assertEqual(3, len(store.find_records(name="icon").records))
+        self.assertEqual(5, len(store.find_records(name="prgenv-gnu").records))
 
-        self.assertEqual(1, len(store.find_records(name="icon", tag="v1")))
-        self.assertEqual(1, len(store.find_records(name="icon", tag="v2")))
-        self.assertEqual(1, len(store.find_records(name="icon", tag="default")))
-        self.assertEqual(0, len(store.find_records(name="icon", tag="happydays")))
+        self.assertEqual(1, len(store.find_records(name="icon", tag="v1").records))
+        self.assertEqual(1, len(store.find_records(name="icon", tag="v2").records))
+        self.assertEqual(1, len(store.find_records(name="icon", tag="default").records))
+        self.assertEqual(0, len(store.find_records(name="icon", tag="happydays").records))
 
-        self.assertEqual(2, len(store.find_records(name="prgenv-gnu", tag="v1")))
-        self.assertEqual(1, len(store.find_records(name="prgenv-gnu", tag="v2")))
+        self.assertEqual(2, len(store.find_records(name="prgenv-gnu", tag="v1").records))
+        self.assertEqual(1, len(store.find_records(name="prgenv-gnu", tag="v2").records))
 
-        self.assertEqual(3, len(store.find_records(tag="v1")))
-        self.assertEqual(2, len(store.find_records(tag="v2")))
-        self.assertEqual(3, len(store.find_records(tag="default")))
+        self.assertEqual(3, len(store.find_records(tag="v1").records))
+        self.assertEqual(2, len(store.find_records(tag="v2").records))
+        self.assertEqual(3, len(store.find_records(tag="default").records))
 
-        self.assertEqual(3, len(store.find_records(version="2024")))
-        self.assertEqual(3, len(store.find_records(version="23.11")))
-        self.assertEqual(0, len(store.find_records(name="icon", version="23.11")))
-        self.assertEqual(3, len(store.find_records(name="prgenv-gnu", version="23.11")))
+        self.assertEqual(3, len(store.find_records(version="2024").records))
+        self.assertEqual(3, len(store.find_records(version="23.11").records))
+        self.assertEqual(0, len(store.find_records(name="icon", version="23.11").records))
+        self.assertEqual(3, len(store.find_records(name="prgenv-gnu", version="23.11").records))
 
-        self.assertEqual(3, len(store.find_records(name="icon", version="2024")))
-        self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="default")))
-        self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="v1")))
-        self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="v2")))
-        self.assertEqual(store.find_records(name="icon", version="2024", tag="default"),
-                         store.find_records(name="icon", version="2024", tag="v2"))
+        self.assertEqual(3, len(store.find_records(name="icon", version="2024").records))
+        self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="default").records))
+        self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="v1").records))
+        self.assertEqual(1, len(store.find_records(name="icon", version="2024", tag="v2").records))
+        self.assertEqual(store.find_records(name="icon", version="2024", tag="default").records,
+                         store.find_records(name="icon", version="2024", tag="v2").records)
 
-        self.assertEqual(8, len(store.find_records(uarch="gh200")))
-        self.assertEqual(8, len(store.find_records(system="santis")))
+        self.assertEqual(8, len(store.find_records(uarch="gh200").records))
+        self.assertEqual(8, len(store.find_records(system="santis").records))
 
-        self.assertEqual(store.find_records(system="santis"),
-                         store.find_records(uarch="gh200"))
+        self.assertEqual(store.find_records(system="santis").records,
+                         store.find_records(uarch="gh200").records)
 
         # expect an exception when an invalid field is passed (sustem is a typo for system)
         with self.assertRaises(ValueError):
@@ -115,24 +125,27 @@ class TestInMemory(unittest.TestCase):
 
         # the record with sha f*64 is not in the repo
         result = store.get_record("f"*64)
-        self.assertEqual(0, len(result))
+        self.assertTrue(result.is_empty)
 
         # the record with sha c*64 occurs only once
         result = store.get_record("c"*16)
-        self.assertEqual(len(result), 1)
-        r_short = result[0]
+        self.assertTrue(result.is_unique_record)
+        # check that looking up using the short sha gives the same result as the long sha
+        r_short = result.records[0]
         result = store.get_record("c"*64)
-        r_long = result[0]
+        r_long = result.records[0]
         self.assertEqual(r_short, r_long)
         self.assertEqual(r_short.sha256, "c"*64)
 
         # the record with sha a*64 occurs twice
         result = store.get_record("a"*16)
-        self.assertEqual(len(result), 2)
-        for i in range(len(result)):
-            r_short = result[i]
+        self.assertFalse(result.is_unique_record)
+        self.assertTrue(result.is_unique_sha)
+        self.assertEqual(len(result.records), 2)
+        for i in range(2):
+            r_short = result.records[i]
             result = store.get_record("a"*64)
-            r_long = result[i]
+            r_long = result.records[i]
             self.assertEqual(r_short, r_long)
             self.assertEqual(r_short.sha256, "a"*64)
 
@@ -144,20 +157,21 @@ class TestInMemory(unittest.TestCase):
 
         # before insertion of the new records, the sha bbb... matches two tags: default and v1
         results = self.store.find_records(sha="b"*64)
-        self.assertEqual(2, len(results))
+        self.assertEqual(2, len(results.records))
 
         self.store.add_record(v2)
         self.store.add_record(latest)
         # after insertion of the new record, the sha bbb... matches one tag: v1
         results = self.store.find_records(sha="b"*64)
-        self.assertEqual(1, len(results))
-        self.assertEqual("v1", results[0].tag)
+        self.assertTrue(results.is_unique_record)
+        self.assertEqual("v1", results.records[0].tag)
 
         # after insertion of the new record, the sha ddd... matches two tags: default and v2
         results = self.store.find_records(sha="d"*64)
-        self.assertEqual(2, len(results))
-        self.assertEqual("v2", results[0].tag)
-        self.assertEqual("default", results[1].tag)
+        records = results.records
+        self.assertEqual(2, len(records))
+        self.assertEqual("v2", records[0].tag)
+        self.assertEqual("default", records[1].tag)
 
 class TestRepositoryCreate(unittest.TestCase):
 
@@ -176,7 +190,7 @@ class TestRepositoryCreate(unittest.TestCase):
         record = prgenvgnu_records[0]
         repo.add_record(record)
         sha = record.sha256
-        self.assertEqual(repo.database.get_record(sha)[0].sha256, sha)
+        self.assertEqual(repo.database.get_record(sha).records[0].sha256, sha)
 
     def tearDown(self):
         shutil.rmtree(self.path, ignore_errors=True)

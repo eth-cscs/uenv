@@ -60,6 +60,8 @@ def error(message, abort=True):
 # for printing messages to the terminal
 def stdout(message):
     print(f"{message}", file=sys.stdout)
+def stderr(message):
+    print(f"{message}", file=sys.stderr)
 
 def warning(message):
     print(f"{colorize('[warning]', 'yellow')} {message}", file=sys.stderr)
