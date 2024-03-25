@@ -15,7 +15,7 @@ PRAGMA foreign_keys=on;
 
 CREATE TABLE images (
     sha256 TEXT PRIMARY KEY CHECK(length(sha256)==64),
-    short_sha TEXT UNIQUE CHECK(length(short_sha)==16),
+    id TEXT UNIQUE CHECK(length(id)==16),
     date TEXT NOT NULL,
     size INTEGER NOT NULL,
     uarch TEXT NOT NULL,
@@ -47,15 +47,15 @@ CREATE TABLE tags (
 -- for convenient generation of the Record type used internally by uenv-image
 CREATE VIEW records AS
 SELECT
-    images.system    AS system,
-    images.uarch     AS uarch,
-    uenv.name        AS name,
-    uenv.version     AS version,
-    tags.tag         AS tag,
-    images.date      AS date,
-    images.size      AS size,
-    tags.sha256      AS sha256,
-    images.short_sha AS short_sha
+    images.system  AS system,
+    images.uarch   AS uarch,
+    uenv.name      AS name,
+    uenv.version   AS version,
+    tags.tag       AS tag,
+    images.date    AS date,
+    images.size    AS size,
+    tags.sha256    AS sha256,
+    images.id      AS id
 FROM tags
     INNER JOIN uenv   ON uenv.version_id = tags.version_id
     INNER JOIN images ON images.sha256   = tags.sha256;
@@ -109,7 +109,7 @@ class RecordSet():
         lines = [f"more than one uenv matches the spec {terminal.colorize(self.request, 'yellow')}",
                  f"the options are:"]
         for r in self._records:
-            lines.append(f"  {terminal.colorize(r.full_name, 'white'):34}  {terminal.colorize(r.sha256[:16], 'cyan')}")
+            lines.append(f"  {terminal.colorize(r.full_name, 'white'):34}  {terminal.colorize(r.id, 'cyan')}")
 
         return lines
 
@@ -137,14 +137,12 @@ class DataStore:
         Add a record to the database.
         """
 
-        short_sha = r.sha256[:16]
-
         cursor = self._store.cursor()
 
         cursor.execute("BEGIN;")
         cursor.execute("PRAGMA foreign_keys=on;")
-        cursor.execute("INSERT OR IGNORE INTO images (sha256, short_sha, date, size, uarch, system) VALUES (?, ?, ?, ?, ?, ?)",
-                       (r.sha256, short_sha, r.date, r.size, r.uarch, r.system))
+        cursor.execute("INSERT OR IGNORE INTO images (sha256, id, date, size, uarch, system) VALUES (?, ?, ?, ?, ?, ?)",
+                       (r.sha256, r.id, r.date, r.size, r.uarch, r.system))
         # Insert a new name/version to the uenv table if no existing images with that pair exist
         cursor.execute("INSERT OR IGNORE INTO uenv (name, version) VALUES (?, ?)",
                        (r.name, r.version))
@@ -214,7 +212,7 @@ class DataStore:
             sha = constraints["sha"]
 
             if len(sha)<64:
-                items = self._store.execute(f"SELECT * FROM records WHERE short_sha = '{sha}'")
+                items = self._store.execute(f"SELECT * FROM records WHERE id = '{sha}'")
             else:
                 items = self._store.execute(f"SELECT * FROM records WHERE sha256 = '{sha}'")
 
@@ -248,16 +246,16 @@ class DataStore:
     # return a list of records that match a sha
     def get_record(self, sha: str) -> Record:
         """
-        Return a list of records that match the sha (either full 64 or short 16 character sha)
+        Return a list of records that match the sha (either full 64 or 16 char id)
         If there are no matches, an empty list is returned.
         If an invalid sha is passed, a ValueError is raised.
         """
         if not names.is_valid_sha(sha):
-            raise ValueError(f"{sha} is not a valid sha256 (neither full 64 or short 16 character form)")
+            raise ValueError(f"{sha} is not a valid 64 character sha256 or 16 character id")
         if names.is_full_sha256(sha):
             results = self._store.execute(f"SELECT * FROM records WHERE sha256 = '{sha}'")
-        elif names.is_short_sha256(sha):
-            results = self._store.execute(f"SELECT * FROM records WHERE short_sha  = '{sha}'")
+        elif names.is_id(sha):
+            results = self._store.execute(f"SELECT * FROM records WHERE id  = '{sha}'")
 
         return RecordSet([self.to_record(r) for r in results], sha)
 

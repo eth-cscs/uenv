@@ -1,4 +1,31 @@
 echo
+echo ==================== uenv image help commands
+
+uenv image --help
+echo ==================== image inspect
+uenv image inspect --help
+echo ==================== image find
+uenv image find --help
+echo ==================== image pull
+uenv image pull --help
+echo ==================== image ls
+uenv image ls --help
+echo ==================== image create
+uenv image create --help
+echo ==================== image deploy
+uenv image deploy --help
+echo ==================== run
+uenv run --help
+echo ==================== start
+uenv start --help
+echo ==================== stop
+uenv stop --help
+echo ==================== status
+uenv status --help
+echo ==================== modules
+uenv modules --help
+
+echo
 echo ==================== uenv status
 time uenv status
 

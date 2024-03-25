@@ -4,14 +4,14 @@ def is_full_sha256(s: str):
     pattern = re.compile(r'^[a-fA-F-0-9]{64}$')
     return True if pattern.match(s) else False
 
-def is_short_sha256(s: str):
+def is_id(s: str):
     pattern = re.compile(r'^[a-fA-F-0-9]{16}$')
     return True if pattern.match(s) else False
 
 def is_valid_sha(sha:str) -> bool:
     if is_full_sha256(sha):
         return True
-    if is_short_sha256(sha):
+    if is_id(sha):
         return True
     return False
 

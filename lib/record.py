@@ -18,6 +18,7 @@ class Record:
         self._date    = date
         self._bytes   = size_bytes
         self._sha256  = sha256
+        self._id      = sha256[:16]
 
     # build/eiger/zen2/cp2k/2023/1133706947
     @classmethod
@@ -27,19 +28,6 @@ class Record:
             raise ValueError("Record must have exactly 5 fields")
 
         system, uarch, name, version, tag = fields
-        return cls(system, uarch, name, version, tag, date, size_bytes, sha256)
-
-    @classmethod
-    def fromjson(cls, raw: dict):
-        system = raw["system"]
-        uarch = raw["uarch"]
-        name = raw["name"]
-        version = raw["version"]
-        tag = raw["tag"]
-        date = Record.to_datetime(raw["date"])
-        size_bytes = raw["size"]
-        sha256 = raw["sha256"]
-
         return cls(system, uarch, name, version, tag, date, size_bytes, sha256)
 
     def __eq__(self, other):
@@ -58,6 +46,8 @@ class Record:
         if other.version< self.version: return False
         if self.tag     < other.tag: return True
         if other.tag    < self.tag: return False
+        if self.id      < other.id: return True
+        if other.id     < self.id: return False
         return False
 
     def __str__(self):
@@ -99,6 +89,10 @@ class Record:
         return self._sha256
 
     @property
+    def id(self):
+        return self._id
+
+    @property
     def size(self):
         return self._bytes
 
@@ -116,6 +110,7 @@ class Record:
                 "version": self.version,
                 "tag": self.tag,
                 "sha256": self.sha256,
+                "id": self.id,
                 "size": self.size
             }
 

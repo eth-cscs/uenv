@@ -59,13 +59,33 @@ For more information on how to use individual commands use the --help flag.
 f"""\
 Run a command in an environment.
 
-{colorize("Example", "blue")}: run the script job.sh in an evironmnent
-    {colorize("uenv run prgenv-gnu ./job.sh", "white")}
+{colorize("Example", "blue")} - run the script job.sh in an evironmnent:
+    {colorize("uenv run prgenv-gnu/24.2:v1 -- ./job.sh", "white")}
 This will mount prgenv-gnu, execute job.sh, then return to the calling shell.
+Note how the command to execute comes after the two dashes '--'.
 
-{colorize("Example", "blue")}: the run command can be used to execute workflow steps with separate environments:
-    {colorize("uenv run gromacs/23.1 ./simulation.sh", "white")}
-    {colorize("uenv run paraview ./render.sh", "white")}
+{colorize("Note", "cyan")} - the spec must uniquely identify the uenv. To ensure this, always use a
+fully qualified spec in the form of name/version:tag, the unique 16 digit id,
+or sha256 of a uenv. If more than one uenv match the spec, an error message
+is printed.
+
+{colorize("Example", "blue")} - run the job.sh script with two images mounted:
+    {colorize("uenv run prgenv-gnu/24.2:v1 ddt/23.1 -- ./job.sh", "white")}
+By default the images will be mounted at /user-environment and /user-tools in
+that order.
+
+{colorize("Example", "blue")} - run the job.sh script with two images mounted at specific mount points:
+    {colorize("uenv run prgenv-gnu/24.2:v1:$SCRATCH/pe ddt/23.1:/user-tools -- ./job.sh", "white")}
+Here the mount point for each image is specified using a ":".
+
+{colorize("Note", "cyan")} - uenv must be mounted at the mount point for which they were built.
+If mounted at the wrong location, a warning message will be printed, and
+features like views and modules wiil be disabled.
+
+{colorize("Example", "blue")} - the run command can be used to execute workflow steps with
+separate environments:
+    {colorize("uenv run gromacs/23.1  -- ./simulation.sh", "white")}
+    {colorize("uenv run paraview/5.11 -- ./render.sh", "white")}
 """
                 ))
     run_parser.add_argument("-a", "--uarch",
@@ -75,7 +95,36 @@ This will mount prgenv-gnu, execute job.sh, then return to the calling shell.
 
     #### start
     start_parser = subparsers.add_parser("start",
-            help="start a user environment")
+            help="start a user environmentRun a command in an environment.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=textwrap.dedent(
+f"""\
+{colorize("Example", "blue")} - start a uenv:
+    {colorize("uenv start prgenv-gnu/24.2:v1", "white")}
+This will mount prgenv-gnu at /user-environment, and start a new shell.
+
+{colorize("Note", "cyan")} - the spec must uniquely identify the uenv. To ensure this, always use a
+fully qualified spec in the form of name/version:tag, the unique 16 digit id,
+or sha256 of a uenv. If more than one uenv match the spec, an error message
+is printed.
+
+{colorize("Note", "cyan")} - to check whether the environment has been started, and which options
+it provides, run the command {colorize('uenv status', 'white')} after starting it.
+
+{colorize("Example", "blue")} - start a session with with two images mounted:
+    {colorize("uenv start prgenv-gnu/24.2:v1 ddt/23.1", "white")}
+By default the images will be mounted at /user-environment and /user-tools in
+that order.
+
+{colorize("Example", "blue")} - start a session with two images mounted at specific mount points:
+    {colorize("uenv start prgenv-gnu/24.2:v1:$SCRATCH/pe ddt/23.1:/user-tools", "white")}
+Here the mount point for each image is specified using a ":".
+
+{colorize("Note", "cyan")} - uenv must be mounted at the mount point for which they were built.
+If mounted at the wrong location, a warning message will be printed, and
+features like views and modules wiil be disabled.
+"""
+                 ))
     start_parser.add_argument("-a", "--uarch",
                              help="The micro-architecture (uarch) to target. May be required to disambiguate uenv on systems with more than one node uarch. Available options are zen2, zen3, a100, mi200, gh200.",
                              required=False, type=str)
@@ -84,15 +133,44 @@ This will mount prgenv-gnu, execute job.sh, then return to the calling shell.
 
     #### stop
     stop_parser = subparsers.add_parser("stop",
-            help="stop a running user environment")
+            help="stop a running uenv")
 
     #### status
     status_parser = subparsers.add_parser("status",
-            help="print information about running environments")
+            help="print information about any loaded uenv")
 
     #### modules
     modules_parser = subparsers.add_parser("modules",
-            help="use modules if they are available")
+            help="use modules if they are available",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=textwrap.dedent(
+f"""\
+{colorize("Example", "blue")} - get information about uenv modules:
+    {colorize("uenv modules", "white")}
+
+The sample output below is generated when there is one started uenv that
+provides modules. In this case the modules have already been made available
+using the {colorize("uenv modules use", "white")} command (see below).
+
+{colorize("the following loaded uenv provide modules:", "gray")}
+{colorize("  prgenv-gnu:/user-environment (loaded)", "gray")}
+
+{colorize("Example", "blue")} - enable the modules provided by the current uenv:
+    {colorize("uenv modules use", "white")}
+
+Once enabled, the modules will be available through the system module command,
+e.g. {colorize("module avail", "white")} and {colorize("module load ...", "white")}.
+
+{colorize("Note", "cyan")} - the {colorize("uenv modules use", "white")} command above is eqivalent to the module command
+{colorize("module use /user-environment/modules", "white")}.
+
+{colorize("Example", "blue")} - enable modules of a uenv by name:
+    {colorize("uenv modules use prgenv-gnu", "white")}
+This command is useful if more than one uenv is mounted. Modules provided by
+more than one mounted uenv can be used by providing a space separated list of
+uenv names.
+"""
+             ))
     modules_subparsers = modules_parser.add_subparsers(dest="modules_command")
     modules_use_parser = modules_subparsers.add_parser("use",
             help="use modules if they are available")
@@ -101,9 +179,28 @@ This will mount prgenv-gnu, execute job.sh, then return to the calling shell.
 
     #### view
     views_parser = subparsers.add_parser("view",
-            help="activate a view")
+            help="activate a view",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=textwrap.dedent(
+f"""\
+{colorize("Example", "blue")} - print information about uenv views:
+    {colorize("uenv view", "white")}
+Prints information about the currently loaded view, otherwise information about
+the available views will be printed.
+
+{colorize("Example", "blue")} - load the file system view named develop:
+    {colorize("uenv view develop", "white")}
+
+{colorize("Example", "blue")} - load the file system view {colorize('default','cyan')} provided by the loaded uenv {colorize('prgenv-gnu','cyan')}:
+    {colorize("uenv view prgenv-gnu:default", "white")}
+
+{colorize("Note", "cyan")} - currently only one file system view can be loaded at a time.
+"""
+            ))
     views_parser.add_argument("view_name",
-            help="the name of the view to load")
+            nargs='?',
+            default=None,
+            help="the view to load")
 
     return parser
 
@@ -140,8 +237,8 @@ def parse_uenv_modules(desc):
     return [pathlib.Path(p) for p in desc.split(',')]
 
 def parse_uenv_view(desc):
-    path, name = desc.split(':')
-    return {"path": pathlib.Path(path), "name": name}
+    mount, uenv, name = desc.split(':')
+    return {"path": pathlib.Path(mount), "uenv": uenv, "name": name}
 
 ###############################################################################
 # Types that read and represent uenv status
@@ -592,7 +689,7 @@ def split_runline(args):
 def generate_run_command(args, env):
     terminal.info(f"parsing run command with arguments: {args.command}")
     if env.active:
-        terminal.error("a uenv is already running", abort=False)
+        terminal.error("a uenv is already loaded", abort=False)
         return shell_error
 
     images, cmd, cmdargs = split_runline(args.runline)
@@ -620,7 +717,7 @@ def generate_run_command(args, env):
 def generate_start_command(args, env):
     terminal.info(f"parsing start command with arguments: {args.image}")
     if env.active:
-        terminal.error("a uenv is already running", abort=False)
+        terminal.error("a uenv is already loaded", abort=False)
         return shell_error
 
     mount_pairs=parse_image_descriptions(args.image, args.repo, args.uarch)
@@ -642,7 +739,7 @@ def generate_modules_command(args, env):
     terminal.info(f"parsing modules command: {args}")
 
     if not env.active:
-        terminal.error(f'there is no environment loaded', abort=False)
+        terminal.error(f'there is no uenv loaded', abort=False)
         return shell_error
 
     # generate a list of all the mounted environments that provide modules
@@ -705,34 +802,107 @@ def generate_modules_command(args, env):
 def generate_view_command(args, env):
 
     if not env.active:
-        terminal.error(f'there is no environment loaded', abort=False)
+        terminal.error(f'there is no uenv loaded')
         return shell_error
+
+    requested_view = args.view_name
+
+    # A dictionary that provides a list of views for each mounted uenv
+    #     {key=uenv-name: value=[views]}
+    # only uenv with views are added to the dictionary
+    available_views = {}
+    # A dictionary with view name as a key, and a list of uenv that provide
+    # view with that name as the values
+    view2uenv = {}
+    for uenv in env.uenvs:
+        name = uenv.name
+        views = [v["name"] for v in uenv.views]
+        if len(views)>0:
+            available_views[name] = views
+        for v in views:
+            view2uenv.setdefault(v, []).append(uenv)
+
+    # A helper function that generates a help message to echo to the screen.
+    def help_message(final_op=shell_noop):
+        output = []
+        if not available_views:
+            output.append("echo 'no views are provided by the loaded uenv'")
+        output.append("echo 'the following views are available:'")
+        output.append("echo ''")
+        # if only one uenv provides views, there is no need to disambiguate view names
+        disambiguate = len(available_views)>1
+        for name, views in available_views.items():
+            for view in views:
+                output.append(f"echo '{colorize(name+':'+view, 'cyan')}'")
+                if disambiguate:
+                    command = f"uenv view {name}:{view}"
+                else:
+                    command = f"uenv view {view}"
+                output.append(f"echo '  {colorize(command, 'white')}'")
+        output.append(final_op)
+        return output
+
+    # handle the case where `uenv view` is called with no further arguments
+    # print status information and suggested commands before quitting without error
+    if requested_view is None:
+        # handle the case that a view is already loaded
+        if env.loaded_view is not None:
+            loaded_view = f"{env.loaded_view['uenv']}:{env.loaded_view['name']}"
+            return [f"echo 'the view {colorize(loaded_view, 'cyan')} is loaded'",
+                    shell_noop]
+        else:
+            return help_message(shell_noop)
 
     if env.loaded_view is not None:
-        terminal.error(f'a view is already loaded: {env.loaded_view}', abort=False)
+        loaded_view = f"{env.loaded_view['uenv']}:{env.loaded_view['name']}"
+        terminal.error(f"the view {colorize(loaded_view, 'cyan')} is already loaded")
         return shell_error
 
-    uenv = env.uenvs[0]
-    name = args.view_name
+    view_components = requested_view.split(':')
 
-    terminal.info(f"trying to load view {name} in env loaded at {uenv.mount}")
+    # handle the case where no uenv name was provided
+    # e.g. "develop"
+    if len(view_components)==1:
+        vname = requested_view
+        uenvs = view2uenv.get(vname, [None])
+        # more than one uenv provides a view with the requested name
+        if len(uenvs)>1:
+            terminal.error(f'the view"{name}" is provided by {[e.name for e in uenvs]}. Use `uenv view` to see the available options.')
+            return help_message(shell_error)
+        # this will be either
+        #   the single uenv that provides the view
+        #   None -> no matching image
+        uenv = uenvs[0]
 
-    available_views = [v["name"] for v in uenv.views]
-    if name in available_views:
-        i = available_views.index(name)
-        path = uenv.views[i]['activate']
-        return [f"source '{path}'",
-                f"export UENV_VIEW={uenv.mount}:{name}",]
+    # handle the case where both uenv name and view are provided
+    # e.g. "prgenv-gnu:default"
     else:
-        terminal.error(f'the view "{name}" is not one of the available views: {available_views}', abort=False)
-        return shell_error
+        ename = view_components[0]
+        vname = view_components[1]
+        # find all uenvs that provide this view
+        uenvs = view2uenv.get(vname, [])
+        # this will be either
+        #   the uenv that provides the view
+        #   None -> no matching image
+        uenv = next((e for e in uenvs if e.name==ename), None)
 
-    return shell_noop
+    # no view with the requested name exists
+    if uenv is None:
+        terminal.error(f'the view "{requested_view}" is not available')
+        return help_message(shell_error)
+
+    path = next((v['activate'] for v in uenv.views if v['name']==vname))
+
+
+    qualified_view_name = f"{uenv.name}:{vname}"
+    return [f"echo 'loading the view {colorize(qualified_view_name, 'cyan')}  with activation script {colorize(path, 'yellow')}'",
+            f"source '{path}'",
+            f"export UENV_VIEW={uenv.mount}:{uenv.name}:{vname}",]
 
 def generate_status_command(args, env):
     num_env = len(env.uenvs)
     if not env.active:
-        return echo_from_lines(["no user environment"])
+        return echo_from_lines(["there is no uenv loaded"])
 
     lines = []
     first = True
@@ -791,7 +961,7 @@ def generate_status_command(args, env):
 def generate_stop_command(args, env):
 
     if not env.active:
-        terminal.error(f"there is no running environment to stop", abort=False)
+        terminal.error(f"there is no running uenv to stop", abort=False)
         return shell_error
 
     return "exit $_last_exitcode"

@@ -64,29 +64,31 @@ It is an error if no uenv matching the requested spec is on the local filesystem
 
 {colorize("Example", "blue")} - it is also possible to get the path of the most relevant version/tag
 of a uenv, or use an explicit sha:
-  {colorize("uenv image inspect prgenv-gnu", "white")}
-  {colorize("uenv image inspect prgenv-gnu/24.2", "white")}
+  {colorize("uenv image inspect prgenv-gnu/24.2:v1", "white")}
   {colorize("uenv image inspect 3313739553fe6553f789a35325eb6954a37a7b85cdeab943d0878a05edaac998", "white")}
-  {colorize("uenv image inspect 3313739553fe6553     # the first 16 characters can be used", "white")}
+  {colorize("uenv image inspect 3313739553fe6553", "white")}     {colorize("# the 16 digit uenv id", "gray")}
+{colorize("Note", "cyan")}: the spec must uniquely identify the uenv. If more than one uenv
+match the spec, an error message is printed.
 
 {colorize("Example", "blue")} - print the path of a uenv
-  {colorize("uenv image inspect --format '{path}' prgenv-gnu", "white")}
+  {colorize("uenv image inspect --format '{path}' prgenv-gnu/24.2:v1", "white")}
 
 {colorize("Example", "blue")} - print the name and tag of a uenv un the name:tag format
-  {colorize("uenv image inspect --format '{name}:{tag}' prgenv-gnu", "white")}
+  {colorize("uenv image inspect --format '{name}:{tag}' prgenv-gnu/24.2:v1", "white")}
 
 {colorize("Example", "blue")} - print the location of the squashfs file of an image
-  {colorize("uenv image inspect --format '{sqfs}' prgenv-gnu", "white")}
+  {colorize("uenv image inspect --format '{sqfs}' prgenv-gnu/24.2:v1", "white")}
 
 Including name, tag and sqfs, the following variables can be printed in a
 format string passed to the --format option:
     name:    name
     version: version
     tag:     tag
-    system:  the system that the uenv was built for
-    uarch:   the micro-architecture that the uenv was built for
+    id:      the 16 digit image id
     sha256:  the unique sha256 hash of the uenv
     date:    date that the uenv was created
+    system:  the system that the uenv was built for
+    uarch:   the micro-architecture that the uenv was built for
     path:    absolute path where the uenv is stored
     sqfs:    absolute path of the squashfs file\
 """)
@@ -134,9 +136,11 @@ downloaded uenv with the list command. For more information:
 {colorize("Example", "blue")} - find all uenv with the name prgenv-gnu for uarch target gh200 on this cluster:
   {colorize("uenv image find prgenv-gnu --uarch=gh200", "white")}
 
-{colorize("Example", "blue")} - find all uenv that have a concrete sha256 checksum on this cluster:
+{colorize("Example", "blue")} - find all uenv that match a concrete sha256 checksum on this cluster:
   {colorize("uenv image find 3313739553fe6553f789a35325eb6954a37a7b85cdeab943d0878a05edaac998", "white")}
-  {colorize("uenv image find 3313739553fe6553     # the first 16 characters can be used", "white")}
+
+{colorize("Example", "blue")} - find all uenv that match the 16-digit id:
+  {colorize("uenv image find 3313739553fe6553", "white")}
 
 {colorize("Example", "blue")} - find all uenv that have been generated as build artifacts on this cluster:
   {colorize("uenv image find --build", "white")}
@@ -153,23 +157,23 @@ downloaded uenv with the list command. For more information:
             epilog=f"""\
 Pull a uenv from the CSCS registry.
 
-{colorize("Example", "blue")} - pull the most recent version of uenv with the name prgenv-gnu on this cluster:
-  {colorize("uenv image pull prgenv-gnu", "white")}
-
-{colorize("Example", "blue")} - pull the most recent tag of uenv with the name prgenv-gnu/24.2 on this cluster:
-  {colorize("uenv image pull prgenv-gnu/24.2", "white")}
+{colorize("Note", "cyan")}: the description of the image must uniquely identify the image to pull. For example,
+if there are more than two tagged versions or tags of {colorize("prgenv-gnu", "white")}, the version and tag
+must be provided to disambiguate which image to pull.
 
 {colorize("Example", "blue")} - pull a specific version and tag of prgenv-gnu:
   {colorize("uenv image pull prgenv-gnu/24.2:v2", "white")}
 
 {colorize("Example", "blue")} - pull using the unique sha256 of an uenv.
   {colorize("uenv image pull 3313739553fe6553f789a35325eb6954a37a7b85cdeab943d0878a05edaac998", "white")}
-  {colorize("uenv image pull 3313739553fe6553     # the first 16 characters can be used", "white")}
+
+{colorize("Example", "blue")} - pull using the unique 16-digit id of an uenv.
+  {colorize("uenv image pull ed2cc6a498149ac2", "white")}
 
 {colorize("Example", "blue")} - pull the uenv with the name prgenv-gnu for uarch target gh200 on this cluster:
 Note that this is only neccesary when a vCluster has nodes with more than one uarch, and
 versions of the same uenv compiled against different uarch has been deployed.
-  {colorize("uenv image pull prgenv-gnu --uarch=gh200", "white")}
+  {colorize("uenv image pull prgenv-gnu/24.2:v2 --uarch=gh200", "white")}
 
 {colorize("Example", "blue")} - pull a uenv from the build repository.
 By default only deployed images are pulled, and this option is only available to users
@@ -205,9 +209,11 @@ List uenv that are available.
 {colorize("Example", "blue")} - list all uenv with the name prgenv-gnu for uarch target gh200:
   {colorize("uenv image ls prgenv-gnu --uarch=gh200", "white")}
 
-{colorize("Example", "blue")} - list all uenv that have a concrete sha256 checksum:
+{colorize("Example", "blue")} - list any uenv that have a concrete sha256 checksum:
   {colorize("uenv image ls 3313739553fe6553f789a35325eb6954a37a7b85cdeab943d0878a05edaac998", "white")}
-  {colorize("uenv image ls 3313739553fe6553", "white")} # the first 16 characters can be used
+
+{colorize("Example", "blue")} - list any uenv that has a 16-digit id:
+  {colorize("uenv image ls ed2cc6a498149ac2", "white")}
 """)
     list_parser.add_argument("-s", "--system", required=False, type=str)
     list_parser.add_argument("-a", "--uarch", required=False, type=str)
@@ -228,28 +234,28 @@ Deploy a uenv from the build repo to the deploy repo, where all users can access
 {colorize("Attention", "red")}: this operation can only be performed by CSCS staff with appropriate
 access rights and a JFrog token configured for oras.
 
-The recommended method for deploying images is to first find the sha256 of the image
-in the build namespace that you wish to deploy
+The recommended method for deploying images is to first find the sha256 or id of the
+image in the build namespace that you wish to deploy
 
 {colorize("uenv image find --build icon-wcp", "white")}
-{colorize("uenv/version:tag                        uarch date       sha256           size", "gray")}
+{colorize("uenv/version:tag                        uarch date       id               size", "gray")}
 {colorize("icon-wcp/v1:1208323951                  gh200 2024-03-11 e901b85c7652802e 7.8 GB", "gray")}
 {colorize("icon-wcp/v1:1206570249                  gh200 2024-03-08 0cb8e7e23b4fdb5c 7.8 GB", "gray")}
 
-In this example, we choose the most recent build with sha256 e901b85c7652802e
+In this example, we choose the most recent build with id e901b85c7652802e
 
 {colorize("uenv image deploy e901b85c7652802e --tags=v1", "white")}
 
 Then check that it has been deployed:
 
 {colorize("uenv image find e901b85c7652802e", "white")}
-{colorize("uenv/version:tag                        uarch date       sha256           size", "gray")}
+{colorize("uenv/version:tag                        uarch date       id               size", "gray")}
 {colorize("icon-wcp/v1:v1                          gh200 2024-03-11 e901b85c7652802e 7.8 GB", "gray")}
 """
                                           )
     deploy_parser.add_argument("--tags", required=True, help="Comma separated list of tags to apply to the deployed image.", type=str)
     deploy_parser.add_argument("source", nargs=1, type=str, metavar="SOURCE",
-                               help="The full name/version:tag or sha256 of the uenv to deploy.")
+                               help="The full name/version:tag, id or sha256 of the uenv to deploy.")
 
     return parser
 
@@ -296,6 +302,7 @@ def inspect_string(record: record.Record, image_path, format_string: str) -> str
             date = record.date,
             version = record.version,
             tag = record.tag,
+            id = record.id,
             sha256 = record.sha256,
             path = image_path,
             sqfs = image_path + "/store.squashfs",
@@ -317,7 +324,7 @@ def print_records(recordset):
     records = recordset.records
 
     if not recordset.is_empty:
-        terminal.stdout(terminal.colorize(f"{'uenv/version:tag':40}{'uarch':6}{'date':10} {'sha256':16} {'size':<10}", "yellow"))
+        terminal.stdout(terminal.colorize(f"{'uenv/version:tag':40}{'uarch':6}{'date':10} {'id':16} {'size':<10}", "yellow"))
         for r in recordset.records:
             namestr = f"{r.name}/{r.version}"
             tagstr = f"{r.tag}"
@@ -325,7 +332,7 @@ def print_records(recordset):
             short_date = r.date[:10]
             datestr = r.date
             size = image_size_string(r.size)
-            terminal.stdout(f"{label:<40}{r.uarch:6}{short_date:10} {r.sha256[:16]:16} {size:<10}")
+            terminal.stdout(f"{label:<40}{r.uarch:6}{short_date:10} {r.id:16} {size:<10}")
 
 if __name__ == "__main__":
 
