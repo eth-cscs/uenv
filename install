@@ -158,8 +158,6 @@ run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/terminal.
 echo "installing ${img_impl_path}"
 run install -v -m755 -D "$script_path/uenv-image" "${destdir}/${img_impl_path}"
 
-## ALL GOOD BELOW HERE
-
 echo "installing $impl_path"
 run install -D -m755 <(sed "s|@@version@@|$version|g" $script_path/uenv-impl) ${destdir}/$impl_path
 
@@ -169,10 +167,10 @@ oras_arch=$(get_oras_arch)
 oras_version=1.1.0
 oras_file=oras_${oras_version}_linux_${oras_arch}.tar.gz
 oras_url=https://github.com/oras-project/oras/releases/download/v${oras_version}/${oras_file}
-#oras_path=`mktemp -d`
-#(cd "$oras_path"; run wget --quiet "$oras_url"; run tar -xzf "$oras_file"; run rm *.tar.gz)
-#oras_exe_path="${libexec}/uenv-oras"
-#run install -v -m755 -D "${oras_path}/oras" "${destdir}/${oras_exe_path}"
+oras_path=`mktemp -d`
+(cd "$oras_path"; run wget --quiet "$oras_url"; run tar -xzf "$oras_file"; run rm *.tar.gz)
+oras_exe_path="${libexec}/uenv-oras"
+run install -v -m755 -D "${oras_path}/oras" "${destdir}/${oras_exe_path}"
 
 echo "installing $init_path"
 run install -v -m644 -D <(
