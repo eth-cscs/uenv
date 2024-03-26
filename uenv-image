@@ -400,7 +400,7 @@ if __name__ == "__main__":
             image_path = cache.image_path(t)
 
             # if the record isn't already in the filesystem repo download it
-            if not cache.database.get_record(t.sha256):
+            if cache.database.get_record(t.sha256).is_empty:
                 terminal.stdout(f"downloading image {t.sha256} {image_size_string(t.size)}")
                 # download the image using oras
                 oras.run_command(["pull", "-o", image_path, source_address])
