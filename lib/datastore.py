@@ -8,6 +8,26 @@ import names
 
 UENV_CLI_API_VERSION=1
 
+class RepoNotFoundError(Exception):
+    """Exception raised when unable to open a FileSystem repository."""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        return self.message
+
+class RepoDBError(Exception):
+    """Exception raised when there is an internal sqlite3 error."""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        return self.message
+
 create_db_command = """
 BEGIN;
 
@@ -129,8 +149,19 @@ class DataStore:
             self._store.executescript(create_db_command)
         else:
             if not os.path.isfile(path):
-                raise FileNotFoundError(f"repository database file {path} does not exist")
-            self._store = sqlite3.connect(path)
+                raise RepoNotFoundError(f"repository database file {path} does not exist")
+            try:
+                self._store = sqlite3.connect(path)
+            except Exception as err:
+                raise RepoDBError(str(err))
+
+            # Ppening a connection does not check the validity of the database.
+            # Run a query to check that the database is valid.
+            try:
+                _ = self._store.execute("SELECT * FROM records")
+            except Exception as err:
+                raise RepoDBError(str(err))
+
 
     def add_record(self, r: Record):
         """
@@ -266,11 +297,11 @@ class FileSystemRepo():
 
         if not os.path.exists(self._path):
             # error: repository does not exists
-            raise FileNotFoundError(f"uenv image repository not found {self._path}: the path does not exist.")
+            raise RepoNotFoundError(f"uenv image repository not found - the repository path {self._path} does not exist.")
 
         if not os.path.exists(self._index):
             # error: index does not exists
-            raise FileNotFoundError(f"uenv image repository not found: the index database is missing {self._index}.")
+            raise RepoNotFoundError(f"uenv image repository not found - the index database {self._index} does not exist.")
 
         self._database = DataStore(self._index)
 

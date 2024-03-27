@@ -334,6 +334,28 @@ def print_records(recordset):
             size = image_size_string(r.size)
             terminal.stdout(f"{label:<40}{r.uarch:6}{short_date:10} {r.id:16} {size:<10}")
 
+def safe_repo_open(path: str) -> datastore.FileSystemRepo:
+    """
+    Open a file system repository.
+
+    If there are errors, attempt to print a useful message before exiting.
+    Use this for all calls to open an existing FileSystemRepo in order to provide
+    consistent and useful error messages.
+    """
+    try:
+        cache = datastore.FileSystemRepo(path)
+    except datastore.RepoNotFoundError as err:
+        terminal.error(f"""The local repository {path} does not exist.
+The repo can be created using the following command:
+  {colorize(f"uenv image create {repo_path}", "white")}
+""")
+    except datastore.RepoDBError as err:
+        terminal.error(f"""The local repository {path} had a database error.
+Please open a CSCS ticket, or contact the uenv dev team, with the command that created the error, and this full error message.
+{str(err)}""")
+
+    return cache
+
 if __name__ == "__main__":
 
     parser = make_argparser()
@@ -396,7 +418,7 @@ if __name__ == "__main__":
 
             terminal.info(f"repo path: {repo_path}")
 
-            cache = datastore.FileSystemRepo(repo_path)
+            cache = safe_repo_open(repo_path)
             image_path = cache.image_path(t)
 
             # if the record isn't already in the filesystem repo download it
@@ -421,13 +443,7 @@ if __name__ == "__main__":
 
         img_filter = get_filter(args)
 
-        try:
-            fscache = datastore.FileSystemRepo(repo_path)
-        except FileNotFoundError as err:
-            terminal.error(f"""the local repository {repo_path} does not exist.
-If the repo does not exist, you can try creating it first: {terminal.colorize(f"uenv image create {repo_path}", "white")}
-""")
-
+        fscache = safe_repo_open(repo_path)
 
         records = fscache.database.find_records(**img_filter)
         print_records(records)
@@ -439,12 +455,8 @@ If the repo does not exist, you can try creating it first: {terminal.colorize(f"
 
         img_filter = get_filter(args)
 
-        try:
-            fscache = datastore.FileSystemRepo(repo_path)
-        except FileNotFoundError as err:
-            terminal.error(f"""the local repository {repo_path} does not exist.
-If the repo does not exist, you can try creating it first: {terminal.colorize(f"uenv image create {repo_path}", "white")}
-""")
+        fscache = safe_repo_open(repo_path)
+
         results = fscache.database.find_records(**img_filter)
 
         if results.is_empty:

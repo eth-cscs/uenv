@@ -173,10 +173,45 @@ class TestInMemory(unittest.TestCase):
         self.assertEqual("v2", records[0].tag)
         self.assertEqual("default", records[1].tag)
 
+class TestInvalidRepository(unittest.TestCase):
+    def setUp(self):
+        self.path = scratch.make_scratch_path("repository_create")
+
+    def tearDown(self):
+        shutil.rmtree(self.path, ignore_errors=True)
+
+    def test_open_non_existing_repo(self):
+        rpath = self.path / 'foobar'
+        with self.assertRaises(datastore.RepoNotFoundError):
+            datastore.FileSystemRepo(rpath.as_posix())
+
+    def test_open_non_existing_db(self):
+        rpath = self.path / 'foobar'
+        rpath.mkdir()
+        with self.assertRaises(datastore.RepoNotFoundError):
+            datastore.FileSystemRepo(rpath.as_posix())
+
+    def test_open_corrupt_db(self):
+        rpath = self.path / 'repo'
+        dbpath = rpath / 'index.db'
+        rpath.mkdir(parents=False, exist_ok=False)
+        # create an invalid database file
+        with open(dbpath, 'w') as f:
+            f.write("corruption and decay")
+
+
+        with self.assertRaises(datastore.RepoDBError):
+            repo = datastore.FileSystemRepo(rpath.as_posix())
+
 class TestRepositoryCreate(unittest.TestCase):
 
     def setUp(self):
         self.path = scratch.make_scratch_path("repository_create")
+
+    def test_create_new_repo(self):
+        # expect an exception when an invalid field is passed (sustem is a typo for system)
+        with self.assertRaises(ValueError):
+            result = store.find_records(sustem="santis")
 
     def test_create_new_repo(self):
         # create a new repository with database on disk
@@ -194,7 +229,6 @@ class TestRepositoryCreate(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.path, ignore_errors=True)
-        pass
 
 if __name__ == '__main__':
     unittest.main()

@@ -633,7 +633,19 @@ def parse_image_descriptions(mnt_list, repo, uarch):
 
             terminal.info(f"search filter {img_filter}")
 
-            fscache = datastore.FileSystemRepo(repo_path)
+            try:
+                fscache = datastore.FileSystemRepo(repo_path)
+            except datastore.RepoNotFoundError as err:
+                terminal.error(f"""The local repository {repo_path} does not exist.
+The repo can be created using the following command:
+  {colorize(f"uenv image create {repo_path}", "white")}
+""", abort=False)
+                return []
+            except datastore.RepoDBError as err:
+                terminal.error(f"""The local repository {repo_path} had a database error.
+Please open a CSCS ticket, or contact the uenv dev team, with the command that created the error, and this full error message.
+{str(err)}""", abort=False)
+                return []
             result = fscache.database.find_records(**img_filter)
 
             if result.is_empty:
