@@ -347,7 +347,7 @@ def safe_repo_open(path: str) -> datastore.FileSystemRepo:
     except datastore.RepoNotFoundError as err:
         terminal.error(f"""The local repository {path} does not exist.
 The repo can be created using the following command:
-  {colorize(f"uenv image create {repo_path}", "white")}
+  {colorize(f"uenv image -r {repo_path} create", "white")}
 """)
     except datastore.RepoDBError as err:
         terminal.error(f"""The local repository {path} had a database error.

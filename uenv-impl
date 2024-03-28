@@ -638,7 +638,7 @@ def parse_image_descriptions(mnt_list, repo, uarch):
             except datastore.RepoNotFoundError as err:
                 terminal.error(f"""The local repository {repo_path} does not exist.
 The repo can be created using the following command:
-  {colorize(f"uenv image create {repo_path}", "white")}
+  {colorize(f"uenv image -r {repo_path} create", "white")}
 """, abort=False)
                 return []
             except datastore.RepoDBError as err:
