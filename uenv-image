@@ -100,9 +100,10 @@ f"""\
 name:    {{name}}
 version: {{version}}
 tag:     {{tag}}
-system:  {{system}}
 uarch:   {{uarch}}
+id:      {{id}}
 sha256:  {{sha256}}
+system:  {{system}}
 date:    {{date}}
 path:    {{path}}
 sqfs:    {{sqfs}}\
