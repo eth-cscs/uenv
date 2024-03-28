@@ -1,0 +1,535 @@
+#!/usr/bin/python3
+
+# --- A note about the shebang ---
+# It is hard-coded to /usr/bin/python3 instead of "/usr/bin/env python3" so that the
+# same python3 is always used, instead of using a version of python3 that might be
+# loaded into the environment.
+
+import argparse
+import copy
+import os
+import pathlib
+import re
+import sys
+import textwrap
+
+prefix = pathlib.Path(__file__).parent.resolve()
+libpath = prefix / 'lib'
+sys.path = [libpath.as_posix()] + sys.path
+
+import alps
+import datastore
+import jfrog
+import names
+import oras
+import record
+import terminal
+from terminal import colorize
+
+def make_argparser():
+    parser = argparse.ArgumentParser(
+            prog="uenv image",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description=textwrap.dedent(
+f"""\
+Manage and query uenv images.
+
+For more information on how to use individual commands use the --help flag.
+
+{colorize("Example", "blue")}: get help on the find command
+    {colorize("uenv image find --help", "white")}
+"""
+                ))
+    parser.add_argument("--no-color",
+            action="store_true",
+            help="Disable color output. By default color output is enabled, unless the NO_COLOR environment variable is set.")
+    parser.add_argument("-v", "--verbose",
+            action="store_true",
+            help="Enable verbose output for debugging.")
+    parser.add_argument("-r", "--repo",
+            required=False, default=None, type=str,
+            help="The path on the local filesystem where uenv are managed. By default the environment variable UENV_REPO_PATH is used, if set, otherwise $SCRATCH/.uenv-images is used if the SCRATCH environment variable is set. This option will override these defaults, and must be set if neither of the defaults is set.")
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    path_parser = subparsers.add_parser("inspect",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            help="Display detailed information about a uenv.",
+            epilog=f"""\
+Display detailed information about a uenv.
+It is an error if no uenv matching the requested spec is on the local filesystem.
+
+{colorize("Example", "blue")} - get information about a uenv
+  {colorize("uenv image inspect prgenv-gnu/24.2:v1", "white")}
+
+{colorize("Example", "blue")} - it is also possible to get the path of the most relevant version/tag
+of a uenv, or use an explicit sha:
+  {colorize("uenv image inspect prgenv-gnu/24.2:v1", "white")}
+  {colorize("uenv image inspect 3313739553fe6553f789a35325eb6954a37a7b85cdeab943d0878a05edaac998", "white")}
+  {colorize("uenv image inspect 3313739553fe6553", "white")}     {colorize("# the 16 digit uenv id", "gray")}
+{colorize("Note", "cyan")}: the spec must uniquely identify the uenv. If more than one uenv
+match the spec, an error message is printed.
+
+{colorize("Example", "blue")} - print the path of a uenv
+  {colorize("uenv image inspect --format '{path}' prgenv-gnu/24.2:v1", "white")}
+
+{colorize("Example", "blue")} - print the name and tag of a uenv un the name:tag format
+  {colorize("uenv image inspect --format '{name}:{tag}' prgenv-gnu/24.2:v1", "white")}
+
+{colorize("Example", "blue")} - print the location of the squashfs file of an image
+  {colorize("uenv image inspect --format '{sqfs}' prgenv-gnu/24.2:v1", "white")}
+
+Including name, tag and sqfs, the following variables can be printed in a
+format string passed to the --format option:
+    name:    name
+    version: version
+    tag:     tag
+    id:      the 16 digit image id
+    sha256:  the unique sha256 hash of the uenv
+    date:    date that the uenv was created
+    system:  the system that the uenv was built for
+    uarch:   the micro-architecture that the uenv was built for
+    path:    absolute path where the uenv is stored
+    sqfs:    absolute path of the squashfs file\
+""")
+    path_parser.add_argument("-s", "--system", required=False, type=str)
+    path_parser.add_argument("-a", "--uarch", required=False, type=str)
+    path_parser.add_argument("--format", type=str,
+                             default=
+f"""\
+name:    {{name}}
+version: {{version}}
+tag:     {{tag}}
+uarch:   {{uarch}}
+id:      {{id}}
+sha256:  {{sha256}}
+system:  {{system}}
+date:    {{date}}
+path:    {{path}}
+sqfs:    {{sqfs}}\
+""" ,
+                             help="optional format string")
+    path_parser.add_argument("uenv", type=str)
+
+    find_parser = subparsers.add_parser("find",
+            help="Find uenv in the CSCS registry.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=f"""\
+Find uenv in the CSCS registry.
+
+Uenv can be downloaded from the registry using the pull command, and list the
+downloaded uenv with the list command. For more information:
+  {colorize("uenv image pull --help", "white")}
+  {colorize("uenv image ls --help", "white")}
+
+{colorize("Example", "blue")} - find all uenv available (deployed) on this cluster:
+  {colorize("uenv image find", "white")}
+
+{colorize("Example", "blue")} - find all uenv with the name prgenv-gnu on this cluster:
+  {colorize("uenv image find prgenv-gnu", "white")}
+
+{colorize("Example", "blue")} - find all uenv with name prgenv-gnu and version 24.2 on this cluster:
+  {colorize("uenv image find prgenv-gnu/24.2", "white")}
+
+{colorize("Example", "blue")} - find the uenv with name prgenv-gnu, version 24.2 and tag "v2" on this cluster:
+  {colorize("uenv image find prgenv-gnu/24.2:v2", "white")}
+
+{colorize("Example", "blue")} - find all uenv with the name prgenv-gnu for uarch target gh200 on this cluster:
+  {colorize("uenv image find prgenv-gnu --uarch=gh200", "white")}
+
+{colorize("Example", "blue")} - find all uenv that match a concrete sha256 checksum on this cluster:
+  {colorize("uenv image find 3313739553fe6553f789a35325eb6954a37a7b85cdeab943d0878a05edaac998", "white")}
+
+{colorize("Example", "blue")} - find all uenv that match the 16-digit id:
+  {colorize("uenv image find 3313739553fe6553", "white")}
+
+{colorize("Example", "blue")} - find all uenv that have been generated as build artifacts on this cluster:
+  {colorize("uenv image find --build", "white")}
+""")
+    find_parser.add_argument("-s", "--system", required=False, type=str)
+    find_parser.add_argument("-a", "--uarch", required=False, type=str)
+    find_parser.add_argument("--build", action="store_true",
+                             help="Search undeployed builds.", required=False)
+    find_parser.add_argument("uenv", nargs="?", default=None, type=str)
+
+    pull_parser = subparsers.add_parser("pull",
+            help="Pull a uenv from the CSCS registry.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=f"""\
+Pull a uenv from the CSCS registry.
+
+{colorize("Note", "cyan")}: the description of the image must uniquely identify the image to pull. For example,
+if there are more than two tagged versions or tags of {colorize("prgenv-gnu", "white")}, the version and tag
+must be provided to disambiguate which image to pull.
+
+{colorize("Example", "blue")} - pull a specific version and tag of prgenv-gnu:
+  {colorize("uenv image pull prgenv-gnu/24.2:v2", "white")}
+
+{colorize("Example", "blue")} - pull using the unique sha256 of an uenv.
+  {colorize("uenv image pull 3313739553fe6553f789a35325eb6954a37a7b85cdeab943d0878a05edaac998", "white")}
+
+{colorize("Example", "blue")} - pull using the unique 16-digit id of an uenv.
+  {colorize("uenv image pull ed2cc6a498149ac2", "white")}
+
+{colorize("Example", "blue")} - pull the uenv with the name prgenv-gnu for uarch target gh200 on this cluster:
+Note that this is only neccesary when a vCluster has nodes with more than one uarch, and
+versions of the same uenv compiled against different uarch has been deployed.
+  {colorize("uenv image pull prgenv-gnu/24.2:v2 --uarch=gh200", "white")}
+
+{colorize("Example", "blue")} - pull a uenv from the build repository.
+By default only deployed images are pulled, and this option is only available to users
+with appropriate JFrog access and with the JFrog token in their oras keychain.
+  {colorize("uenv image pull 3313739553fe6553 --build", "white")}
+""")
+    pull_parser.add_argument("-s", "--system", required=False, type=str)
+    pull_parser.add_argument("-a", "--uarch", required=False, type=str)
+    pull_parser.add_argument("--build", action="store_true", required=False,
+                             help="enable undeployed builds")
+    pull_parser.add_argument("uenv", nargs="?", default=None, type=str)
+
+    list_parser = subparsers.add_parser("ls",
+            help="List available uenv.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=f"""\
+List uenv that are available.
+
+
+
+{colorize("Example", "blue")} - list all uenv:
+  {colorize("uenv image ls", "white")}
+
+{colorize("Example", "blue")} - list all uenv with the name prgenv-gnu:
+  {colorize("uenv image ls prgenv-gnu", "white")}
+
+{colorize("Example", "blue")} - list all uenv with name prgenv-gnu and version 24.2:
+  {colorize("uenv image ls prgenv-gnu/24.2", "white")}
+
+{colorize("Example", "blue")} - list the uenv with name prgenv-gnu, version 24.2 and tag "v2":
+  {colorize("uenv image ls prgenv-gnu/24.2:v2", "white")}
+
+{colorize("Example", "blue")} - list all uenv with the name prgenv-gnu for uarch target gh200:
+  {colorize("uenv image ls prgenv-gnu --uarch=gh200", "white")}
+
+{colorize("Example", "blue")} - list any uenv that have a concrete sha256 checksum:
+  {colorize("uenv image ls 3313739553fe6553f789a35325eb6954a37a7b85cdeab943d0878a05edaac998", "white")}
+
+{colorize("Example", "blue")} - list any uenv that has a 16-digit id:
+  {colorize("uenv image ls ed2cc6a498149ac2", "white")}
+""")
+    list_parser.add_argument("-s", "--system", required=False, type=str)
+    list_parser.add_argument("-a", "--uarch", required=False, type=str)
+    list_parser.add_argument("uenv", nargs="?", default=None, type=str)
+
+    create_parser = subparsers.add_parser("create",
+                    help="Create a local file system repository.")
+    create_parser.add_argument("--exists-ok", action="store_true", required=False,
+                    help="No error if the local registry exists.")
+
+    deploy_parser = subparsers.add_parser("deploy",
+                help="Deploy a uenv to the 'deploy' namespace, accessible to all users.",
+                formatter_class=argparse.RawDescriptionHelpFormatter,
+                epilog=
+f"""\
+Deploy a uenv from the build repo to the deploy repo, where all users can access it.
+
+{colorize("Attention", "red")}: this operation can only be performed by CSCS staff with appropriate
+access rights and a JFrog token configured for oras.
+
+The recommended method for deploying images is to first find the sha256 or id of the
+image in the build namespace that you wish to deploy
+
+{colorize("uenv image find --build icon-wcp", "white")}
+{colorize("uenv/version:tag                        uarch date       id               size", "gray")}
+{colorize("icon-wcp/v1:1208323951                  gh200 2024-03-11 e901b85c7652802e 7.8 GB", "gray")}
+{colorize("icon-wcp/v1:1206570249                  gh200 2024-03-08 0cb8e7e23b4fdb5c 7.8 GB", "gray")}
+
+In this example, we choose the most recent build with id e901b85c7652802e
+
+{colorize("uenv image deploy e901b85c7652802e --tags=v1", "white")}
+
+Then check that it has been deployed:
+
+{colorize("uenv image find e901b85c7652802e", "white")}
+{colorize("uenv/version:tag                        uarch date       id               size", "gray")}
+{colorize("icon-wcp/v1:v1                          gh200 2024-03-11 e901b85c7652802e 7.8 GB", "gray")}
+"""
+                                          )
+    deploy_parser.add_argument("--tags", required=True, help="Comma separated list of tags to apply to the deployed image.", type=str)
+    deploy_parser.add_argument("source", nargs=1, type=str, metavar="SOURCE",
+                               help="The full name/version:tag, id or sha256 of the uenv to deploy.")
+
+    return parser
+
+def get_options(args):
+    options = {}
+    if args.system is None:
+        sys_name = os.getenv("CLUSTER_NAME")
+        if sys_name is None:
+            raise ValueError("No system name was provided, and the CLUSTER_NAME environment variable is not set.")
+        options["system"] = sys_name
+    else:
+        options["system"] = args.system
+
+    options["name"] = args.uenv
+    options["uarch"] = args.uarch
+
+    return options
+
+def get_filter(args):
+    options = get_options(args)
+
+    name = options["name"]
+    if name is None:
+        terminal.info(f"get_filter: no search term provided")
+        img_filter = {}
+    else:
+        terminal.info(f"get_filter: parsing {name}")
+        img_filter = names.create_filter(name, require_complete=False)
+
+    img_filter["system"] = options["system"]
+
+    if options["uarch"] is not None:
+        img_filter["uarch"] = options["uarch"]
+
+    terminal.info(f"get_filter: filter {img_filter}")
+    return img_filter
+
+def inspect_string(record: record.Record, image_path, format_string: str) -> str:
+    try:
+        return format_string.format(
+            system = record.system,
+            uarch = record.uarch,
+            name = record.name,
+            date = record.date,
+            version = record.version,
+            tag = record.tag,
+            id = record.id,
+            sha256 = record.sha256,
+            path = image_path,
+            sqfs = image_path + "/store.squashfs",
+        )
+    except Exception as err:
+        terminal.error(f"unable to format {str(err)}")
+
+def image_size_string(size):
+    if size<1024:
+        return f"{size:<}B"
+    elif size<1024*1024:
+        return f"{(size/1024):<.0f}kB"
+    elif size<1024*1024*1024:
+        return f"{(size/(1024*1024)):<.0f}MB"
+    return f"{(size/(1024*1024*1024)):<.1f}GB"
+
+# pretty print a list of Record
+def print_records(recordset):
+    records = recordset.records
+
+    if not recordset.is_empty:
+        terminal.stdout(terminal.colorize(f"{'uenv/version:tag':40}{'uarch':6}{'date':10} {'id':16} {'size':<10}", "yellow"))
+        for r in recordset.records:
+            namestr = f"{r.name}/{r.version}"
+            tagstr = f"{r.tag}"
+            label = namestr + ":" + tagstr
+            short_date = r.date[:10]
+            datestr = r.date
+            size = image_size_string(r.size)
+            terminal.stdout(f"{label:<40}{r.uarch:6}{short_date:10} {r.id:16} {size:<10}")
+
+def safe_repo_open(path: str) -> datastore.FileSystemRepo:
+    """
+    Open a file system repository.
+
+    If there are errors, attempt to print a useful message before exiting.
+    Use this for all calls to open an existing FileSystemRepo in order to provide
+    consistent and useful error messages.
+    """
+    try:
+        cache = datastore.FileSystemRepo(path)
+    except datastore.RepoNotFoundError as err:
+        terminal.error(f"""The local repository {path} does not exist.
+The repo can be created using the following command:
+  {colorize(f"uenv image -r {repo_path} create", "white")}
+""")
+    except datastore.RepoDBError as err:
+        terminal.error(f"""The local repository {path} had a database error.
+Please open a CSCS ticket, or contact the uenv dev team, with the command that created the error, and this full error message.
+{str(err)}""")
+
+    return cache
+
+if __name__ == "__main__":
+
+    parser = make_argparser()
+    args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        sys.exit(0)
+
+    terminal.use_colored_output(args.no_color)
+    if args.verbose:
+        terminal.set_debug_level(2)
+
+    terminal.info(f"command mode: {args.command}")
+
+    repo_path = alps.uenv_repo_path(args.repo)
+
+    terminal.info(f"local repository: {repo_path}")
+
+    if args.command in ["find", "pull"]:
+        img_filter = get_filter(args)
+        terminal.info(f"using {'build' if args.build else 'deploy'} remote repo")
+
+        try:
+            deploy, build = jfrog.query()
+        except RuntimeError as err:
+            terminal.error(f"{str(err)}")
+
+        terminal.info(f"downloaded jfrog meta data: build->{len(build.images.records)}, deploy->{len(deploy.images.records)}")
+
+        remote_database = build if args.build else deploy
+
+        results = remote_database.find_records(**img_filter)
+
+        terminal.info(f"The following records matched the query: {results.records}")
+
+        # verify that there is at least one image that matches the query
+        if results.is_empty:
+            terminal.error(f"no uenv matches the spec: {colorize(results.request, 'white')}")
+
+        if args.command == "find":
+            print_records(results)
+
+        elif args.command == "pull":
+            if not results.is_unique_sha:
+                message = results.ambiguous_request_message()
+                terminal.error(message[0], abort=False)
+                for line in message[1:]:
+                    terminal.stderr(line)
+                exit(1)
+
+            # There can be more than one tag associated with a squashfs image.
+            # so here we get a list of all name/version:tag combinations associated
+            # with the sha256.
+            records = remote_database.get_record(results.shas[0])
+            t = records.records[0]
+            source_address = jfrog.address(t, 'build' if args.build else 'deploy')
+
+            terminal.info(f"pulling {t} from {source_address} {t.size/(1024*1024):.0f} MB")
+
+            terminal.info(f"repo path: {repo_path}")
+
+            cache = safe_repo_open(repo_path)
+            image_path = cache.image_path(t)
+
+            # if the record isn't already in the filesystem repo download it
+            if cache.database.get_record(t.sha256).is_empty:
+                terminal.stdout(f"downloading image {t.sha256} {image_size_string(t.size)}")
+                # download the image using oras
+                oras.run_command(["pull", "-o", image_path, source_address])
+            else:
+                terminal.stdout(f"image {t.sha256} is already available locally")
+            # update all the tags associated with the image.
+            terminal.info(f"updating the local repository database")
+            for r in records.records:
+                terminal.stdout(f"updating local reference {r.name}/{r.version}:{r.tag}")
+                cache.add_record(r)
+
+            terminal.stdout(f"image available at {image_path}/store.squashfs")
+
+        sys.exit(0)
+
+    elif args.command == "ls":
+        terminal.info(f"repo path: {repo_path}")
+
+        img_filter = get_filter(args)
+
+        fscache = safe_repo_open(repo_path)
+
+        records = fscache.database.find_records(**img_filter)
+        print_records(records)
+
+        sys.exit(0)
+
+    elif args.command == "inspect":
+        terminal.info(f"repo path: {repo_path}")
+
+        img_filter = get_filter(args)
+
+        fscache = safe_repo_open(repo_path)
+
+        results = fscache.database.find_records(**img_filter)
+
+        if results.is_empty:
+            terminal.error(f"no uenv matches the spec: {colorize(results.request, 'white')}")
+
+        if not results.is_unique_sha:
+            message = results.ambiguous_request_message()
+            terminal.error(message[0], abort=False)
+            for line in message[1:]:
+                terminal.stderr(line)
+            sys.exit(1)
+
+        r = results.records[0]
+        path = fscache.image_path(r)
+        formatted_output = inspect_string(r, path, args.format)
+        terminal.stdout(formatted_output)
+
+        sys.exit(0)
+
+    elif args.command == "create":
+        terminal.info(f"repo path: {repo_path}")
+
+        try:
+            datastore.FileSystemRepo.create(repo_path, exists_ok=args.exists_ok)
+        except Exception as err:
+            terminal.error(f"unable to find or initialise the local registry: {str(err)}")
+
+        sys.exit(0)
+
+    elif args.command == "deploy":
+        source = args.source[0]
+        terminal.info(f"request to deploy '{source}' with tags '{args.tags}'")
+
+        # for deployment, we require a complete description, i.e
+        #   name/version:tag OR sha256
+        try:
+            img_filter = names.create_filter(source, require_complete=True)
+        except names.IncompleteUenvName as err:
+            terminal.error(f"source {source} is not fully qualified: use name/version:tag or sha256.")
+
+        # query JFrog for the list of images
+        try:
+            _, build_database = jfrog.query()
+        except RuntimeError as err:
+            terminal.error(f"{str(err)}")
+
+        terminal.info(f"downloaded jfrog build meta data: {len(build_database.images)} images")
+
+        # expect that src has [name, version, tag] keys
+        results = build_database.find_records(**img_filter)
+
+        if results.is_empty:
+            terminal.error(f"source {source} is not an image in the build repository")
+
+        source_record = results.records[0]
+        terminal.info(f"the source is {source_record}")
+
+        target_record = copy.deepcopy(source_record)
+
+        # create comma separated list of tags to be attached to the deployed image
+        tags = [ tag.strip() for tag in args.tags.split(',') ]
+        target_record.tag = ','.join(tags)
+
+        terminal.info(f"source: {source_record}")
+        source_address = jfrog.address(source_record, 'build')
+        target_address = jfrog.address(target_record, 'deploy')
+        terminal.info(f"source address: {source_address}")
+        terminal.info(f"target address: {target_address}")
+
+        oras.run_command(["cp", "--concurrency", "10", "--recursive", source_address, target_address])
+
+        terminal.info(f"successfully deployed {target_address}")
+
+        sys.exit(0)
+

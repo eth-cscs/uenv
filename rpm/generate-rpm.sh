@@ -27,10 +27,12 @@ mkdir -p "${build_path}"
 tar_path="${build_path}/${pkg_name}"
 mkdir -p "${tar_path}"
 
+cp -r "${source_path}/lib" "${tar_path}"
 cp "${source_path}/install" "${tar_path}"
 cp "${source_path}/VERSION" "${tar_path}"
 cp "${source_path}/activate" "${tar_path}"
 cp "${source_path}/uenv-impl" "${tar_path}"
+cp "${source_path}/uenv-image" "${tar_path}"
 
 tar_file="${build_path}/SOURCES/${pkg_name}.tar.gz"
 tar -czf "${tar_file}" --directory "${build_path}" "${pkg_name}"

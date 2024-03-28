@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: setup-environment
         run: |
-          zypper install -y libmount-devel gcc make rpm-build git sudo python3
+          zypper install -y libmount-devel gcc make rpm-build git sudo python3 wget
       - name: clone
         uses: actions/checkout@v2
       - name: build-srpm

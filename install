@@ -5,6 +5,20 @@ set -euo pipefail
 script_path=$(dirname "$(readlink -f "$BASH_SOURCE")")
 version=$(cat "$script_path/VERSION")
 
+# default installation destination, only required for building rpm packages
+destdir=""
+
+get_oras_arch() {
+  case "$(uname -m)" in
+    aarch64)
+      echo "arm64"
+      ;;
+    *)
+      echo "amd64"
+      ;;
+  esac
+}
+
 function usage {
     echo "uenv installer"
     echo "Usage: install [--prefix=] [--yes] [--help]"
@@ -120,29 +134,54 @@ run () {
     fi
 }
 
-echo "installing uenv version $version in $prefix"
+echo "installing uenv version $version in $prefix from $script_path"
 echo "local install: $local_install"
 
+libexec=${prefix}/libexec
+impl_path="${libexec}/uenv-impl"
+img_impl_path="${libexec}/uenv-image"
+lib_path="${libexec}/lib"
 if [ "$local_install" == "no" ]
 then
     init_path="${destdir}/etc/profile.d/uenv.sh"
-    impl_path="${prefix}/libexec/uenv-impl"
-    impl_path_install="${destdir}/${impl_path}"
-
 else
     init_path="${prefix}/bin/activate-uenv"
-    impl_path="${prefix}/libexec/uenv-impl"
-    impl_path_install="${impl_path}"
 fi
 
+echo "installing $lib_path"
+run install -v -m755 -d "$lib_path"
+run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/alps.py
+run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/datastore.py
+run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/jfrog.py
+run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/names.py
+run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/oras.py
+run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/record.py
+run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/terminal.py
+
+echo "installing ${img_impl_path}"
+run install -v -m755 -D "$script_path/uenv-image" "${destdir}/${img_impl_path}"
+
 echo "installing $impl_path"
-run install -D -m755 <(sed "s|@@version@@|$version|g" $script_path/uenv-impl) $impl_path_install
+run install -D -m755 <(sed "s|@@version@@|$version|g" $script_path/uenv-impl) ${destdir}/$impl_path
+
+# install the oras client
+echo "installing oras client"
+oras_arch=$(get_oras_arch)
+oras_version=1.1.0
+oras_file=oras_${oras_version}_linux_${oras_arch}.tar.gz
+oras_url=https://github.com/oras-project/oras/releases/download/v${oras_version}/${oras_file}
+oras_path=`mktemp -d`
+(cd "$oras_path"; run wget --quiet "$oras_url"; run tar -xzf "$oras_file"; run rm *.tar.gz)
+oras_exe_path="${libexec}/uenv-oras"
+run install -v -m755 -D "${oras_path}/oras" "${destdir}/${oras_exe_path}"
 
 echo "installing $init_path"
-run install -D -m644 <(
+run install -v -m644 -D <(
     sed \
-        -e "s|@@impl@@|$impl_path|g" \
+        -e "s|@@impl@@|$impl_path|g"  \
         -e "s|@@version@@|$version|g" \
+        -e "s|@@prefix@@|$prefix|g"   \
+        -e "s|@@image_impl@@|$img_impl_path|g" \
         $script_path/activate) \
       $init_path
 

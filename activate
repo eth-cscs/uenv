@@ -1,8 +1,10 @@
 # only run if bash or zsh
-[ -n "${BASH_VERSION:-}" -o -n "${ZSH_VERSION:-}" ] || return 0
+[ -n "${BASH_VERSION:-}" ] || return 0
 
 export UENV_CMD=@@impl@@
+export UENV_IMG_CMD=@@image_impl@@
 export UENV_VERSION=@@version@@
+export UENV_PREFIX=@@prefix@@
 
 function uenv {
     local _last_exitcode=$?
@@ -12,23 +14,46 @@ function uenv {
         echo ""
         echo "Usage:   uenv [--version] [--help] <command> [<args>]"
         echo ""
-        echo "the following commands are available"
+        echo "The following commands are available:"
         echo "  run             run a command in an environment"
         echo "  start           start a new shell with an environment loaded"
         echo "  stop            stop a shell with an environment loaded"
         echo "  status          print information about each running environment"
         echo "  modules         view module status and activate with --use"
         echo "  view            activate a view"
+        echo "  image           query and pull uenv images"
+        echo ""
+        echo "Type 'uenv command --help' for more information and examples for a specific command, e.g."
+        echo "  uenv start --help"
+        echo "  uenv image find --help"
     }
 
     if [ "$1" = "--version" ]; then
         echo "@@version@@";
-    elif [[ $# -eq 0 || "$1" = "--help" || "$1" = "-h" ]]; then
-        uenv_usage;
-    elif [[ " $* " =~ [[:space:]](-h|--help)[[:space:]] ]]; then
-        echo "$($UENV_CMD "$@")"
     else
-        eval "$($UENV_CMD "$@")"
+        flags=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                -?*|--*)
+                    flags="$flags $1"
+                    shift
+                    ;;
+                *)
+                    break
+                    ;;
+            esac
+        done
+
+        if [[ $# -eq 0 ]]; then
+            uenv_usage;
+        elif [ "$1" = "image" ]; then
+            shift;
+            $UENV_IMG_CMD $flags "$@"
+        elif [[ " $* " =~ [[:space:]](-h|--help)[[:space:]] ]]; then
+            echo "$($UENV_CMD $flags "$@")"
+        else
+            eval "$($UENV_CMD $flags "$@")"
+        fi
     fi
 
     unset -f uenv_usage

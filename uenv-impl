@@ -11,6 +11,18 @@ import os
 import pathlib
 import sys
 import subprocess
+import textwrap
+
+prefix = pathlib.Path(__file__).parent.resolve()
+libpath = prefix / 'lib'
+sys.path = [libpath.as_posix()] + sys.path
+
+import alps
+import datastore
+import names
+import record
+import terminal
+from terminal import colorize
 
 VERSION="@@version@@"
 
@@ -18,86 +30,183 @@ shell_noop=" :"
 shell_error="local _exitcode=1"
 
 def make_argparser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--no-color", action="store_true")
-    parser.add_argument("--verbose", action="store_true")
+    parser = argparse.ArgumentParser(
+            prog="uenv",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description=textwrap.dedent(
+f"""\
+Interact, manage and query with CSCS uenv.
+
+For more information on how to use individual commands use the --help flag.
+
+{colorize("Example", "blue")}: get help on the start command
+    {colorize("uenv start --help", "white")}
+"""
+                ))
+    parser.add_argument("--no-color", action="store_true", help="disable color output")
+    parser.add_argument("--verbose", action="store_true", help="verbose output for debugging")
+    parser.add_argument("-r", "--repo",
+            required=False, default=None, type=str,
+            help="The path on the local filesystem where uenv are managed. By default the environment variable UENV_REPO_PATH is used, if set, otherwise $SCRATCH/.uenv-images is used if the SCRATCH environment variable is set. This option will override these defaults, and must be set if neither of the defaults is set.")
+
     subparsers = parser.add_subparsers(dest="command")
 
+    #### run
     run_parser = subparsers.add_parser("run",
-            help="run a command in a user environment")
+            help="run a command in a user environment",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=textwrap.dedent(
+f"""\
+Run a command in an environment.
+
+{colorize("Example", "blue")} - run the script job.sh in an evironmnent:
+    {colorize("uenv run prgenv-gnu/24.2:v1 -- ./job.sh", "white")}
+This will mount prgenv-gnu, execute job.sh, then return to the calling shell.
+Note how the command to execute comes after the two dashes '--'.
+
+{colorize("Note", "cyan")} - the spec must uniquely identify the uenv. To ensure this, always use a
+fully qualified spec in the form of name/version:tag, the unique 16 digit id,
+or sha256 of a uenv. If more than one uenv match the spec, an error message
+is printed.
+
+{colorize("Example", "blue")} - run the job.sh script with two images mounted:
+    {colorize("uenv run prgenv-gnu/24.2:v1 ddt/23.1 -- ./job.sh", "white")}
+By default the images will be mounted at /user-environment and /user-tools in
+that order.
+
+{colorize("Example", "blue")} - run the job.sh script with two images mounted at specific mount points:
+    {colorize("uenv run prgenv-gnu/24.2:v1:$SCRATCH/pe ddt/23.1:/user-tools -- ./job.sh", "white")}
+Here the mount point for each image is specified using a ":".
+
+{colorize("Note", "cyan")} - uenv must be mounted at the mount point for which they were built.
+If mounted at the wrong location, a warning message will be printed, and
+features like views and modules wiil be disabled.
+
+{colorize("Example", "blue")} - the run command can be used to execute workflow steps with
+separate environments:
+    {colorize("uenv run gromacs/23.1  -- ./simulation.sh", "white")}
+    {colorize("uenv run paraview/5.11 -- ./render.sh", "white")}
+"""
+                ))
+    run_parser.add_argument("-a", "--uarch",
+                             help="The micro-architecture (uarch) to target. May be required to disambiguate uenv on systems with more than one node uarch. Available options are zen2, zen3, a100, mi200, gh200.",
+                             required=False, type=str)
     run_parser.add_argument("runline", nargs=argparse.REMAINDER, type=str)
 
+    #### start
     start_parser = subparsers.add_parser("start",
-            help="start a user environment")
+            help="start a user environmentRun a command in an environment.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=textwrap.dedent(
+f"""\
+{colorize("Example", "blue")} - start a uenv:
+    {colorize("uenv start prgenv-gnu/24.2:v1", "white")}
+This will mount prgenv-gnu at /user-environment, and start a new shell.
+
+{colorize("Note", "cyan")} - the spec must uniquely identify the uenv. To ensure this, always use a
+fully qualified spec in the form of name/version:tag, the unique 16 digit id,
+or sha256 of a uenv. If more than one uenv match the spec, an error message
+is printed.
+
+{colorize("Note", "cyan")} - to check whether the environment has been started, and which options
+it provides, run the command {colorize('uenv status', 'white')} after starting it.
+
+{colorize("Example", "blue")} - start a session with with two images mounted:
+    {colorize("uenv start prgenv-gnu/24.2:v1 ddt/23.1", "white")}
+By default the images will be mounted at /user-environment and /user-tools in
+that order.
+
+{colorize("Example", "blue")} - start a session with two images mounted at specific mount points:
+    {colorize("uenv start prgenv-gnu/24.2:v1:$SCRATCH/pe ddt/23.1:/user-tools", "white")}
+Here the mount point for each image is specified using a ":".
+
+{colorize("Note", "cyan")} - uenv must be mounted at the mount point for which they were built.
+If mounted at the wrong location, a warning message will be printed, and
+features like views and modules wiil be disabled.
+"""
+                 ))
+    start_parser.add_argument("-a", "--uarch",
+                             help="The micro-architecture (uarch) to target. May be required to disambiguate uenv on systems with more than one node uarch. Available options are zen2, zen3, a100, mi200, gh200.",
+                             required=False, type=str)
     start_parser.add_argument("image", nargs='+', type=str,
             help="the uenv to start")
 
+    #### stop
     stop_parser = subparsers.add_parser("stop",
-            help="stop a running user environment")
+            help="stop a running uenv")
 
+    #### status
     status_parser = subparsers.add_parser("status",
-            help="print information about running environments")
+            help="print information about any loaded uenv")
 
+    #### modules
     modules_parser = subparsers.add_parser("modules",
-            help="use modules if they are available")
+            help="use modules if they are available",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=textwrap.dedent(
+f"""\
+{colorize("Example", "blue")} - get information about uenv modules:
+    {colorize("uenv modules", "white")}
+
+The sample output below is generated when there is one started uenv that
+provides modules. In this case the modules have already been made available
+using the {colorize("uenv modules use", "white")} command (see below).
+
+{colorize("the following loaded uenv provide modules:", "gray")}
+{colorize("  prgenv-gnu:/user-environment (loaded)", "gray")}
+
+{colorize("Example", "blue")} - enable the modules provided by the current uenv:
+    {colorize("uenv modules use", "white")}
+
+Once enabled, the modules will be available through the system module command,
+e.g. {colorize("module avail", "white")} and {colorize("module load ...", "white")}.
+
+{colorize("Note", "cyan")} - the {colorize("uenv modules use", "white")} command above is eqivalent to the module command
+{colorize("module use /user-environment/modules", "white")}.
+
+{colorize("Example", "blue")} - enable modules of a uenv by name:
+    {colorize("uenv modules use prgenv-gnu", "white")}
+This command is useful if more than one uenv is mounted. Modules provided by
+more than one mounted uenv can be used by providing a space separated list of
+uenv names.
+"""
+             ))
     modules_subparsers = modules_parser.add_subparsers(dest="modules_command")
     modules_use_parser = modules_subparsers.add_parser("use",
             help="use modules if they are available")
     modules_use_parser.add_argument("image", nargs='*', type=str,
             help="the uenv(s) with the modules to load")
 
+    #### view
     views_parser = subparsers.add_parser("view",
-            help="activate a view")
+            help="activate a view",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=textwrap.dedent(
+f"""\
+{colorize("Example", "blue")} - print information about uenv views:
+    {colorize("uenv view", "white")}
+Prints information about the currently loaded view, otherwise information about
+the available views will be printed.
+
+{colorize("Example", "blue")} - load the file system view named develop:
+    {colorize("uenv view develop", "white")}
+
+{colorize("Example", "blue")} - load the file system view {colorize('default','cyan')} provided by the loaded uenv {colorize('prgenv-gnu','cyan')}:
+    {colorize("uenv view prgenv-gnu:default", "white")}
+
+{colorize("Note", "cyan")} - currently only one file system view can be loaded at a time.
+"""
+            ))
     views_parser.add_argument("view_name",
-            help="the name of the view to load")
+            nargs='?',
+            default=None,
+            help="the view to load")
 
     return parser
 
 ###############################################################################
 # Utility functions for string handling, printing, etc.
 ###############################################################################
-
-# Choose whether to use colored output.
-# - by default colored output is ON
-# - if the flag --no-color is passed it is OFF
-# - if the environment variable NO_COLOR is set it is OFF
-def use_colored_output(cli_arg):
-    # The --no-color argument overrides all environment variables if passed.
-    if cli_arg:
-        return False
-
-    # Check the env. var NO_COLOR and disable color if set.
-    if os.environ.get('NO_COLOR') is not None:
-        color_var = os.environ.get('NO_COLOR')
-        if len(color_var)>0 and color_var != "0":
-            return False
-
-    return True
-
-def colorize(string, color):
-    colors = {
-        "red":     "31",
-        "green":   "32",
-        "yellow":  "33",
-        "blue":    "34",
-        "magenta": "35",
-        "cyan":    "36",
-        "white":   "37",
-    }
-    if colored_output:
-        return f"\033[1;{colors[color]}m{string}\033[0m"
-    else:
-        return string
-
-def print_error(msg):
-    print(f"{colorize('[error]', 'red')} {msg}", file=sys.stderr)
-
-def print_warning(msg):
-    print(f"{colorize('[warning]', 'yellow')} {msg}", file=sys.stderr)
-
-def print_debug(msg):
-    if verbose:
-        print(f"{colorize('[info]', 'cyan')} {msg}", file=sys.stderr)
 
 def echo_from_lines(lines):
     return [("echo '" + line + "'") for line in lines]
@@ -128,8 +237,8 @@ def parse_uenv_modules(desc):
     return [pathlib.Path(p) for p in desc.split(',')]
 
 def parse_uenv_view(desc):
-    path, name = desc.split(':')
-    return {"path": pathlib.Path(path), "name": name}
+    mount, uenv, name = desc.split(':')
+    return {"path": pathlib.Path(mount), "uenv": uenv, "name": name}
 
 ###############################################################################
 # Types that read and represent uenv status
@@ -242,11 +351,11 @@ class uenv:
             if self.modules in [str(e) for e in env_module_paths]:
                 self.modules_loaded = True
             if self.modules_loaded:
-                print_debug(f"uenv {self.name} at {str(self.mount)} has modules loaded")
+                terminal.info(f"uenv {self.name} at {str(self.mount)} has modules loaded")
 
         if not self.is_native_mounted:
-            print_warning(f"The uenv mounted at {self.mount} should be mounted at {self.native_mount}.")
-            print_warning(f"Features like modules and views will be be disabled.")
+            terminal.warning(f"The uenv mounted at {self.mount} should be mounted at {self.native_mount}.")
+            terminal.warning(f"Features like modules and views will be be disabled.")
 
     def load_image(self, path):
         """return information (if any) about the image mounted at path"""
@@ -264,10 +373,10 @@ class uenv:
                     env = json.load(fid)
                     return {"mount": path, "uenv": env}
                 except:
-                    print_error(f"unable to read environment configuration {env_file}")
+                    terminal.error(f"unable to read environment configuration {env_file}", abort=False)
                     return empty_image
 
-        print_warning(f"the environment mounted at {meta_path} has no configuration {env_file}")
+        terminal.warning(f"the environment mounted at {meta_path} has no configuration {env_file}")
 
         return empty_image
 
@@ -276,28 +385,28 @@ class uenv:
 
         # no uenv - return the real mount point
         if not self.is_uenv:
-            print_debug(f"image at {self.mount} is not a uenv: setting native mount to {self.mount}")
+            terminal.info(f"image at {self.mount} is not a uenv: setting native mount to {self.mount}")
             return self.mount
 
         # check whether the mount point is explicitly in the image meta
         mnt = self._image["uenv"].get("mount", None)
 
         if mnt is not None:
-            print_debug(f"image at {self.mount} has native mount {mnt} set in meta data")
+            terminal.info(f"image at {self.mount} has native mount {mnt} set in meta data")
             return pathlib.Path(mnt)
 
         # check whether it can be inferred from a view path
         for e in self.views:
-            print_debug(f"image at {self.mount} has native mount {pathlib.Path(e['root']).parents[1]} inferred from views")
+            terminal.info(f"image at {self.mount} has native mount {pathlib.Path(e['root']).parents[1]} inferred from views")
             return pathlib.Path(e["root"]).parents[1]
 
         # check whether it can be inferred from a module path
         if self.modules is not None:
-            print_debug(f"image at {self.mount} has native mount {pathlib.Path(e['root']).parents[1]} inferred from modules")
+            terminal.info(f"image at {self.mount} has native mount {pathlib.Path(e['root']).parents[1]} inferred from modules")
             return pathlib.Path(self.modules).parents[0]
 
         # no mount information found, so assume that the actual mount point is valid.
-        print_debug(f"image at {self.mount} has native mount {self.mount} assumed")
+        terminal.info(f"image at {self.mount} has native mount {self.mount} assumed")
         return self.mount
 
     @property
@@ -384,7 +493,7 @@ class uenv:
 def generate_command(args):
     env = environment()
     if env.old_api:
-        print_error(f"the version of squashfs-mount on this system is too old.")
+        terminal.error(f"the version of squashfs-mount on this system is too old.", abort=False)
         return shell_error
 
     if args.command == "run":
@@ -400,7 +509,7 @@ def generate_command(args):
     elif args.command == "modules":
         return generate_modules_command(args, env)
 
-    print_error(f"unknown command '{args.command}'")
+    terminal.error(f"unknown command '{args.command}'", abort=False)
     return shell_error
 
 """
@@ -410,7 +519,7 @@ uenv start gromacs.squashfs:/user-environment ddt.squashfs:/tools
 
 ultimately:
 
-uenv start gromacs:latest ddt
+uenv start gromacs/2023.1 ddt
 
 Specifying what to mount will use some "special characters"
     the 2023 version of gromacs built for hoghant/a100 at /user-environment
@@ -418,15 +527,30 @@ Specifying what to mount will use some "special characters"
     gromacs@2023/hohgant/a100:/user-environment
     |system=hohgant,arch=a100,gromacs:2023|/user-environment
     $SCRATCH/gromacs.squashfs:/user-environment
+
+    name[/version][:tag][:mount]
+
+    gromacs
+        gromacs             None
+    gromacs:/uenv
+        gromacs             /uenv
+    gromacs:uenv
+        gromacs:uenv        None
+    gromacs/5.0:uenv
+        gromacs/5.0:uenv    None
+    gromacs/5.0:uenv:/uenv
+        gromacs/5.0:uenv    /uenv
+    gromacs/5.0:/uenv
+        gromacs/5.0         /uenv
+
+    mount must always be an absolute path, so must start with '/'
 """
 
 def parse_image_description(desc):
-    s = desc.split(':')
-    if len(s)==1:
-        return {"image": s[0], "mount": None}
-    elif len(s)==2:
+    s = desc.rsplit(':', 1)
+    if len(s)==2 and s[1].startswith("/"):
         return {"image": s[0], "mount": s[1]}
-    return None
+    return {"image": desc, "mount": None}
 
 def generate_image_pairs(mnt_list):
     """
@@ -444,16 +568,12 @@ def generate_image_pairs(mnt_list):
 
     # check for zero length input
     if num_images==0:
-        print_error("No environment is provided")
+        terminal.error("No environment is provided", abort=False)
         return []
 
     # inspect the first image
     img = parse_image_description(descriptions[0])
-    if img is None:
-        # handle error
-        print_error(f"Invalid image description {descriptions[0]}")
-        return []
-    elif img["mount"] is None:
+    if img["mount"] is None:
         img["mount"] = "/user-environment"
     else:
         implicit_mounts = False
@@ -465,56 +585,99 @@ def generate_image_pairs(mnt_list):
 
     # inspect the second image
     img = parse_image_description(descriptions[1])
-
-    if img is None:
-        # handle error
-        print_error(f"Invalid image description {descriptions[1]}")
-        return []
-    elif img["mount"] is None:
+    if img["mount"] is None:
         if implicit_mounts == True:
             img["mount"] = "/user-tools"
         else:
-            print_error(f"missing mount point in '{descriptions[1]}'")
+            terminal.error(f"missing mount point in '{descriptions[1]}'", abort=False)
             return []
 
-    implicit_mounts = False
     mounts.append(img)
 
     for d in descriptions[2:]:
         img = parse_image_description(d)
 
-        if img is None:
-            print_error(f"Invalid image description '{d}'")
-            return []
         if img["mount"] is None:
-            print_error(f"missing mount point in '{d}'")
+            terminal.error(f"missing mount point in '{d}'", abort=False)
             return []
 
         mounts.append(img)
 
     return mounts
 
-def parse_image_descriptions(mnt_list):
+def parse_image_descriptions(mnt_list, repo, uarch):
     mounts = generate_image_pairs(mnt_list)
 
     mount_pairs = []
     for m in mounts:
-        img_path = pathlib.Path(m["image"])
-        if not img_path.is_absolute():
-            img_path = pathlib.Path.cwd() / img_path
-        if not img_path.is_file():
-            print_error(f"the user environment {colorize(img_path, 'white')} does not exist")
-            return []
+        uenv = m["image"]
+        terminal.info(f"requested mount {m['image']} at {m['mount']}")
+        uenv_path = pathlib.PosixPath(uenv)
+        if not uenv_path.is_file():
+            terminal.info(f"no file matching description found")
+
+            repo_path = alps.uenv_repo_path(repo)
+            terminal.info(f"looking in the repository {repo_path}")
+
+            img_filter = names.create_filter(uenv, require_complete=False)
+            cluster = os.environ.get('CLUSTER_NAME')
+            if cluster is not None:
+                img_filter["system"] = cluster
+            else:
+                # make it a hard error if the target vCluster can't be determined
+                terminal.error("the CLUSTER_NAME environment variable is not set", abort=False)
+                return []
+
+            if uarch is not None:
+                img_filter["uarch"]  = uarch
+
+            terminal.info(f"search filter {img_filter}")
+
+            try:
+                fscache = datastore.FileSystemRepo(repo_path)
+            except datastore.RepoNotFoundError as err:
+                terminal.error(f"""The local repository {repo_path} does not exist.
+The repo can be created using the following command:
+  {colorize(f"uenv image -r {repo_path} create", "white")}
+""", abort=False)
+                return []
+            except datastore.RepoDBError as err:
+                terminal.error(f"""The local repository {repo_path} had a database error.
+Please open a CSCS ticket, or contact the uenv dev team, with the command that created the error, and this full error message.
+{str(err)}""", abort=False)
+                return []
+            result = fscache.database.find_records(**img_filter)
+
+            if result.is_empty:
+                terminal.error(f"no uenv matches the spec: {terminal.colorize(result.request, 'white')}", abort=False)
+                return []
+
+            if not result.is_unique_sha:
+                message = result.ambiguous_request_message()
+                terminal.error(message[0], abort=False)
+                for line in message[1:]:
+                    terminal.stderr(line)
+                return []
+
+            record = result.records[0]
+            terminal.info(f"selected image {record} from repository  {repo_path}")
+
+            uenv_path = fscache.image_path(record) + "/store.squashfs"
+            terminal.info(f"lookup {uenv} returned {uenv_path}")
+            terminal.info("loading {record.full_name}  {record.short_sha}")
+        else:
+            uenv_path = uenv_path.resolve()
 
         mnt_path = pathlib.Path(m["mount"])
-        if not mnt_path.is_absolute():
-            mnt_path = pathlib.Path.cwd() / mnt_path
         if not mnt_path.is_dir():
-            print_error(f"the mount point {colorize(mnt_path, 'white')} does not exist")
+            terminal.error(f"the mount point {colorize(mnt_path, 'white')} does not exist", abort=False)
+            return []
+        if not mnt_path.is_absolute():
+            terminal.error(f"the mount point {colorize(mnt_path, 'white')} is a relative path", abort=False)
             return []
 
-        mount_pairs.append(f"{img_path}:{mnt_path}")
-        print_debug(f"  mounting: {img_path}:{mnt_path}")
+        mount_pairs.append(f"{uenv_path}:{mnt_path}")
+        terminal.info(f"  mounting: {uenv_path}:{mnt_path}")
 
     return mount_pairs
 
@@ -536,25 +699,25 @@ def split_runline(args):
     return images, cmd, cmdargs
 
 def generate_run_command(args, env):
-    print_debug(f"parsing run command with arguments: {args.command}")
+    terminal.info(f"parsing run command with arguments: {args.command}")
     if env.active:
-        print_error("a uenv is already running")
+        terminal.error("a uenv is already loaded", abort=False)
         return shell_error
 
     images, cmd, cmdargs = split_runline(args.runline)
 
-    print_debug(f"images: {images}")
-    print_debug(f"cmd: {cmd}")
-    print_debug(f"cmdargs: {cmdargs}")
+    terminal.info(f"images: {images}")
+    terminal.info(f"cmd: {cmd}")
+    terminal.info(f"cmdargs: {cmdargs}")
 
-    mount_pairs=parse_image_descriptions(images)
+    mount_pairs=parse_image_descriptions(images, args.repo, args.uarch)
     if mount_pairs==[]:
         return shell_error
 
     mount_string = ' '.join(mount_pairs)
     cmdargs_string = ' '.join([f'"{arg}"' for arg in cmdargs])
 
-    # TODO: remove once support for old slurm plugin no longer required
+    # TODO: remove UENV_MOUNT_* variables when support for the old slurm plugin no longer required
     main_mount=mount_pairs[0].split(":")
     return [f"export UENV_MOUNT_FILE={main_mount[0]}",
             f"export UENV_MOUNT_POINT={main_mount[1]}",
@@ -564,18 +727,18 @@ def generate_run_command(args, env):
 
 
 def generate_start_command(args, env):
-    print_debug(f"parsing start command with arguments: {args.image}")
+    terminal.info(f"parsing start command with arguments: {args.image}")
     if env.active:
-        print_error("a uenv is already running")
+        terminal.error("a uenv is already loaded", abort=False)
         return shell_error
 
-    mount_pairs=parse_image_descriptions(args.image)
+    mount_pairs=parse_image_descriptions(args.image, args.repo, args.uarch)
     if mount_pairs==[]:
         return shell_error
 
     mount_string = ' '.join(mount_pairs)
 
-    # TODO: remove once support for old slurm plugin no longer required
+    # TODO: remove UENV_MOUNT_* variables when support for the old slurm plugin no longer required
     main_mount=mount_pairs[0].split(":")
     return [f"export UENV_MOUNT_FILE={main_mount[0]}",
             f"export UENV_MOUNT_POINT={main_mount[1]}",
@@ -585,10 +748,10 @@ def generate_start_command(args, env):
 
 def generate_modules_command(args, env):
 
-    print_debug(f"parsing modules command: {args}")
+    terminal.info(f"parsing modules command: {args}")
 
     if not env.active:
-        print_error(f'there is no environment loaded')
+        terminal.error(f'there is no uenv loaded', abort=False)
         return shell_error
 
     # generate a list of all the mounted environments that provide modules
@@ -597,7 +760,7 @@ def generate_modules_command(args, env):
             for e in env.uenvs
                 if (e.modules is not None) and e.is_native_mounted]
 
-    print_debug(f"modules are provided by {module_envs}")
+    terminal.info(f"modules are provided by {module_envs}")
 
     # No use command, i.e. the folloing CLI command was made:
     #   uenv modules
@@ -633,14 +796,14 @@ def generate_modules_command(args, env):
                             and (e.modules is not None)
                             and (e.is_native_mounted)]
                 if len(matches)==0:
-                    print_error(f"no uenv matching {i} provides modules")
+                    terminal.error(f"no uenv matching {i} provides modules", abort=False)
                     return shell_error
-                print_debug(f"  uenv {i} mounted at {matches[0]}")
+                terminal.info(f"  uenv {i} mounted at {matches[0]}")
                 mounts.append(matches[0])
 
         modulepaths = [str(p / 'modules') for p in mounts]
         for p in modulepaths:
-            print_debug(f"  using modules in {p}")
+            terminal.info(f"  using modules in {p}")
         modulecmds = [f"module use {p}" for p in modulepaths]
         modulecmds.append(f"export UENV_MODULE_PATH={','.join(modulepaths)}")
         return modulecmds
@@ -651,40 +814,113 @@ def generate_modules_command(args, env):
 def generate_view_command(args, env):
 
     if not env.active:
-        print_error(f'there is no environment loaded')
+        terminal.error(f'there is no uenv loaded')
         return shell_error
+
+    requested_view = args.view_name
+
+    # A dictionary that provides a list of views for each mounted uenv
+    #     {key=uenv-name: value=[views]}
+    # only uenv with views are added to the dictionary
+    available_views = {}
+    # A dictionary with view name as a key, and a list of uenv that provide
+    # view with that name as the values
+    view2uenv = {}
+    for uenv in env.uenvs:
+        name = uenv.name
+        views = [v["name"] for v in uenv.views]
+        if len(views)>0:
+            available_views[name] = views
+        for v in views:
+            view2uenv.setdefault(v, []).append(uenv)
+
+    # A helper function that generates a help message to echo to the screen.
+    def help_message(final_op=shell_noop):
+        output = []
+        if not available_views:
+            output.append("echo 'no views are provided by the loaded uenv'")
+        output.append("echo 'the following views are available:'")
+        output.append("echo ''")
+        # if only one uenv provides views, there is no need to disambiguate view names
+        disambiguate = len(available_views)>1
+        for name, views in available_views.items():
+            for view in views:
+                output.append(f"echo '{colorize(name+':'+view, 'cyan')}'")
+                if disambiguate:
+                    command = f"uenv view {name}:{view}"
+                else:
+                    command = f"uenv view {view}"
+                output.append(f"echo '  {colorize(command, 'white')}'")
+        output.append(final_op)
+        return output
+
+    # handle the case where `uenv view` is called with no further arguments
+    # print status information and suggested commands before quitting without error
+    if requested_view is None:
+        # handle the case that a view is already loaded
+        if env.loaded_view is not None:
+            loaded_view = f"{env.loaded_view['uenv']}:{env.loaded_view['name']}"
+            return [f"echo 'the view {colorize(loaded_view, 'cyan')} is loaded'",
+                    shell_noop]
+        else:
+            return help_message(shell_noop)
 
     if env.loaded_view is not None:
-        print_error(f'a view is already loaded: {env.loaded_view}')
+        loaded_view = f"{env.loaded_view['uenv']}:{env.loaded_view['name']}"
+        terminal.error(f"the view {colorize(loaded_view, 'cyan')} is already loaded")
         return shell_error
 
-    uenv = env.uenvs[0]
-    name = args.view_name
+    view_components = requested_view.split(':')
 
-    print_debug(f"trying to load view {name} in env loaded at {uenv.mount}")
+    # handle the case where no uenv name was provided
+    # e.g. "develop"
+    if len(view_components)==1:
+        vname = requested_view
+        uenvs = view2uenv.get(vname, [None])
+        # more than one uenv provides a view with the requested name
+        if len(uenvs)>1:
+            terminal.error(f'the view"{name}" is provided by {[e.name for e in uenvs]}. Use `uenv view` to see the available options.')
+            return help_message(shell_error)
+        # this will be either
+        #   the single uenv that provides the view
+        #   None -> no matching image
+        uenv = uenvs[0]
 
-    available_views = [v["name"] for v in uenv.views]
-    if name in available_views:
-        i = available_views.index(name)
-        path = uenv.views[i]['activate']
-        return [f"source '{path}'",
-                f"export UENV_VIEW={uenv.mount}:{name}",]
+    # handle the case where both uenv name and view are provided
+    # e.g. "prgenv-gnu:default"
     else:
-        print_error(f'the view "{name}" is not one of the available views: {available_views}')
-        return shell_error
+        ename = view_components[0]
+        vname = view_components[1]
+        # find all uenvs that provide this view
+        uenvs = view2uenv.get(vname, [])
+        # this will be either
+        #   the uenv that provides the view
+        #   None -> no matching image
+        uenv = next((e for e in uenvs if e.name==ename), None)
 
-    return shell_noop
+    # no view with the requested name exists
+    if uenv is None:
+        terminal.error(f'the view "{requested_view}" is not available')
+        return help_message(shell_error)
+
+    path = next((v['activate'] for v in uenv.views if v['name']==vname))
+
+
+    qualified_view_name = f"{uenv.name}:{vname}"
+    return [f"echo 'loading the view {colorize(qualified_view_name, 'cyan')}  with activation script {colorize(path, 'yellow')}'",
+            f"source '{path}'",
+            f"export UENV_VIEW={uenv.mount}:{uenv.name}:{vname}",]
 
 def generate_status_command(args, env):
     num_env = len(env.uenvs)
     if not env.active:
-        return echo_from_lines(["no user environment"])
+        return echo_from_lines(["there is no uenv loaded"])
 
     lines = []
     first = True
 
     loaded_view = env.loaded_view
-    print_debug(f"loaded view: {loaded_view}")
+    terminal.info(f"loaded view: {loaded_view}")
 
     for uenv in env.uenvs:
         if not first:
@@ -696,7 +932,7 @@ def generate_status_command(args, env):
         else:
             name = uenv.name
             description = uenv.description or ""
-            lines.append(f"{colorize(uenv.mount, 'cyan')}:{colorize(uenv.name, 'yellow')}")
+            lines.append(f"{colorize(uenv.mount, 'cyan')}:{colorize(uenv.name, 'white')}")
             if len(description.strip()) == 0:
                 lines.append(f"  no description")
             else:
@@ -737,7 +973,7 @@ def generate_status_command(args, env):
 def generate_stop_command(args, env):
 
     if not env.active:
-        print_error(f"there is no running environment to stop")
+        terminal.error(f"there is no running uenv to stop", abort=False)
         return shell_error
 
     return "exit $_last_exitcode"
@@ -747,11 +983,10 @@ if __name__ == "__main__":
     parser = make_argparser()
     args = parser.parse_args()
 
-    global colored_output
-    colored_output = use_colored_output(args.no_color)
+    terminal.use_colored_output(args.no_color)
 
-    global verbose
-    verbose = args.verbose
+    if args.verbose:
+        terminal.set_debug_level(2)
 
     cmd = generate_command(args)
 
