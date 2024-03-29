@@ -193,8 +193,6 @@ with appropriate JFrog access and with the JFrog token in their oras keychain.
             epilog=f"""\
 List uenv that are available.
 
-
-
 {colorize("Example", "blue")} - list all uenv:
   {colorize("uenv image ls", "white")}
 
@@ -220,10 +218,27 @@ List uenv that are available.
     list_parser.add_argument("-a", "--uarch", required=False, type=str)
     list_parser.add_argument("uenv", nargs="?", default=None, type=str)
 
-    create_parser = subparsers.add_parser("create",
-                    help="Create a local file system repository.")
-    create_parser.add_argument("--exists-ok", action="store_true", required=False,
+    repo_parser = subparsers.add_parser("repo",
+            help="Create a local file system repository.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=f"""\
+Create a local repository for managing pulled uenv images.
+
+{colorize("Note", "cyan")}: a local repository must be created before using {colorize("uenv image", "white")}.
+
+{colorize("Example", "blue")} - create a repository in the default location:
+  {colorize("uenv image repo", "white")}
+
+{colorize("Example", "blue")} - create a repository in a custom location:
+  {colorize("uenv image repo $SCRATCH/my-custom-repo", "white")}
+
+{colorize("Example", "blue")} - create a repository in a custom location, with no error if the repo already exists:
+  {colorize("uenv image repo --exists-ok $SCRATCH/my-custom-repo", "white")}
+""")
+    repo_parser.add_argument("--exists-ok", action="store_true", required=False,
                     help="No error if the local registry exists.")
+    repo_parser.add_argument("repo", nargs="?", default=None, type=str,
+                    help="The path in which to create the repository. If unset, the default location will be selected.")
 
     deploy_parser = subparsers.add_parser("deploy",
                 help="Deploy a uenv to the 'deploy' namespace, accessible to all users.",
@@ -347,8 +362,10 @@ def safe_repo_open(path: str) -> datastore.FileSystemRepo:
         cache = datastore.FileSystemRepo(path)
     except datastore.RepoNotFoundError as err:
         terminal.error(f"""The local repository {path} does not exist.
-The repo can be created using the following command:
-  {colorize(f"uenv image -r {repo_path} create", "white")}
+If this is your first time using uenv, a repo in the default location can be created with this command:
+  {colorize(f"uenv image repo", "white")}
+If you want to create a repo in a custom location, provide the path as follows:
+  {colorize(f"uenv image repo {repo_path}", "white")}
 """)
     except datastore.RepoDBError as err:
         terminal.error(f"""The local repository {path} had a database error.
@@ -477,7 +494,7 @@ if __name__ == "__main__":
 
         sys.exit(0)
 
-    elif args.command == "create":
+    elif args.command == "repo":
         terminal.info(f"repo path: {repo_path}")
 
         try:
