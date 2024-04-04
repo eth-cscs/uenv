@@ -521,7 +521,7 @@ if __name__ == "__main__":
         except RuntimeError as err:
             terminal.error(f"{str(err)}")
 
-        terminal.info(f"downloaded jfrog build meta data: {len(build_database.images)} images")
+        terminal.info(f"downloaded jfrog build meta data: {len(build_database.images.records)} images")
 
         # expect that src has [name, version, tag] keys
         results = build_database.find_records(**img_filter)

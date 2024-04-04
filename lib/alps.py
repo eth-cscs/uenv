@@ -2,6 +2,8 @@
 
 import os
 
+import terminal
+
 # the path used to store a users cached images and meta data
 def uenv_repo_path(path: str=None) -> str:
     if path is not None:
