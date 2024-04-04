@@ -31,6 +31,8 @@ jobs:
   tag-release:
     runs-on: ubuntu-20.04
     needs: rpm
+    permissions:
+      contents: write
     steps:
       - name: download-artifacts
         uses: actions/download-artifact@v3
