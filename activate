@@ -19,7 +19,7 @@ function uenv {
         echo "  start           start a new shell with an environment loaded"
         echo "  stop            stop a shell with an environment loaded"
         echo "  status          print information about each running environment"
-        echo "  modules         view module status and activate with --use"
+        echo "  modules         view module status and activate with 'use'"
         echo "  view            activate a view"
         echo "  image           query and pull uenv images"
         echo ""
