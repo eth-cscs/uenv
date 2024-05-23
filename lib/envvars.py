@@ -49,7 +49,7 @@ class ListEnvVarUpdate():
         return self._value
 
     def __repr__(self):
-        return f"env.ListEnvVarUpdate({self.value}, {self.op})"
+        return f"envvar.ListEnvVarUpdate({self.value}, {self.op})"
 
     def __str__(self):
         return f"({self.value}, {self.op})"
@@ -104,7 +104,7 @@ class ListEnvVar(EnvVar):
         return v
 
     def __repr__(self):
-        return f"env.ListEnvVar(\"{self.name}\", {self._updates})"
+        return f"envvars.ListEnvVar(\"{self.name}\", {self._updates})"
 
     def __str__(self):
         return f"(\"{self.name}\": [{','.join([str(u) for u in self._updates])}])"
@@ -127,7 +127,7 @@ class ScalarEnvVar(EnvVar):
         self._value = value
 
     def __repr__(self):
-        return f"env.ScalarEnvVar(\"{self.name}\", \"{self.value}\")"
+        return f"envvars.ScalarEnvVar(\"{self.name}\", \"{self.value}\")"
 
     def __str__(self):
         return f"(\"{self.name}\": \"{self.value}\")"
@@ -144,7 +144,7 @@ class Env:
 def is_list_var(name: str) -> bool:
     return name in list_variables
 
-class Env:
+class EnvVarSet:
 
     def __init__(self):
         self._lists = {}
@@ -152,18 +152,19 @@ class Env:
 
     @property
     def lists(self):
-        return self._listself._lists
+        return self._lists
 
     @property
     def scalars(self):
         return self._scalars
 
-    def set_scalar(self, var: ScalarEnvVar):
-        self._scalars[var.name] = var
+    def set_scalar(self, name: str, value: str):
+        self._scalars[name] = ScalarEnvVar(name, value)
 
-    def set_list(self, var: ListEnvVar):
+    def set_list(self, name: str, value: List[str], op: EnvVarOp):
+        var = ListEnvVar(name, value, op)
         if var.name in self._lists.keys():
             old = self._lists[var.name]
-            self._lists[var.name] = old.concat(var)
+            self._lists[var.name].concat(var)
         else:
             self._lists[var.name] = var
