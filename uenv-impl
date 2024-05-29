@@ -12,6 +12,7 @@ import pathlib
 import sys
 import subprocess
 import textwrap
+from packaging.version import Version
 
 prefix = pathlib.Path(__file__).parent.resolve()
 libpath = prefix / 'lib'
@@ -255,9 +256,7 @@ def get_uenv_version():
                     check=True)
         version = result.stdout.decode('utf-8')
         # remove dev strings like `-dev`
-        version = version.split('-')[0]
-        digit = int(version.split('.')[1])
-        return digit
+        return Version(version)
     except:
         return None
 
@@ -287,12 +286,14 @@ class environment:
         if "UENV_MOUNT_LIST" in os.environ:
             # take care to strip white space and trailing commas
             raw = os.environ.get("UENV_MOUNT_LIST").strip().strip(',')
-            mounts = raw.split(',')
-            for m in mounts:
-                # remove 'file://' prefix from string.
-                m = strip_image_prefix(m)
-                img, mnt = m.split(":")
-                self._uenvs.append(uenv(pathlib.Path(mnt)))
+            # handle the case of UENV_MOUNT_LIST being set but empty
+            if len(raw)>0:
+                mounts = raw.split(',')
+                for m in mounts:
+                    # remove 'file://' prefix from string.
+                    m = strip_image_prefix(m)
+                    img, mnt = m.split(":")
+                    self._uenvs.append(uenv(pathlib.Path(mnt)))
 
         # test for the original mount method
         elif ("UENV_MOUNT_FILE" in os.environ) and ("UENV_MOUNT_POINT" in os.environ):
@@ -356,7 +357,7 @@ class environment:
     # true if the squashfs-mount utility is too old for this version of uenv.
     @property
     def old_api(self):
-        return (not self.has_squashfs_mount) or (self._uenv_version < 5)
+        return (not self.has_squashfs_mount) or (self._uenv_version < Version("0.5"))
 
 class uenv:
     """
@@ -533,7 +534,7 @@ def generate_command(args, env_vars):
     elif args.command == "status":
         return generate_status_command(args, env)
     elif args.command == "view":
-        return generate_view_command(args, env)
+        return generate_view_command(args, env, env_vars)
     elif args.command == "modules":
         return generate_modules_command(args, env)
 
@@ -753,13 +754,8 @@ def generate_run_command(args, env, env_vars):
         terminal.info(f"enabling modules")
         env_vars.set_scalar("UENV_FORWARD_MODULES", "1")
 
-    # TODO: remove UENV_MOUNT_* variables when support for the old slurm plugin no longer required
-    main_mount=mount_pairs[0].split(":")
-    return [f"export UENV_MOUNT_FILE={main_mount[0]}",
-            f"export UENV_MOUNT_POINT={main_mount[1]}",
-            f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD {cmd} {cmdargs_string}",
-            'local _exitcode=$?',
-            "unset UENV_MOUNT_FILE; unset UENV_MOUNT_POINT; unset UENV_FORWARD_VIEW; unset UENV_FORWARD_MODULES"]
+    return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD {cmd} {cmdargs_string}",
+            'local _exitcode=$?',]
 
 
 def generate_start_command(args, env, env_vars):
@@ -782,13 +778,8 @@ def generate_start_command(args, env, env_vars):
         terminal.info(f"enabling modules")
         env_vars.set_scalar("UENV_FORWARD_MODULES", "1")
 
-    # TODO: remove UENV_MOUNT_* variables when support for the old slurm plugin no longer required
-    main_mount=mount_pairs[0].split(":")
-    return [f"export UENV_MOUNT_FILE={main_mount[0]}",
-            f"export UENV_MOUNT_POINT={main_mount[1]}",
-            f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash",
-            "local _exitcode=$?",
-            "unset UENV_MOUNT_FILE; unset UENV_MOUNT_POINT; unset UENV_FORWARD_VIEW; unset UENV_FORWARD_MODULES"]
+    return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash",
+            "local _exitcode=$?",]
 
 def generate_modules_command(args, env):
 
@@ -849,13 +840,16 @@ def generate_modules_command(args, env):
         for p in modulepaths:
             terminal.info(f"  using modules in {p}")
         modulecmds = [f"module use {p}" for p in modulepaths]
-        modulecmds.append(f"export UENV_MODULE_PATH={','.join(modulepaths)}")
+        env_vars.set_scalar("UENV_MODULE_PATH", f"{','.join(modulepaths)}")
+
+        env_vars.set_post(False)
+
         return modulecmds
 
 
     return shell_noop
 
-def generate_view_command(args, env):
+def generate_view_command(args, env, env_vars):
 
     if not env.active:
         terminal.error(f'there is no uenv loaded', abort=False)
@@ -949,11 +943,14 @@ def generate_view_command(args, env):
 
     path = next((v['activate'] for v in uenv.views if v['name']==vname))
 
+    terminal.info(f"full path for view activation script: '{path}'")
+    env_vars.update(ev.read_activation_script(path))
+    env_vars.set_scalar("UENV_VIEW", f"{uenv.mount}:{uenv.name}:{vname}")
+
+    env_vars.set_post(False)
 
     qualified_view_name = f"{uenv.name}:{vname}"
-    return [f"echo 'loading the view {colorize(qualified_view_name, 'cyan')}  with activation script {colorize(path, 'yellow')}'",
-            f"source '{path}'",
-            f"export UENV_VIEW={uenv.mount}:{uenv.name}:{vname}",]
+    return [f"echo 'loading the view {colorize(qualified_view_name, 'cyan')}'"]
 
 def generate_status_command(args, env):
     num_env = len(env.uenvs)
@@ -1035,12 +1032,7 @@ if __name__ == "__main__":
     env_vars = ev.EnvVarSet()
     cmd = generate_command(args, env_vars)
 
-    env_var_cmds = []
-    for name, v in env_vars.scalars.items():
-        if v.value is None:
-            env_var_cmds.append(f"unset {v.name}")
-        else:
-            env_var_cmds.append(f"export {v.name}=\"{v.value}\"")
+    env_var_cmds = env_vars.export(True)
 
     terminal.info(f"environment variables: {env_var_cmds}")
 
@@ -1048,7 +1040,7 @@ if __name__ == "__main__":
         cmd = [cmd]
 
     if len(env_var_cmds)>0:
-        cmd = env_var_cmds + cmd
+        cmd = env_var_cmds["pre"] + cmd + env_var_cmds["post"]
 
     for c in cmd:
         print(c)

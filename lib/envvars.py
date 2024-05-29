@@ -1,10 +1,14 @@
 from enum import Enum
+import os
 from typing import Optional, List
 
 class EnvVarOp (Enum):
     PREPEND=1
     APPEND=2
     SET=3
+
+    def __str__(self):
+        return self.name.lower()
 
 class EnvVarKind (Enum):
     SCALAR=2
@@ -79,7 +83,10 @@ class ListEnvVar(EnvVar):
         self._updates += other.updates
 
     # Given the current value, return the value that should be set
-    def get_value(self, current: Optional[str]):
+    # current is None implies that the variable is not set
+    #
+    # dirty allows for not overriding the current value of the variable.
+    def get_value(self, current: Optional[str], dirty: bool=False):
         v = current
 
         # if the variable is currently not set, first initialise it as empty.
@@ -88,16 +95,24 @@ class ListEnvVar(EnvVar):
                 return None
             v = ""
 
+        first = True
         for update in self._updates:
             joined = ":".join(update.value)
-            if v == "" or update.op==EnvVarOp.SET:
+            if first and dirty and update.op==EnvVarOp.SET:
+                op = EnvVarOp.PREPEND
+            else:
+                op = update.op
+
+            if v == "" or op==EnvVarOp.SET:
                 v = joined
-            elif update.op==EnvVarOp.APPEND:
+            elif op==EnvVarOp.APPEND:
                 v = ":".join([v, joined])
-            elif update.op==EnvVarOp.PREPEND:
+            elif op==EnvVarOp.PREPEND:
                 v = ":".join([joined, v])
             else:
                 raise EnvVarError(f"Internal error: implement the operation {update.op}");
+
+            first = False
             # strip any leading/trailing ":"
             v = v.strip(':')
 
@@ -126,6 +141,11 @@ class ScalarEnvVar(EnvVar):
     def update(self, value: Optional[str]):
         self._value = value
 
+    def get_value(self, value: Optional[str]):
+        if value is not None:
+            return value
+        return self._value
+
     def __repr__(self):
         return f"envvars.ScalarEnvVar(\"{self.name}\", \"{self.value}\")"
 
@@ -145,10 +165,17 @@ def is_list_var(name: str) -> bool:
     return name in list_variables
 
 class EnvVarSet:
+    """
+    A set of environment variable updates.
+
+    The values need to be applied before they are valid.
+    """
 
     def __init__(self):
         self._lists = {}
         self._scalars = {}
+        # toggles whether post export commands will be generated
+        self._generate_post = True
 
     @property
     def lists(self):
@@ -168,3 +195,131 @@ class EnvVarSet:
             self._lists[var.name].concat(var)
         else:
             self._lists[var.name] = var
+
+    def __repr__(self):
+        return f"envvars.EnvVarSet(\"{self.lists}\", \"{self.scalars}\")"
+
+    def __str__(self):
+        s = "EnvVarSet:\n"
+        s += "  scalars:\n"
+        for _, v in self.scalars.items():
+            s += f"    {v.name}: {v.value}\n"
+        s += "  lists:\n"
+        for _, v in self.lists.items():
+            s += f"    {v.name}:\n"
+            for u in v.updates:
+                s += f"      {u.op}: {':'.join(u.value)}\n"
+        return s
+
+    # Update the environment variables using the values in another EnvVarSet.
+    # This operation is used when environment variables are sourced from more
+    # than one location, e.g. multiple activation scripts.
+    def update(self, other: 'EnvVarSet'):
+        for name, var in other.scalars.items():
+            self.set_scalar(name, var.value)
+        for name, var in other.lists.items():
+            if name in self.lists.keys():
+                self.lists[name].concat(var)
+            else:
+                self.lists[name] = var
+
+    # Generate the commands that set and unset the environment variables.
+    # Returns a dictionary with two fields:
+    #   "pre": the list of commands to be executed before the command
+    #   "post": the list of commands to be executed to revert the environment
+    #
+    # The "post" list is optional, and should not be used for commands that
+    # update the environment like "uenv view" and "uenv modules use", instead
+    # it should be used for commands that should not alter the calling environment,
+    # like "uenv run" and "uenv start".
+    #
+    # The dirty flag will preserve the state of variables like PATH, LD_LIBRARY_PATH, etc.
+    def export(self, dirty=False):
+        pre = []
+        post = []
+
+        for name, var in self.scalars.items():
+            # get the value of the environment variable
+            current = os.getenv(name)
+            new = var.get_value(current)
+
+            if new is None:
+                pre.append(f"unset {name}")
+            else:
+                pre.append(f"export {name}={new}")
+
+            if self._generate_post:
+                if current is None:
+                    post.append(f"unset {name}")
+                else:
+                    post.append(f"export {name}={current}")
+
+        for name, var in self.lists.items():
+            # get the value of the environment variable
+            current = os.getenv(name)
+            new = var.get_value(current, dirty)
+
+            if new is None:
+                pre.append(f"unset {name}")
+            else:
+                pre.append(f"export {name}={new}")
+
+            if self._generate_post:
+                if current is None:
+                    post.append(f"unset {name}")
+                else:
+                    post.append(f"export {name}={current}")
+
+        return {"pre": pre, "post": post}
+
+    def set_post(self, value: bool):
+        self._generate_post = value
+
+def read_activation_script(filename: str, env: Optional[EnvVarSet]=None) -> EnvVarSet:
+    scalars = {}
+    lists = {}
+    if env is None:
+        env = EnvVarSet()
+
+    with open(filename) as fid:
+        for line in fid:
+            l = line.strip().rstrip(";")
+            # skip empty lines and comments
+            if (len(l)==0) or (l[0]=='#'):
+                continue
+            # split on the first whitespace
+            # this splits lines of the form
+            # export Y
+            # where Y is an arbitray string into ['export', 'Y']
+            fields = l.split(maxsplit=1)
+
+            # handle lines of the form 'export Y'
+            if len(fields)>1 and fields[0]=='export':
+                fields = fields[1].split('=', maxsplit=1)
+                # get the name of the environment variable
+                name = fields[0]
+
+                # if there was only one field, there was no = sign, so pass
+                if len(fields)<2:
+                    continue
+                # rhs the value that is assigned to the environment variable
+                rhs = fields[1]
+                if name in list_variables:
+                    fields = rhs.split(":")
+                    lists[name] = fields
+                    # look for $name as one of the fields (only works for append or prepend)
+
+                    if len(fields)==0:
+                        env.set_list(name, fields, EnvVarOp.SET)
+                    elif fields[0] == f"${name}":
+                        env.set_list(name, fields[1:], EnvVarOp.APPEND)
+                    elif fields[-1] == f"${name}":
+                        env.set_list(name, fields[:-1], EnvVarOp.PREPEND)
+                    else:
+                        env.set_list(name, fields, EnvVarOp.SET)
+                else:
+                    env.set_scalar(name, rhs)
+
+    return env
+
+

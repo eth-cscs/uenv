@@ -1,5 +1,4 @@
-#!/usr/local/bin/bash
-# the bash executable above is hard coded
+#!/bin/bash
 
 set -e
 
