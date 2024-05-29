@@ -12,6 +12,7 @@ import pathlib
 import sys
 import subprocess
 import textwrap
+from packaging.version import Version
 
 prefix = pathlib.Path(__file__).parent.resolve()
 libpath = prefix / 'lib'
@@ -231,10 +232,7 @@ def get_uenv_version():
                     stdout=subprocess.PIPE,
                     check=True)
         version = result.stdout.decode('utf-8')
-        # remove dev strings like `-dev`
-        version = version.split('-')[0]
-        digit = int(version.split('.')[1])
-        return digit
+        return Version(version)
     except:
         return None
 
@@ -264,12 +262,14 @@ class environment:
         if "UENV_MOUNT_LIST" in os.environ:
             # take care to strip white space and trailing commas
             raw = os.environ.get("UENV_MOUNT_LIST").strip().strip(',')
-            mounts = raw.split(',')
-            for m in mounts:
-                # remove 'file://' prefix from string.
-                m = strip_image_prefix(m)
-                img, mnt = m.split(":")
-                self._uenvs.append(uenv(pathlib.Path(mnt)))
+            # if UENV_MOUNT_LIST is set and empty, ignore it
+            if len(raw)>0:
+                mounts = raw.split(',')
+                for m in mounts:
+                    # remove 'file://' prefix from string.
+                    m = strip_image_prefix(m)
+                    img, mnt = m.split(":")
+                    self._uenvs.append(uenv(pathlib.Path(mnt)))
 
         # test for the original mount method
         elif ("UENV_MOUNT_FILE" in os.environ) and ("UENV_MOUNT_POINT" in os.environ):
@@ -333,7 +333,7 @@ class environment:
     # true if the squashfs-mount utility is too old for this version of uenv.
     @property
     def old_api(self):
-        return (not self.has_squashfs_mount) or (self._uenv_version < 5)
+        return (not self.has_squashfs_mount) or (self._uenv_version < Version("0.5"))
 
 class uenv:
     """
