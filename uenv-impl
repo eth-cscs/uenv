@@ -202,6 +202,11 @@ the available views will be printed.
             default=None,
             help="the view to load")
 
+    #### image
+    # Dummy sub-parser to print out the correct help when wrong keyword is used
+    # This is never used since "uenv image" commands are forwarded to "uenv-image"
+    _ = subparsers.add_parser("image", help="Manage and query uenv images.")
+
     return parser
 
 ###############################################################################
@@ -984,6 +989,13 @@ def generate_stop_command(args, env):
 if __name__ == "__main__":
     parser = make_argparser()
     args = parser.parse_args()
+
+    # Generate error if the dummy 'image' parser is called by accident
+    if args.command == "image":
+        raise RuntimeError(
+            "Something is wrong. 'image' sub-parser is a dummy parser. "
+            "'image' commands should be forwarded to 'uenv-image'."
+        )
 
     terminal.use_colored_output(args.no_color)
 
