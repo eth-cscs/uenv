@@ -10,8 +10,8 @@ echo ==================== image pull
 uenv image pull --help
 echo ==================== image ls
 uenv image ls --help
-echo ==================== image create
-uenv image create --help
+echo ==================== image repo
+uenv image repo --help
 echo ==================== image deploy
 uenv image deploy --help
 echo ==================== run

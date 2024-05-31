@@ -364,8 +364,9 @@ def safe_repo_open(path: str) -> datastore.FileSystemRepo:
         terminal.error(f"""The local repository {path} does not exist.
 If this is your first time using uenv, a repo in the default location can be created with this command:
   {colorize(f"uenv image repo", "white")}
-If you want to create a repo in a custom location, provide the path as follows:
-  {colorize(f"uenv image repo {repo_path}", "white")}
+If you want to create a repo in a custom location , provide the path as follows:
+  {colorize("uenv image repo <repo_path>", "white")}
+where {colorize("<repo_path>", "white")} is the desired location.
 """)
     except datastore.RepoDBError as err:
         terminal.error(f"""The local repository {path} had a database error.

@@ -641,11 +641,13 @@ def parse_image_descriptions(mnt_list, repo, uarch):
             try:
                 fscache = datastore.FileSystemRepo(repo_path)
             except datastore.RepoNotFoundError as err:
-                terminal.error(f"""The local repository {path} does not exist.
-If this is your first time using uenv, a repo in the default location can be created with this command:
+                terminal.error(f"""The local repository {repo_path} does not exist.
+If this is your first time using uenv, a repo in the default location can be
+created with this command:
   {colorize(f"uenv image repo", "white")}
-If you want to create a repo in a custom location, provide the path as follows:
-  {colorize(f"uenv image repo {repo_path}", "white")}
+If you want to create a repo in a custom location , provide the path as follows:
+  {colorize("uenv image repo <repo_path>", "white")}
+where {colorize("<repo_path>", "white")} is the desired location.
 """, abort=False)
                 return []
             except datastore.RepoDBError as err:

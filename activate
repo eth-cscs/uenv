@@ -1,8 +1,8 @@
 # only run if bash or zsh
 [ -n "${BASH_VERSION:-}" ] || return 0
 
-export UENV_CMD=@@impl@@
-export UENV_IMG_CMD=@@image_impl@@
+export UENV_CMD='env -u PYTHONPATH -u VIRTUAL_ENV @@impl@@'
+export UENV_IMG_CMD='env -u PYTHONPATH -u VIRTUAL_ENV @@image_impl@@'
 export UENV_VERSION=@@version@@
 export UENV_PREFIX=@@prefix@@
 
