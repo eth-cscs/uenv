@@ -39,9 +39,13 @@ def run_command(args):
         )
 
         # Print standard output
-        terminal.info("Output:\n{result.stdout}")
+        terminal.info(f"oras output: {result.stdout}")
 
     except subprocess.CalledProcessError as e:
         # Print error message along with captured standard error
-        terminal.error("An error occurred:\n", e.stderr)
+        err_msg = e.stderr
+        if "client does not have permission for manifest" in err_msg:
+            terminal.error(f"an error occured with the oras client: {e.stderr}\n{terminal.colorize('Hint', 'yellow')} check that you have permissions to pull from the target JFrog registry, or contact CSCS Service Desk with the full command and output (preferrably also with the --verbose flag).")
+        terminal.error(f"an error occured with the oras client: {e.stderr}")
+
 
