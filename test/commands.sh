@@ -38,6 +38,14 @@ echo ==================== uenv run --uarch=gh200 prgenv-gnu -- ls /user-environm
 time uenv run --uarch=gh200 prgenv-gnu -- ls /user-environment
 
 echo
+echo ==================== uenv run --modules prgenv-gnu -- bash -c "module avail; ls /user-environment; module load gcc; gcc --version; which gcc;"
+time uenv run --modules prgenv-gnu -- bash -c "module avail; ls /user-environment; module load gcc; gcc --version; which gcc;"
+
+echo
+echo ==================== uenv run --view=default prgenv-gnu -- bash -c "which gcc; mpic++ --version; nvcc --version;"
+time uenv run --view=default prgenv-gnu -- bash -c "which gcc; mpic++ --version; nvcc --version;"
+
+echo
 echo ==================== uenv image ls
 time uenv image ls
 

@@ -754,6 +754,11 @@ def generate_run_command(args, env, env_vars):
         terminal.info(f"enabling modules")
         env_vars.set_scalar("UENV_FORWARD_MODULES", "1")
 
+    # TODO: remove UENV_MOUNT_* variables when the slurm plugin on Balfrin/Tasna is updated
+    main_mount=mount_pairs[0].split(":")
+    env_vars.set_scalar("UENV_MOUNT_FILE", f"{main_mount[0]}")
+    env_vars.set_scalar("UENV_MOUNT_POINT", f"{main_mount[1]}")
+
     return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD {cmd} {cmdargs_string}",
             'local _exitcode=$?',]
 
@@ -777,6 +782,11 @@ def generate_start_command(args, env, env_vars):
     if args.modules:
         terminal.info(f"enabling modules")
         env_vars.set_scalar("UENV_FORWARD_MODULES", "1")
+
+    # TODO: remove UENV_MOUNT_* variables when the slurm plugin on Balfrin/Tasna is updated
+    main_mount=mount_pairs[0].split(":")
+    env_vars.set_scalar("UENV_MOUNT_FILE", f"{main_mount[0]}")
+    env_vars.set_scalar("UENV_MOUNT_POINT", f"{main_mount[1]}")
 
     return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash",
             "local _exitcode=$?",]
