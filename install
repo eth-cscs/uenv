@@ -172,6 +172,7 @@ run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/datastore
 run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/jfrog.py
 run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/names.py
 run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/oras.py
+run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/progress.py
 run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/record.py
 run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/terminal.py
 
