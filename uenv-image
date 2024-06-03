@@ -481,7 +481,7 @@ if __name__ == "__main__":
                 terminal.stdout(f"updating local reference {r.name}/{r.version}:{r.tag}")
                 cache.add_record(r)
 
-            terminal.stdout(f"image available at {image_path}/store.squashfs")
+            terminal.stdout(f"uenv {t.name}/{t.version}:{t.tag} downloaded")
 
         sys.exit(0)
 
