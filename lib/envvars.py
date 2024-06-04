@@ -1,4 +1,5 @@
 from enum import Enum
+import json
 import os
 from typing import Optional, List
 
@@ -181,6 +182,10 @@ class EnvVarSet:
     def lists(self):
         return self._lists
 
+    def clear(self):
+        self._lists = {}
+        self._scalars = {}
+
     @property
     def scalars(self):
         return self._scalars
@@ -272,6 +277,41 @@ class EnvVarSet:
 
         return {"pre": pre, "post": post}
 
+    # returns a string that represents the environment variable modifications
+    # in json format
+    #{
+    #    "list": {
+    #        "PATH": [
+    #                {"op": "set", "value": "/user-environment/bin"},
+    #                {"op": "prepend", "value": "/user-environment/env/default/bin"}
+    #            ],
+    #        "LD_LIBRARY_PATH": [
+    #                {"op": "prepend", "value": "/user-environment/env/default/lib"}
+    #                {"op": "prepend", "value": "/user-environment/env/default/lib64"}
+    #            ]
+    #    },
+    #    "scalar": {
+    #        "CUDA_HOME": "/user-environment/env/default",
+    #        "MPIF90": "/user-environment/env/default/bin/mpif90"
+    #    }
+    #}
+    def json(self) -> str:
+        # create a dictionary with the information formatted for JSON
+        d = {"list": {}, "scalar": {}}
+
+        for name, var in self.lists.items():
+            ops = []
+            for u in var.updates:
+                op = "set" if u.op == EnvVarOp.SET else ("prepend" if u.op==EnvVarOp.PREPEND else "append")
+                ops.append({"op": op, "value": u.value})
+
+            d["list"][name] = ops
+
+        for name, var in self.scalars.items():
+            d["scalar"][name] = var.value
+
+        return json.dumps(d, separators=(',', ':'))
+
     def set_post(self, value: bool):
         self._generate_post = value
 
@@ -305,7 +345,7 @@ def read_activation_script(filename: str, env: Optional[EnvVarSet]=None) -> EnvV
                 # rhs the value that is assigned to the environment variable
                 rhs = fields[1]
                 if name in list_variables:
-                    fields = rhs.split(":")
+                    fields = [f for f in rhs.split(":") if len(f.strip())>0]
                     lists[name] = fields
                     # look for $name as one of the fields (only works for append or prepend)
 

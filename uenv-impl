@@ -223,13 +223,20 @@ the available views will be printed.
 {colorize("Example", "blue")} - load the file system view {colorize('default','cyan')} provided by the loaded uenv {colorize('prgenv-gnu','cyan')}:
     {colorize("uenv view prgenv-gnu:default", "white")}
 
-{colorize("Note", "cyan")} - currently only one file system view can be loaded at a time.
+{colorize("Note", "cyan")} - only one file system view can be loaded at a time.
+
+{colorize("Example", "blue")} - output the environment variables that would be
+set without loading the view:
+    {colorize("uenv view --json develop", "white")}
 """
             ))
     views_parser.add_argument("view_name",
             nargs='?',
             default=None,
             help="the view to load")
+    views_parser.add_argument("--json",
+            help="Output the environment variable changes as json.",
+            action="store_true")
 
     return parser
 
@@ -958,6 +965,12 @@ def generate_view_command(args, env, env_vars):
     env_vars.set_scalar("UENV_VIEW", f"{uenv.mount}:{uenv.name}:{vname}")
 
     env_vars.set_post(False)
+
+    if args.json:
+        terminal.info(f"outputing variables in JSON format")
+        json_string = env_vars.json()
+        env_vars.clear()
+        return [f"echo '{json_string}'"]
 
     qualified_view_name = f"{uenv.name}:{vname}"
     return [f"echo 'loading the view {colorize(qualified_view_name, 'cyan')}'"]
