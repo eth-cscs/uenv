@@ -450,15 +450,18 @@ if __name__ == "__main__":
                     # run the oras command in a separate process so that this process can
                     # draw a progress bar.
                     proc = oras.run_command(["pull", "-o", image_path, source_address], detach=True)
+                    total_mb = t.size/(1024*1024)
                     while proc.poll() is None:
-                        total_mb = t.size/(1024*1024)
                         time.sleep(0.25)
-                        if os.path.exists(image_path):
-                            current_size = os.path.getsize(image_path + "/store.squashfs")
+                        sqfs_path = image_path + "/store.squashfs"
+                        if os.path.exists(sqfs_path):
+                            current_size = os.path.getsize(sqfs_path)
                             current_mb = current_size / (1024*1024)
                             p = current_mb/total_mb
                             msg = f"{int(current_mb)}/{int(total_mb)} MB"
                             progress.progress_bar(p, width=50, msg=msg)
+                    # draw a final complete progress bar
+                    progress.progress_bar(1.0, width=50, msg=f"{int(total_mb)}/{int(total_mb)} MB")
                 except KeyboardInterrupt:
                     proc.terminate()
                     terminal.stdout("")
