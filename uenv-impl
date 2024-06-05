@@ -89,7 +89,7 @@ Here the mount point for each image is specified using a ":".
 
 {colorize("Note", "cyan")} - uenv must be mounted at the mount point for which they were built.
 If mounted at the wrong location, a warning message will be printed, and
-features like views and modules wiil be disabled.
+features like views and modules will be disabled.
 
 {colorize("Example", "blue")} - the run command can be used to execute workflow steps with
 separate environments:
@@ -145,7 +145,7 @@ Here the mount point for each image is specified using a ":".
 
 {colorize("Note", "cyan")} - uenv must be mounted at the mount point for which they were built.
 If mounted at the wrong location, a warning message will be printed, and
-features like views and modules wiil be disabled.
+features like views and modules will be disabled.
 """
                  ))
     start_parser.add_argument("-a", "--uarch",
@@ -238,6 +238,11 @@ set without loading the view:
             help="Output the environment variable changes as json.",
             action="store_true")
 
+    #### image
+    # Dummy sub-parser to print out the correct help when wrong keyword is used
+    # This is never used since "uenv image" commands are forwarded to "uenv-image"
+    _ = subparsers.add_parser("image", help="Manage and query uenv images.")
+
     return parser
 
 ###############################################################################
@@ -262,7 +267,6 @@ def get_uenv_version():
                     stdout=subprocess.PIPE,
                     check=True)
         version = result.stdout.decode('utf-8')
-        # remove dev strings like `-dev`
         return Version(version)
     except:
         return None
@@ -293,7 +297,7 @@ class environment:
         if "UENV_MOUNT_LIST" in os.environ:
             # take care to strip white space and trailing commas
             raw = os.environ.get("UENV_MOUNT_LIST").strip().strip(',')
-            # handle the case of UENV_MOUNT_LIST being set but empty
+            # if UENV_MOUNT_LIST is set and empty, ignore it
             if len(raw)>0:
                 mounts = raw.split(',')
                 for m in mounts:
@@ -673,8 +677,12 @@ def parse_image_descriptions(mnt_list, repo, uarch):
                 fscache = datastore.FileSystemRepo(repo_path)
             except datastore.RepoNotFoundError as err:
                 terminal.error(f"""The local repository {repo_path} does not exist.
-The repo can be created using the following command:
-  {colorize(f"uenv image -r {repo_path} create", "white")}
+If this is your first time using uenv, a repo in the default location can be
+created with this command:
+  {colorize(f"uenv image repo", "white")}
+If you want to create a repo in a custom location , provide the path as follows:
+  {colorize("uenv image repo <repo_path>", "white")}
+where {colorize("<repo_path>", "white")} is the desired location.
 """, abort=False)
                 return []
             except datastore.RepoDBError as err:
@@ -1046,6 +1054,13 @@ def generate_stop_command(args, env):
 if __name__ == "__main__":
     parser = make_argparser()
     args = parser.parse_args()
+
+    # Generate error if the dummy 'image' parser is called by accident
+    if args.command == "image":
+        raise RuntimeError(
+            "Something is wrong. 'image' sub-parser is a dummy parser. "
+            "'image' commands should be forwarded to 'uenv-image'."
+        )
 
     terminal.use_colored_output(args.no_color)
 

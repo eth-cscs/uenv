@@ -1,8 +1,8 @@
 # only run if bash or zsh
 [ -n "${BASH_VERSION:-}" ] || return 0
 
-export UENV_CMD=@@impl@@
-export UENV_IMG_CMD=@@image_impl@@
+export UENV_CMD='env -u PYTHONPATH -u VIRTUAL_ENV @@impl@@'
+export UENV_IMG_CMD='env -u PYTHONPATH -u VIRTUAL_ENV @@image_impl@@'
 export UENV_VERSION=@@version@@
 export UENV_PREFIX=@@prefix@@
 export UENV_WRAPPER_CMD=@@wrapper@@
@@ -20,7 +20,7 @@ function uenv {
         echo "  start           start a new shell with an environment loaded"
         echo "  stop            stop a shell with an environment loaded"
         echo "  status          print information about each running environment"
-        echo "  modules         view module status and activate with --use"
+        echo "  modules         view module status and activate with 'use'"
         echo "  view            activate a view"
         echo "  image           query and pull uenv images"
         echo ""
