@@ -12,6 +12,7 @@ import pathlib
 import re
 import sys
 import textwrap
+import time
 
 prefix = pathlib.Path(__file__).parent.resolve()
 libpath = prefix / 'lib'
@@ -22,6 +23,7 @@ import datastore
 import jfrog
 import names
 import oras
+import progress
 import record
 import terminal
 from terminal import colorize
@@ -444,7 +446,36 @@ if __name__ == "__main__":
             if cache.database.get_record(t.sha256).is_empty:
                 terminal.stdout(f"downloading image {t.sha256} {image_size_string(t.size)}")
                 # download the image using oras
-                oras.run_command(["pull", "-o", image_path, source_address])
+                try:
+                    # run the oras command in a separate process so that this process can
+                    # draw a progress bar.
+                    proc = oras.run_command(["pull", "-o", image_path, source_address], detach=True)
+                    total_mb = t.size/(1024*1024)
+                    while proc.poll() is None:
+                        time.sleep(0.25)
+                        sqfs_path = image_path + "/store.squashfs"
+                        if os.path.exists(sqfs_path):
+                            current_size = os.path.getsize(sqfs_path)
+                            current_mb = current_size / (1024*1024)
+                            p = current_mb/total_mb
+                            msg = f"{int(current_mb)}/{int(total_mb)} MB"
+                            progress.progress_bar(p, width=50, msg=msg)
+                    # draw a final complete progress bar
+                    progress.progress_bar(1.0, width=50, msg=f"{int(total_mb)}/{int(total_mb)} MB")
+                except KeyboardInterrupt:
+                    proc.terminate()
+                    terminal.stdout("")
+                    terminal.error(f"image pull cancelled by user.")
+                except Exception as e:
+                    proc.terminate()
+                    terminal.stdout("")
+                    terminal.error(f"image pull failed: {str(e)}")
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                if proc.returncode == 0:
+                    terminal.info(f"oras download completed successfully\n{proc.stdout}")
+                else:
+                    terminal.error(f"oras download failed {proc.stderr}")
             else:
                 terminal.stdout(f"image {t.sha256} is already available locally")
             # update all the tags associated with the image.
@@ -453,7 +484,7 @@ if __name__ == "__main__":
                 terminal.stdout(f"updating local reference {r.name}/{r.version}:{r.tag}")
                 cache.add_record(r)
 
-            terminal.stdout(f"image available at {image_path}/store.squashfs")
+            terminal.stdout(f"uenv {t.name}/{t.version}:{t.tag} downloaded")
 
         sys.exit(0)
 

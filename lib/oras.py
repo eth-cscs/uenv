@@ -25,22 +25,36 @@ def find_oras() -> str:
     return oras_file
 
 
-def run_command(args):
+def run_command(args, detach=False):
     try:
         command = [find_oras()] + args
 
         terminal.info(f"calling oras: {' '.join(command)}")
-        result = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,  # Capture standard output
-            stderr=subprocess.PIPE,  # Capture standard error
-            check=True,  # Raise exception if command fails
-            encoding='utf-8'  # Decode output from bytes to string
-        )
 
-        # Print standard output
-        terminal.info(f"oras output: {result.stdout}")
+        if detach:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,  # Capture standard output
+                stderr=subprocess.PIPE,  # Capture standard error
+                check=True,  # Raise exception if command fails
+                encoding='utf-8'  # Decode output from bytes to string
+            )
+            return process
 
+        else:
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,  # Capture standard output
+                stderr=subprocess.PIPE,  # Capture standard error
+                check=True,  # Raise exception if command fails
+                encoding='utf-8'  # Decode output from bytes to string
+            )
+
+            # Print standard output
+            terminal.info(f"oras output: {result.stdout}")
+
+            return None
+          
     except subprocess.CalledProcessError as e:
         # Print error message along with captured standard error
         err_msg = e.stderr
