@@ -157,6 +157,7 @@ echo "local install: $local_install"
 libexec=${prefix}/libexec
 impl_path="${libexec}/uenv-impl"
 img_impl_path="${libexec}/uenv-image"
+wrapper_path="${libexec}/uenv-wrapper"
 lib_path="${libexec}/lib"
 if [ "$local_install" == "no" ]
 then
@@ -169,6 +170,7 @@ echo "installing $lib_path"
 run install -v -m755 -d "$lib_path"
 run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/alps.py
 run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/datastore.py
+run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/envvars.py
 run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/jfrog.py
 run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/names.py
 run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/oras.py
@@ -178,6 +180,9 @@ run install -v -m644 -D -t "${destdir}/${lib_path}" ${script_path}/lib/terminal.
 
 echo "installing ${img_impl_path}"
 run install -v -m755 -D "$script_path/uenv-image" "${destdir}/${img_impl_path}"
+
+echo "installing ${wrapper_path}"
+run install -v -m755 -D "$script_path/uenv-wrapper" "${destdir}/${wrapper_path}"
 
 echo "installing $impl_path"
 run install -D -m755 <(sed "s|@@version@@|$version|g" $script_path/uenv-impl) ${destdir}/$impl_path
@@ -206,6 +211,7 @@ run install -v -m644 -D <(
         -e "s|@@version@@|$version|g" \
         -e "s|@@prefix@@|$prefix|g"   \
         -e "s|@@image_impl@@|$img_impl_path|g" \
+        -e "s|@@wrapper@@|$wrapper_path|g" \
         $script_path/activate) \
       $init_path
 
