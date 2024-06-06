@@ -4,6 +4,9 @@ import sys
 colored_output = True
 debug_level = 1
 
+def is_tty():
+    return sys.stdout.isatty()
+
 # Choose whether to use colored output.
 # - by default colored output is ON
 # - if the flag --no-color is passed it is OFF
@@ -30,7 +33,7 @@ def use_colored_output(cli_arg: bool):
             colored_output = False
             return
 
-    colored_output = True
+    colored_output = is_tty()
 
 def colorize(string, color):
     colors = {

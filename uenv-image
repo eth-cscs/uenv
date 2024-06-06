@@ -12,6 +12,7 @@ import pathlib
 import re
 import sys
 import textwrap
+import time
 
 prefix = pathlib.Path(__file__).parent.resolve()
 libpath = prefix / 'lib'
@@ -22,6 +23,7 @@ import datastore
 import jfrog
 import names
 import oras
+import progress
 import record
 import terminal
 from terminal import colorize
@@ -443,17 +445,17 @@ if __name__ == "__main__":
             # if the record isn't already in the filesystem repo download it
             if cache.database.get_record(t.sha256).is_empty:
                 terminal.stdout(f"downloading image {t.sha256} {image_size_string(t.size)}")
-                # download the image using oras
-                oras.run_command(["pull", "-o", image_path, source_address])
+                oras.pull_uenv(source_address, image_path, t)
             else:
                 terminal.stdout(f"image {t.sha256} is already available locally")
+
             # update all the tags associated with the image.
             terminal.info(f"updating the local repository database")
             for r in records.records:
                 terminal.stdout(f"updating local reference {r.name}/{r.version}:{r.tag}")
                 cache.add_record(r)
 
-            terminal.stdout(f"image available at {image_path}/store.squashfs")
+            terminal.stdout(f"uenv {t.name}/{t.version}:{t.tag} downloaded")
 
         sys.exit(0)
 

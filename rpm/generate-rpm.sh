@@ -39,6 +39,7 @@ cp "${source_path}/VERSION" "${tar_path}"
 cp "${source_path}/activate" "${tar_path}"
 cp "${source_path}/uenv-impl" "${tar_path}"
 cp "${source_path}/uenv-image" "${tar_path}"
+cp "${source_path}/uenv-wrapper" "${tar_path}"
 
 tar_file="${build_path}/SOURCES/${pkg_name}.tar.gz"
 tar -czf "${tar_file}" --directory "${build_path}" "${pkg_name}"

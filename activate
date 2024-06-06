@@ -5,6 +5,7 @@ export UENV_CMD='env -u PYTHONPATH -u VIRTUAL_ENV @@impl@@'
 export UENV_IMG_CMD='env -u PYTHONPATH -u VIRTUAL_ENV @@image_impl@@'
 export UENV_VERSION=@@version@@
 export UENV_PREFIX=@@prefix@@
+export UENV_WRAPPER_CMD=@@wrapper@@
 
 function uenv {
     local _last_exitcode=$?
