@@ -19,6 +19,14 @@ icon_records = [
     record.Record("santis", "gh200", "icon", "2024", "v1",     "2023/01/01", 5024, "2"*64),
 ]
 
+# records with the same name/version:tag, that should be disambiguated by hash, system, uarch
+duplicate_records = [
+    record.Record("santis", "gh200", "netcdf-tools", "2024", "v1", "2024/02/12", 1024, "w"*64),
+    record.Record("todi",   "gh200", "netcdf-tools", "2024", "v1", "2024/02/12", 1024, "x"*64),
+    record.Record("balfrin", "a100",  "netcdf-tools", "2024", "v1", "2024/02/12", 1024, "y"*64),
+    record.Record("balfrin", "zen3",  "netcdf-tools", "2024", "v1", "2024/02/12", 1024, "z"*64),
+]
+
 def create_prgenv_repo(con):
     # add some records that will be inserted into the database
     # these defined different versions of prgenv-gnu
@@ -33,6 +41,9 @@ def create_full_repo(con):
         con.add_record(r)
 
     for r in icon_records:
+        con.add_record(r)
+
+    for r in duplicate_records:
         con.add_record(r)
 
 class TestInMemory(unittest.TestCase):
@@ -90,11 +101,11 @@ class TestInMemory(unittest.TestCase):
         self.assertEqual(2, len(store.find_records(name="prgenv-gnu", tag="v1").records))
         self.assertEqual(1, len(store.find_records(name="prgenv-gnu", tag="v2").records))
 
-        self.assertEqual(3, len(store.find_records(tag="v1").records))
+        self.assertEqual(7, len(store.find_records(tag="v1").records))
         self.assertEqual(2, len(store.find_records(tag="v2").records))
         self.assertEqual(3, len(store.find_records(tag="default").records))
 
-        self.assertEqual(3, len(store.find_records(version="2024").records))
+        self.assertEqual(7, len(store.find_records(version="2024").records))
         self.assertEqual(3, len(store.find_records(version="23.11").records))
         self.assertEqual(0, len(store.find_records(name="icon", version="23.11").records))
         self.assertEqual(3, len(store.find_records(name="prgenv-gnu", version="23.11").records))
@@ -106,15 +117,41 @@ class TestInMemory(unittest.TestCase):
         self.assertEqual(store.find_records(name="icon", version="2024", tag="default").records,
                          store.find_records(name="icon", version="2024", tag="v2").records)
 
-        self.assertEqual(8, len(store.find_records(uarch="gh200").records))
-        self.assertEqual(8, len(store.find_records(system="santis").records))
-
-        self.assertEqual(store.find_records(system="santis").records,
-                         store.find_records(uarch="gh200").records)
+        self.assertEqual(10, len(store.find_records(uarch="gh200").records))
+        self.assertEqual(9, len(store.find_records(system="santis").records))
 
         # expect an exception when an invalid field is passed (sustem is a typo for system)
         with self.assertRaises(ValueError):
             result = store.find_records(sustem="santis")
+
+    def test_find_duplicates(self):
+        store = datastore.DataStore(path=None)
+        create_full_repo(store)
+
+        # there are 4 records that match "netcdf-tools/2024:v1" that are disambiguated by
+        # system and uarch
+        #
+        # - santis, gh200, sha=wwwww...
+        # - todi,   gh200, sha=xxxxx...
+        # - balfrin, a100, sha=yyyyy...
+        # - balfrin, zen3, sha=zzzzz...
+        #
+        # different vClusters are expected in the DB.
+        self.assertEqual(4, len(store.find_records(name="netcdf-tools").records))
+
+        self.assertEqual(1, len(store.find_records(name="netcdf-tools", system="santis").records))
+        self.assertEqual(1, len(store.find_records(name="netcdf-tools", system="todi").records))
+        self.assertEqual(2, len(store.find_records(name="netcdf-tools", system="balfrin").records))
+        self.assertEqual(1, len(store.find_records(name="netcdf-tools", system="balfrin", uarch="a100").records))
+        self.assertEqual("y"*64,
+                         store.find_records(
+                             name="netcdf-tools", system="balfrin", uarch="a100"
+                         ).records[0].sha256)
+        self.assertEqual(1, len(store.find_records(name="netcdf-tools", system="balfrin", uarch="zen3").records))
+        self.assertEqual("z"*64,
+                         store.find_records(
+                             name="netcdf-tools", system="balfrin", uarch="zen3"
+                         ).records[0].sha256)
 
     def test_get_record(self):
         store = self.store

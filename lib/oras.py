@@ -27,6 +27,7 @@ def find_oras() -> str:
     terminal.info(f"using {oras_file}")
     return oras_file
 
+
 def run_command_internal(args):
     try:
         command = [find_oras()] + args

@@ -28,7 +28,8 @@ class RepoDBError(Exception):
     def __str__(self):
         return self.message
 
-create_db_command = """
+create_db_commands = {
+        "v1": """
 BEGIN;
 
 PRAGMA foreign_keys=on;
@@ -81,7 +82,64 @@ FROM tags
     INNER JOIN images ON images.sha256   = tags.sha256;
 
 COMMIT;
-"""
+""",
+        "v2": """
+BEGIN;
+
+PRAGMA foreign_keys=on;
+
+CREATE TABLE images (
+    sha256 TEXT PRIMARY KEY CHECK(length(sha256)==64),
+    id TEXT UNIQUE CHECK(length(id)==16),
+    date TEXT NOT NULL,
+    size INTEGER NOT NULL
+);
+
+CREATE TABLE uenv (
+    version_id INTEGER PRIMARY KEY,
+    system TEXT NOT NULL,
+    uarch TEXT NOT NULL,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    UNIQUE (system, uarch, name, version)
+);
+
+CREATE TABLE tags (
+    version_id INTEGER,
+    tag TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    PRIMARY KEY (version_id, tag),
+    FOREIGN KEY (version_id)
+        REFERENCES uenv (version_id)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE,
+    FOREIGN KEY (sha256)
+        REFERENCES images (sha256)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE
+);
+
+-- for convenient generation of the Record type used internally by uenv-image
+CREATE VIEW records AS
+SELECT
+    uenv.system  AS system,
+    uenv.uarch   AS uarch,
+    uenv.name      AS name,
+    uenv.version   AS version,
+    tags.tag       AS tag,
+    images.date    AS date,
+    images.size    AS size,
+    tags.sha256    AS sha256,
+    images.id      AS id
+FROM tags
+    INNER JOIN uenv   ON uenv.version_id = tags.version_id
+    INNER JOIN images ON images.sha256   = tags.sha256;
+
+COMMIT;
+"""}
+
+db_version = "v2"
+create_db_command = create_db_commands[db_version]
 
 class RecordSet():
     def __init__(self, records, request):
@@ -172,16 +230,16 @@ class DataStore:
 
         cursor.execute("BEGIN;")
         cursor.execute("PRAGMA foreign_keys=on;")
-        cursor.execute("INSERT OR IGNORE INTO images (sha256, id, date, size, uarch, system) VALUES (?, ?, ?, ?, ?, ?)",
-                       (r.sha256, r.id, r.date, r.size, r.uarch, r.system))
-        # Insert a new name/version to the uenv table if no existing images with that pair exist
-        cursor.execute("INSERT OR IGNORE INTO uenv (name, version) VALUES (?, ?)",
-                       (r.name, r.version))
-        # Retrieve the version_id of the name/version pair
+        cursor.execute("INSERT OR IGNORE INTO images (sha256, id, date, size) VALUES (?, ?, ?, ?)",
+                       (r.sha256, r.id, r.date, r.size))
+        # Insert a new system/uarch/name/version to the uenv table if no existing images exist
+        cursor.execute("INSERT OR IGNORE INTO uenv (system, uarch, name, version) VALUES (?, ?, ?, ?)",
+                       (r.system, r.uarch, r.name, r.version))
+        # Retrieve the version_id of the system/uarch/name/version identifier
         # This requires a SELECT query to get the correct version_id whether or not
         # a new row was added in the last INSERT
-        cursor.execute("SELECT version_id FROM uenv WHERE name = ? AND version = ?",
-                       (r.name, r.version))
+        cursor.execute("SELECT version_id FROM uenv WHERE system = ? AND uarch = ? AND name = ? AND version = ?",
+                       (r.system, r.uarch, r.name, r.version))
         version_id = cursor.fetchone()[0]
         # Check whether an image with the same tag already exists in the repos
         cursor.execute("SELECT version_id, tag, sha256 FROM tags WHERE version_id = ? AND tag = ?",
@@ -255,15 +313,12 @@ class DataStore:
             # Find matching records for each constraint
             items = self._store.execute(f"SELECT * FROM records WHERE {query_criteria}")
 
-            request = ""
-            if "name" in constraints:
-                request = constraints["name"]
-                if "version" in constraints:
-                    request = request + f"/{constraints['version']}"
-                if "tag" in constraints:
-                    request = request + f":{constraints['tag']}"
-            if "uarch" in constraints:
-                request = request + f"@{constraints['uarch']}"
+            ns = constraints.get("name",    "*")
+            vs = constraints.get("version", "*")
+            ts = constraints.get("tag",     "*")
+            us = constraints.get("uarch",   "*")
+            ss = constraints.get("system",  "all")
+            request = f"{ns}/{vs}:{ts}@{us} on {ss}"
 
         results = [self.to_record(r) for r in items];
         results.sort(reverse=True)
@@ -272,7 +327,7 @@ class DataStore:
     @property
     def images(self):
         items = self._store.execute(f"SELECT * FROM records")
-        return RecordSet([self.to_record(r) for r in items], "all")
+        return RecordSet([self.to_record(r) for r in items], "{*}/{*}:{*}@{*} on all")
 
     # return a list of records that match a sha
     def get_record(self, sha: str) -> Record:
