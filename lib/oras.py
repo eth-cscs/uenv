@@ -83,7 +83,7 @@ def pull_uenv(source_address, image_path, target):
         total_mb = target.size/(1024*1024)
         while proc.poll() is None:
             time.sleep(1.0)
-            if os.path.exists(sqfs_path):
+            if os.path.exists(sqfs_path) and terminal.is_tty():
                 current_size = os.path.getsize(sqfs_path)
                 current_mb = current_size / (1024*1024)
                 p = current_mb/total_mb
