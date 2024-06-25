@@ -234,7 +234,7 @@ class EnvVarSet:
     #   "post": the list of commands to be executed to revert the environment
     #
     # The "post" list is optional, and should not be used for commands that
-    # update the environment like "uenv view" and "uenv modules use", instead
+    # update the environment like "uenv view", instead
     # it should be used for commands that should not alter the calling environment,
     # like "uenv run" and "uenv start".
     #

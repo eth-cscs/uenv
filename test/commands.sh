@@ -22,8 +22,6 @@ echo ==================== stop
 uenv stop --help
 echo ==================== status
 uenv status --help
-echo ==================== modules
-uenv modules --help
 
 echo
 echo ==================== uenv status
@@ -36,10 +34,6 @@ time uenv run prgenv-gnu -- ls /user-environment
 echo
 echo ==================== uenv run --uarch=gh200 prgenv-gnu -- ls /user-environment
 time uenv run --uarch=gh200 prgenv-gnu -- ls /user-environment
-
-echo
-echo ==================== uenv run --modules prgenv-gnu -- bash -c "module avail; ls /user-environment; module load gcc; gcc --version; which gcc;"
-time uenv run --modules prgenv-gnu -- bash -c "module avail; ls /user-environment; module load gcc; gcc --version; which gcc;"
 
 echo
 echo ==================== uenv run --view=default prgenv-gnu -- bash -c "which gcc; mpic++ --version; nvcc --version;"

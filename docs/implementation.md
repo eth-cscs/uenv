@@ -4,14 +4,6 @@
 
 ### Variables set and read by UENV
 
-* `UENV_MODULE_PATH`: a comma separated list of module files that have been loaded.
-
-For example:
-```
-UENV_MODULE_PATH=/user-environment/modules,/user-tools/modules
-UENV_MODULE_PATH=/user-tools/modules
-```
-
 * `UENV_VIEW`: the view that has been loaded (only one view can be loaded at a time
 
 ```

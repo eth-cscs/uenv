@@ -6,11 +6,6 @@ if [ -n "$UENV_FORWARD_VIEW" ]; then
     uenv view $UENV_FORWARD_VIEW
 fi
 
-if [ -n "$UENV_FORWARD_MODULES" ]; then
-    uenv modules use
-fi
-
 unset UENV_FORWARD_VIEW
-unset UENV_FORWARD_MODULES
 
 exec "$@"
