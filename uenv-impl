@@ -69,10 +69,6 @@ Note how the command to execute comes after the two dashes '--'.
 {colorize("Example", "blue")} - run the script job.sh in an evironmnent with a view loaded:
     {colorize("uenv run prgenv-gnu/24.2:v1 --view=default -- ./job.sh", "white")}
 
-{colorize("Example", "blue")} - run the script job.sh in an evironmnent with modules enabled:
-    {colorize("uenv run prgenv-gnu/24.2:v1 --modules -- ./job.sh", "white")}
-If the uenv provides modules, they will be visible through "module avail" and "module load".
-
 {colorize("Note", "cyan")} - the spec must uniquely identify the uenv. To ensure this, always use a
 fully qualified spec in the form of name/version:tag, the unique 16 digit id,
 or sha256 of a uenv. If more than one uenv match the spec, an error message
@@ -89,7 +85,7 @@ Here the mount point for each image is specified using a ":".
 
 {colorize("Note", "cyan")} - uenv must be mounted at the mount point for which they were built.
 If mounted at the wrong location, a warning message will be printed, and
-features like views and modules will be disabled.
+views will be disabled.
 
 {colorize("Example", "blue")} - the run command can be used to execute workflow steps with
 separate environments:
@@ -103,9 +99,6 @@ separate environments:
     run_parser.add_argument("-v", "--view",
                              help="The name of the environment view to activate when the uenv is started.",
                              required=False, type=str)
-    run_parser.add_argument("-m", "--modules",
-                             help="Enable any modules provided by the uenv.",
-                             action="store_true")
     run_parser.add_argument("runline", nargs=argparse.REMAINDER, type=str)
 
     #### start
@@ -121,10 +114,6 @@ This will mount prgenv-gnu at /user-environment, and start a new shell.
 {colorize("Example", "blue")} - start a uenv with a view loaded:
     {colorize("uenv start prgenv-gnu/24.2:v1 --view=default", "white")}
 Mount prgenv-gnu at /user-environment, and start a new shell with the view named "default" activated.
-
-{colorize("Example", "blue")} - start a uenv with modules enabled:
-    {colorize("uenv start prgenv-gnu/24.2:v1 --modules", "white")}
-Mount prgenv-gnu at /user-environment, and start a new shell with any modules provided by the uenv visible via "module avail".
 
 {colorize("Note", "cyan")} - the spec must uniquely identify the uenv. To ensure this, always use a
 fully qualified spec in the form of name/version:tag, the unique 16 digit id,
@@ -145,7 +134,7 @@ Here the mount point for each image is specified using a ":".
 
 {colorize("Note", "cyan")} - uenv must be mounted at the mount point for which they were built.
 If mounted at the wrong location, a warning message will be printed, and
-features like views and modules will be disabled.
+features like views will be disabled.
 """
                  ))
     start_parser.add_argument("-a", "--uarch",
@@ -154,9 +143,6 @@ features like views and modules will be disabled.
     start_parser.add_argument("-v", "--view",
                              help="The name of the environment view to activate when the uenv is started.",
                              required=False, type=str)
-    start_parser.add_argument("-m", "--modules",
-                             help="Enable any modules provided by the uenv.",
-                             action="store_true")
     start_parser.add_argument("image", nargs='+', type=str,
             help="the uenv to start")
 
@@ -167,44 +153,6 @@ features like views and modules will be disabled.
     #### status
     status_parser = subparsers.add_parser("status",
             help="print information about any loaded uenv")
-
-    #### modules
-    modules_parser = subparsers.add_parser("modules",
-            help="use modules if they are available",
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog=textwrap.dedent(
-f"""\
-{colorize("Example", "blue")} - get information about uenv modules:
-    {colorize("uenv modules", "white")}
-
-The sample output below is generated when there is one started uenv that
-provides modules. In this case the modules have already been made available
-using the {colorize("uenv modules use", "white")} command (see below).
-
-{colorize("the following loaded uenv provide modules:", "gray")}
-{colorize("  prgenv-gnu:/user-environment (loaded)", "gray")}
-
-{colorize("Example", "blue")} - enable the modules provided by the current uenv:
-    {colorize("uenv modules use", "white")}
-
-Once enabled, the modules will be available through the system module command,
-e.g. {colorize("module avail", "white")} and {colorize("module load ...", "white")}.
-
-{colorize("Note", "cyan")} - the {colorize("uenv modules use", "white")} command above is eqivalent to the module command
-{colorize("module use /user-environment/modules", "white")}.
-
-{colorize("Example", "blue")} - enable modules of a uenv by name:
-    {colorize("uenv modules use prgenv-gnu", "white")}
-This command is useful if more than one uenv is mounted. Modules provided by
-more than one mounted uenv can be used by providing a space separated list of
-uenv names.
-"""
-             ))
-    modules_subparsers = modules_parser.add_subparsers(dest="modules_command")
-    modules_use_parser = modules_subparsers.add_parser("use",
-            help="use modules if they are available")
-    modules_use_parser.add_argument("image", nargs='*', type=str,
-            help="the uenv(s) with the modules to load")
 
     #### view
     views_parser = subparsers.add_parser("view",
@@ -271,9 +219,6 @@ def get_uenv_version():
     except:
         return None
 
-def parse_uenv_modules(desc):
-    return [pathlib.Path(p) for p in desc.split(',')]
-
 def parse_uenv_view(desc):
     mount, uenv, name = desc.split(':')
     return {"path": pathlib.Path(mount), "uenv": uenv, "name": name}
@@ -319,14 +264,9 @@ class environment:
         #   /user-environment /dev/loop12 squashfs ro,nosuid,nodev,relatime
 
 
-    # Read environment variables set by previous calls to uenv, that record which
-    # views and modules have been loaded.
+    # Read environment variables set by previous calls to uenv, that record which views have been loaded.
     # Additionally read the vcluster name, if set.
     def load_status(self):
-        modules = None
-        if os.environ.get('UENV_MODULE_PATH') is not None:
-            modules = parse_uenv_modules(os.environ.get('UENV_MODULE_PATH'))
-
         view = None
         if os.environ.get('UENV_VIEW') is not None:
             view = parse_uenv_view(os.environ.get('UENV_VIEW'))
@@ -335,7 +275,7 @@ class environment:
         if os.environ.get('CLUSTER_NAME') is not None:
             system = os.environ.get('CLUSTER_NAME')
 
-        return {"modules": modules, "view": view, "vcluster": vcluster}
+        return {"view": view, "vcluster": vcluster}
 
     @property
     def uenvs(self):
@@ -345,11 +285,6 @@ class environment:
     def active(self):
         """true if one or more uenv has been mounted"""
         return len(self._uenvs)>0
-
-    @property
-    def modules_loaded(self):
-        """true if the modules have been activated"""
-        return self._status["modules"] is not None
 
     @property
     def loaded_view(self):
@@ -381,21 +316,9 @@ class uenv:
         self._image =  self.load_image(path)
         self.native_mount = self.get_native_mount()
 
-        # check whether this environment provides modules that have
-        # been loaded
-        self.modules_loaded = False
-        if self.modules is not None:
-            env_module_paths = []
-            if os.environ.get('UENV_MODULE_PATH') is not None:
-                env_module_paths = parse_uenv_modules(os.environ.get('UENV_MODULE_PATH'))
-            if self.modules in [str(e) for e in env_module_paths]:
-                self.modules_loaded = True
-            if self.modules_loaded:
-                terminal.info(f"uenv {self.name} at {str(self.mount)} has modules loaded")
-
         if not self.is_native_mounted:
             terminal.warning(f"The uenv mounted at {self.mount} should be mounted at {self.native_mount}.")
-            terminal.warning(f"Features like modules and views will be be disabled.")
+            terminal.warning(f"Features like views will be be disabled.")
 
     def load_image(self, path):
         """return information (if any) about the image mounted at path"""
@@ -440,11 +363,6 @@ class uenv:
             terminal.info(f"image at {self.mount} has native mount {pathlib.Path(e['root']).parents[1]} inferred from views")
             return pathlib.Path(e["root"]).parents[1]
 
-        # check whether it can be inferred from a module path
-        if self.modules is not None:
-            terminal.info(f"image at {self.mount} has native mount {pathlib.Path(e['root']).parents[1]} inferred from modules")
-            return pathlib.Path(self.modules).parents[0]
-
         # no mount information found, so assume that the actual mount point is valid.
         terminal.info(f"image at {self.mount} has native mount {self.mount} assumed")
         return self.mount
@@ -462,16 +380,6 @@ class uenv:
     def is_uenv(self):
         """true if the mounted image provided meta data that describes a uenv"""
         return self._image["uenv"] is not None
-
-    @property
-    def modules(self):
-        """the module path if modules are provided by the uenv"""
-        if not self.is_uenv:
-            return None
-        m = self._image["uenv"].get("modules", None)
-        if m is None:
-            return None
-        return m.get("root", None)
 
     @property
     def description(self):
@@ -546,8 +454,6 @@ def generate_command(args, env_vars):
         return generate_status_command(args, env)
     elif args.command == "view":
         return generate_view_command(args, env, env_vars)
-    elif args.command == "modules":
-        return generate_modules_command(args, env)
 
     terminal.error(f"unknown command '{args.command}'", abort=False)
     return shell_error
@@ -765,10 +671,6 @@ def generate_run_command(args, env, env_vars):
         terminal.info(f"start with view {args.view}")
         env_vars.set_scalar("UENV_FORWARD_VIEW", args.view)
 
-    if args.modules:
-        terminal.info(f"enabling modules")
-        env_vars.set_scalar("UENV_FORWARD_MODULES", "1")
-
     # TODO: remove UENV_MOUNT_* variables when the slurm plugin on Balfrin/Tasna is updated
     main_mount=mount_pairs[0].split(":")
     env_vars.set_scalar("UENV_MOUNT_FILE", f"{main_mount[0]}")
@@ -794,10 +696,6 @@ def generate_start_command(args, env, env_vars):
         terminal.info(f"enabling the view '{args.view}'")
         env_vars.set_scalar("UENV_FORWARD_VIEW", args.view)
 
-    if args.modules:
-        terminal.info(f"enabling modules")
-        env_vars.set_scalar("UENV_FORWARD_MODULES", "1")
-
     # TODO: remove UENV_MOUNT_* variables when the slurm plugin on Balfrin/Tasna is updated
     main_mount=mount_pairs[0].split(":")
     env_vars.set_scalar("UENV_MOUNT_FILE", f"{main_mount[0]}")
@@ -805,74 +703,6 @@ def generate_start_command(args, env, env_vars):
 
     return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash",
             "local _exitcode=$?",]
-
-def generate_modules_command(args, env):
-
-    terminal.info(f"parsing modules command: {args}")
-
-    if not env.active:
-        terminal.error(f'there is no uenv loaded', abort=False)
-        return shell_error
-
-    # generate a list of all the mounted environments that provide modules
-    module_envs = [
-        {"name": e.name, "mount": e.mount, "modules": e.modules, "loaded": e.modules_loaded}
-            for e in env.uenvs
-                if (e.modules is not None) and e.is_native_mounted]
-
-    terminal.info(f"modules are provided by {module_envs}")
-
-    # No use command, i.e. the folloing CLI command was made:
-    #   uenv modules
-    # print the status of the modules
-    if not args.modules_command=="use":
-        if len(module_envs)==0:
-            return "echo 'no loaded environments provide modules'"
-        output = ["echo 'the following loaded uenv provide modules:'"]
-        loaded = colorize("(loaded)", "yellow")
-        for e in module_envs:
-            name = e["name"]
-            mount = e["mount"]
-            if e["loaded"]:
-                output.append(f"echo '  {name}:{mount} {loaded}'")
-            else:
-                output.append(f"echo '  {name}:{mount}'")
-            output.append(shell_noop)
-        return output
-    # uenv modules use images[]
-    else:
-        images = args.image
-        mounts=[]
-        # no images were specified, i.e. the user simpley requested:
-        #   uenv modules use
-        # in which case the list of mounts is the mount points for all images
-        # that provide modules.
-        if len(images)==0:
-            mounts = [e["mount"] for e in module_envs]
-        else:
-            for i in images:
-                matches = [e.mount for e in env.uenvs
-                        if (e.matches_name(i))
-                            and (e.modules is not None)
-                            and (e.is_native_mounted)]
-                if len(matches)==0:
-                    terminal.error(f"no uenv matching {i} provides modules", abort=False)
-                    return shell_error
-                terminal.info(f"  uenv {i} mounted at {matches[0]}")
-                mounts.append(matches[0])
-
-        modulepaths = [str(p / 'modules') for p in mounts]
-        for p in modulepaths:
-            terminal.info(f"  using modules in {p}")
-        modulecmds = [f"module use {p}" for p in modulepaths]
-        env_vars.set_scalar("UENV_MODULE_PATH", f"{','.join(modulepaths)}")
-
-        env_vars.set_post(False)
-
-        return modulecmds
-
-
-    return shell_noop
 
 def generate_view_command(args, env, env_vars):
 
@@ -1010,15 +840,8 @@ def generate_status_command(args, env):
             else:
                 lines.append(f"  {description}")
             if not uenv.is_native_mounted:
-                lines.append(f"  {colorize('warning', 'yellow')}: mount the image at {uenv.native_mount} to use views and modules")
+                lines.append(f"  {colorize('warning', 'yellow')}: mount the image at {uenv.native_mount} to use views")
             else:
-                if uenv.modules_loaded:
-                    lines.append(f"  modules: {colorize('(loaded)', 'yellow')}")
-                elif uenv.modules is not None:
-                    lines.append(f"  modules: available")
-                else:
-                    lines.append(f"  modules: no modules available")
-
                 views = uenv.views
                 view = None
                 if (loaded_view is not None) and (loaded_view["path"]==uenv.mount):
