@@ -408,11 +408,22 @@ class uenv:
 
         views = []
         for name, info in vlist.items():
-            views.append({
-                "name": name,
-                "activate": info["activate"],
-                "description": info["description"],
-                "root": info["root"]})
+            if "env" in info:
+                if info["env"]["version"] != 1:
+                    terminal.warning(f"this uenv image is too recent for uenv - please upgrade.")
+                    return []
+                views.append({
+                    "name": name,
+                    "activate": info["activate"],
+                    "description": info["description"],
+                    "root": info["root"],
+                    "env": info["env"]["values"]})
+            else:
+                views.append({
+                    "name": name,
+                    "activate": info["activate"],
+                    "description": info["description"],
+                    "root": info["root"]})
 
         return views
 
@@ -796,10 +807,21 @@ def generate_view_command(args, env, env_vars):
         terminal.error(f'the view "{requested_view}" is not available', abort=False)
         return help_message(shell_error)
 
-    path = next((v['activate'] for v in uenv.views if v['name']==vname))
+    # load the raw view data
+    view_meta = next((v for v in uenv.views if v["name"]==vname))
 
-    terminal.info(f"full path for view activation script: '{path}'")
-    env_vars.update(ev.read_activation_script(path))
+    # check whether the view provides environment variable information
+    terminal.info(f"view meta: {view_meta}")
+    if "env" in view_meta:
+        terminal.info(f"the image provides environment variable meta data")
+        env_vars.update(ev.read_dictionary(view_meta["env"]))
+        terminal.info(f"{env_vars}")
+    # else use the raw activate.sh
+    else:
+        path = view_meta['activate']
+        terminal.info(f"full path for view activation script: '{path}'")
+        env_vars.update(ev.read_activation_script(path))
+
     env_vars.set_scalar("UENV_VIEW", f"{uenv.mount}:{uenv.name}:{vname}")
 
     env_vars.set_post(False)
