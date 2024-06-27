@@ -1,3 +1,4 @@
+import json
 import os
 import pathlib
 import shutil
@@ -70,14 +71,40 @@ def run_command(args):
 def pull_uenv(source_address, image_path, target):
     # download the image using oras
     try:
-        # run the oras command in a separate process so that this process can
-        # draw a progress bar.
-        proc = run_command_internal(["pull", "-o", image_path, source_address])
-
         # remove the old path if it exists
         if os.path.exists(image_path):
             shutil.rmtree(image_path)
-            time.sleep(0.2)
+            time.sleep(0.1)
+
+        terms = source_address.rsplit(":", 1)
+        source_address = terms[0]
+        tag = terms[1]
+
+        # step 1: download the meta data if there is any
+        #oras discover -o json --artifact-type 'uenv/meta' jfrog.svc.cscs.ch/uenv/deploy/eiger/zen2/cp2k/2023:v1
+        terminal.info(f"discovering meta data")
+        proc = run_command_internal(["discover", "-o", "json", "--artifact-type", "uenv/meta", f"{source_address}:{tag}"])
+        stdout, stderr = proc.communicate()
+        if proc.returncode == 0:
+            terminal.info(f"successfully downloaded meta data info: {stdout}")
+        else:
+            msg = error_message_from_stderr(stderr)
+            terminal.error(f"failed to find meta data: {stderr}\n{msg}")
+
+        manifests = json.loads(stdout)["manifests"]
+        if len(manifests)==0:
+            terminal.error(f"no meta data is available")
+
+        digest = manifests[0]["digest"]
+        terminal.info(f"meta data digest: {digest}")
+
+        proc = run_command_internal(["pull", "-o", image_path, f"{source_address}@{digest}"])
+        stdout, stderr = proc.communicate()
+
+        # step 2: download the image itself
+        # run the oras command in a separate process so that this process can
+        # draw a progress bar.
+        proc = run_command_internal(["pull", "-o", image_path, f"{source_address}:{tag}"])
 
         sqfs_path = image_path + "/store.squashfs"
         total_mb = target.size/(1024*1024)
