@@ -220,8 +220,11 @@ def get_uenv_version():
         return None
 
 def parse_uenv_view(desc):
-    mount, uenv, name = desc.split(':')
-    return {"path": pathlib.Path(mount), "uenv": uenv, "name": name}
+    views = []
+    for v in desc.split(','):
+        mount, uenv, name = v.split(':')
+        views.append({"path": pathlib.Path(mount), "uenv": uenv, "name": name})
+    return views
 
 ###############################################################################
 # Types that read and represent uenv status
@@ -721,108 +724,101 @@ def generate_view_command(args, env, env_vars):
         terminal.error(f'there is no uenv loaded', abort=False)
         return shell_error
 
-    requested_view = args.view_name
+    # the requested view(s)
+    request = args.view_name
 
-    # A dictionary that provides a list of views for each mounted uenv
-    #     {key=uenv-name: value=[views]}
-    # only uenv with views are added to the dictionary
-    available_views = {}
-    # A dictionary with view name as a key, and a list of uenv that provide
-    # view with that name as the values
-    view2uenv = {}
+    # build a list of all views that are provided by the mounted uenv
+    available_views = []
     for uenv in env.uenvs:
-        name = uenv.name
-        views = [v["name"] for v in uenv.views]
-        if len(views)>0:
-            available_views[name] = views
-        for v in views:
-            view2uenv.setdefault(v, []).append(uenv)
+        for name in [v["name"] for v in uenv.views]:
+            available_views.append({"uenv": uenv.name, "name": name})
+
+    terminal.info(f"available views: {available_views}")
 
     # A helper function that generates a help message to echo to the screen.
     def help_message(final_op=shell_noop):
         output = []
-        if not available_views:
+        if len(available_views)==0:
             output.append("echo 'no views are provided by the loaded uenv'")
-        output.append("echo 'the following views are available:'")
-        output.append("echo ''")
-        # if only one uenv provides views, there is no need to disambiguate view names
-        disambiguate = len(available_views)>1
-        for name, views in available_views.items():
-            for view in views:
-                output.append(f"echo '{colorize(name+':'+view, 'cyan')}'")
-                if disambiguate:
-                    command = f"uenv view {name}:{view}"
-                else:
-                    command = f"uenv view {view}"
+        else:
+            output.append("echo 'the following views are available:'")
+            output.append("echo ''")
+            # if only one uenv provides views, there is no need to disambiguate view names
+            disambiguate = len(available_views)>1
+            for v in available_views:
+                uenv = v["uenv"]
+                name = v["name"]
+                output.append(f"echo '{colorize(uenv+':'+name, 'cyan')}'")
+                command = f"uenv view {uenv}:{name}"
                 output.append(f"echo '  {colorize(command, 'white')}'")
+
         output.append(final_op)
+
         return output
 
     # handle the case where `uenv view` is called with no further arguments
     # print status information and suggested commands before quitting without error
-    if requested_view is None:
+    if request is None:
         # handle the case that a view is already loaded
-        if env.loaded_view is not None:
-            loaded_view = f"{env.loaded_view['uenv']}:{env.loaded_view['name']}"
-            return [f"echo 'the view {colorize(loaded_view, 'cyan')} is loaded'",
-                    shell_noop]
+        loaded_views = env.loaded_view
+        if loaded_views is not None:
+            view_strings = [f"{v['uenv']}:{v['name']}" for v in loaded_views]
+            if len(loaded_views)==1:
+                return [f"echo 'the view {colorize(view_strings[0], 'cyan')} is loaded'",
+                        shell_noop]
+            else:
+                return [f"echo 'the views {', '.join([colorize(s, 'cyan') for s in view_strings])} are loaded'",
+                        shell_noop]
+
         else:
             return help_message(shell_noop)
 
     if env.loaded_view is not None:
-        loaded_view = f"{env.loaded_view['uenv']}:{env.loaded_view['name']}"
-        terminal.error(f"the view {colorize(loaded_view, 'cyan')} is already loaded", abort=False)
+        terminal.error(f"views are already loaded", abort=False)
         return shell_error
 
-    view_components = requested_view.split(':')
+    requested_views = []
+    for r in request.split(','):
+        components = r.split(':')
 
-    # handle the case where no uenv name was provided
-    # e.g. "develop"
-    if len(view_components)==1:
-        vname = requested_view
-        uenvs = view2uenv.get(vname, [None])
-        # more than one uenv provides a view with the requested name
-        if len(uenvs)>1:
-            terminal.error(f'the view"{name}" is provided by {[e.name for e in uenvs]}. Use `uenv view` to see the available options.', abort=False)
+        if len(components)==1:
+            request = {"uenv": None, "name": components[0]}
+        else:
+            request = {"uenv": components[0], "name": components[1]}
+
+        matches = [v for v in available_views if (request == v) or (request["uenv"] is None and request["name"]==v["name"])]
+
+        if len(matches)>1:
+                terminal.error(f'the view "{r}" is provided by {[e["name"] for e in matches]}. Use "uenv view" to see the available options.', abort=False)
+                return help_message(shell_error)
+        elif len(matches)==0:
+            terminal.error(f'the view "{r}" is not available', abort=False)
             return help_message(shell_error)
-        # this will be either
-        #   the single uenv that provides the view
-        #   None -> no matching image
-        uenv = uenvs[0]
 
-    # handle the case where both uenv name and view are provided
-    # e.g. "prgenv-gnu:default"
-    else:
-        ename = view_components[0]
-        vname = view_components[1]
-        # find all uenvs that provide this view
-        uenvs = view2uenv.get(vname, [])
-        # this will be either
-        #   the uenv that provides the view
-        #   None -> no matching image
-        uenv = next((e for e in uenvs if e.name==ename), None)
+        terminal.info(f"found compatible view: {request} -> {matches[0]}")
+        requested_views.append(matches[0])
 
-    # no view with the requested name exists
-    if uenv is None:
-        terminal.error(f'the view "{requested_view}" is not available', abort=False)
-        return help_message(shell_error)
+    uenv_view_strings_long = []
+    uenv_view_strings_short = []
+    for request in requested_views:
+        uenv = next((u for u in env.uenvs if u.name==request["uenv"]))
+        view_meta = next((v for v in uenv.views if v["name"]==request["name"]))
 
-    # load the raw view data
-    view_meta = next((v for v in uenv.views if v["name"]==vname))
+        # check whether the view provides environment variable information
+        terminal.info(f"loading the view: {view_meta}")
+        if "env" in view_meta:
+            terminal.info(f"the image provides environment variable meta data")
+            env_vars.update(ev.read_dictionary(view_meta["env"]))
+            terminal.info(f"{env_vars}")
+        # else use the raw activate.sh
+        else:
+            path = view_meta['activate']
+            terminal.info(f"full path for view activation script: '{path}'")
+            env_vars.update(ev.read_activation_script(path))
+        uenv_view_strings_long.append(f"{uenv.mount}:{uenv.name}:{request['name']}")
+        uenv_view_strings_short.append(f"{uenv.name}:{request['name']}")
 
-    # check whether the view provides environment variable information
-    terminal.info(f"view meta: {view_meta}")
-    if "env" in view_meta:
-        terminal.info(f"the image provides environment variable meta data")
-        env_vars.update(ev.read_dictionary(view_meta["env"]))
-        terminal.info(f"{env_vars}")
-    # else use the raw activate.sh
-    else:
-        path = view_meta['activate']
-        terminal.info(f"full path for view activation script: '{path}'")
-        env_vars.update(ev.read_activation_script(path))
-
-    env_vars.set_scalar("UENV_VIEW", f"{uenv.mount}:{uenv.name}:{vname}")
+    env_vars.set_scalar("UENV_VIEW", ",".join(uenv_view_strings_long))
 
     env_vars.set_post(False)
 
@@ -832,8 +828,8 @@ def generate_view_command(args, env, env_vars):
         env_vars.clear()
         return [f"echo '{json_string}'"]
 
-    qualified_view_name = f"{uenv.name}:{vname}"
-    return [f"echo 'loading the view {colorize(qualified_view_name, 'cyan')}'"]
+    qualified_view_name = " ".join(uenv_view_strings_short)
+    return [f"echo 'loading the view{'s' if len(requested_views)>1 else ''} {colorize(qualified_view_name, 'cyan')}'"]
 
 def generate_status_command(args, env):
     num_env = len(env.uenvs)
@@ -843,8 +839,10 @@ def generate_status_command(args, env):
     lines = []
     first = True
 
-    loaded_view = env.loaded_view
-    terminal.info(f"loaded view: {loaded_view}")
+    loaded_views = env.loaded_view
+    if loaded_views is None:
+        loaded_views = []
+    terminal.info(f"loaded views: {loaded_views}")
 
     for uenv in env.uenvs:
         if not first:
@@ -866,15 +864,13 @@ def generate_status_command(args, env):
             else:
                 views = uenv.views
                 view = None
-                if (loaded_view is not None) and (loaded_view["path"]==uenv.mount):
-                    view = loaded_view["name"]
                 if len(views)==0:
                     lines.append("  views: no views available")
                 else:
                     lines.append("  views:")
                     for v in views:
                         name = v["name"]
-                        if name == view:
+                        if {"path": uenv.mount, "uenv": uenv.name, "name": name} in loaded_views:
                             name += f" {colorize('(loaded)', 'yellow')}"
 
                         description = v["description"]

@@ -33,8 +33,6 @@ def use_colored_output(cli_arg: bool):
             colored_output = False
             return
 
-    colored_output = is_tty()
-
 def colorize(string, color):
     colors = {
         "red":     "31",
