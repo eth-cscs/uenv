@@ -37,7 +37,7 @@ import terminal
 def query() -> tuple:
     try:
         # GET request to the middleware
-        url = "https://cicd-ext-mw.cscs.ch/uenv/list"
+        url = "https://uenv-list.svc.cscs.ch/list"
         terminal.info(f"querying jfrog at {url}")
         response = requests.get(url)
         response.raise_for_status()
