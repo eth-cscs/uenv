@@ -275,6 +275,24 @@ Then check that it has been deployed:
     deploy_parser.add_argument("source", nargs=1, type=str, metavar="SOURCE",
                                help="The full name/version:tag, id or sha256 of the uenv to deploy.")
 
+    upgrade_parser = subparsers.add_parser("upgrade",
+            help="Upgrade an image repository for use with this version of uenv.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=f"""\
+Upgrade an image repository for use with this version of uenv.
+
+{colorize("Example", "blue")} - query the status of the repository, and whether it needs upgrading.
+  {colorize("uenv image upgrade --status", "white")}
+
+{colorize("Example", "blue")} - upgrade
+  {colorize("uenv image upgrade", "white")}
+
+{colorize("Example", "blue")} - create a repository in a custom location, with no error if the repo already exists:
+  {colorize("uenv --repo= image upgrade", "white")}
+""")
+    upgrade_parser.add_argument("--status", action="store_true", required=False,
+                    help="print the status of the repo, and whether it needs upgrading. No upgrade action will be performed.")
+
     return parser
 
 def get_options(args):
@@ -360,6 +378,8 @@ def safe_repo_open(path: str) -> datastore.FileSystemRepo:
     Use this for all calls to open an existing FileSystemRepo in order to provide
     consistent and useful error messages.
     """
+    # TODO: add a check for the db version, and print error if incompatible
+
     try:
         cache = datastore.FileSystemRepo(path)
     except datastore.RepoNotFoundError as err:
@@ -552,4 +572,38 @@ if __name__ == "__main__":
         terminal.info(f"successfully deployed {target_address}")
 
         sys.exit(0)
+
+    elif args.command == "upgrade":
+        terminal.info(f"repo path: {repo_path}")
+
+        status = datastore.repo_status(repo_path)
+        terminal.info(f"{repo_path} status: {status}")
+
+        # print a message with no errors if the user requested status with the --status flag
+        if args.status:
+            if status==1:
+                terminal.stdout(f"The repository {repo_path} is up to date. No action required.")
+            elif status==0:
+                terminal.stdout(f"The repository {repo_path} needs to be upgraded using the following command:")
+                if args.repo is None:
+                    terminal.stdout(f"   {colorize('uenv image upgrade', 'white')}")
+                else:
+                    cli_string = f"uenv --repo={repo_path} image upgrade"
+                    terminal.stdout(f"   {colorize(cli_string, 'white')}")
+            elif status==-1:
+                terminal.stdout(f"The repository {repo_path} is corrupt - nothing can be done.")
+            sys.exit(0)
+
+        if status==1:
+            terminal.stdout(f"The repository {repo_path} is up to date. No action performed.")
+            sys.exit(0)
+        elif status==-1:
+            terminal.error(f"The repository {repo_path} is corrupt - nothing can be done.")
+
+        terminal.stdout(f"The repository {repo_path} will be upgraded.")
+
+        datastore.repo_upgrade(repo_path)
+
+        sys.exit(0)
+
 

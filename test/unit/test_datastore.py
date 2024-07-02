@@ -1,9 +1,11 @@
 import shutil
+import sqlite3
 import unittest
 
 import datastore
 import record
 import scratch
+import inputs
 
 prgenvgnu_records = [
     record.Record("santis", "gh200", "prgenv-gnu", "23.11", "default", "monday", 1024, "a"*64),
@@ -246,11 +248,6 @@ class TestRepositoryCreate(unittest.TestCase):
         self.path = scratch.make_scratch_path("repository_create")
 
     def test_create_new_repo(self):
-        # expect an exception when an invalid field is passed (sustem is a typo for system)
-        with self.assertRaises(ValueError):
-            result = store.find_records(sustem="santis")
-
-    def test_create_new_repo(self):
         # create a new repository with database on disk
         datastore.FileSystemRepo.create(self.path.as_posix())
 
@@ -263,6 +260,44 @@ class TestRepositoryCreate(unittest.TestCase):
         repo.add_record(record)
         sha = record.sha256
         self.assertEqual(repo.database.get_record(sha).records[0].sha256, sha)
+
+    def tearDown(self):
+        shutil.rmtree(self.path, ignore_errors=True)
+
+class TestUpgrade(unittest.TestCase):
+
+    def setUp(self):
+        self.path = scratch.make_scratch_path("upgrade_from_v1")
+        self.db_path = self.path / "index.db"
+
+        source_path = inputs.database(1)
+        shutil.copy(source_path, self.db_path)
+
+        # TODO: add checks that a v2 database is correctly identified and no action is taken
+
+    def test_v1_to_v2(self):
+
+        repo_path = self.path.as_posix()
+
+        # test that the database is correctly identified as v1
+        self.assertEqual(datastore.repo_version(repo_path), 1) 
+        # test that the database is correctly identified as out of date, but fixable
+        self.assertEqual(datastore.repo_status(repo_path), 0)
+
+        # perform upgrade
+        datastore.repo_upgrade(repo_path)
+
+        # open the upgraded database and check contents
+        self.assertEqual(datastore.repo_version(repo_path), 2) 
+
+        store = datastore.FileSystemRepo(self.path.as_posix())
+        db = store.database
+        self.assertEqual(len(db.find_records(version="23.11").records), 3)
+        self.assertEqual(len(db.find_records(version="24.2").records),  2)
+        self.assertEqual(len(db.find_records(sha="b"*64).records),  2)
+        self.assertEqual(len(db.find_records(sha="c"*64).records),  1)
+        self.assertEqual(len(db.find_records(name="prgenv-gnu").records),  5)
+        self.assertEqual(len(db.find_records(tag="v1").records),  2)
 
     def tearDown(self):
         shutil.rmtree(self.path, ignore_errors=True)
