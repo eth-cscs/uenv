@@ -9,16 +9,18 @@ conf_data = configuration_data()
 
 sqlite3_dep = dependency('sqlite3')
 
-#lib_src = ['src/lib/.cpp',
-#           'src/lib/strings.cpp']
+tinyopt_dep = declare_dependency(include_directories: 'external/tinyopt/include')
 
-uenv_src = ['src/uenv.cpp'] + lib_src
+fmt = subproject('fmt', default_options: 'default_library=static')
+fmt_dep = fmt.get_variable('fmt_dep')
+
+uenv_src = ['src/uenv.cpp', 'src/start.cpp']
 uenv_inc = include_directories('include')
 uenv_dep = [sqlite3_dep]
 
-exec = executable('uenv',
+uenv = executable('uenv',
               sources: uenv_src,
-              dependencies: uenv_dep,
+              dependencies: [uenv_dep, fmt_dep, tinyopt_dep],
               c_args: ['-DVERSION="@0@"'.format(version)],
               install: true)
 
