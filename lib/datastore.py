@@ -171,10 +171,15 @@ def repo_version(repo_path: str):
         terminal.info(f"exception opening {db_path}: {str(err)}")
         return -1
 
+# return 2: repo does not exist
 # return 1: repo is fully up to date
 # return 0: repo needs upgrading
 # return -1: unrecoverable error
 def repo_status(repo_path: str):
+    index_path = repo_path + "/index.db"
+    if not os.path.exists(index_path):
+        return 2
+
     version = repo_version(repo_path)
 
     if version==db_version:

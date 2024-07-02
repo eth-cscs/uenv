@@ -10,6 +10,7 @@ import copy
 import os
 import pathlib
 import re
+import shutil
 import sys
 import textwrap
 import time
@@ -220,28 +221,6 @@ List uenv that are available.
     list_parser.add_argument("-a", "--uarch", required=False, type=str)
     list_parser.add_argument("uenv", nargs="?", default=None, type=str)
 
-    repo_parser = subparsers.add_parser("repo",
-            help="Create a local file system repository.",
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog=f"""\
-Create a local repository for managing pulled uenv images.
-
-{colorize("Note", "cyan")}: a local repository must be created before using {colorize("uenv image", "white")}.
-
-{colorize("Example", "blue")} - create a repository in the default location:
-  {colorize("uenv image repo", "white")}
-
-{colorize("Example", "blue")} - create a repository in a custom location:
-  {colorize("uenv image repo $SCRATCH/my-custom-repo", "white")}
-
-{colorize("Example", "blue")} - create a repository in a custom location, with no error if the repo already exists:
-  {colorize("uenv image repo --exists-ok $SCRATCH/my-custom-repo", "white")}
-""")
-    repo_parser.add_argument("--exists-ok", action="store_true", required=False,
-                    help="No error if the local registry exists.")
-    repo_parser.add_argument("repo", nargs="?", default=None, type=str,
-                    help="The path in which to create the repository. If unset, the default location will be selected.")
-
     deploy_parser = subparsers.add_parser("deploy",
                 help="Deploy a uenv to the 'deploy' namespace, accessible to all users.",
                 formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -274,24 +253,6 @@ Then check that it has been deployed:
     deploy_parser.add_argument("--tags", required=True, help="Comma separated list of tags to apply to the deployed image.", type=str)
     deploy_parser.add_argument("source", nargs=1, type=str, metavar="SOURCE",
                                help="The full name/version:tag, id or sha256 of the uenv to deploy.")
-
-    upgrade_parser = subparsers.add_parser("upgrade",
-            help="Upgrade an image repository for use with this version of uenv.",
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog=f"""\
-Upgrade an image repository for use with this version of uenv.
-
-{colorize("Example", "blue")} - query the status of the repository, and whether it needs upgrading.
-  {colorize("uenv image upgrade --status", "white")}
-
-{colorize("Example", "blue")} - upgrade
-  {colorize("uenv image upgrade", "white")}
-
-{colorize("Example", "blue")} - create a repository in a custom location, with no error if the repo already exists:
-  {colorize("uenv --repo= image upgrade", "white")}
-""")
-    upgrade_parser.add_argument("--status", action="store_true", required=False,
-                    help="print the status of the repo, and whether it needs upgrading. No upgrade action will be performed.")
 
     return parser
 
@@ -378,18 +339,25 @@ def safe_repo_open(path: str) -> datastore.FileSystemRepo:
     Use this for all calls to open an existing FileSystemRepo in order to provide
     consistent and useful error messages.
     """
-    # TODO: add a check for the db version, and print error if incompatible
 
     try:
-        cache = datastore.FileSystemRepo(path)
-    except datastore.RepoNotFoundError as err:
-        terminal.error(f"""The local repository {path} does not exist.
-If this is your first time using uenv, a repo in the default location can be created with this command:
-  {colorize(f"uenv image repo", "white")}
-If you want to create a repo in a custom location , provide the path as follows:
-  {colorize("uenv image repo <repo_path>", "white")}
-where {colorize("<repo_path>", "white")} is the desired location.
+        # check that the database is up to date
+        status = datastore.repo_status(repo_path)
+        # handle a non-existant repo
+        if status==2:
+            terminal.error(f"""The local repository {repo_path} does not exist.
+Use the following command
+  {colorize(f"uenv repo --help", "white")}
+for more information.
 """)
+        # handle a repo that needs to be updated
+        if status==0:
+            terminal.error(f"""The local repository {repo_path} needs to be upgraded. Run:
+  {colorize(f"uenv repo status", "white")}
+for more information.
+""")
+
+        cache = datastore.FileSystemRepo(path)
     except datastore.RepoDBError as err:
         terminal.error(f"""The local repository {path} had a database error.
 Please open a CSCS ticket, or contact the uenv dev team, with the command that created the error, and this full error message.
@@ -465,6 +433,10 @@ if __name__ == "__main__":
             # if the record isn't already in the filesystem repo download it
             if cache.database.get_record(t.sha256).is_empty:
                 terminal.stdout(f"downloading image {t.sha256} {image_size_string(t.size)}")
+                # clean up the path if it already exists: sometimes this causes an oras error.
+                if os.path.exists(image_path):
+                    terminal.info(f"removing existing path {image_path}")
+                    shutil.rmtree(image_path)
                 oras.pull_uenv(source_address, image_path, t)
             else:
                 terminal.stdout(f"image {t.sha256} is already available locally")
@@ -517,16 +489,6 @@ if __name__ == "__main__":
 
         sys.exit(0)
 
-    elif args.command == "repo":
-        terminal.info(f"repo path: {repo_path}")
-
-        try:
-            datastore.FileSystemRepo.create(repo_path, exists_ok=args.exists_ok)
-        except Exception as err:
-            terminal.error(f"unable to find or initialise the local registry: {str(err)}")
-
-        sys.exit(0)
-
     elif args.command == "deploy":
         source = args.source[0]
         terminal.info(f"request to deploy '{source}' with tags '{args.tags}'")
@@ -572,38 +534,4 @@ if __name__ == "__main__":
         terminal.info(f"successfully deployed {target_address}")
 
         sys.exit(0)
-
-    elif args.command == "upgrade":
-        terminal.info(f"repo path: {repo_path}")
-
-        status = datastore.repo_status(repo_path)
-        terminal.info(f"{repo_path} status: {status}")
-
-        # print a message with no errors if the user requested status with the --status flag
-        if args.status:
-            if status==1:
-                terminal.stdout(f"The repository {repo_path} is up to date. No action required.")
-            elif status==0:
-                terminal.stdout(f"The repository {repo_path} needs to be upgraded using the following command:")
-                if args.repo is None:
-                    terminal.stdout(f"   {colorize('uenv image upgrade', 'white')}")
-                else:
-                    cli_string = f"uenv --repo={repo_path} image upgrade"
-                    terminal.stdout(f"   {colorize(cli_string, 'white')}")
-            elif status==-1:
-                terminal.stdout(f"The repository {repo_path} is corrupt - nothing can be done.")
-            sys.exit(0)
-
-        if status==1:
-            terminal.stdout(f"The repository {repo_path} is up to date. No action performed.")
-            sys.exit(0)
-        elif status==-1:
-            terminal.error(f"The repository {repo_path} is corrupt - nothing can be done.")
-
-        terminal.stdout(f"The repository {repo_path} will be upgraded.")
-
-        datastore.repo_upgrade(repo_path)
-
-        sys.exit(0)
-
 
