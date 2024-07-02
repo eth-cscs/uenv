@@ -468,6 +468,8 @@ def generate_command(args, env_vars):
         return generate_status_command(args, env)
     elif args.command == "view":
         return generate_view_command(args, env, env_vars)
+    elif args.command == "repo":
+        return generate_repo_command(args, env, env_vars)
 
     terminal.error(f"unknown command '{args.command}'", abort=False)
     return shell_error
