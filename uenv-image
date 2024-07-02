@@ -10,6 +10,7 @@ import copy
 import os
 import pathlib
 import re
+import shutil
 import sys
 import textwrap
 import time
@@ -220,28 +221,6 @@ List uenv that are available.
     list_parser.add_argument("-a", "--uarch", required=False, type=str)
     list_parser.add_argument("uenv", nargs="?", default=None, type=str)
 
-    repo_parser = subparsers.add_parser("repo",
-            help="Create a local file system repository.",
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog=f"""\
-Create a local repository for managing pulled uenv images.
-
-{colorize("Note", "cyan")}: a local repository must be created before using {colorize("uenv image", "white")}.
-
-{colorize("Example", "blue")} - create a repository in the default location:
-  {colorize("uenv image repo", "white")}
-
-{colorize("Example", "blue")} - create a repository in a custom location:
-  {colorize("uenv image repo $SCRATCH/my-custom-repo", "white")}
-
-{colorize("Example", "blue")} - create a repository in a custom location, with no error if the repo already exists:
-  {colorize("uenv image repo --exists-ok $SCRATCH/my-custom-repo", "white")}
-""")
-    repo_parser.add_argument("--exists-ok", action="store_true", required=False,
-                    help="No error if the local registry exists.")
-    repo_parser.add_argument("repo", nargs="?", default=None, type=str,
-                    help="The path in which to create the repository. If unset, the default location will be selected.")
-
     deploy_parser = subparsers.add_parser("deploy",
                 help="Deploy a uenv to the 'deploy' namespace, accessible to all users.",
                 formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -360,16 +339,25 @@ def safe_repo_open(path: str) -> datastore.FileSystemRepo:
     Use this for all calls to open an existing FileSystemRepo in order to provide
     consistent and useful error messages.
     """
+
     try:
-        cache = datastore.FileSystemRepo(path)
-    except datastore.RepoNotFoundError as err:
-        terminal.error(f"""The local repository {path} does not exist.
-If this is your first time using uenv, a repo in the default location can be created with this command:
-  {colorize(f"uenv image repo", "white")}
-If you want to create a repo in a custom location , provide the path as follows:
-  {colorize("uenv image repo <repo_path>", "white")}
-where {colorize("<repo_path>", "white")} is the desired location.
+        # check that the database is up to date
+        status = datastore.repo_status(repo_path)
+        # handle a non-existant repo
+        if status==2:
+            terminal.error(f"""The local repository {repo_path} does not exist.
+Use the following command
+  {colorize(f"uenv repo --help", "white")}
+for more information.
 """)
+        # handle a repo that needs to be updated
+        if status==0:
+            terminal.error(f"""The local repository {repo_path} needs to be upgraded. Run:
+  {colorize(f"uenv repo status", "white")}
+for more information.
+""")
+
+        cache = datastore.FileSystemRepo(path)
     except datastore.RepoDBError as err:
         terminal.error(f"""The local repository {path} had a database error.
 Please open a CSCS ticket, or contact the uenv dev team, with the command that created the error, and this full error message.
@@ -445,6 +433,10 @@ if __name__ == "__main__":
             # if the record isn't already in the filesystem repo download it
             if cache.database.get_record(t.sha256).is_empty:
                 terminal.stdout(f"downloading image {t.sha256} {image_size_string(t.size)}")
+                # clean up the path if it already exists: sometimes this causes an oras error.
+                if os.path.exists(image_path):
+                    terminal.info(f"removing existing path {image_path}")
+                    shutil.rmtree(image_path)
                 oras.pull_uenv(source_address, image_path, t)
             else:
                 terminal.stdout(f"image {t.sha256} is already available locally")
@@ -494,16 +486,6 @@ if __name__ == "__main__":
         path = fscache.image_path(r)
         formatted_output = inspect_string(r, path, args.format)
         terminal.stdout(formatted_output)
-
-        sys.exit(0)
-
-    elif args.command == "repo":
-        terminal.info(f"repo path: {repo_path}")
-
-        try:
-            datastore.FileSystemRepo.create(repo_path, exists_ok=args.exists_ok)
-        except Exception as err:
-            terminal.error(f"unable to find or initialise the local registry: {str(err)}")
 
         sys.exit(0)
 
