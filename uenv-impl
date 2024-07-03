@@ -758,7 +758,12 @@ def generate_start_command(args, env, env_vars):
     env_vars.set_scalar("UENV_MOUNT_FILE", f"{main_mount[0]}")
     env_vars.set_scalar("UENV_MOUNT_POINT", f"{main_mount[1]}")
 
-    return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash --norc --noprofile",
+    # ideally, we would start a shell that does not source bashrc, however doing this
+    # means that aliases that users define in their bashrc (and unexported bash functions)
+    # will not work - breaking the seamless user experience.
+    # return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash --norc --noprofile",
+
+    return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash -i",
             "local _exitcode=$?",]
 
 def generate_view_command(args, env, env_vars):
