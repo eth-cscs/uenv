@@ -758,7 +758,7 @@ def generate_start_command(args, env, env_vars):
     env_vars.set_scalar("UENV_MOUNT_FILE", f"{main_mount[0]}")
     env_vars.set_scalar("UENV_MOUNT_POINT", f"{main_mount[1]}")
 
-    return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash",
+    return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash --norc --noprofile",
             "local _exitcode=$?",]
 
 def generate_view_command(args, env, env_vars):
