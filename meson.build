@@ -9,7 +9,8 @@ conf_data = configuration_data()
 
 sqlite3_dep = dependency('sqlite3')
 
-tinyopt_dep = declare_dependency(include_directories: 'external/tinyopt/include')
+cli11 = subproject('cli11', default_options: 'default_library=static')
+cli11_dep = cli11.get_variable('CLI11_dep')
 
 fmt = subproject('fmt', default_options: 'default_library=static')
 fmt_dep = fmt.get_variable('fmt_dep')
@@ -20,7 +21,7 @@ uenv_dep = [sqlite3_dep]
 
 uenv = executable('uenv',
               sources: uenv_src,
-              dependencies: [uenv_dep, fmt_dep, tinyopt_dep],
+              dependencies: [uenv_dep, fmt_dep, cli11_dep],
               c_args: ['-DVERSION="@0@"'.format(version)],
               install: true)
 

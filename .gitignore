@@ -2,3 +2,4 @@
 
 subprojects/packagecache
 subprojects/fmt-*
+subprojects/CLI11-*
