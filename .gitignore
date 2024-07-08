@@ -1,5 +1,6 @@
 .cache
 
-subprojects/packagecache
-subprojects/fmt-*
+subprojects/Catch2-*
 subprojects/CLI11-*
+subprojects/fmt-*
+subprojects/packagecache

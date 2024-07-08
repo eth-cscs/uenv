@@ -1,9 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
-#include <vector>
-
 #include <fmt/core.h>
-// #include <tinyopt/tinyopt.h>
 
 #include "start.h"
 #include "uenv.h"
@@ -14,20 +11,14 @@ void start_help() {
     fmt::println("start help");
 }
 
-void echo(std::string msg) {
-    fmt::println("image name: {}", msg);
+void start_options::add_cli(CLI::App &cli, global_settings &settings) {
+    auto *start_cli = cli.add_subcommand("start", "start a uenv session");
+    start_cli->add_option("-v,--view", view_str, "comma separated list of views to load");
+    start_cli->add_option("uenv", image_str, "comma separated list of uenv to mount")->required();
+    start_cli->callback([&settings]() { settings.mode = uenv::mode_start; });
 }
 
-/*
-std::vector<to::option> start_options::cli_options(int &mode, std::string &name) {
-    using namespace to::literals;
-    return {{to::set(mode, mode_start), to::flag, "start", to::then(mode_start)},
-            {name, to::when(mode_start)},
-            {to::action(start_help), to::flag, to::exit, "-h", "--help", to::when(mode_start)}};
-}
-*/
-
-void start(const start_options &options, const global_options &settings) {
+void start(const start_options &options, const global_settings &settings) {
     fmt::println("running start with options {}", options);
 }
 
