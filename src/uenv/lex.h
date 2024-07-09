@@ -1,3 +1,5 @@
+#pragma once
+
 #include <memory>
 #include <string>
 
@@ -31,8 +33,8 @@ class lexer {
   public:
     lexer(const char *begin);
 
-    const token &next(unsigned n = 1);
-    // token peek(unsigned n = 1);
+    token next();
+    token peek(unsigned n = 0);
 
     ~lexer();
 

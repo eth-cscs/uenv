@@ -15,7 +15,10 @@ fmt_dep   = subproject('fmt', default_options: 'default_library=static').get_var
 catch_dep = subproject('catch2').get_variable('catch2_with_main_dep')
 
 # the common implementation
-lib_src = ['src/uenv/lex.cpp']
+lib_src = [
+        'src/uenv/env.cpp',
+        'src/uenv/lex.cpp',
+]
 lib_inc = include_directories('src')
 
 lib_dep = declare_dependency(
@@ -25,8 +28,10 @@ lib_dep = declare_dependency(
 )
 
 # the uenv executable
-uenv_src = ['src/uenv.cpp', 'src/start.cpp']
-uenv_inc = include_directories('include')
+uenv_src = [
+        'src/cli/uenv.cpp',
+        'src/cli/start.cpp',
+]
 uenv_dep = [sqlite3_dep]
 
 uenv = executable('uenv',
@@ -35,8 +40,8 @@ uenv = executable('uenv',
         c_args: ['-DVERSION="@0@"'.format(version)],
         install: true)
 
-
 unit_src = [
+        'test/unit/env.cpp',
         'test/unit/lex.cpp',
         'test/unit/main.cpp',
 ]
@@ -46,5 +51,4 @@ unit = executable('unit',
         dependencies: [catch_dep, lib_dep],
         build_by_default: true,
         install: false)
-
 

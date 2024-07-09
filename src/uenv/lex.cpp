@@ -51,12 +51,27 @@ class lexer_impl {
 
   public:
     lexer_impl(const char *begin) : begin_(begin), stream_(begin) {
+        parse();
     }
 
-    const token &next(unsigned n = 1) {
-        while (n--)
+    token next() {
+        auto t = token_;
+        parse();
+        return t;
+    }
+
+    token peek(unsigned int n = 1) {
+        auto current_stream = stream_;
+        auto current_token = token_;
+
+        while (n--) {
             parse();
-        return token_;
+        }
+
+        std::swap(token_, current_token);
+        stream_ = current_stream;
+
+        return current_token;
     }
 
   private:
@@ -105,7 +120,7 @@ class lexer_impl {
                 token_ = name();
                 return;
             default:
-                token_ = {loc(), tok::error, std::string("Unexpected character '") + character() + "'"};
+                token_ = {loc(), tok::error, "Unexpected character '"s + character() + "'"};
                 return;
             }
         }
@@ -154,8 +169,12 @@ class lexer_impl {
 lexer::lexer(const char *begin) : impl_(new lexer_impl(begin)) {
 }
 
-const token &lexer::next(unsigned n) {
-    return impl_->next(n);
+token lexer::next() {
+    return impl_->next();
+}
+
+token lexer::peek(unsigned n) {
+    return impl_->peek(n);
 }
 
 lexer::~lexer() = default;
