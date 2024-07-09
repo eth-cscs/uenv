@@ -1,5 +1,5 @@
 # only run if bash or zsh
-[ -n "${BASH_VERSION:-}" ] || return 0
+[ -n "${BASH_VERSION:-}" ] || [ -n "${ZSH_VERSION:-}" ] || return 0
 
 export UENV_CMD='env -u PYTHONPATH -u VIRTUAL_ENV @@impl@@'
 export UENV_IMG_CMD='env -u PYTHONPATH -u VIRTUAL_ENV @@image_impl@@'
@@ -49,11 +49,11 @@ function uenv {
             uenv_usage;
         elif [ "$1" = "image" ]; then
             shift;
-            $UENV_IMG_CMD $flags "$@"
+            eval $UENV_IMG_CMD $flags "$@"
         elif [[ " $* " =~ [[:space:]](-h|--help)[[:space:]] ]]; then
-            echo "$($UENV_CMD $flags "$@")"
+            echo "$(eval $UENV_CMD $flags "$@")"
         else
-            eval "$($UENV_CMD $flags "$@")"
+            eval "$(eval $UENV_CMD $flags "$@")"
         fi
     fi
 
@@ -61,4 +61,4 @@ function uenv {
     return $_exitcode
 }
 
-export -f uenv
+[ -n "${BASH_VERSION:-}" ] && export -f uenv
