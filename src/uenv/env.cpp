@@ -60,10 +60,10 @@ util::expected<std::vector<view_description>, parse_error> parse_view_args(const
         // eat the comma
         L.next();
     }
-    // if parsing finished and the string has not been consumed, and invalide token was encountered
-    if (L.peek().kind != tok::eof) {
-        auto s = L.peek();
-        return util::unexpected(parse_error{fmt::format("unexpected symbol {}", s.spelling), s.loc});
+    // if parsing finished and the string has not been consumed, and invalid token was encountered
+    auto t = L.peek();
+    if (auto t = L.peek(); t.kind != tok::eof) {
+        return util::unexpected(parse_error{fmt::format("unexpected symbol {}", t.spelling), t.loc});
     }
 
     return views;
