@@ -18,6 +18,7 @@ catch_dep = subproject('catch2').get_variable('catch2_with_main_dep')
 lib_src = [
         'src/uenv/env.cpp',
         'src/uenv/lex.cpp',
+        'src/uenv/parse.cpp',
 ]
 lib_inc = include_directories('src')
 
@@ -42,6 +43,7 @@ uenv = executable('uenv',
 
 unit_src = [
         'test/unit/env.cpp',
+        'test/unit/parse.cpp',
         'test/unit/lex.cpp',
         'test/unit/main.cpp',
 ]

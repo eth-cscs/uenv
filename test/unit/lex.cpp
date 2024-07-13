@@ -3,45 +3,61 @@
 
 #include <uenv/lex.h>
 
-TEST_CASE("lex", "[symbols]") {
-    uenv::lexer L(":,:/");
-    {
-        auto t = L.next();
-        REQUIRE(t.kind == uenv::tok::colon);
+TEST_CASE("error characters", "[lex]") {
+    for (auto in : {"\\", "~", "'", "\""}) {
+        uenv::lexer L(in);
+        auto t = L.peek();
+        REQUIRE(t.kind == uenv::tok::error);
         REQUIRE(t.loc == 0u);
-    }
-    {
-        auto t = L.next();
-        REQUIRE(t.kind == uenv::tok::comma);
-        REQUIRE(t.loc == 1u);
-    }
-    {
-        auto t = L.next();
-        REQUIRE(t.kind == uenv::tok::colon);
-        REQUIRE(t.loc == 2u);
-    }
-    {
-        auto t = L.next();
-        REQUIRE(t.kind == uenv::tok::slash);
-        REQUIRE(t.loc == 3u);
-    }
-    // pop the eof token twice to check that it does not run off the end
-    {
-        auto t = L.next();
-        REQUIRE(t.kind == uenv::tok::eof);
-    }
-    {
-        auto t = L.next();
-        REQUIRE(t.kind == uenv::tok::eof);
     }
 }
 
-TEST_CASE("lex", "[parse]") {
-    for (const auto &in : {"prgenv-gnu/ 24.7 :tag,wombat/v2023:lat est", "/opt/images/uenv-x.squashfs,prgenv-gnu"}) {
+TEST_CASE("punctuation", "[lex]") {
+    uenv::lexer L(":,:/");
+    REQUIRE(L.next() == uenv::token{0, uenv::tok::colon, ":"});
+    REQUIRE(L.next() == uenv::token{1, uenv::tok::comma, ","});
+    REQUIRE(L.next() == uenv::token{2, uenv::tok::colon, ":"});
+    REQUIRE(L.next() == uenv::token{3, uenv::tok::slash, "/"});
+    // pop the end token twice to check that it does not run off the end
+    REQUIRE(L.next() == uenv::token{4, uenv::tok::end, "end"});
+    REQUIRE(L.next() == uenv::token{4, uenv::tok::end, "end"});
+}
+
+TEST_CASE("peek", "[lex]") {
+    uenv::lexer L(":apple");
+    REQUIRE(L.peek() == uenv::token{0, uenv::tok::colon, ":"});
+    REQUIRE(L.peek(1) == uenv::token{1, uenv::tok::symbol, "apple"});
+    REQUIRE(L.peek(2) == uenv::token{6, uenv::tok::end, "end"});
+    REQUIRE(L.peek(3) == uenv::token{6, uenv::tok::end, "end"});
+
+    REQUIRE(L.next() == uenv::token{0, uenv::tok::colon, ":"});
+    REQUIRE(L.next() == uenv::token{1, uenv::tok::symbol, "apple"});
+    REQUIRE(L.next() == uenv::token{6, uenv::tok::end, "end"});
+}
+
+TEST_CASE("whitespace", "[lex]") {
+    uenv::lexer L("wombat  soup ");
+    REQUIRE(L.next() == uenv::token{0, uenv::tok::symbol, "wombat"});
+    REQUIRE(L.next() == uenv::token{6, uenv::tok::whitespace, "  "});
+    REQUIRE(L.next() == uenv::token{8, uenv::tok::symbol, "soup"});
+    REQUIRE(L.next() == uenv::token{12, uenv::tok::whitespace, " "});
+}
+
+TEST_CASE("empty input", "[lex]") {
+    uenv::lexer L("");
+    REQUIRE(L.peek() == uenv::token{0, uenv::tok::end, "end"});
+    REQUIRE(L.next() == uenv::token{0, uenv::tok::end, "end"});
+    REQUIRE(L.next() == uenv::token{0, uenv::tok::end, "end"});
+}
+
+TEST_CASE("lex", "[lex]") {
+    for (const auto& in : {"prgenv-gnu/ 24.7 :tag,wombat/v2023:lat est",
+                           "/opt/images/uenv-x.squashfs,prgenv-gnu"}) {
         uenv::lexer L(in);
-        auto tok = L.next();
-        do {
-            tok = L.next();
-        } while (tok.kind != uenv::tok::eof);
+        while (L.current_kind() != uenv::tok::end &&
+               L.current_kind() != uenv::tok::error) {
+            L.next();
+        }
+        REQUIRE(L.current_kind() == uenv::tok::end);
     }
 }

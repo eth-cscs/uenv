@@ -1,27 +1,5 @@
-/*
-prgenv-gnu
-prgenv-gnu/24.7
-prgenv-gnu/master
-prgenv-gnu:v1
-prgenv-gnu/24.7:v1
-prgenv-gnu/master:v1
-prgenv-gnu:rc-2
-prgenv-gnu/24.7:rc-2
-prgenv-gnu/master:rc-2
-prgenv-gnu,prgenv-gnu:rc-2
-prgenv-gnu/24.7,prgenv-gnu/24.7:rc-2
-
-/scratch/bob/image.squashfs
-/scratch/bob/image.squashfs,prgenv-gnu/24.7:rc-2
-
-symbols:
-    , comma
-    / slash
-    : colon
-    string
-*/
-
 #include <cctype>
+#include <string_view>
 
 #include <fmt/core.h>
 
@@ -29,15 +7,18 @@ symbols:
 
 namespace uenv {
 
+bool operator==(const token& lhs, const token& rhs) {
+    return lhs.loc == rhs.loc && lhs.kind == rhs.kind &&
+           lhs.spelling == rhs.spelling;
+};
+
 inline bool is_alphanumeric(char c) {
     return std::isalnum(static_cast<unsigned char>(c));
 }
 
-inline bool is_valid_name_char(char c) {
+inline bool is_valid_symbol(char c) {
     switch (c) {
-    case '-':
     case '_':
-    case '.':
         return true;
     default:
         return is_alphanumeric(c);
@@ -45,12 +26,13 @@ inline bool is_valid_name_char(char c) {
 }
 
 class lexer_impl {
-    const char *begin_;
-    const char *stream_;
+    std::string_view input_;
+    std::string_view::iterator stream_;
     token token_;
 
   public:
-    lexer_impl(const char *begin) : begin_(begin), stream_(begin) {
+    lexer_impl(std::string_view input)
+        : input_(input), stream_(input_.begin()) {
         parse();
     }
 
@@ -74,13 +56,17 @@ class lexer_impl {
         return current_token;
     }
 
+    tok current_kind() {
+        return token_.kind;
+    }
+
   private:
     unsigned loc() const {
-        return unsigned(stream_ - begin_);
+        return unsigned(stream_ - input_.begin());
     }
 
     bool empty() const {
-        return *stream_ == '\0';
+        return stream_ == input_.end();
     }
 
     // Consume and return the next token in the stream.
@@ -89,84 +75,95 @@ class lexer_impl {
 
         while (!empty()) {
             switch (*stream_) {
-            // white space (do we parse this?
+            // fix with a whitespace token type that handles 1 or more
+            // contiguous spaces
             case ' ':
-            case '\t':
-                ++stream_;
-                continue; // skip to next character
+                token_ = whitespace();
+                return;
 
             // end of file
             case 0:
-                token_ = {loc(), tok::eof, "eof"s};
+                character_token(tok::end);
                 return;
             case ':':
-                token_ = {loc(), tok::colon, ":"};
+                character_token(tok::colon);
                 ++stream_;
                 return;
             case ',':
-                token_ = {loc(), tok::comma, ","};
+                character_token(tok::comma);
+                ++stream_;
+                return;
+            case '.':
+                character_token(tok::dot);
+                ++stream_;
+                return;
+            case '-':
+                character_token(tok::dash);
                 ++stream_;
                 return;
             case '/':
-                token_ = {loc(), tok::slash, "/"};
+                character_token(tok::slash);
                 ++stream_;
                 return;
 
             case 'a' ... 'z':
             case 'A' ... 'Z':
             case '0' ... '9':
-            case '-':
             case '_':
-                token_ = name();
+                token_ = symbol();
                 return;
             default:
-                token_ = {loc(), tok::error, "Unexpected character '"s + character() + "'"};
+                character_token(tok::error);
                 return;
             }
         }
 
         if (!empty()) {
-            token_ = {loc(), tok::error, "Internal lexer error: expected end of input, please open a bug report"s};
+            token_ = {
+                loc(), tok::error,
+                "Internal lexer error: expected end of input, please open a bug report"s};
             return;
         }
-        token_ = {loc(), tok::eof, "eof"s};
+        token_ = {loc(), tok::end, "end"};
         return;
+    }
+
+    void character_token(tok kind) {
+        token_ = {loc(), kind, std::string_view(&*stream_, 1)};
     }
 
     char character() {
         return *(stream_++);
     }
 
-    token name() {
+    token symbol() {
         using namespace std::string_literals;
-        auto start = loc();
-        std::string name;
-        char c = *stream_;
+        const auto start_loc = loc();
+        const auto start = stream_;
 
-        // Assert that current position is at the start of an identifier
-        if (!(is_valid_name_char(c))) {
-            return {start, tok::error,
-                    "Internal error: lexer attempting to read identifier when none is available '.'"s};
+        while (is_valid_symbol(*stream_)) {
+            ++stream_;
         }
 
-        name += c;
-        ++stream_;
-        while (1) {
-            c = *stream_;
+        return {start_loc, tok::symbol,
+                std::string_view(&(*start), std::distance(start, stream_))};
+    }
 
-            if (is_valid_name_char(c)) {
-                name += c;
-                ++stream_;
-            } else {
-                break;
-            }
+    token whitespace() {
+        using namespace std::string_literals;
+        const auto start_loc = loc();
+        const auto start = stream_;
+
+        while (*stream_ == ' ') {
+            ++stream_;
         }
 
-        return {start, tok::name, std::move(name)};
+        return {start_loc, tok::whitespace,
+                std::string_view(&(*start), std::distance(start, stream_))};
     }
 };
 
-lexer::lexer(const char *begin) : impl_(new lexer_impl(begin)) {
+lexer::lexer(std::string_view input) : impl_(new lexer_impl(input)) {
 }
 
 token lexer::next() {
@@ -175,6 +172,10 @@ token lexer::next() {
 
 token lexer::peek(unsigned n) {
     return impl_->peek(n);
+}
+
+tok lexer::current_kind() const {
+    return impl_->current_kind();
 }
 
 lexer::~lexer() = default;

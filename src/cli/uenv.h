@@ -16,6 +16,7 @@ constexpr int mode_start = 1;
 
 struct global_settings {
     bool verbose = false;
+    bool no_color = false;
     int mode = mode_none;
 
     // bool color = true;
@@ -28,11 +29,14 @@ struct global_settings {
 template <> class fmt::formatter<uenv::global_settings> {
   public:
     // parse format specification and store it:
-    constexpr auto parse(format_parse_context &ctx) {
+    constexpr auto parse(format_parse_context& ctx) {
         return ctx.end();
     }
     // format a value using stored specification:
-    template <typename FmtContext> constexpr auto format(uenv::global_settings const &opts, FmtContext &ctx) const {
-        return fmt::format_to(ctx.out(), "global_settings(mode {}, verbose {})", opts.mode, opts.verbose);
+    template <typename FmtContext>
+    constexpr auto format(uenv::global_settings const& opts,
+                          FmtContext& ctx) const {
+        return fmt::format_to(ctx.out(), "global_settings(mode {}, verbose {})",
+                              opts.mode, opts.verbose);
     }
 };

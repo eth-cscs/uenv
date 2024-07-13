@@ -8,12 +8,15 @@
 namespace uenv {
 
 enum class tok {
-    slash, // forward slash /
-    comma, // comma ','
-    colon, // colon ':'
-    name,  // string, e.g. prgenv-gnu
-    eof,   // end of file/input
-    error  // special error state marker
+    slash,      // forward slash /
+    comma,      // comma ','
+    colon,      // colon ':'
+    symbol,     // string, e.g. prgenv-gnu
+    dash,       // comma ','
+    dot,        // comma ','
+    end,        // end of input
+    whitespace, // sequence of spaces
+    error,      // invalid input encountered in stream
 };
 
 // std::ostream& operator<<(std::ostream&, const tok&);
@@ -21,8 +24,9 @@ enum class tok {
 struct token {
     unsigned loc;
     tok kind;
-    std::string spelling;
+    std::string_view spelling;
 };
+bool operator==(const token&, const token&);
 
 // std::ostream &operator<<(std::ostream &, const token &);
 
@@ -31,10 +35,13 @@ class lexer_impl;
 
 class lexer {
   public:
-    lexer(const char *begin);
+    lexer(std::string_view input);
 
     token next();
     token peek(unsigned n = 0);
+
+    // a convenience helper for checking the kind of the current token
+    tok current_kind() const;
 
     ~lexer();
 
@@ -47,11 +54,12 @@ class lexer {
 template <> class fmt::formatter<uenv::tok> {
   public:
     // parse format specification and store it:
-    constexpr auto parse(format_parse_context &ctx) {
+    constexpr auto parse(format_parse_context& ctx) {
         return ctx.end();
     }
     // format a value using stored specification:
-    template <typename FmtContext> constexpr auto format(uenv::tok const &t, FmtContext &ctx) const {
+    template <typename FmtContext>
+    constexpr auto format(uenv::tok const& t, FmtContext& ctx) const {
         switch (t) {
         case uenv::tok::colon:
             return fmt::format_to(ctx.out(), "colon");
@@ -59,10 +67,16 @@ template <> class fmt::formatter<uenv::tok> {
             return fmt::format_to(ctx.out(), "comma");
         case uenv::tok::slash:
             return fmt::format_to(ctx.out(), "slash");
-        case uenv::tok::name:
-            return fmt::format_to(ctx.out(), "name");
-        case uenv::tok::eof:
-            return fmt::format_to(ctx.out(), "eof");
+        case uenv::tok::symbol:
+            return fmt::format_to(ctx.out(), "symbol");
+        case uenv::tok::dot:
+            return fmt::format_to(ctx.out(), "dot");
+        case uenv::tok::dash:
+            return fmt::format_to(ctx.out(), "dash");
+        case uenv::tok::whitespace:
+            return fmt::format_to(ctx.out(), "whitespace");
+        case uenv::tok::end:
+            return fmt::format_to(ctx.out(), "end");
         case uenv::tok::error:
             return fmt::format_to(ctx.out(), "error");
         }
@@ -73,11 +87,13 @@ template <> class fmt::formatter<uenv::tok> {
 template <> class fmt::formatter<uenv::token> {
   public:
     // parse format specification and store it:
-    constexpr auto parse(format_parse_context &ctx) {
+    constexpr auto parse(format_parse_context& ctx) {
         return ctx.end();
     }
     // format a value using stored specification:
-    template <typename FmtContext> constexpr auto format(uenv::token const &t, FmtContext &ctx) const {
-        return fmt::format_to(ctx.out(), "token({}, {}, '{}')", t.loc, t.kind, t.spelling);
+    template <typename FmtContext>
+    constexpr auto format(uenv::token const& t, FmtContext& ctx) const {
+        return fmt::format_to(ctx.out(), "token({}, {}, '{}')", t.loc, t.kind,
+                              t.spelling);
     }
 };

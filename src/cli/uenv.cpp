@@ -11,14 +11,15 @@ void help() {
     fmt::println("usage main");
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     uenv::global_settings settings;
 
     CLI::App cli("uenv");
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
+    cli.add_flag("--no-color", settings.no_color, "disable color output");
 
-    uenv::start_options start_opt;
-    start_opt.add_cli(cli, settings);
+    uenv::start_args start_args;
+    start_args.add_cli(cli, settings);
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -26,7 +27,7 @@ int main(int argc, char **argv) {
 
     switch (settings.mode) {
     case uenv::mode_start:
-        uenv::start(start_opt, settings);
+        uenv::start(start_args, settings);
         break;
     case uenv::mode_none:
     default:
