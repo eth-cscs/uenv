@@ -1,6 +1,8 @@
 .cache
+*.sw[onpq]
 
 subprojects/Catch2-*
 subprojects/CLI11-*
 subprojects/fmt-*
 subprojects/packagecache
+subprojects/sqlite-amalgamation-*

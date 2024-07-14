@@ -1,20 +1,27 @@
 project('uenv', ['cpp'],
-        default_options : ['cpp_std=c++17'],
-        version: files('VERSION'), meson_version: '>=0.57')
+        default_options : [
+          'cpp_std=c++17',
+          'default_library=static',
+        ],
+        version: files('VERSION'),
+        meson_version: '>=0.57')
 version = meson.project_version()
 
 #default_mount_point = get_option('default_mount_point')
 
 conf_data = configuration_data()
 
-# organise the dependencies
-sqlite3_dep = dependency('sqlite3')
-
-cli11_dep = subproject('cli11', default_options: 'default_library=static').get_variable('CLI11_dep')
-fmt_dep   = subproject('fmt', default_options: 'default_library=static').get_variable('fmt_dep')
+# configure the dependencies
+#
+# use meson wrap to provide the dependencies, because the 'default_library=static' option
+# will be propogated to each dependency, for a statically linked executable.
+cli11_dep = subproject('cli11').get_variable('CLI11_dep')
+fmt_dep   = subproject('fmt').get_variable('fmt_dep')
 catch_dep = subproject('catch2').get_variable('catch2_with_main_dep')
+sqlite3_dep = subproject('sqlite3').get_variable('sqlite3_dep')
 
-# the common implementation
+# the lib dependency is all of the common funtionality shared between the CLI
+# and the slurm plugin.
 lib_src = [
         'src/uenv/env.cpp',
         'src/uenv/lex.cpp',
