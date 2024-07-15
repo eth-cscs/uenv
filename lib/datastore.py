@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sqlite3
 
 from record import Record
@@ -29,7 +30,7 @@ class RepoDBError(Exception):
         return self.message
 
 create_db_commands = {
-        "v1": """
+        1: """
 BEGIN;
 
 PRAGMA foreign_keys=on;
@@ -83,7 +84,7 @@ FROM tags
 
 COMMIT;
 """,
-        "v2": """
+        2: """
 BEGIN;
 
 PRAGMA foreign_keys=on;
@@ -138,8 +139,88 @@ FROM tags
 COMMIT;
 """}
 
-db_version = "v2"
+# the version schema is an integer, bumped every time it is modified
+db_version = 2
 create_db_command = create_db_commands[db_version]
+
+# returns the version of the database in repo_path
+#  returns -1 if there was an error or unknown database format
+def repo_version(repo_path: str):
+    try:
+        # open the suspect database read only
+        db_path = f"{repo_path}/index.db"
+        db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        result = db.execute("SELECT * FROM images")
+        columns = [description[0] for description in result.description]
+        columns.sort()
+        db.close()
+
+        # the image tables in v1 and v2 have the respective columns:
+        # v1: images (date, id, sha256, size, system, uarch);
+        # v2: images (date, id, sha256, size);
+
+        version = -1
+        if columns == ["date", "id", "sha256", "size"]:
+            version = 2
+        elif columns == ["date", "id", "sha256", "size", "system", "uarch"]:
+            version = 1
+        terminal.info(f"database {db_path} matches schema version {version}")
+
+        return version
+    except Exception as err:
+        terminal.info(f"exception opening {db_path}: {str(err)}")
+        return -1
+
+# return 2: repo does not exist
+# return 1: repo is fully up to date
+# return 0: repo needs upgrading
+# return -1: unrecoverable error
+def repo_status(repo_path: str):
+    index_path = repo_path + "/index.db"
+    if not os.path.exists(index_path):
+        return 2
+
+    version = repo_version(repo_path)
+
+    if version==db_version:
+        return 1
+    elif version==1:
+        return 0
+
+    return -1
+
+def repo_upgrade(repo_path: str):
+    version = repo_version(repo_path)
+    if version==2:
+        return
+    elif version==-1:
+        raise RepoDBError("unable to upgrade database due to fatal error.")
+
+    if version==1:
+        # load the existing database using the v1 schema
+        db1_path = repo_path + "/index.db"
+        db1 = DataStore(db1_path)
+
+        # create a new database with the v2 schema
+        db2_path = repo_path + "/index-v1.db"
+        if os.path.exists(db2_path):
+            os.remove(db2_path)
+        FileSystemRepo.create(repo_path, exists_ok=False, db_name="index-v1.db")
+
+        # apply the records from the old database to the new db
+        db2 = DataStore(db2_path, create_command=create_db_commands[2])
+        for r in db1.images.records:
+            db2.add_record(r)
+
+        # close the databases
+        db1.close()
+        db2.close()
+
+        dbswp_path = repo_path + "/index-back.db"
+        shutil.move(db1_path, dbswp_path)
+        shutil.copy(db2_path, db1_path)
+        shutil.move(dbswp_path, db2_path)
+
 
 class RecordSet():
     def __init__(self, records, request):
@@ -192,8 +273,7 @@ class RecordSet():
         return lines
 
 class DataStore:
-
-    def __init__(self, path=None):
+    def __init__(self, path=None, create_command=create_db_command):
         """
         If path is a string, attempt to open the database at that location,
 
@@ -324,6 +404,9 @@ class DataStore:
         results.sort(reverse=True)
         return RecordSet(results, request)
 
+    def close(self):
+        self._store.close()
+
     @property
     def images(self):
         items = self._store.execute(f"SELECT * FROM records")
@@ -361,13 +444,13 @@ class FileSystemRepo():
         self._database = DataStore(self._index)
 
     @staticmethod
-    def create(path: str, exists_ok: bool=False):
+    def create(path: str, exists_ok: bool=False, db_name: str="index.db"):
         terminal.info(f"FileSystemRepo: create new repo in {path}")
         if not os.path.exists(path):
             terminal.info(f"FileSystemRepo: creating path {path}")
             os.makedirs(path)
 
-        index_file = f"{path}/index.db"
+        index_file = f"{path}/{db_name}"
         if not os.path.exists(index_file):
             terminal.info(f"FileSystemRepo: creating new index {index_file}")
             store = sqlite3.connect(index_file)

@@ -186,6 +186,36 @@ set without loading the view:
             help="Output the environment variable changes as json.",
             action="store_true")
 
+    #### repo
+    repo_parser = subparsers.add_parser("repo",
+            help="interact with a uenv repo",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=textwrap.dedent(
+f"""\
+{colorize("Example", "blue")} - get status information of the repo:
+    {colorize("uenv repo status", "white")}
+    {colorize("uenv --repo=$custom_repo_path repo status", "white")}
+
+{colorize("Example", "blue")} - upgrade the repo to be compatible with this version of uenv:
+    {colorize("uenv repo upgrade", "white")}
+    {colorize("uenv --repo=$custom_repo_path repo upgrade", "white")}
+if the repository is already compatible, no changes will be applied
+
+{colorize("Example", "blue")} - create a repository.
+    {colorize("uenv repo create", "white")}
+This version wil create a repository in the default location.
+To create a repository in a custom location:
+    {colorize("uenv --repo=$custom_repo_path repo create", "white")}
+"""
+            ))
+    repo_subparsers = repo_parser.add_subparsers(dest="repo_command")
+    repo_create_parser = repo_subparsers.add_parser("create",
+            help="create a new repository.")
+    repo_upgrade_parser = repo_subparsers.add_parser("upgrade",
+            help="upgrade a repository to the latest repository layout supported by the installed version of uenv.")
+    repo_status_parser = repo_subparsers.add_parser("status",
+            help="print repository status.")
+
     #### image
     # Dummy sub-parser to print out the correct help when wrong keyword is used
     # This is never used since "uenv image" commands are forwarded to "uenv-image"
@@ -468,6 +498,8 @@ def generate_command(args, env_vars):
         return generate_status_command(args, env)
     elif args.command == "view":
         return generate_view_command(args, env, env_vars)
+    elif args.command == "repo":
+        return generate_repo_command(args, env)
 
     terminal.error(f"unknown command '{args.command}'", abort=False)
     return shell_error
@@ -594,22 +626,33 @@ def parse_image_descriptions(mnt_list, repo, uarch):
             terminal.info(f"search filter {img_filter}")
 
             try:
-                fscache = datastore.FileSystemRepo(repo_path)
-            except datastore.RepoNotFoundError as err:
-                terminal.error(f"""The local repository {repo_path} does not exist.
-If this is your first time using uenv, a repo in the default location can be
-created with this command:
-  {colorize(f"uenv image repo", "white")}
-If you want to create a repo in a custom location , provide the path as follows:
-  {colorize("uenv image repo <repo_path>", "white")}
-where {colorize("<repo_path>", "white")} is the desired location.
+                # check that the database is up to date
+                status = datastore.repo_status(repo_path)
+                # handle a non-existant repo
+                if status==2:
+                    terminal.error(f"""The local repository {repo_path} does not exist.
+Use the following command
+  {colorize(f"uenv repo --help", "white")}
+for more information.
 """, abort=False)
-                return []
+                    return []
+                # handle a repo that needs to be updated
+                if status==0:
+                    terminal.error(f"""The local repository {repo_path} needs to be upgraded. Run:
+  {colorize(f"uenv repo status", "white")}
+for more information.
+""", abort=False)
+                    return []
+
+                fscache = datastore.FileSystemRepo(repo_path)
+
+            #except datastore.RepoNotFoundError as err:
             except datastore.RepoDBError as err:
                 terminal.error(f"""The local repository {repo_path} had a database error.
 Please open a CSCS ticket, or contact the uenv dev team, with the command that created the error, and this full error message.
 {str(err)}""", abort=False)
                 return []
+
             result = fscache.database.find_records(**img_filter)
 
             if result.is_empty:
@@ -715,7 +758,12 @@ def generate_start_command(args, env, env_vars):
     env_vars.set_scalar("UENV_MOUNT_FILE", f"{main_mount[0]}")
     env_vars.set_scalar("UENV_MOUNT_POINT", f"{main_mount[1]}")
 
-    return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash",
+    # ideally, we would start a shell that does not source bashrc, however doing this
+    # means that aliases that users define in their bashrc (and unexported bash functions)
+    # will not work - breaking the seamless user experience.
+    # return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash --norc --noprofile",
+
+    return [f"squashfs-mount {mount_string} -- $UENV_WRAPPER_CMD bash -i",
             "local _exitcode=$?",]
 
 def generate_view_command(args, env, env_vars):
@@ -890,6 +938,60 @@ def generate_stop_command(args, env):
         return shell_error
 
     return "exit $_last_exitcode"
+
+def generate_repo_command(args, env):
+
+    repo_path = alps.uenv_repo_path(args.repo)
+
+    status = datastore.repo_status(repo_path)
+    terminal.info(f"{repo_path} status: {status}")
+
+    commands = []
+    if args.repo_command=="create":
+        terminal.info(f"trying to create {repo_path}")
+        try:
+            datastore.FileSystemRepo.create(repo_path, exists_ok=True)
+            commands.append(f"echo 'The repository {repo_path} has been created.'")
+        except Exception as err:
+            terminal.error(f"unable to find or initialise the local registry: {str(err)}", abort=False)
+            return shell_noop
+
+    elif args.repo_command=="upgrade":
+        # TODO: fix these magic numbers... if only Python had proper support for enums
+        if status==2:
+            terminal.error(f"The repository {repo_path} does not exist.", abort=False)
+            return shell_error
+        if status==1:
+            commands.append(f"echo 'The repository {repo_path} is up to date. No action performed.'")
+        elif status==-1:
+            terminal.error(f"The repository {repo_path} is corrupt or does not exist - nothing can be done.", abort=False)
+            return shell_error
+        try:
+            datastore.repo_upgrade(repo_path)
+            commands.append(f"echo 'The repository {repo_path} has been upgraded.'")
+        except Exception as err:
+            terminal.error(f"unable to upgrade {str(err)}", abort=False)
+            return shell_error
+
+    # this always goes last
+    # print status information with or without the status flag
+    else:
+        if status==2:
+            commands.append(f"echo 'The repository {repo_path} does not exist.'")
+        if status==1:
+            commands.append(f"echo 'The repository {repo_path} is up to date. No action required.'")
+        elif status==0:
+            commands.append(f"echo 'The repository {repo_path} needs to be upgraded using the following command:'")
+            if args.repo is None:
+                cli_string = "uenv repo upgrade"
+            else:
+                cli_string = f"uenv --repo={repo_path} repo upgrade"
+            commands.append(f"echo '   {colorize(cli_string, 'white')}'")
+        elif status==-1:
+            commands.append(f"echo 'The repository {repo_path} is corrupt or does not exist.'")
+
+    commands.append(shell_noop)
+    return commands
 
 
 if __name__ == "__main__":
