@@ -9,7 +9,7 @@
 namespace uenv {
 util::expected<std::string, parse_error> parse_name(lexer&);
 util::expected<std::string, parse_error> parse_path(lexer&);
-util::expected<uenv_description, parse_error> parse_uenv_label(lexer&);
+util::expected<uenv_label, parse_error> parse_uenv_label(lexer&);
 util::expected<uenv_description, parse_error> parse_uenv_description(lexer&);
 util::expected<view_description, parse_error> parse_view_description(lexer& L);
 } // namespace uenv
@@ -24,9 +24,7 @@ TEST_CASE("sanitise inputs", "[parse]") {
 }
 
 TEST_CASE("parse names", "[parse]") {
-    // fmt::println("--- parse name");
     for (const auto& in : {"default", "prgenv-gnu", "a", "x.y", "x_y", "_"}) {
-        // fmt::println("{}", in);
         auto L = uenv::lexer(in);
         auto result = uenv::parse_name(L);
         REQUIRE(result);
@@ -35,11 +33,9 @@ TEST_CASE("parse names", "[parse]") {
 }
 
 TEST_CASE("parse path", "[parse]") {
-    // fmt::println("--- parse path");
     for (const auto& in :
          {"etc", "/etc", "/etc.", "/etc/usr/file.txt", "/etc-car/hole_s/_.",
           ".", "./.ssh/config", ".bashrc", "age.txt"}) {
-        // fmt::println("  input='{}': ", in);
         auto L = uenv::lexer(in);
         auto result = uenv::parse_path(L);
         REQUIRE(result);
@@ -47,33 +43,106 @@ TEST_CASE("parse path", "[parse]") {
     }
 }
 
+TEST_CASE("parse uenv label", "[parse]") {
+    {
+        auto L = uenv::lexer("prgenv-gnu");
+        auto result = uenv::parse_uenv_label(L);
+        REQUIRE(result);
+        REQUIRE(result->name == "prgenv-gnu");
+        REQUIRE(!result->version);
+        REQUIRE(!result->tag);
+    }
+    {
+        auto L = uenv::lexer("prgenv-gnu/24.7");
+        auto result = uenv::parse_uenv_label(L);
+        REQUIRE(result);
+        REQUIRE(result->name == "prgenv-gnu");
+        REQUIRE(result->version == "24.7");
+        REQUIRE(!result->tag);
+    }
+    {
+        auto L = uenv::lexer("prgenv-gnu/24.7:v1");
+        auto result = uenv::parse_uenv_label(L);
+        REQUIRE(result);
+        REQUIRE(result->name == "prgenv-gnu");
+        REQUIRE(result->version == "24.7");
+        REQUIRE(result->tag == "v1");
+    }
+    {
+        auto L = uenv::lexer("prgenv-gnu:v1");
+        auto result = uenv::parse_uenv_label(L);
+        REQUIRE(result);
+        REQUIRE(result->name == "prgenv-gnu");
+        REQUIRE(!result->version);
+        REQUIRE(result->tag == "v1");
+    }
+    for (auto defectiv_label : {"prgenv-gnu/:v1", "prgenv-gnu/wombat:"}) {
+        auto L = uenv::lexer(defectiv_label);
+        REQUIRE(!uenv::parse_uenv_label(L));
+    }
+}
+
 TEST_CASE("parse view list", "[parse]") {
-    for (const auto& in : {"default", "prgenv-gnu:default,wombat"}) {
-        fmt::print("=== '{}'\n", in);
+    {
+        auto in = "spack,modules";
         auto result = uenv::parse_view_args(in);
-        if (!result) {
-            const auto& e = result.error();
-            fmt::print("error {} at {}\n", e.msg, e.loc);
-        } else {
-            for (auto v : *result) {
-                fmt::print("  {}\n", v);
-            }
-        }
+        REQUIRE(result);
+        REQUIRE((*result)[0].name == "spack");
+        REQUIRE(!(*result)[0].uenv);
+        REQUIRE((*result)[1].name == "modules");
+        REQUIRE(!(*result)[1].uenv);
+    }
+    {
+        auto in = "default";
+        auto result = uenv::parse_view_args(in);
+        REQUIRE(result);
+        REQUIRE((*result)[0].name == "default");
+        REQUIRE(!(*result)[0].uenv);
+    }
+    {
+        auto in = "prgenv-gnu:default,wombat";
+        auto result = uenv::parse_view_args(in);
+        REQUIRE(result);
+        REQUIRE((*result)[0].name == "default");
+        REQUIRE((*result)[0].uenv == "prgenv-gnu");
+        REQUIRE((*result)[1].name == "wombat");
+        REQUIRE(!(*result)[1].uenv);
+    }
+    for (auto in : {"", " ", "default, spack", "jack/bull"}) {
+        REQUIRE(!uenv::parse_view_args(in));
     }
 }
 
 TEST_CASE("parse uenv list", "[parse]") {
-    for (const auto& in :
-         {"default", "/foo/bar/store.squashfs,prgenv-gnu/24.7:v1"}) {
-        fmt::print("=== '{}'\n", in);
+    {
+        auto in = "prgenv-gnu/24.7:rc1@/user-environment";
         auto result = uenv::parse_uenv_args(in);
-        if (!result) {
-            const auto& e = result.error();
-            fmt::print("error {} at {}\n", e.msg, e.loc);
-        } else {
-            for (auto v : *result) {
-                fmt::print("  {}\n", v);
-            }
-        }
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        auto d = (*result)[0];
+        auto l = *d.label();
+        REQUIRE(l.name == "prgenv-gnu");
+        REQUIRE(l.version == "24.7");
+        REQUIRE(l.tag == "rc1");
+        REQUIRE(*d.mount() == "/user-environment");
+    }
+    {
+        auto in =
+            "/scratch/.uenv-images/sdfklsdf890df9a87sdf/store.squashfs@/"
+            "user-environment/store-asdf/my-image_mnt_point3//,prgenv-nvidia";
+        auto result = uenv::parse_uenv_args(in);
+        REQUIRE(result);
+        REQUIRE(result->size() == 2);
+        auto d = (*result)[0];
+        auto n = *d.filename();
+        REQUIRE(n ==
+                "/scratch/.uenv-images/sdfklsdf890df9a87sdf/store.squashfs");
+        REQUIRE(*d.mount() ==
+                "/user-environment/store-asdf/my-image_mnt_point3//");
+        d = (*result)[1];
+        auto l = *d.label();
+        REQUIRE(l.name == "prgenv-nvidia");
+        REQUIRE(!l.version);
+        REQUIRE(!l.tag);
     }
 }

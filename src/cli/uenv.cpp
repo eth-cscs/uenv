@@ -27,8 +27,7 @@ int main(int argc, char** argv) {
 
     switch (settings.mode) {
     case uenv::mode_start:
-        uenv::start(start_args, settings);
-        break;
+        return uenv::start(start_args, settings);
     case uenv::mode_none:
     default:
         help();

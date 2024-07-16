@@ -22,14 +22,26 @@ struct uenv_label {
 };
 
 struct uenv_description {
+    uenv_description(uenv_label label);
+    uenv_description(uenv_label label, std::string mount);
+    uenv_description(std::string file);
+    uenv_description(std::string file, std::string mount);
+    uenv_description() = default;
+
     std::optional<uenv_label> label() const;
     std::optional<std::string> filename() const;
-    uenv_description(uenv_label);
-    uenv_description(std::string);
-    uenv_description() = default;
+    std::optional<std::string> mount() const;
 
   private:
     std::variant<uenv_label, std::string> value_;
+    std::optional<std::string> mount_;
+};
+
+struct uenv_concretisation {
+    std::string mount;
+    std::string name;
+    std::string sqfs;
+    std::optional<std::string> meta_path;
 };
 
 struct parse_error {
@@ -56,6 +68,24 @@ template <> class fmt::formatter<uenv::view_description> {
     }
 };
 
+template <> class fmt::formatter<uenv::uenv_label> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(uenv::uenv_label const& d, FmtContext& ctx) const {
+        auto ctx_ = fmt::format_to(ctx.out(), "{}", d.name);
+        if (d.version)
+            ctx_ = fmt::format_to(ctx_, "/{}", *d.version);
+        if (d.tag)
+            ctx_ = fmt::format_to(ctx_, ":{}", *d.tag);
+        return ctx_;
+    }
+};
+
 template <> class fmt::formatter<uenv::uenv_description> {
   public:
     // parse format specification and store it:
@@ -66,10 +96,31 @@ template <> class fmt::formatter<uenv::uenv_description> {
     template <typename FmtContext>
     constexpr auto format(uenv::uenv_description const& d,
                           FmtContext& ctx) const {
+        auto ctx_ = fmt::format_to(ctx.out(), "uenv_description(");
         if (const auto fname = d.filename())
-            return fmt::format_to(ctx.out(), "uenv_description(file={})",
-                                  *fname);
-        // return fmt::format_to(ctx.out(), "uenv_description({})", d.label());
-        return fmt::format_to(ctx.out(), "");
+            ctx_ = fmt::format_to(ctx_, "file={}, ", *fname);
+        if (const auto label = d.label())
+            ctx_ = fmt::format_to(ctx_, "label={}, ", *label);
+        if (const auto mount = d.mount())
+            return fmt::format_to(ctx_, "mount={})", *mount);
+        return fmt::format_to(ctx_, "mount=none)");
+    }
+};
+
+template <> class fmt::formatter<uenv::uenv_concretisation> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(uenv::uenv_concretisation const& e,
+                          FmtContext& ctx) const {
+        auto ctx_ = fmt::format_to(ctx.out(), "(name='{}', mount={}, sqfs={}",
+                                   e.name, e.mount, e.sqfs);
+        if (e.meta_path)
+            return fmt::format_to(ctx_, ", meta={})", *e.meta_path);
+        return fmt::format_to(ctx_, "meta=none)");
     }
 };

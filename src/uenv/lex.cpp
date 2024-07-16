@@ -105,6 +105,10 @@ class lexer_impl {
                 character_token(tok::slash);
                 ++stream_;
                 return;
+            case '@':
+                character_token(tok::at);
+                ++stream_;
+                return;
 
             case 'a' ... 'z':
             case 'A' ... 'Z':
@@ -124,7 +128,7 @@ class lexer_impl {
                 "Internal lexer error: expected end of input, please open a bug report"s};
             return;
         }
-        token_ = {loc(), tok::end, "end"};
+        token_ = {loc(), tok::end, std::string_view(&*stream_, 0)};
         return;
     }
 

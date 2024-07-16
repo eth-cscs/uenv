@@ -30,38 +30,70 @@ void start_args::add_cli(CLI::App& cli, global_settings& settings) {
 
 // stores the parsed and validated settings, based on the CLI arguments.
 struct start_settings {
-    const std::vector<uenv::view_description> views;
+    // these are just descriptions - need to be replaced with concretised types
+    std::vector<uenv::uenv_description> uenvs;
+    std::vector<uenv::view_description> views;
 };
 
-util::expected<start_settings, std::string>
+util::expected<const start_settings, std::string>
 parse_start_args(const start_args& args) {
+
     // step 1: parse the uenv information
     //  inputs: (uenv cli argument)
     //  - parse the CLI uenv description
     //  inputs: (global settings, parsed cli argument)
-    auto uenvs = uenv::parse_uenv_args(args.uenv_description);
+    const auto uenv_descriptions = uenv::parse_uenv_args(args.uenv_description);
+    if (!uenv_descriptions) {
+        return util::unexpected(
+            fmt::format("unable to read the uenv argument\n  {}",
+                        uenv_descriptions.error().msg));
+    }
+
     //  - lookup either file name or database (the filename can be relative in
     //  uenv, but absolute in slurm)
-    // TODO
     //  - generate uenv meta data
+    std::vector<uenv::uenv_concretisation> uenvs;
+    for (auto& desc : *uenv_descriptions) {
+        // check that desc.mount exists
+        // assign default value of /user-environment /user-tools if need be
+
+        // get the sqfs_path
+        // desc.filename - check that it exists
+        // desc.label - perform database lookup
+
+        // meta_path = sqfs_path.parent_path
+        // check whether meta_path exists
+
+        // if meta_path exists, parse the json therin for information about
+        // views create a hash table lookup from name -> view_meta
+    }
+
     // step 2: parse the views
     //  - parse the CLI view description
     //  - look up view descriptions in the uenv meta data
-    auto views = uenv::parse_view_args(args.view_description);
-    if (!views) {
-        return util::unexpected(
-            fmt::format("invalid view description: {}", views.error().msg));
+    if (args.view_description) {
+        auto views = uenv::parse_view_args(*args.view_description);
+        if (!views) {
+            return util::unexpected(
+                fmt::format("invalid view description: {}", views.error().msg));
+        }
+        return start_settings{*uenv_descriptions, *views};
     }
 
-    return start_settings{*views};
+    return start_settings{*uenv_descriptions, {}};
 }
 
-void start(const start_args& args, const global_settings& globals) {
+int start(const start_args& args, const global_settings& globals) {
     fmt::println("running start with options {}", args);
     const auto settings = parse_start_args(args);
+    if (!settings) {
+        fmt::print("ERROR\n{}\n", settings.error());
+        return 1;
+    }
     for (auto& v : settings->views) {
         fmt::print("  with view: {}\n", v);
     }
+    return 0;
 }
 
 } // namespace uenv

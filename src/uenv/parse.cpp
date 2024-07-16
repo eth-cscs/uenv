@@ -113,14 +113,28 @@ util::expected<uenv_description, parse_error> parse_uenv_description(lexer& L) {
     if (k == tok::slash) {
         std::string path;
         PARSE(L, path, path);
-        return uenv_description{path};
+        if (L.current_kind() == tok::at) {
+            L.next();
+            std::string mount;
+            PARSE(L, path, mount);
+            return uenv_description{path, mount};
+        } else {
+            return uenv_description{path};
+        }
     }
 
     // try to parse a label
     if (is_name_tok(k)) {
         uenv_label label;
         PARSE(L, uenv_label, label);
-        return uenv_description{label};
+        if (L.current_kind() == tok::at) {
+            L.next();
+            std::string mount;
+            PARSE(L, path, mount);
+            return uenv_description{label, mount};
+        } else {
+            return uenv_description{label};
+        }
     }
 
     // neither path nor name label - oops

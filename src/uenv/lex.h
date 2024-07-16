@@ -8,6 +8,7 @@
 namespace uenv {
 
 enum class tok {
+    at,         // at '@'
     slash,      // forward slash /
     comma,      // comma ','
     colon,      // colon ':'
@@ -75,6 +76,8 @@ template <> class fmt::formatter<uenv::tok> {
             return fmt::format_to(ctx.out(), "dash");
         case uenv::tok::whitespace:
             return fmt::format_to(ctx.out(), "whitespace");
+        case uenv::tok::at:
+            return fmt::format_to(ctx.out(), "at");
         case uenv::tok::end:
             return fmt::format_to(ctx.out(), "end");
         case uenv::tok::error:
@@ -93,7 +96,7 @@ template <> class fmt::formatter<uenv::token> {
     // format a value using stored specification:
     template <typename FmtContext>
     constexpr auto format(uenv::token const& t, FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "token({}, {}, '{}')", t.loc, t.kind,
-                              t.spelling);
+        return fmt::format_to(ctx.out(), "{loc: {}, kind: {}, spelling: '{}')",
+                              t.loc, t.kind, t.spelling);
     }
 };
