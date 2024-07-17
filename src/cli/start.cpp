@@ -1,6 +1,8 @@
 // vim: ts=4 sts=4 sw=4 et
 
 #include <vector>
+#include <string>
+#include <filesystem>
 
 #include <fmt/core.h>
 
@@ -53,10 +55,39 @@ parse_start_args(const start_args& args) {
     //  uenv, but absolute in slurm)
     //  - generate uenv meta data
     std::vector<uenv::uenv_concretisation> uenvs;
+    std::vector<std::optional<std::string>> default_mounts{"/user-environment", "/user-tools", {}};
+    // points to the mount point that should used if none is provided for a uenv
+    auto default_mount = default_mounts.begin();
     for (auto& desc : *uenv_descriptions) {
-        // check that desc.mount exists
-        // assign default value of /user-environment /user-tools if need be
+        fmt::println("distance={}", std::distance(default_mounts.begin(), default_mount));
+        // mount will hold the mount point as a string.
+        std::string mount;
+        if (auto m = desc.mount()) {
+            mount = *m;
+            // once an explicit mount point has been set defaults are no longer applied.
+            // set default mount to the last entry, which is a nullopt std::optional.
+            default_mount = std::prev(default_mounts.end());
+        }
+        else {
+            // no mount point was provided for this uenv, so use the default if it is available.
+            if (*default_mount) {
+                mount = **default_mount;
+                ++default_mount;
+            }
+            else {
+                return util::unexpected(fmt::format("no mount point provided for {}", desc));
+            }
+        }
+        fmt::println("{} will be mounted at {}", desc, mount);
 
+
+        // check that the mount point exists
+        if (!fs::exists(mount)) {
+            return util::unexpected(fmt::format("the mount point '{}' does not exist", desc));
+        }
+
+
+        if (desc.label()) {}
         // get the sqfs_path
         // desc.filename - check that it exists
         // desc.label - perform database lookup
