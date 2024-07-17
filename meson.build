@@ -24,8 +24,10 @@ sqlite3_dep = subproject('sqlite3').get_variable('sqlite3_dep')
 # and the slurm plugin.
 lib_src = [
         'src/uenv/env.cpp',
+        'src/uenv/envvars.cpp',
         'src/uenv/lex.cpp',
         'src/uenv/parse.cpp',
+        'src/util/strings.cpp',
 ]
 lib_inc = include_directories('src')
 
@@ -50,6 +52,7 @@ uenv = executable('uenv',
 
 unit_src = [
         'test/unit/env.cpp',
+        'test/unit/envvars.cpp',
         'test/unit/parse.cpp',
         'test/unit/lex.cpp',
         'test/unit/main.cpp',

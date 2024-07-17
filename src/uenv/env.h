@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <variant>
@@ -38,10 +39,10 @@ struct uenv_description {
 };
 
 struct uenv_concretisation {
-    std::string mount;
     std::string name;
-    std::string sqfs;
-    std::optional<std::string> meta_path;
+    std::filesystem::path mount;
+    std::filesystem::path sqfs;
+    std::optional<std::filesystem::path> meta_path;
 };
 
 struct parse_error {
@@ -63,8 +64,8 @@ template <> class fmt::formatter<uenv::view_description> {
     template <typename FmtContext>
     constexpr auto format(uenv::view_description const& d,
                           FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "view_description({}, {})",
-                              (d.uenv ? *d.uenv : "none"), d.name);
+        return fmt::format_to(ctx.out(), "(name={}, uenv={})", d.name,
+                              (d.uenv ? *d.uenv : "none"));
     }
 };
 
@@ -96,7 +97,7 @@ template <> class fmt::formatter<uenv::uenv_description> {
     template <typename FmtContext>
     constexpr auto format(uenv::uenv_description const& d,
                           FmtContext& ctx) const {
-        auto ctx_ = fmt::format_to(ctx.out(), "uenv_description(");
+        auto ctx_ = fmt::format_to(ctx.out(), "(");
         if (const auto fname = d.filename())
             ctx_ = fmt::format_to(ctx_, "file={}, ", *fname);
         if (const auto label = d.label())

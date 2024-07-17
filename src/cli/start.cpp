@@ -1,10 +1,11 @@
 // vim: ts=4 sts=4 sw=4 et
 
-#include <vector>
-#include <string>
 #include <filesystem>
+#include <string>
+#include <vector>
 
 #include <fmt/core.h>
+#include <fmt/std.h>
 
 #include <uenv/env.h>
 #include <uenv/parse.h>
@@ -40,10 +41,13 @@ struct start_settings {
 util::expected<const start_settings, std::string>
 parse_start_args(const start_args& args) {
 
-    // step 1: parse the uenv information
-    //  inputs: (uenv cli argument)
-    //  - parse the CLI uenv description
-    //  inputs: (global settings, parsed cli argument)
+    namespace fs = std::filesystem;
+    // parse the uenv description that was provided as a command line argument.
+    // the command line argument is a comma-separated list of uenvs, where each
+    // uenc is either
+    // - the path of a squashfs image; or
+    // - a uenv description of the form name/version:tag
+    // with an optional mount point.
     const auto uenv_descriptions = uenv::parse_uenv_args(args.uenv_description);
     if (!uenv_descriptions) {
         return util::unexpected(
@@ -51,52 +55,79 @@ parse_start_args(const start_args& args) {
                         uenv_descriptions.error().msg));
     }
 
-    //  - lookup either file name or database (the filename can be relative in
-    //  uenv, but absolute in slurm)
-    //  - generate uenv meta data
-    std::vector<uenv::uenv_concretisation> uenvs;
-    std::vector<std::optional<std::string>> default_mounts{"/user-environment", "/user-tools", {}};
-    // points to the mount point that should used if none is provided for a uenv
+    // concretise the uenv descriptions by looking for the squashfs file, or
+    // looking up the uenv descrition in a registry.
+    // after this loop, we have fully validated list of uenvs, mount points and
+    // meta data (if they have meta data).
+
+    // the following are for assigning default mount points when no explicit
+    // mount point is provided.
+    std::vector<std::optional<std::string>> default_mounts{
+        "/user-environment", "/user-tools", {}};
     auto default_mount = default_mounts.begin();
+
+    std::vector<uenv::uenv_concretisation> uenvs;
     for (auto& desc : *uenv_descriptions) {
-        fmt::println("distance={}", std::distance(default_mounts.begin(), default_mount));
-        // mount will hold the mount point as a string.
-        std::string mount;
+        // determine the mount point of the uenv, then validate that it exists.
+        fs::path mount;
         if (auto m = desc.mount()) {
             mount = *m;
-            // once an explicit mount point has been set defaults are no longer applied.
-            // set default mount to the last entry, which is a nullopt std::optional.
+            // once an explicit mount point has been set defaults are no longer
+            // applied. set default mount to the last entry, which is a nullopt
+            // std::optional.
             default_mount = std::prev(default_mounts.end());
-        }
-        else {
-            // no mount point was provided for this uenv, so use the default if it is available.
+        } else {
+            // no mount point was provided for this uenv, so use the default if
+            // it is available.
             if (*default_mount) {
                 mount = **default_mount;
                 ++default_mount;
-            }
-            else {
-                return util::unexpected(fmt::format("no mount point provided for {}", desc));
+            } else {
+                return util::unexpected(
+                    fmt::format("no mount point provided for {}", desc));
             }
         }
         fmt::println("{} will be mounted at {}", desc, mount);
 
-
         // check that the mount point exists
         if (!fs::exists(mount)) {
-            return util::unexpected(fmt::format("the mount point '{}' does not exist", desc));
+            return util::unexpected(
+                fmt::format("the mount point '{}' does not exist", mount));
         }
 
+        if (desc.label()) {
+            return util::unexpected(
+                fmt::format("support for mounting uenv from labels is not "
+                            "supported yet: '{}'",
+                            *desc.label()));
+        }
 
-        if (desc.label()) {}
         // get the sqfs_path
         // desc.filename - check that it exists
-        // desc.label - perform database lookup
+        // desc.label - perform database lookup (TODO)
 
-        // meta_path = sqfs_path.parent_path
-        // check whether meta_path exists
+        // TODO when this code goes into a funtion, we need to parameterise
+        // whether an absolute path is a hard requirement (for the SLURM plugin
+        // it is)
+        auto p = fs::path(*desc.filename());
+        if (!fs::exists(p)) {
+            return util::unexpected(fmt::format("{} does not exist", p));
+        }
+        auto sqfs_path = fs::absolute(p);
+        if (!fs::is_regular_file(sqfs_path)) {
+            return util::unexpected(fmt::format("{} is not a file", sqfs_path));
+        }
 
-        // if meta_path exists, parse the json therin for information about
-        // views create a hash table lookup from name -> view_meta
+        // get the meta data path
+        auto meta_path = sqfs_path.parent_path() / "meta/env.json";
+
+        // if meta_path exists, parse the json therein
+        std::optional<fs::path> meta;
+        if (fs::is_regular_file(meta_path)) {
+            meta = meta_path;
+        } else {
+            fmt::println("the meta data file {} does not exist", meta_path);
+        }
     }
 
     // step 2: parse the views
