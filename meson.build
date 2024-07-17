@@ -15,9 +15,10 @@ conf_data = configuration_data()
 #
 # use meson wrap to provide the dependencies, because the 'default_library=static' option
 # will be propogated to each dependency, for a statically linked executable.
+catch_dep = subproject('catch2').get_variable('catch2_with_main_dep')
 cli11_dep = subproject('cli11').get_variable('CLI11_dep')
 fmt_dep   = subproject('fmt').get_variable('fmt_dep')
-catch_dep = subproject('catch2').get_variable('catch2_with_main_dep')
+json_dep = subproject('nlohmann_json').get_variable('nlohmann_json_dep')
 sqlite3_dep = subproject('sqlite3').get_variable('sqlite3_dep')
 
 # the lib dependency is all of the common funtionality shared between the CLI
@@ -26,6 +27,7 @@ lib_src = [
         'src/uenv/env.cpp',
         'src/uenv/envvars.cpp',
         'src/uenv/lex.cpp',
+        'src/uenv/meta.cpp',
         'src/uenv/parse.cpp',
         'src/util/strings.cpp',
 ]
@@ -33,7 +35,7 @@ lib_inc = include_directories('src')
 
 lib_dep = declare_dependency(
         sources: lib_src,
-        dependencies: [sqlite3_dep, fmt_dep],
+        dependencies: [sqlite3_dep, fmt_dep, json_dep],
         include_directories: lib_inc
 )
 

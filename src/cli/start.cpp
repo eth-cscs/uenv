@@ -8,6 +8,7 @@
 #include <fmt/std.h>
 
 #include <uenv/env.h>
+#include <uenv/meta.h>
 #include <uenv/parse.h>
 #include <util/expected.h>
 
@@ -40,8 +41,8 @@ struct start_settings {
 
 util::expected<const start_settings, std::string>
 parse_start_args(const start_args& args) {
-
     namespace fs = std::filesystem;
+
     // parse the uenv description that was provided as a command line argument.
     // the command line argument is a comma-separated list of uenvs, where each
     // uenc is either
@@ -125,6 +126,12 @@ parse_start_args(const start_args& args) {
         std::optional<fs::path> meta;
         if (fs::is_regular_file(meta_path)) {
             meta = meta_path;
+            auto x = uenv::load_meta(meta_path);
+            if (!x) {
+                fmt::println("unable to load {}: {}", meta_path, x.error());
+            } else {
+                fmt::println("loaded meta with name {}", x->name);
+            }
         } else {
             fmt::println("the meta data file {} does not exist", meta_path);
         }

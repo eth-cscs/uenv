@@ -6,3 +6,4 @@ subprojects/CLI11-*
 subprojects/fmt-*
 subprojects/packagecache
 subprojects/sqlite-amalgamation-*
+subprojects/nlohmann_json-*
