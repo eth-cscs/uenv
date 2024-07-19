@@ -49,12 +49,11 @@ uenv start --view=develop icon
         setenv("PATH", ...)
         setenv("LD_LIBRARY_PATH", ...)
         |
+        execve(squashfs-mount)
+        |
         execve(bash)
         |
-        |_fork__
-                |
-                |
-                bash
+        bash
 ```
 
 ## Features

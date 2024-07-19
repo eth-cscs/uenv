@@ -109,7 +109,8 @@ sha256:  {{sha256}}
 system:  {{system}}
 date:    {{date}}
 path:    {{path}}
-sqfs:    {{sqfs}}\
+sqfs:    {{sqfs}}
+meta:    {{meta}}\
 """ ,
                              help="optional format string")
     path_parser.add_argument("uenv", type=str)
@@ -153,6 +154,8 @@ downloaded uenv with the list command. For more information:
     find_parser.add_argument("-a", "--uarch", required=False, type=str)
     find_parser.add_argument("--build", action="store_true",
                              help="Search undeployed builds.", required=False)
+    find_parser.add_argument("--no-header", action="store_true",
+                             help="Do not print header in output.", required=False)
     find_parser.add_argument("uenv", nargs="?", default=None, type=str)
 
     pull_parser = subparsers.add_parser("pull",
@@ -188,6 +191,10 @@ with appropriate JFrog access and with the JFrog token in their oras keychain.
     pull_parser.add_argument("-a", "--uarch", required=False, type=str)
     pull_parser.add_argument("--build", action="store_true", required=False,
                              help="enable undeployed builds")
+    pull_parser.add_argument("--only-meta", action="store_true", required=False,
+                             help="only download meta data, if it is available")
+    pull_parser.add_argument("--force", action="store_true", required=False,
+                             help="force download if the image has already been downloaded")
     pull_parser.add_argument("uenv", nargs="?", default=None, type=str)
 
     list_parser = subparsers.add_parser("ls",
@@ -219,6 +226,8 @@ List uenv that are available.
 """)
     list_parser.add_argument("-s", "--system", required=False, type=str)
     list_parser.add_argument("-a", "--uarch", required=False, type=str)
+    list_parser.add_argument("--no-header", action="store_true",
+                             help="Do not print header in output.", required=False)
     list_parser.add_argument("uenv", nargs="?", default=None, type=str)
 
     deploy_parser = subparsers.add_parser("deploy",
@@ -292,6 +301,8 @@ def get_filter(args):
 
 def inspect_string(record: record.Record, image_path, format_string: str) -> str:
     try:
+        meta = image_path+"/meta" if os.path.exists(image_path+"/meta") else "none"
+        sqfs = image_path+"/store.squashfs" if os.path.exists(image_path+"/store.squashfs") else "none"
         return format_string.format(
             system = record.system,
             uarch = record.uarch,
@@ -302,7 +313,8 @@ def inspect_string(record: record.Record, image_path, format_string: str) -> str
             id = record.id,
             sha256 = record.sha256,
             path = image_path,
-            sqfs = image_path + "/store.squashfs",
+            sqfs = sqfs,
+            meta = meta,
         )
     except Exception as err:
         terminal.error(f"unable to format {str(err)}")
@@ -317,11 +329,12 @@ def image_size_string(size):
     return f"{(size/(1024*1024*1024)):<.1f}GB"
 
 # pretty print a list of Record
-def print_records(recordset):
+def print_records(recordset, no_header=False):
     records = recordset.records
 
     if not recordset.is_empty:
-        terminal.stdout(terminal.colorize(f"{'uenv/version:tag':40}{'uarch':6}{'date':10} {'id':16} {'size':<10}", "yellow"))
+        if not args.no_header:
+            terminal.stdout(terminal.colorize(f"{'uenv/version:tag':40}{'uarch':6}{'date':10} {'id':16} {'size':<10}", "yellow"))
         for r in recordset.records:
             namestr = f"{r.name}/{r.version}"
             tagstr = f"{r.tag}"
@@ -406,7 +419,7 @@ if __name__ == "__main__":
             terminal.error(f"no uenv matches the spec: {colorize(results.request, 'white')}")
 
         if args.command == "find":
-            print_records(results)
+            print_records(results, no_header=args.no_header)
 
         elif args.command == "pull":
             if not results.is_unique_sha:
@@ -423,31 +436,66 @@ if __name__ == "__main__":
             t = records.records[0]
             source_address = jfrog.address(t, 'build' if args.build else 'deploy')
 
-            terminal.info(f"pulling {t} from {source_address} {t.size/(1024*1024):.0f} MB")
+            terminal.info(f"pulling {t} from {source_address} {t.size/(1024*1024):.0f} MB with only-meta={args.only_meta}")
 
             terminal.info(f"repo path: {repo_path}")
 
             cache = safe_repo_open(repo_path)
             image_path = cache.image_path(t)
+            terminal.info(f"image path: {image_path}")
 
-            # if the record isn't already in the filesystem repo download it
+            # at this point the request is for an sha that is in the remote repository
+            do_download=False
+
+            meta_path=image_path+"/meta"
+            sqfs_path=image_path+"/store.squashfs"
+            meta_exists=os.path.exists(meta_path)
+            sqfs_exists=os.path.exists(sqfs_path)
+
+            only_meta=meta_exists and not sqfs_exists
+
+            # if there is no entry in the local database do a full clean download
             if cache.database.get_record(t.sha256).is_empty:
-                terminal.stdout(f"downloading image {t.sha256} {image_size_string(t.size)}")
-                # clean up the path if it already exists: sometimes this causes an oras error.
-                if os.path.exists(image_path):
-                    terminal.info(f"removing existing path {image_path}")
-                    shutil.rmtree(image_path)
-                oras.pull_uenv(source_address, image_path, t)
+                terminal.info("===== is_empty")
+                do_download=True
+                pull_meta=True
+                pull_sqfs=not args.only_meta
+            elif args.force:
+                terminal.info("===== force")
+                do_download=True
+                pull_meta=True
+                pull_sqfs=not args.only_meta
+            # a record exists, so check whether any components are missing
             else:
-                terminal.stdout(f"image {t.sha256} is already available locally")
+                terminal.info("===== else")
+                pull_meta=not meta_exists
+                pull_sqfs=not sqfs_exists and (not args.only_meta)
+                do_download=pull_meta or pull_sqfs
+
+            terminal.info(f"pull {t.sha256} exists:  meta={meta_exists} sqfs={sqfs_exists}")
+            terminal.info(f"pull {t.sha256} pulling: meta={pull_meta} sqfs={pull_sqfs}")
+            if do_download:
+                terminal.info(f"downloading")
+            else:
+                terminal.info(f"nothing to pull: use --force to force the download")
+
+            # determine whether to perform download
+            # check whether the image is in the database, or when only meta-data has been downloaded
+            if do_download:
+                terminal.stdout(f"uenv {t.name}/{t.version}:{t.tag} matches remote image {t.sha256}")
+                if pull_meta:
+                    terminal.stdout(f"{t.id} pulling meta data")
+                if pull_sqfs:
+                    terminal.stdout(f"{t.id} pulling squashfs")
+                oras.pull_uenv(source_address, image_path, t, pull_meta, pull_sqfs)
+            else:
+                terminal.stdout(f"{t.name}/{t.version}:{t.tag} meta data and image with id {t.id} have already been pulled")
 
             # update all the tags associated with the image.
             terminal.info(f"updating the local repository database")
             for r in records.records:
                 terminal.stdout(f"updating local reference {r.name}/{r.version}:{r.tag}")
                 cache.add_record(r)
-
-            terminal.stdout(f"uenv {t.name}/{t.version}:{t.tag} downloaded")
 
         sys.exit(0)
 
@@ -459,7 +507,7 @@ if __name__ == "__main__":
         fscache = safe_repo_open(repo_path)
 
         records = fscache.database.find_records(**img_filter)
-        print_records(records)
+        print_records(records, no_header=args.no_header)
 
         sys.exit(0)
 

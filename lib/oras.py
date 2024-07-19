@@ -68,63 +68,69 @@ def run_command(args):
         terminal.error(f"oras command failed with unknown exception: {e}")
 
 
-def pull_uenv(source_address, image_path, target):
+def pull_uenv(source_address, image_path, target, pull_meta, pull_sqfs):
     # download the image using oras
     try:
-        # remove the old path if it exists
-        if os.path.exists(image_path):
-            shutil.rmtree(image_path)
-            time.sleep(0.1)
-
         terms = source_address.rsplit(":", 1)
         source_address = terms[0]
         tag = terms[1]
 
-        # step 1: download the meta data if there is any
-        #oras discover -o json --artifact-type 'uenv/meta' jfrog.svc.cscs.ch/uenv/deploy/eiger/zen2/cp2k/2023:v1
-        terminal.info(f"discovering meta data")
-        proc = run_command_internal(["discover", "-o", "json", "--artifact-type", "uenv/meta", f"{source_address}:{tag}"])
-        stdout, stderr = proc.communicate()
-        if proc.returncode == 0:
-            terminal.info(f"successfully downloaded meta data info: {stdout}")
-        else:
-            msg = error_message_from_stderr(stderr)
-            terminal.error(f"failed to find meta data: {stderr}\n{msg}")
+        if pull_meta:
+            if os.path.exists(image_path+"/meta"):
+                shutil.rmtree(image_path+"/meta")
+                time.sleep(0.05)
 
-        manifests = json.loads(stdout)["manifests"]
-        if len(manifests)==0:
-            terminal.error(f"no meta data is available")
+            # step 1: download the meta data if there is any
+            #oras discover -o json --artifact-type 'uenv/meta' jfrog.svc.cscs.ch/uenv/deploy/eiger/zen2/cp2k/2023:v1
+            terminal.info(f"discovering meta data")
+            proc = run_command_internal(["discover", "-o", "json", "--artifact-type", "uenv/meta", f"{source_address}:{tag}"])
+            stdout, stderr = proc.communicate()
+            if proc.returncode == 0:
+                terminal.info(f"successfully downloaded meta data info: {stdout}")
+            else:
+                msg = error_message_from_stderr(stderr)
+                terminal.error(f"failed to find meta data: {stderr}\n{msg}")
 
-        digest = manifests[0]["digest"]
-        terminal.info(f"meta data digest: {digest}")
+            manifests = json.loads(stdout)["manifests"]
+            if len(manifests)==0:
+                terminal.error(f"no meta data is available")
 
-        proc = run_command_internal(["pull", "-o", image_path, f"{source_address}@{digest}"])
-        stdout, stderr = proc.communicate()
+            digest = manifests[0]["digest"]
+            terminal.info(f"meta data digest: {digest}")
 
-        # step 2: download the image itself
-        # run the oras command in a separate process so that this process can
-        # draw a progress bar.
-        proc = run_command_internal(["pull", "-o", image_path, f"{source_address}:{tag}"])
+            proc = run_command_internal(["pull", "-o", image_path, f"{source_address}@{digest}"])
+            stdout, stderr = proc.communicate()
 
-        sqfs_path = image_path + "/store.squashfs"
-        total_mb = target.size/(1024*1024)
-        while proc.poll() is None:
-            time.sleep(1.0)
-            if os.path.exists(sqfs_path) and terminal.is_tty():
-                current_size = os.path.getsize(sqfs_path)
-                current_mb = current_size / (1024*1024)
-                p = current_mb/total_mb
-                msg = f"{int(current_mb)}/{int(total_mb)} MB"
-                progress.progress_bar(p, width=50, msg=msg)
-        stdout, stderr = proc.communicate()
-        if proc.returncode == 0:
-            # draw a final complete progress bar
-            progress.progress_bar(1.0, width=50, msg=f"{int(total_mb)}/{int(total_mb)} MB")
-            terminal.stdout("")
-            terminal.info(f"oras command successful: {stdout}")
-        else:
-            msg = error_message_from_stderr(stderr)
-            terminal.error(f"image pull failed: {stderr}\n{msg}")
+        if pull_sqfs:
+            sqfs_path = image_path + "/store.squashfs"
+            if os.path.exists(sqfs_path):
+                os.remove(sqfs_path)
+                time.sleep(0.05)
+
+            # step 2: download the image itself
+            # run the oras command in a separate process so that this process can
+            # draw a progress bar.
+            proc = run_command_internal(["pull", "-o", image_path, f"{source_address}:{tag}"])
+
+            total_mb = target.size/(1024*1024)
+            while proc.poll() is None:
+                time.sleep(0.25)
+                if os.path.exists(sqfs_path) and terminal.is_tty():
+                    current_size = os.path.getsize(sqfs_path)
+                    current_mb = current_size / (1024*1024)
+                    p = current_mb/total_mb
+                    msg = f"{int(current_mb)}/{int(total_mb)} MB"
+                    progress.progress_bar(p, width=50, msg=msg)
+            stdout, stderr = proc.communicate()
+            if proc.returncode == 0:
+                # draw a final complete progress bar
+                progress.progress_bar(1.0, width=50, msg=f"{int(total_mb)}/{int(total_mb)} MB")
+                terminal.stdout("")
+                terminal.info(f"oras command successful: {stdout}")
+            else:
+                msg = error_message_from_stderr(stderr)
+                terminal.error(f"image pull failed: {stderr}\n{msg}")
+
     except KeyboardInterrupt:
         proc.terminate()
         terminal.stdout("")
