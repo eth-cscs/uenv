@@ -3,8 +3,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "envvars.h"
 #include <util/strings.h>
+
+#include "envvars.h"
 
 namespace uenv {
 
@@ -23,12 +24,12 @@ void prefix_path_update::apply(std::vector<std::string>& in) {
 }
 
 void prefix_path::update(prefix_path_update u) {
-    updates.push_back(std::move(u));
+    updates_.push_back(std::move(u));
 }
 
 std::string prefix_path::get(const std::string& initial_value) const {
     auto value = util::split(initial_value, ':', true);
-    for (auto u : updates) {
+    for (auto u : updates_) {
         u.apply(value);
     }
     return util::join(":", simplify_prefix_path_list(value));
@@ -37,36 +38,36 @@ std::string prefix_path::get(const std::string& initial_value) const {
 bool envvarset::update_scalar(const std::string& name,
                               const std::string& value) {
     bool conflict = false;
-    if (prefix_paths.count(name)) {
-        prefix_paths.erase(name);
+    if (prefix_paths_.count(name)) {
+        prefix_paths_.erase(name);
         conflict = true;
     }
-    scalars[name] = {name, value};
+    scalars_[name] = {name, value};
     return conflict;
 }
 
 bool envvarset::update_prefix_path(const std::string& name,
                                    prefix_path_update update) {
     bool conflict = false;
-    if (scalars.count(name)) {
-        scalars.erase(name);
+    if (scalars_.count(name)) {
+        scalars_.erase(name);
         conflict = true;
     }
-    prefix_paths.try_emplace({name, {}});
-    prefix_paths[name].update(update);
+    prefix_paths_.try_emplace(name, prefix_path{name});
+    prefix_paths_.at(name).update(update);
     return conflict;
 }
 
 std::vector<scalar> envvarset::get_values(
     std::function<const char*(const std::string&)> getenv) const {
     std::vector<scalar> vars;
-    vars.reserve(scalars.size() + prefix_paths.size());
+    vars.reserve(scalars_.size() + prefix_paths_.size());
 
-    for (auto& v : scalars) {
+    for (auto& v : scalars_) {
         vars.push_back(v.second);
     }
 
-    for (auto& v : prefix_paths) {
+    for (auto& v : prefix_paths_) {
         if (auto current = getenv(v.first)) {
             vars.push_back({v.first, v.second.get(current)});
         } else {

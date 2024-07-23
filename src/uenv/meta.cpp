@@ -8,6 +8,7 @@
 
 #include <util/expected.h>
 
+#include "envvars.h"
 #include "meta.h"
 
 namespace uenv {
@@ -26,41 +27,40 @@ util::expected<meta, std::string> load_meta(const std::filesystem::path& file) {
     // TODO: check parse
     const auto raw = json::parse(fid);
 
-    // meta
-    // std::string name;
-    // std::string description;
-    // std::unordered_map<std::string, view_meta> views;
+    const std::string name = raw.contains("name") ? raw["name"] : "unnamed";
+    const std::string description =
+        raw.contains("description") ? raw["description"] : "";
 
-    std::unordered_map<std::string, view_meta> views;
+    std::unordered_map<std::string, concrete_view> views;
     if (auto& jviews = raw["views"]; jviews.is_object()) {
         for (auto& [name, desc] : jviews.items()) {
             uenv::envvarset envvars;
             if (auto& list = desc["env"]["values"]["list"]; list.is_object()) {
-                for (auto& [nme, updates] : list.items()) {
-                    // v is a list of updates applied to the prefix_path nme
+                for (auto& [var_name, updates] : list.items()) {
                     for (auto& u : updates) {
-                        uenv::update_kind op =
+                        const uenv::update_kind op =
                             u["op"] == "append"    ? uenv::update_kind::append
                             : u["op"] == "prepend" ? uenv::update_kind::prepend
                                                    : uenv::update_kind::set;
                         std::vector<std::string> paths = u["value"];
-                        envvars.update_prefix_path(nme, {op, paths});
+                        envvars.update_prefix_path(var_name, {op, paths});
                     }
                 }
             }
             if (auto& scalar = desc["env"]["values"]["scalar"];
                 scalar.is_object()) {
-                for (auto& [nme, val] : scalar.items()) {
-                    envvars.update_scalar(nme, val);
+                for (auto& [var_name, val] : scalar.items()) {
+                    envvars.update_scalar(var_name, val);
                 }
             }
-            // TODO: add description
-            views[name] = view_meta{name, "", envvars};
+
+            const std::string description =
+                desc.contains("description") ? desc["description"] : "";
+            views[name] = concrete_view{name, description, envvars};
         }
     }
 
-    // todo add the name and description
-    return meta{"name", "description", views};
+    return meta{name, description, views};
 }
 
 } // namespace uenv

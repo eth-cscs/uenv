@@ -30,6 +30,8 @@ lib_src = [
         'src/uenv/meta.cpp',
         'src/uenv/parse.cpp',
         'src/util/strings.cpp',
+        'src/util/shell.cpp',
+        'src/uenv/uenv.cpp',
 ]
 lib_inc = include_directories('src')
 
@@ -41,8 +43,9 @@ lib_dep = declare_dependency(
 
 # the uenv executable
 uenv_src = [
-        'src/cli/uenv.cpp',
+        'src/cli/env.cpp',
         'src/cli/start.cpp',
+        'src/cli/uenv.cpp',
 ]
 uenv_dep = [sqlite3_dep]
 

@@ -6,9 +6,17 @@
 
 #include <util/expected.h>
 
-#include <uenv/env.h>
+#include <uenv/uenv.h>
+#include <uenv/view.h>
 
 namespace uenv {
+
+struct parse_error {
+    std::string msg;
+    unsigned loc;
+    parse_error(std::string msg, unsigned loc) : msg(std::move(msg)), loc(loc) {
+    }
+};
 
 // apply to strings before parsing them.
 // - removes tab, vertical tab, newline and carriage return.
