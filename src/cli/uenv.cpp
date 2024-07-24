@@ -3,6 +3,7 @@
 #include <CLI/CLI.hpp>
 #include <fmt/color.h>
 #include <fmt/core.h>
+#include <spdlog/spdlog.h>
 
 #include "start.h"
 #include "uenv.h"
@@ -23,7 +24,7 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(cli, argc, argv);
 
-    fmt::print(fmt::emphasis::bold | fg(fmt::color::orange), "{}\n", settings);
+    spdlog::debug("{}", settings);
 
     switch (settings.mode) {
     case uenv::mode_start:
