@@ -44,6 +44,7 @@ lib_dep = declare_dependency(
 # the uenv executable
 uenv_src = [
         'src/cli/env.cpp',
+        'src/cli/run.cpp',
         'src/cli/start.cpp',
         'src/cli/uenv.cpp',
 ]

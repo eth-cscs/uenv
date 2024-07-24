@@ -10,9 +10,9 @@ extern int mode;
 
 constexpr int mode_none = 0;
 constexpr int mode_start = 1;
+constexpr int mode_run = 2;
 // constexpr int mode_status = 1;
 // constexpr int mode_image = 2;
-// constexpr int mode_run = 3;
 
 struct global_settings {
     bool verbose = false;

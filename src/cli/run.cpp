@@ -13,28 +13,32 @@
 #include <util/shell.h>
 
 #include "env.h"
-#include "start.h"
+#include "run.h"
 #include "uenv.h"
 
 namespace uenv {
 
-void start_help() {
-    fmt::println("start help");
+void run_help() {
+    fmt::println("run help");
 }
 
-void start_args::add_cli(CLI::App& cli, global_settings& settings) {
-    auto* start_cli = cli.add_subcommand("start", "start a uenv session");
-    start_cli->add_option("-v,--view", view_description,
-                          "comma separated list of views to load");
-    start_cli
+void run_args::add_cli(CLI::App& cli, global_settings& settings) {
+    auto* run_cli = cli.add_subcommand("run", "run a uenv session");
+    run_cli->add_option("-v,--view", view_description,
+                        "comma separated list of views to load");
+    run_cli
         ->add_option("uenv", uenv_description,
                      "comma separated list of uenv to mount")
         ->required();
-    start_cli->callback([&settings]() { settings.mode = uenv::mode_start; });
+    run_cli
+        ->add_option("commands", commands,
+                     "the command to run, including with arguments")
+        ->required();
+    run_cli->callback([&settings]() { settings.mode = uenv::mode_run; });
 }
 
-int start(const start_args& args, const global_settings& globals) {
-    fmt::println("[log] start with options {}", args);
+int run(const run_args& args, const global_settings& globals) {
+    fmt::println("[log] run with options {}", args);
     const auto env =
         concretise_env(args.uenv_description, args.view_description);
 
@@ -58,16 +62,8 @@ int start(const start_args& args, const global_settings& globals) {
                                        e.second.mount_path));
     }
 
-    // find the current shell (zsh, bash, etc)
-    auto shell = util::current_shell();
-    if (!shell) {
-        fmt::print("[error] unable to determine the current shell because {}\n",
-                   shell.error());
-    }
-    fmt::println("[log] shell found: {}", shell->string());
-
     commands.push_back("--");
-    commands.push_back(shell->string());
+    commands.insert(commands.end(), args.commands.begin(), args.commands.end());
 
     fmt::print("[log] exec {}\n", fmt::join(commands, " "));
     return util::exec(commands);

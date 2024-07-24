@@ -4,6 +4,7 @@
 #include <fmt/color.h>
 #include <fmt/core.h>
 
+#include "run.h"
 #include "start.h"
 #include "uenv.h"
 
@@ -18,8 +19,11 @@ int main(int argc, char** argv) {
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
     cli.add_flag("--no-color", settings.no_color, "disable color output");
 
-    uenv::start_args start_args;
-    start_args.add_cli(cli, settings);
+    uenv::start_args start;
+    uenv::run_args run;
+
+    start.add_cli(cli, settings);
+    run.add_cli(cli, settings);
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -27,7 +31,13 @@ int main(int argc, char** argv) {
 
     switch (settings.mode) {
     case uenv::mode_start:
-        return uenv::start(start_args, settings);
+        fmt::print(fmt::emphasis::bold | fg(fmt::color::light_cyan), "{}\n",
+                   start);
+        return uenv::start(start, settings);
+    case uenv::mode_run:
+        fmt::print(fmt::emphasis::bold | fg(fmt::color::light_cyan), "{}\n",
+                   run);
+        return uenv::run(run, settings);
     case uenv::mode_none:
     default:
         help();
