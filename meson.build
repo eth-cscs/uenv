@@ -18,6 +18,7 @@ conf_data = configuration_data()
 catch_dep = subproject('catch2').get_variable('catch2_with_main_dep')
 cli11_dep = subproject('cli11').get_variable('CLI11_dep')
 fmt_dep   = subproject('fmt').get_variable('fmt_dep')
+spdlog_dep   = subproject('spdlog').get_variable('spdlog_dep')
 json_dep = subproject('nlohmann_json').get_variable('nlohmann_json_dep')
 sqlite3_dep = subproject('sqlite3').get_variable('sqlite3_dep')
 
@@ -37,7 +38,7 @@ lib_inc = include_directories('src')
 
 lib_dep = declare_dependency(
         sources: lib_src,
-        dependencies: [sqlite3_dep, fmt_dep, json_dep],
+        dependencies: [sqlite3_dep, fmt_dep, spdlog_dep, json_dep],
         include_directories: lib_inc
 )
 
@@ -51,7 +52,7 @@ uenv_dep = [sqlite3_dep]
 
 uenv = executable('uenv',
         sources: uenv_src,
-        dependencies: [uenv_dep, lib_dep, fmt_dep, cli11_dep],
+        dependencies: [uenv_dep, lib_dep, fmt_dep, spdlog_dep, cli11_dep],
         c_args: ['-DVERSION="@0@"'.format(version)],
         install: true)
 
