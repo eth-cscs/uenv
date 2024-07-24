@@ -195,7 +195,6 @@ concretise_env(const std::string& uenv_args,
                                 view.name));
             }
         }
-        // return start_settings{*uenv_descriptions, *views};
     }
 
     return env{uenvs, views};

@@ -64,7 +64,7 @@ int start(const start_args& args, const global_settings& globals) {
         fmt::print("[error] unable to determine the current shell because {}\n",
                    shell.error());
     }
-    fmt::println("shell found: {}", shell->string());
+    fmt::println("[log] shell found: {}", shell->string());
 
     commands.push_back("--");
     commands.push_back(shell->string());

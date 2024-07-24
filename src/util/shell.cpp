@@ -44,9 +44,8 @@ int exec(const std::vector<std::string>& args) {
     fmt::println("running {}", argv[0]);
     int r = execvp(argv[0], argv.data());
     // } // end unsafe
-    if (r) {
-        fmt::print("shit\n");
-    }
+
+    fmt::print("[error] unable to launch a new shell\n");
 
     return r;
 }
