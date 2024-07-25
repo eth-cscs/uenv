@@ -21,7 +21,8 @@ void start_help() {
     fmt::println("start help");
 }
 
-void start_args::add_cli(CLI::App& cli, global_settings& settings) {
+void start_args::add_cli(CLI::App& cli,
+                         [[maybe_unused]] global_settings& settings) {
     auto* start_cli = cli.add_subcommand("start", "start a uenv session");
     start_cli->add_option("-v,--view", view_description,
                           "comma separated list of views to load");
@@ -32,8 +33,9 @@ void start_args::add_cli(CLI::App& cli, global_settings& settings) {
     start_cli->callback([&settings]() { settings.mode = uenv::mode_start; });
 }
 
-int start(const start_args& args, const global_settings& globals) {
-    fmt::println("[log] start with options {}", args);
+int start(const start_args& args,
+          [[maybe_unused]] const global_settings& globals) {
+    fmt::println("running start with options {}", args);
     const auto env =
         concretise_env(args.uenv_description, args.view_description);
 
