@@ -1,5 +1,7 @@
 #pragma once
 
+// clang-format off
+
 // Taken from https://github.com/eth-cscs/arbor, https://arbor-sim.org/
 /*
 Copyright 2016-2020 Eidgenössische Technische Hochschule Zürich and
