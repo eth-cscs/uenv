@@ -139,6 +139,7 @@ int slurm_spank_init(spank_t sp, int ac [[maybe_unused]],
 int init_post_opt_remote(spank_t sp) {
     // parse environment variables to test whether there is anything to mount
     auto mount_var = getenv_wrapper(sp, "UENV_MOUNT_LIST");
+
     // variable is not set - nothing to do here
     if (!mount_var) {
         return ESPANK_SUCCESS;
@@ -146,17 +147,15 @@ int init_post_opt_remote(spank_t sp) {
 
     auto mount_list = uenv::parse_mount_list(*mount_var);
     if (!mount_list) {
-        slurm_spank_log("internal error parsing the mount list: %s",
-                        mount_list.error().msg.c_str());
+        slurm_error("internal error parsing the mount list: %s",
+                    mount_list.error().msg.c_str());
         return -ESPANK_ERROR;
     }
 
     auto result = do_mount(*mount_list);
     if (!result) {
-        fmt::println("error mounting the requested uenv image: {}",
-                     result.error());
-        slurm_spank_log("error mounting the requested uenv image: %s",
-                        result.error().c_str());
+        slurm_error("error mounting the requested uenv image: %s",
+                    result.error().c_str());
         return -ESPANK_ERROR;
     }
 
@@ -172,6 +171,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
             slurm_error("the uenv --view=%s argument is set, but the --uenv "
                         "argument was not",
                         args.view_description->c_str());
+            return -ESPANK_ERROR;
         }
         return ESPANK_SUCCESS;
     }
@@ -180,7 +180,8 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         uenv::concretise_env(*args.uenv_description, args.view_description);
 
     if (!env) {
-        slurm_error("%s", env.error().c_str());
+        slurm_error("invalid arguments (--uenv and/or --view): %s",
+                    env.error().c_str());
         return -ESPANK_ERROR;
     }
 
@@ -188,7 +189,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     auto env_vars = uenv::getenv(*env);
 
     if (auto rval = uenv::setenv(env_vars, ""); !rval) {
-        slurm_error("setting environment variables %s", rval.error().c_str());
+        slurm_error("setting environment variables: %s", rval.error().c_str());
         return -ESPANK_ERROR;
     }
 
