@@ -15,11 +15,11 @@ conf_data = configuration_data()
 #
 # use meson wrap to provide the dependencies, because the 'default_library=static' option
 # will be propogated to each dependency, for a statically linked executable.
-catch_dep = subproject('catch2').get_variable('catch2_with_main_dep')
-cli11_dep = subproject('cli11').get_variable('CLI11_dep')
-fmt_dep   = subproject('fmt').get_variable('fmt_dep')
-json_dep = subproject('nlohmann_json').get_variable('nlohmann_json_dep')
-sqlite3_dep = subproject('sqlite3').get_variable('sqlite3_dep')
+catch_dep = subproject('catch2', default_options: 'werror=false').get_variable('catch2_with_main_dep')
+cli11_dep = subproject('cli11', default_options: 'werror=false').get_variable('CLI11_dep')
+fmt_dep   = subproject('fmt', default_options: 'werror=false').get_variable('fmt_dep')
+json_dep = subproject('nlohmann_json', default_options: 'werror=false').get_variable('nlohmann_json_dep')
+sqlite3_dep = subproject('sqlite3', default_options: 'werror=false').get_variable('sqlite3_dep')
 
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.

@@ -110,9 +110,12 @@ class lexer_impl {
                 ++stream_;
                 return;
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
             case 'a' ... 'z':
             case 'A' ... 'Z':
             case '0' ... '9':
+#pragma GCC diagnostic pop
             case '_':
                 token_ = symbol();
                 return;
