@@ -1,0 +1,17 @@
+name: clang-format
+
+on:
+  merge_group:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  formatting-check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Check formatting
+      uses: jidicula/clang-format-action@v4.13.0
+      with:
+        clang-format-version: '14' # TODO?
