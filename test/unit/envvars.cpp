@@ -93,7 +93,8 @@ TEST_CASE("envvarset get final values", "[envvars]") {
     ev.update_prefix_path("C", {uenv::update_kind::append, {"c", "d"}});
 
     {
-        auto getenv = [](const std::string& name) -> const char* {
+        auto getenv =
+            []([[maybe_unused]] const std::string& name) -> const char* {
             return nullptr;
         };
         REQUIRE_THAT(ev.get_values(getenv),
