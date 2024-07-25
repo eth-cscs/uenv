@@ -46,7 +46,7 @@ int exec(const std::vector<std::string>& args) {
     int r = execvp(argv[0], argv.data());
     // } // end unsafe
 
-    spdlog::error("[error] unable to launch a new shell");
+    spdlog::error("unable to launch a new shell");
 
     return r;
 }
