@@ -26,6 +26,8 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(cli, argc, argv);
 
+    uenv::init_log();
+
     spdlog::debug("{}", settings);
 
     switch (settings.mode) {
