@@ -14,4 +14,4 @@ jobs:
     - name: Check formatting
       uses: jidicula/clang-format-action@v4.13.0
       with:
-        clang-format-version: '14' # TODO?
+        clang-format-version: '18'
