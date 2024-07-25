@@ -1,0 +1,1 @@
+option('slurm_plugin', type: 'boolean', value: false)

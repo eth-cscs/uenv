@@ -6,6 +6,7 @@
 
 #include <util/expected.h>
 
+#include <uenv/mount.h>
 #include <uenv/uenv.h>
 #include <uenv/view.h>
 
@@ -27,5 +28,8 @@ parse_view_args(const std::string& arg);
 
 util::expected<std::vector<uenv_description>, parse_error>
 parse_uenv_args(const std::string& arg);
+
+util::expected<std::vector<mount_entry>, parse_error>
+parse_mount_list(const std::string& arg);
 
 } // namespace uenv

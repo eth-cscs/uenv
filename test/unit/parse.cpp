@@ -2,6 +2,7 @@
 
 #include <uenv/env.h>
 #include <uenv/lex.h>
+#include <uenv/mount.h>
 #include <uenv/parse.h>
 
 // forward declare private parsers
@@ -11,6 +12,7 @@ util::expected<std::string, parse_error> parse_path(lexer&);
 util::expected<uenv_label, parse_error> parse_uenv_label(lexer&);
 util::expected<uenv_description, parse_error> parse_uenv_description(lexer&);
 util::expected<view_description, parse_error> parse_view_description(lexer& L);
+util::expected<mount_entry, parse_error> parse_mount_entry(lexer& L);
 } // namespace uenv
 
 TEST_CASE("sanitise inputs", "[parse]") {
@@ -143,5 +145,35 @@ TEST_CASE("parse uenv list", "[parse]") {
         REQUIRE(l.name == "prgenv-nvidia");
         REQUIRE(!l.version);
         REQUIRE(!l.tag);
+    }
+}
+
+TEST_CASE("parse mount", "[parse]") {
+    {
+        auto in = "/images/store.squashfs:/user-environment";
+        auto result = uenv::parse_mount_list(in);
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        auto m = (*result)[0];
+        REQUIRE(m.sqfs_path == "/images/store.squashfs");
+        REQUIRE(m.mount_path == "/user-environment");
+    }
+    {
+        auto in = "/images/store.squashfs:/user-environment,/images/"
+                  "wombat.squashfs:/user-tools";
+        auto result = uenv::parse_mount_list(in);
+        REQUIRE(result);
+        REQUIRE(result->size() == 2);
+        auto m = (*result)[0];
+        REQUIRE(m.sqfs_path == "/images/store.squashfs");
+        REQUIRE(m.mount_path == "/user-environment");
+        m = (*result)[1];
+        REQUIRE(m.sqfs_path == "/images/wombat.squashfs");
+        REQUIRE(m.mount_path == "/user-tools");
+    }
+    {
+        auto in = "";
+        auto result = uenv::parse_mount_list(in);
+        REQUIRE(!result);
     }
 }

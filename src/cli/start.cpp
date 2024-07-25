@@ -12,7 +12,6 @@
 #include <util/expected.h>
 #include <util/shell.h>
 
-#include "env.h"
 #include "start.h"
 #include "uenv.h"
 
@@ -46,7 +45,7 @@ int start(const start_args& args, const global_settings& globals) {
     // generate the environment variables to set
     auto env_vars = uenv::getenv(*env);
 
-    if (auto rval = uenv::setenv(env_vars); !rval) {
+    if (auto rval = uenv::setenv(env_vars, "SQFSMNT_FWD_"); !rval) {
         fmt::print("[error] setting environment variables {}\n", rval.error());
         return 1;
     }

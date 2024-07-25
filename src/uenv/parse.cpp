@@ -215,4 +215,54 @@ parse_uenv_args(const std::string& arg) {
     return uenvs;
 }
 
+util::expected<mount_entry, parse_error> parse_mount_entry(lexer& L) {
+    mount_entry result;
+
+    PARSE(L, path, result.sqfs_path);
+    if (L.current_kind() != tok::colon) {
+        const auto t = L.peek();
+        return util::unexpected(parse_error(
+            fmt::format("expected a ':' separating the squashfs image and "
+                        "mount path, found '{}'",
+                        t.kind),
+            t.loc));
+    }
+    // eat the colon
+    L.next();
+    PARSE(L, path, result.mount_path);
+
+    return result;
+}
+
+util::expected<std::vector<mount_entry>, parse_error>
+parse_mount_list(const std::string& arg) {
+    const std::string sanitised = sanitise_input(arg);
+    auto L = lexer(sanitised);
+    std::vector<mount_entry> mounts;
+
+    while (true) {
+        mount_entry mnt;
+        PARSE(L, mount_entry, mnt);
+        mounts.push_back(std::move(mnt));
+
+        if (L.peek().kind != tok::comma) {
+            break;
+        }
+        // eat the comma
+        L.next();
+
+        // handle trailing comma elegantly
+        if (L.peek().kind == tok::end) {
+            break;
+        }
+    }
+    // if parsing finished and the string has not been consumed,
+    // and invalid token was encountered
+    if (const auto t = L.peek(); t.kind != tok::end) {
+        return util::unexpected(parse_error{
+            fmt::format("unexpected symbol {}", t.spelling), t.loc});
+    }
+    return mounts;
+}
+
 } // namespace uenv

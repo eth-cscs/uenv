@@ -28,4 +28,10 @@ util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
                std::optional<std::string> view_args);
 
+std::unordered_map<std::string, std::string> getenv(const env&);
+
+util::expected<int, std::string>
+setenv(const std::unordered_map<std::string, std::string>& variables,
+       const std::string& prefix);
+
 } // namespace uenv

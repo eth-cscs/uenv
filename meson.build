@@ -7,7 +7,7 @@ project('uenv', ['cpp'],
         meson_version: '>=0.57')
 version = meson.project_version()
 
-#default_mount_point = get_option('default_mount_point')
+uenv_build_slurm_plugin = get_option('slurm_plugin')
 
 conf_data = configuration_data()
 
@@ -43,7 +43,6 @@ lib_dep = declare_dependency(
 
 # the uenv executable
 uenv_src = [
-        'src/cli/env.cpp',
         'src/cli/run.cpp',
         'src/cli/start.cpp',
         'src/cli/uenv.cpp',
@@ -70,3 +69,6 @@ unit = executable('unit',
         build_by_default: true,
         install: false)
 
+if uenv_build_slurm_plugin
+        subdir('src/slurm')
+endif
