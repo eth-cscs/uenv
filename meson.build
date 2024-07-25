@@ -28,6 +28,7 @@ lib_src = [
         'src/uenv/env.cpp',
         'src/uenv/envvars.cpp',
         'src/uenv/lex.cpp',
+        'src/uenv/log.cpp',
         'src/uenv/meta.cpp',
         'src/uenv/parse.cpp',
         'src/util/strings.cpp',

@@ -5,6 +5,8 @@
 #include <fmt/core.h>
 #include <spdlog/spdlog.h>
 
+#include <uenv/log.h>
+
 #include "start.h"
 #include "uenv.h"
 
