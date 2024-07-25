@@ -28,11 +28,6 @@ jobs:
               --buildtype ${{ matrix.buildtype }} \
               --warnlevel 3 \
               --werror \
-              -Dcatch2:werror=false \
-              -Dcli11:werror=false \
-              -Dfmt:werror=false \
-              -Dnlohmann_json:werror=false \
-              -Dsqlite3:werror=false \
               build .
       - name: Build
         run: ninja -C build
