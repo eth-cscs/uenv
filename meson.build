@@ -1,6 +1,6 @@
 project('uenv', ['cpp'],
         default_options : [
-          'cpp_std=c++23',
+          'cpp_std=c++20',
           'default_library=static',
         ],
         version: files('VERSION'),
@@ -59,9 +59,9 @@ uenv = executable('uenv',
 unit_src = [
         'test/unit/env.cpp',
         'test/unit/envvars.cpp',
-        'test/unit/parse.cpp',
         'test/unit/lex.cpp',
         'test/unit/main.cpp',
+        'test/unit/parse.cpp',
 ]
 
 unit = executable('unit',
