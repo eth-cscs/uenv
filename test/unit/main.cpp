@@ -5,6 +5,6 @@
 
 static struct unit_init_log {
     unit_init_log() {
-        uenv::init_log();
+        uenv::init_log(spdlog::level::trace, spdlog::level::off);
     }
 } uil{};

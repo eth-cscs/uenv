@@ -26,7 +26,7 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(cli, argc, argv);
 
-    uenv::init_log();
+    uenv::init_log(spdlog::level::warn, spdlog::level::trace);
 
     spdlog::debug("{}", settings);
 
