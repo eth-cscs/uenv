@@ -1,18 +1,17 @@
 #pragma once
 
-#include <expected>
 #include <filesystem>
 #include <vector>
 
 #include <uenv/uenv.h>
-// #include <util/expected.h>
+#include <util/expected.h>
 
 namespace uenv {
 
 // PIMPL forward declaration
 struct datastore;
 
-std::expected<datastore, std::string>
+util::expected<datastore, std::string>
 open_datastore(const std::filesystem::path&);
 
 struct datastore_impl;
@@ -31,12 +30,12 @@ struct datastore {
     const std::filesystem::path& path() const;
     const std::filesystem::path& db_path() const;
 
-    std::expected<std::vector<uenv_record>, std::string>
+    util::expected<std::vector<uenv_record>, std::string>
     query(const uenv_label& label) const;
 
     ~datastore();
 
-    friend std::expected<datastore, std::string>
+    friend util::expected<datastore, std::string>
     open_datastore(const std::filesystem::path&);
 };
 

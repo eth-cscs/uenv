@@ -1,4 +1,4 @@
-#include <expected>
+// #include <expected>
 #include <filesystem>
 #include <memory>
 #include <vector>
@@ -16,8 +16,8 @@ namespace fs = std::filesystem;
 
 namespace uenv {
 
-template <typename T> using hopefully = std::expected<T, std::string>;
-using std::unexpected;
+template <typename T> using hopefully = util::expected<T, std::string>;
+using util::unexpected;
 
 struct sqlite3db {
     using db_ptr_type = std::unique_ptr<sqlite3, decltype(&sqlite3_close)>;
@@ -43,15 +43,16 @@ hopefully<sqlite3db> open_sqlite_db(const fs::path path) {
 }
 
 struct datastore_impl {
-    datastore_impl(sqlite3db db, const fs::path& path, const fs::path& db_path)
-        : db(std::move(db)), path(path), db_path(db_path) {
+    datastore_impl(sqlite3db db, fs::path path, fs::path db_path)
+        : db(std::move(db)), path(std::move(path)),
+          db_path(std::move(db_path)) {
     }
     datastore_impl(datastore_impl&&) = default;
     sqlite3db db;
     fs::path path;
     fs::path db_path;
 
-    std::expected<std::vector<uenv_record>, std::string>
+    util::expected<std::vector<uenv_record>, std::string>
     query(const uenv_label& label) const;
 };
 
@@ -60,11 +61,11 @@ datastore::datastore(std::unique_ptr<datastore_impl> impl)
     : impl_(std::move(impl)) {
 }
 
-std::expected<datastore, std::string>
+util::expected<datastore, std::string>
 open_datastore(const fs::path& repo_path) {
     auto db_path = repo_path / "index.db";
     if (!fs::is_regular_file(db_path)) {
-        return std::unexpected(fmt::format(
+        return unexpected(fmt::format(
             "the repository is invalid - the index database {} does not exist",
             db_path.string()));
     }
@@ -72,14 +73,14 @@ open_datastore(const fs::path& repo_path) {
     // open the sqlite database
     auto db = open_sqlite_db(db_path);
     if (!db) {
-        return std::unexpected(db.error());
+        return unexpected(db.error());
     }
 
     return datastore(
         std::make_unique<datastore_impl>(std::move(*db), repo_path, db_path));
 }
 
-std::expected<std::vector<uenv_record>, std::string>
+util::expected<std::vector<uenv_record>, std::string>
 datastore_impl::query(const uenv_label& label) const {
     std::vector<uenv_record> result;
 
@@ -96,7 +97,7 @@ const fs::path& datastore::db_path() const {
     return impl_->db_path;
 }
 
-std::expected<std::vector<uenv_record>, std::string>
+util::expected<std::vector<uenv_record>, std::string>
 datastore::query(const uenv_label& label) const {
     return impl_->query(label);
 }
