@@ -7,9 +7,8 @@
 
 #include <fmt/core.h>
 
+#include <uenv/view.h>
 #include <util/expected.h>
-
-#include "meta.h"
 
 namespace uenv {
 
@@ -17,6 +16,26 @@ struct uenv_label {
     std::string name;
     std::optional<std::string> version;
     std::optional<std::string> tag;
+};
+
+struct uenv_sha256 {
+    std::array<char, 64> value;
+};
+
+struct uenv_id {
+    std::array<char, 8> value;
+};
+
+struct uenv_record {
+    std::string system;
+    std::string uarch;
+    std::string name;
+    std::string version;
+    std::string tag;
+    std::string date;
+    std::string size_byte;
+    uenv_sha256 sha256;
+    uenv_id id;
 };
 
 struct uenv_description {

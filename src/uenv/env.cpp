@@ -7,6 +7,7 @@
 #include <fmt/core.h>
 
 #include <uenv/env.h>
+#include <uenv/meta.h>
 #include <uenv/parse.h>
 
 namespace uenv {
