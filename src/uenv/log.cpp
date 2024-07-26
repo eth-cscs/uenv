@@ -17,5 +17,6 @@ void init_log() {
 
     spdlog::set_default_logger(std::make_shared<spdlog::logger>(
         "uenv", spdlog::sinks_init_list({console_sink, syslog_sink})));
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
 }
 } // namespace uenv
