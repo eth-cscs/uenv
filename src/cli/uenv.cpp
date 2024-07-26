@@ -26,7 +26,17 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(cli, argc, argv);
 
-    uenv::init_log(spdlog::level::warn, spdlog::level::trace);
+    // Warnings and errors are always logged. The verbosity level is increased
+    // with repeated uses of --verbose.
+    spdlog::level::level_enum console_log_level = spdlog::level::warn;
+    if (settings.verbose == 1) {
+        console_log_level = spdlog::level::info;
+    } else if (settings.verbose == 2) {
+        console_log_level = spdlog::level::debug;
+    } else if (settings.verbose >= 3) {
+        console_log_level = spdlog::level::trace;
+    }
+    uenv::init_log(console_log_level, spdlog::level::trace);
 
     spdlog::debug("{}", settings);
 
