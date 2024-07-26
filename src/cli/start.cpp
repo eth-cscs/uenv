@@ -67,7 +67,7 @@ int start(const start_args& args,
     if (!shell) {
         spdlog::error("unable to determine the current shell because {}",
                       shell.error());
-        // TODO: return?
+        return 1;
     }
     spdlog::info("shell found: {}", shell->string());
 
