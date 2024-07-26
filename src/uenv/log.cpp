@@ -8,10 +8,10 @@
 
 namespace uenv {
 void init_log() {
-    auto console_sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+    auto console_sink = std::make_shared<spdlog::sinks::stderr_color_sink_st>();
     console_sink->set_level(spdlog::level::warn);
 
-    auto syslog_sink = std::make_shared<spdlog::sinks::syslog_sink_mt>(
+    auto syslog_sink = std::make_shared<spdlog::sinks::syslog_sink_st>(
         "uenv", LOG_PID, 0, false);
     syslog_sink->set_level(spdlog::level::trace);
 
