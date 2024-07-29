@@ -31,7 +31,7 @@ struct datastore {
     const std::filesystem::path& db_path() const;
 
     util::expected<std::vector<uenv_record>, std::string>
-    query(const uenv_label& label) const;
+    query(const uenv_label& label);
 
     ~datastore();
 

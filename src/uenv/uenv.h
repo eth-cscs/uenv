@@ -18,6 +18,7 @@ struct uenv_label {
     std::optional<std::string> tag;
 };
 
+/*
 struct uenv_sha256 {
     std::array<char, 64> value;
 };
@@ -25,6 +26,7 @@ struct uenv_sha256 {
 struct uenv_id {
     std::array<char, 8> value;
 };
+*/
 
 struct uenv_record {
     std::string system;
@@ -33,9 +35,11 @@ struct uenv_record {
     std::string version;
     std::string tag;
     std::string date;
-    std::string size_byte;
-    uenv_sha256 sha256;
-    uenv_id id;
+    std::size_t size_byte;
+    std::string sha256;
+    std::string id;
+    // uenv_sha256 sha256;
+    // uenv_id id;
 };
 
 struct uenv_description {
@@ -127,5 +131,30 @@ template <> class fmt::formatter<uenv::concrete_uenv> {
         if (e.meta_path)
             return fmt::format_to(ctx_, ", meta={})", *e.meta_path);
         return fmt::format_to(ctx_, "meta=none)");
+    }
+};
+
+template <> class fmt::formatter<uenv::uenv_record> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(uenv::uenv_record const& r, FmtContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}/{}:{}@{}!{}", r.name, r.version,
+                              r.tag, r.system, r.uarch);
+        /*
+    std::string system;
+    std::string uarch;
+    std::string name;
+    std::string version;
+    std::string tag;
+    std::string date;
+    std::size_t size_byte;
+    std::string sha256;
+    std::string id;
+        */
     }
 };

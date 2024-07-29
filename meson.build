@@ -57,6 +57,7 @@ uenv = executable('uenv',
         install: true)
 
 unit_src = [
+        'test/unit/datastore.cpp',
         'test/unit/env.cpp',
         'test/unit/envvars.cpp',
         'test/unit/lex.cpp',
