@@ -57,18 +57,50 @@ std::string sanitise_input(std::string_view input) {
     return sanitised;
 }
 
+// tokens that can appear in names
+// names aer used for uenv names, versions, tags
 bool is_name_tok(tok t) {
     return t == tok::symbol || t == tok::dash || t == tok::dot;
 };
+
+// tokens that can be the first token in a name
+// don't allow leading dashes and periods
+bool is_name_start_tok(tok t) {
+    return t == tok::symbol;
+};
+
 util::expected<std::string, parse_error> parse_name(lexer& L) {
+    if (!is_name_start_tok(L.current_kind())) {
+        const auto t = L.peek();
+        return util::unexpected(
+            parse_error{fmt::format("error parsing name, found unexpected {}",
+                                    t.kind, t.spelling),
+                        t.loc});
+    }
     return parse_string(L, "name", is_name_tok);
 }
 
+// all of the symbols that can occur in a path.
+// this is a subset of the characters that posix allows (which is effectively
+// every character). But it is a sane subset. If the user somehow has spaces or
+// colons in their file names, we aer doing them a favor.
 bool is_path_tok(tok t) {
     return t == tok::slash || t == tok::symbol || t == tok::dash ||
            t == tok::dot;
 };
+// require that all paths start with a dot or /
+bool is_path_start_tok(tok t) {
+    return t == tok::slash || t == tok::dot;
+};
 util::expected<std::string, parse_error> parse_path(lexer& L) {
+    if (!is_path_start_tok(L.current_kind())) {
+        const auto t = L.peek();
+        return util::unexpected(
+            parse_error{fmt::format("error parsing a path, which must start "
+                                    "with a '/' or '.', found unexpected {}",
+                                    t.kind, t.spelling),
+                        t.loc});
+    }
     return parse_string(L, "path", is_path_tok);
 }
 
@@ -92,7 +124,16 @@ util::expected<view_description, parse_error> parse_view_description(lexer& L) {
 util::expected<uenv_label, parse_error> parse_uenv_label(lexer& L) {
     uenv_label result;
 
+    // labels are of the form:
+    // name[/version][:tag][!uarch][@system]
+    // - name is required
+    // - the other fields are optional
+    // - version and tag are required to be in order (tag after version and
+    // before uarch or system)
+    // - uarch and system come after tag, and can be in any order
+
     PARSE(L, name, result.name);
+    // process version and tag in order, if they are present
     if (L.current_kind() == tok::slash) {
         L.next();
         PARSE(L, name, result.version);
@@ -100,6 +141,21 @@ util::expected<uenv_label, parse_error> parse_uenv_label(lexer& L) {
     if (L.current_kind() == tok::colon) {
         L.next();
         PARSE(L, name, result.tag);
+    }
+    // process version and system in any order
+    bool system = false;
+    bool uarch = false;
+    while ((L.current_kind() == tok::at && !system) ||
+           (L.current_kind() == tok::bang && !uarch)) {
+        if (L.current_kind() == tok::at) {
+            L.next();
+            PARSE(L, name, result.system);
+            system = true;
+        } else if (L.current_kind() == tok::bang) {
+            L.next();
+            PARSE(L, name, result.uarch);
+            uarch = true;
+        }
     }
 
     return result;
@@ -113,7 +169,7 @@ util::expected<uenv_description, parse_error> parse_uenv_description(lexer& L) {
     if (k == tok::slash) {
         std::string path;
         PARSE(L, path, path);
-        if (L.current_kind() == tok::at) {
+        if (L.current_kind() == tok::colon) {
             L.next();
             std::string mount;
             PARSE(L, path, mount);
@@ -127,7 +183,7 @@ util::expected<uenv_description, parse_error> parse_uenv_description(lexer& L) {
     if (is_name_tok(k)) {
         uenv_label label;
         PARSE(L, uenv_label, label);
-        if (L.current_kind() == tok::at) {
+        if (L.current_kind() == tok::colon) {
             L.next();
             std::string mount;
             PARSE(L, path, mount);

@@ -109,6 +109,10 @@ class lexer_impl {
                 character_token(tok::at);
                 ++stream_;
                 return;
+            case '!':
+                character_token(tok::bang);
+                ++stream_;
+                return;
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"

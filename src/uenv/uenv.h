@@ -16,6 +16,8 @@ struct uenv_label {
     std::string name;
     std::optional<std::string> version;
     std::optional<std::string> tag;
+    std::optional<std::string> system;
+    std::optional<std::string> uarch;
 };
 
 /*

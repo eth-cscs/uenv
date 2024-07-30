@@ -35,8 +35,8 @@ TEST_CASE("parse names", "[parse]") {
 
 TEST_CASE("parse path", "[parse]") {
     for (const auto& in :
-         {"etc", "/etc", "/etc.", "/etc/usr/file.txt", "/etc-car/hole_s/_.",
-          ".", "./.ssh/config", ".bashrc", "age.txt"}) {
+         {"./etc", "/etc", "/etc.", "/etc/usr/file.txt", "/etc-car/hole_s/_.",
+          ".", "./.ssh/config", ".bashrc"}) {
         auto L = uenv::lexer(in);
         auto result = uenv::parse_path(L);
         REQUIRE(result);
@@ -52,6 +52,8 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(result->name == "prgenv-gnu");
         REQUIRE(!result->version);
         REQUIRE(!result->tag);
+        REQUIRE(!result->uarch);
+        REQUIRE(!result->system);
     }
     {
         auto L = uenv::lexer("prgenv-gnu/24.7");
@@ -60,6 +62,8 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(result->name == "prgenv-gnu");
         REQUIRE(result->version == "24.7");
         REQUIRE(!result->tag);
+        REQUIRE(!result->uarch);
+        REQUIRE(!result->system);
     }
     {
         auto L = uenv::lexer("prgenv-gnu/24.7:v1");
@@ -68,6 +72,8 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(result->name == "prgenv-gnu");
         REQUIRE(result->version == "24.7");
         REQUIRE(result->tag == "v1");
+        REQUIRE(!result->uarch);
+        REQUIRE(!result->system);
     }
     {
         auto L = uenv::lexer("prgenv-gnu:v1");
@@ -76,8 +82,44 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(result->name == "prgenv-gnu");
         REQUIRE(!result->version);
         REQUIRE(result->tag == "v1");
+        REQUIRE(!result->uarch);
+        REQUIRE(!result->system);
     }
-    for (auto defectiv_label : {"prgenv-gnu/:v1", "prgenv-gnu/wombat:"}) {
+    {
+        auto L = uenv::lexer("prgenv-gnu/24.7:v1@santis!a100");
+        auto result = uenv::parse_uenv_label(L);
+        REQUIRE(result);
+        REQUIRE(result->name == "prgenv-gnu");
+        REQUIRE(result->version == "24.7");
+        REQUIRE(result->tag == "v1");
+        REQUIRE(result->uarch == "a100");
+        REQUIRE(result->system == "santis");
+    }
+    {
+        auto L = uenv::lexer("prgenv-gnu/24.7:v1!a100@santis");
+        auto result = uenv::parse_uenv_label(L);
+        REQUIRE(result);
+        REQUIRE(result->name == "prgenv-gnu");
+        REQUIRE(result->version == "24.7");
+        REQUIRE(result->tag == "v1");
+        REQUIRE(result->uarch == "a100");
+        REQUIRE(result->system == "santis");
+    }
+    {
+        auto L = uenv::lexer("prgenv-gnu/24.7:v1!a100");
+        auto result = uenv::parse_uenv_label(L);
+        REQUIRE(result);
+        REQUIRE(result->name == "prgenv-gnu");
+        REQUIRE(result->version == "24.7");
+        REQUIRE(result->tag == "v1");
+        REQUIRE(result->uarch == "a100");
+        REQUIRE(!result->system);
+    }
+    for (auto defectiv_label : {
+             "prgenv-gnu/:v1",
+             "prgenv-gnu/wombat:",
+             ".wombat",
+         }) {
         auto L = uenv::lexer(defectiv_label);
         REQUIRE(!uenv::parse_uenv_label(L));
     }
@@ -116,7 +158,7 @@ TEST_CASE("parse view list", "[parse]") {
 
 TEST_CASE("parse uenv list", "[parse]") {
     {
-        auto in = "prgenv-gnu/24.7:rc1@/user-environment";
+        auto in = "prgenv-gnu/24.7:rc1:/user-environment";
         auto result = uenv::parse_uenv_args(in);
         REQUIRE(result);
         REQUIRE(result->size() == 1);
@@ -129,7 +171,7 @@ TEST_CASE("parse uenv list", "[parse]") {
     }
     {
         auto in =
-            "/scratch/.uenv-images/sdfklsdf890df9a87sdf/store.squashfs@/"
+            "/scratch/.uenv-images/sdfklsdf890df9a87sdf/store.squashfs:/"
             "user-environment/store-asdf/my-image_mnt_point3//,prgenv-nvidia";
         auto result = uenv::parse_uenv_args(in);
         REQUIRE(result);

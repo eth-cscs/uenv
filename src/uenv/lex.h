@@ -9,6 +9,7 @@ namespace uenv {
 
 enum class tok {
     at,         // at '@'
+    bang,       // exclamation mark '!'
     slash,      // forward slash /
     comma,      // comma ','
     colon,      // colon ':'
@@ -78,6 +79,8 @@ template <> class fmt::formatter<uenv::tok> {
             return fmt::format_to(ctx.out(), "whitespace");
         case uenv::tok::at:
             return fmt::format_to(ctx.out(), "at");
+        case uenv::tok::bang:
+            return fmt::format_to(ctx.out(), "bang");
         case uenv::tok::end:
             return fmt::format_to(ctx.out(), "end");
         case uenv::tok::error:
