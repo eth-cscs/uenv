@@ -16,14 +16,68 @@ TEST_CASE("read-only", "[datastore]") {
         fmt::println("ERROR: {}", store.error());
     }
 
-    auto results = store->query({"mch", {}, {}});
-    if (!results) {
-        fmt::println("ERROR: {}", results.error());
+    {
+        auto results = store->query({{}, {}, {}});
+        if (!results) {
+            fmt::println("ERROR: {}", results.error());
+        }
+        REQUIRE(results);
+
+        for (auto& r : *results) {
+            fmt::println("{}", r);
+        }
     }
 
-    REQUIRE(results);
+    fmt::println("");
+    {
+        auto results = store->query({"mch", {}, {}});
+        if (!results) {
+            fmt::println("ERROR: {}", results.error());
+        }
+        REQUIRE(results);
 
-    for (auto& r : *results) {
-        fmt::println("{}", r);
+        for (auto& r : *results) {
+            fmt::println("{}", r);
+        }
+    }
+
+    fmt::println("");
+    {
+        auto results = store->query({{}, "v7", {}});
+        if (!results) {
+            fmt::println("ERROR: {}", results.error());
+        }
+        REQUIRE(results);
+
+        for (auto& r : *results) {
+            fmt::println("{}", r);
+        }
+    }
+
+    fmt::println("");
+    {
+        auto results = store->query({{}, "24.7", "v1-rc1", {}, "a100"});
+        if (!results) {
+            fmt::println("ERROR: {}", results.error());
+        }
+        REQUIRE(results);
+
+        for (auto& r : *results) {
+            fmt::println("{}", r);
+        }
+    }
+
+    fmt::println("");
+    {
+        auto results = store->query({"wombat", {}, {}});
+        if (!results) {
+            fmt::println("ERROR: {}", results.error());
+        }
+        REQUIRE(results);
+        REQUIRE(results->empty());
+
+        for (auto& r : *results) {
+            fmt::println("{}", r);
+        }
     }
 }

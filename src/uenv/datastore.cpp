@@ -9,6 +9,7 @@
 #include <util/expected.h>
 
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 
 // the C API for sqlite3
 #include <sqlite3.h>
@@ -187,11 +188,25 @@ datastore_impl::query(const uenv_label& label) {
 
     std::string query = fmt::format("SELECT * FROM records");
     // fmt::format("SELECT * FROM records WHERE name = '{}'", label.name);
+    std::vector<std::string> query_terms;
+    if (label.name) {
+        query_terms.push_back(fmt::format("name  = '{}'", *label.name));
+    }
     if (label.tag) {
-        query += fmt::format(" AND tag = '{}'", *label.tag);
+        query_terms.push_back(fmt::format("tag  = '{}'", *label.tag));
     }
     if (label.version) {
-        query += fmt::format(" AND version = '{}'", *label.version);
+        query_terms.push_back(fmt::format("version  = '{}'", *label.version));
+    }
+    if (label.uarch) {
+        query_terms.push_back(fmt::format("uarch  = '{}'", *label.uarch));
+    }
+    if (label.system) {
+        query_terms.push_back(fmt::format("system  = '{}'", *label.system));
+    }
+
+    if (!query_terms.empty()) {
+        query += fmt::format(" WHERE {}", fmt::join(query_terms, " AND "));
     }
 
     auto s = create_sqlite_statement(query, db);
