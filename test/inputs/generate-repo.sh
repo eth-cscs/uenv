@@ -10,7 +10,7 @@ rm -rf $repo
 mkdir -p $repo
 echo "created repo in $repo"
 
-# TODO: create an empty index.db database
+cp schema.sql.template schema.sql
 
 # create a squashfs image for each uenv
 # and copy into the repo
@@ -19,6 +19,7 @@ do
     sqfs=./${name}.squashfs
     mksquashfs ./${name}-uenv ${sqfs} > /dev/null
     sha=$(sha256sum ${sqfs} | awk '{print $1}')
+    id=${sha:0:16}
 
     echo ${sha} ${name}
 
@@ -26,5 +27,9 @@ do
     mv ${sqfs} $repo/${sha}/store.squashfs
     cp -R ./${name}-uenv/meta $repo/${sha}
 
-    # TODO: create an entry for this image in the database
+    sed -i "s|{${name}-sha}|${sha}|g" schema.sql
+    sed -i "s|{${name}-id}|${id}|g" schema.sql
 done
+
+# create the database
+sqlite3 $repo/index.db < schema.sql
