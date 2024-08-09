@@ -1,10 +1,11 @@
 #include <any>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <vector>
 
-#include <uenv/datastore.h>
+#include <uenv/repository.h>
 #include <uenv/uenv.h>
 #include <util/expected.h>
 
@@ -21,6 +22,24 @@ namespace uenv {
 template <typename T> using hopefully = util::expected<T, std::string>;
 
 using util::unexpected;
+
+/// get the default location for the user's repository.
+/// - use the environment variable UENV_REPO_PATH if it is set
+/// - use $SCRATCH/.uenv-images if $SCRATCH is set
+/// - use $HOME/.uenv/images if $HOME is set
+std::optional<std::filesystem::path> default_repo_path() {
+    if (auto p = std::getenv("UENV_REPO_PATH")) {
+        return fs::path(p);
+    }
+    if (auto p = std::getenv("SCRATCH")) {
+        return fs::path(p) / ".uenv-images";
+    }
+    if (auto p = std::getenv("HOME")) {
+        return fs::path(p) / ".uenv" / "images";
+    }
+
+    return std::nullopt;
+}
 
 // A thin wrapper around sqlite3*
 // A shared pointer with a custom destructor that calls the sqlite3 C API
@@ -144,12 +163,12 @@ hopefully<sqlite_statement> create_sqlite_statement(const std::string& query,
     return sqlite_statement{query, db, statement};
 }
 
-struct datastore_impl {
-    datastore_impl(sqlite_database db, fs::path path, fs::path db_path)
+struct repository_impl {
+    repository_impl(sqlite_database db, fs::path path, fs::path db_path)
         : db(std::move(db)), path(std::move(path)),
           db_path(std::move(db_path)) {
     }
-    datastore_impl(datastore_impl&&) = default;
+    repository_impl(repository_impl&&) = default;
     sqlite_database db;
     fs::path path;
     fs::path db_path;
@@ -158,13 +177,13 @@ struct datastore_impl {
     query(const uenv_label& label);
 };
 
-datastore::datastore(datastore&&) = default;
-datastore::datastore(std::unique_ptr<datastore_impl> impl)
+repository::repository(repository&&) = default;
+repository::repository(std::unique_ptr<repository_impl> impl)
     : impl_(std::move(impl)) {
 }
 
-util::expected<datastore, std::string>
-open_datastore(const fs::path& repo_path) {
+util::expected<repository, std::string>
+open_repository(const fs::path& repo_path) {
     auto db_path = repo_path / "index.db";
     if (!fs::is_regular_file(db_path)) {
         return unexpected(fmt::format("the repository is invalid - the index "
@@ -178,12 +197,12 @@ open_datastore(const fs::path& repo_path) {
         return unexpected(db.error());
     }
 
-    return datastore(
-        std::make_unique<datastore_impl>(std::move(*db), repo_path, db_path));
+    return repository(
+        std::make_unique<repository_impl>(std::move(*db), repo_path, db_path));
 }
 
 util::expected<std::vector<uenv_record>, std::string>
-datastore_impl::query(const uenv_label& label) {
+repository_impl::query(const uenv_label& label) {
     std::vector<uenv_record> results;
 
     std::string query = fmt::format("SELECT * FROM records");
@@ -232,18 +251,18 @@ datastore_impl::query(const uenv_label& label) {
 
 // wrapping the pimpled implementation
 
-datastore::~datastore() = default;
+repository::~repository() = default;
 
-const fs::path& datastore::path() const {
+const fs::path& repository::path() const {
     return impl_->path;
 }
 
-const fs::path& datastore::db_path() const {
+const fs::path& repository::db_path() const {
     return impl_->db_path;
 }
 
 util::expected<std::vector<uenv_record>, std::string>
-datastore::query(const uenv_label& label) {
+repository::query(const uenv_label& label) {
     return impl_->query(label);
 }
 

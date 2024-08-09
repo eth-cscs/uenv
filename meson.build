@@ -24,14 +24,14 @@ sqlite3_dep = subproject('sqlite3', default_options: 'werror=false').get_variabl
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
 lib_src = [
-        'src/uenv/datastore.cpp',
         'src/uenv/env.cpp',
         'src/uenv/envvars.cpp',
         'src/uenv/lex.cpp',
         'src/uenv/meta.cpp',
         'src/uenv/parse.cpp',
-        'src/util/strings.cpp',
+        'src/uenv/repository.cpp',
         'src/util/shell.cpp',
+        'src/util/strings.cpp',
         'src/uenv/uenv.cpp',
 ]
 lib_inc = include_directories('src')
@@ -57,12 +57,12 @@ uenv = executable('uenv',
         install: true)
 
 unit_src = [
-        'test/unit/datastore.cpp',
         'test/unit/env.cpp',
         'test/unit/envvars.cpp',
         'test/unit/lex.cpp',
         'test/unit/main.cpp',
         'test/unit/parse.cpp',
+        'test/unit/repository.cpp',
 ]
 
 unit = executable('unit',

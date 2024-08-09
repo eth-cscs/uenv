@@ -3,14 +3,14 @@
 #include <catch2/catch_all.hpp>
 #include <fmt/core.h>
 
-#include <uenv/datastore.h>
 #include <uenv/env.h>
+#include <uenv/repository.h>
 
 namespace fs = std::filesystem;
 
-TEST_CASE("read-only", "[datastore]") {
+TEST_CASE("read-only", "[repository]") {
     fs::path repo_path{"../test/scratch/repo"};
-    auto store = uenv::open_datastore(repo_path);
+    auto store = uenv::open_repository(repo_path);
 
     if (!store) {
         fmt::println("ERROR: {}", store.error());

@@ -21,7 +21,7 @@ concretise_env(const std::string& uenv_args,
     // the command line argument is a comma-separated list of uenvs, where each
     // uenc is either
     // - the path of a squashfs image; or
-    // - a uenv description of the form name/version:tag
+    // - a uenv description of the form name[/version][:tag][@system][!uarch]
     // with an optional mount point.
     const auto uenv_descriptions = uenv::parse_uenv_args(uenv_args);
     if (!uenv_descriptions) {
@@ -44,6 +44,8 @@ concretise_env(const std::string& uenv_args,
     std::unordered_map<std::string, uenv::concrete_uenv> uenvs;
     for (auto& desc : *uenv_descriptions) {
         // determine the mount point of the uenv, then validate that it exists.
+        // TODO: delay assigning a mount point util after the meta data has been
+        // read because metadata includes a mount point
         fs::path mount;
         if (auto m = desc.mount()) {
             mount = *m;
@@ -70,6 +72,9 @@ concretise_env(const std::string& uenv_args,
                 fmt::format("the mount point '{}' does not exist", mount));
         }
 
+        // get the sqfs_path
+        // desc.filename - check that it exists
+        // desc.label - perform database lookup (TODO)
         if (desc.label()) {
             return util::unexpected(
                 fmt::format("support for mounting uenv from labels is not "
@@ -77,12 +82,8 @@ concretise_env(const std::string& uenv_args,
                             *desc.label()));
         }
 
-        // get the sqfs_path
-        // desc.filename - check that it exists
-        // desc.label - perform database lookup (TODO)
-
-        // TODO parameterise whether an absolute path is a hard requirement (for
-        // the SLURM plugin it is)
+        // TODO: parameterise whether an absolute path is a hard requirement
+        // (for the SLURM plugin it is)
         auto sqfs_path = fs::path(*desc.filename());
         if (!fs::exists(sqfs_path)) {
             return util::unexpected(
@@ -94,8 +95,7 @@ concretise_env(const std::string& uenv_args,
         }
 
         // set the meta data path and env.json path if they exist
-        const auto img_root_path = sqfs_path.parent_path();
-        const auto meta_p = img_root_path / "meta";
+        const auto meta_p = sqfs_path.parent_path() / "meta";
         const auto env_meta_p = meta_p / "env.json";
         const std::optional<fs::path> meta_path =
             fs::is_directory(meta_p) ? meta_p : std::optional<fs::path>{};
