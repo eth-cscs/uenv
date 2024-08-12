@@ -36,8 +36,8 @@ void start_args::add_cli(CLI::App& cli,
 int start(const start_args& args,
           [[maybe_unused]] const global_settings& globals) {
     fmt::println("running start with options {}", args);
-    const auto env =
-        concretise_env(args.uenv_description, args.view_description);
+    const auto env = concretise_env(args.uenv_description,
+                                    args.view_description, globals.repo);
 
     if (!env) {
         fmt::print("[error] {}\n", env.error());

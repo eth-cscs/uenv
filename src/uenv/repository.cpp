@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 
+#include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <uenv/uenv.h>
 #include <util/expected.h>
@@ -25,20 +26,49 @@ using util::unexpected;
 
 /// get the default location for the user's repository.
 /// - use the environment variable UENV_REPO_PATH if it is set
-/// - use $SCRATCH/.uenv-images if $SCRATCH is set
-/// - use $HOME/.uenv/images if $HOME is set
-std::optional<std::filesystem::path> default_repo_path() {
+/// - use $SCRATCH/.uenv/repo if $SCRATCH is set
+/// - use $HOME/.uenv/repo if $HOME is set
+///
+/// returns nullopt if no environment variables were set.
+/// returns error if
+/// - the provided path is not absolute
+/// - the path string was not valid
+util::expected<std::optional<std::string>, std::string> default_repo_path() {
+    std::string path_string;
     if (auto p = std::getenv("UENV_REPO_PATH")) {
-        return fs::path(p);
+        return p;
+    } else if (auto p = std::getenv("SCRATCH")) {
+        return std::string(p) + "/.uenv/repo";
+    } else if (auto p = std::getenv("HOME")) {
+        return std::string(p) + "/.uenv/repo";
     }
-    if (auto p = std::getenv("SCRATCH")) {
-        return fs::path(p) / ".uenv-images";
+    return std::nullopt;
+}
+
+util::expected<std::filesystem::path, std::string>
+validate_repo_path(const std::string& path, bool is_absolute, bool exists) {
+    auto parsed_path_string = parse_path(path);
+    if (!parsed_path_string) {
+        return util::unexpected(
+            fmt::format("{} is an invalid uenv repository path: {}", path,
+                        parsed_path_string.error().msg));
     }
-    if (auto p = std::getenv("HOME")) {
-        return fs::path(p) / ".uenv" / "images";
+    try {
+        const auto p = std::filesystem::path(*parsed_path_string);
+    } catch (...) {
+        return util::unexpected(
+            fmt::format("{} is an invalid uenv repository path {}", path,
+                        *parsed_path_string));
     }
 
-    return std::nullopt;
+    const auto p = fs::path(path);
+    if (is_absolute && !p.is_absolute()) {
+        return unexpected(fmt::format("'{}' is not an absolute path.", path));
+    }
+    if (exists && !fs::exists(p)) {
+        return unexpected(fmt::format("'{}' does not exists.", path));
+    }
+    return fs::absolute(p);
 }
 
 // A thin wrapper around sqlite3*

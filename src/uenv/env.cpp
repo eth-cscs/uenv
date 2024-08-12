@@ -9,12 +9,16 @@
 #include <uenv/env.h>
 #include <uenv/meta.h>
 #include <uenv/parse.h>
+#include <uenv/repository.h>
 
 namespace uenv {
 
+using util::unexpected;
+
 util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
-               std::optional<std::string> view_args) {
+               std::optional<std::string> view_args,
+               std::optional<std::filesystem::path> repo_arg) {
     namespace fs = std::filesystem;
 
     // parse the uenv description that was provided as a command line argument.
@@ -25,9 +29,8 @@ concretise_env(const std::string& uenv_args,
     // with an optional mount point.
     const auto uenv_descriptions = uenv::parse_uenv_args(uenv_args);
     if (!uenv_descriptions) {
-        return util::unexpected(
-            fmt::format("unable to read the uenv argument\n  {}",
-                        uenv_descriptions.error().msg));
+        return unexpected(fmt::format("unable to read the uenv argument\n  {}",
+                                      uenv_descriptions.error().msg));
     }
 
     // concretise the uenv descriptions by looking for the squashfs file, or
@@ -60,7 +63,7 @@ concretise_env(const std::string& uenv_args,
                 mount = **default_mount;
                 ++default_mount;
             } else {
-                return util::unexpected(
+                return unexpected(
                     fmt::format("no mount point provided for {}", desc));
             }
         }
@@ -68,30 +71,50 @@ concretise_env(const std::string& uenv_args,
 
         // check that the mount point exists
         if (!fs::exists(mount)) {
-            return util::unexpected(
+            return unexpected(
                 fmt::format("the mount point '{}' does not exist", mount));
         }
 
-        // get the sqfs_path
-        // desc.filename - check that it exists
-        // desc.label - perform database lookup (TODO)
-        if (desc.label()) {
-            return util::unexpected(
-                fmt::format("support for mounting uenv from labels is not "
-                            "supported yet: '{}'",
-                            *desc.label()));
+        // determine the sqfs_path
+        fs::path sqfs_path;
+        if (const auto label = desc.label()) {
+            // open the repo
+            if (!repo_arg) {
+                return unexpected("[error] no repo");
+            }
+            auto store = uenv::open_repository(*repo_arg);
+            if (!store) {
+                return unexpected(
+                    fmt::format("unable to open repo: {}", store.error()));
+            }
+
+            // search for label in the repo
+            const auto results = store->query(*label);
+            if (!results) {
+                return unexpected(fmt::format("{}", store.error()));
+            }
+
+            // ensure that all results share a unique has
+            for (auto& r : *results) {
+                fmt::println("possible image -- {}", r);
+            }
+            if (results->size() == 0u) {
+                return unexpected(fmt::format("no uenv matches '{}'", *label));
+            }
+
+            // set sqfs_path
+            auto& r = *results->begin();
+            sqfs_path = *repo_arg / r.sha256 / "store.squashfs";
+        } else {
+            sqfs_path = fs::path(*desc.filename());
         }
 
-        // TODO: parameterise whether an absolute path is a hard requirement
-        // (for the SLURM plugin it is)
-        auto sqfs_path = fs::path(*desc.filename());
         if (!fs::exists(sqfs_path)) {
-            return util::unexpected(
-                fmt::format("{} does not exist", sqfs_path));
+            return unexpected(fmt::format("{} does not exist", sqfs_path));
         }
         sqfs_path = fs::absolute(sqfs_path);
         if (!fs::is_regular_file(sqfs_path)) {
-            return util::unexpected(fmt::format("{} is not a file", sqfs_path));
+            return unexpected(fmt::format("{} is not a file", sqfs_path));
         }
 
         // set the meta data path and env.json path if they exist
@@ -154,8 +177,8 @@ concretise_env(const std::string& uenv_args,
     if (view_args) {
         const auto view_descriptions = uenv::parse_view_args(*view_args);
         if (!view_descriptions) {
-            return util::unexpected(fmt::format("invalid view description: {}",
-                                                view_descriptions.error().msg));
+            return unexpected(fmt::format("invalid view description: {}",
+                                          view_descriptions.error().msg));
         }
 
         for (auto& view : *view_descriptions) {
@@ -169,7 +192,7 @@ concretise_env(const std::string& uenv_args,
                 if (!view.uenv) {
                     // it is ambiguous if more than one option is available
                     if (matching_uenvs.size() > 1) {
-                        return util::unexpected("ambiguous view name");
+                        return unexpected("ambiguous view name");
                     }
                     views.push_back({matching_uenvs[0], view.name});
                 }
@@ -183,17 +206,16 @@ concretise_env(const std::string& uenv_args,
                         });
                     // no uenv matches
                     if (it == matching_uenvs.end()) {
-                        return util::unexpected("");
+                        return unexpected("");
                     }
                     views.push_back({*it, view.name});
                 }
             }
             // no view that matches the view is available
             else {
-                return util::unexpected(
-                    fmt::format("the requested view '{}' is not "
-                                "provided by any of the uenv",
-                                view.name));
+                return unexpected(fmt::format("the requested view '{}' is not "
+                                              "provided by any of the uenv",
+                                              view.name));
             }
         }
     }
@@ -241,12 +263,12 @@ setenv(const std::unordered_map<std::string, std::string>& variables,
         if (auto rcode = ::setenv(fwd_name.c_str(), var.second.c_str(), true)) {
             switch (rcode) {
             case EINVAL:
-                return util::unexpected(
+                return unexpected(
                     fmt::format("invalid variable name {}", fwd_name));
             case ENOMEM:
-                return util::unexpected("out of memory");
+                return unexpected("out of memory");
             default:
-                return util::unexpected(
+                return unexpected(
                     fmt::format("unknown error setting {}", fwd_name));
             }
         }

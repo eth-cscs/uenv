@@ -24,8 +24,14 @@ util::expected<meta, std::string> load_meta(const std::filesystem::path& file) {
 
     auto fid = std::ifstream(file);
 
-    // TODO: check parse
-    const auto raw = json::parse(fid);
+    nlohmann::json raw;
+    try {
+        raw = json::parse(fid);
+    } catch (std::exception& e) {
+        return util::unexpected(
+            fmt::format("error parsing uenv meta data file {}: {}",
+                        file.string(), e.what()));
+    }
 
     const std::string name = raw.contains("name") ? raw["name"] : "unnamed";
     const std::string description =

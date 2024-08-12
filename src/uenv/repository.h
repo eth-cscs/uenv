@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 #include <vector>
 
 #include <uenv/uenv.h>
@@ -15,7 +16,11 @@ struct repository;
 /// - use the environment variable UENV_REPO_PATH if it is set
 /// - use $SCRATCH/.uenv-images if $SCRATCH is set
 /// - use $HOME/.uenv/images
-std::optional<std::filesystem::path> default_repo_path();
+util::expected<std::optional<std::string>, std::string> default_repo_path();
+
+util::expected<std::filesystem::path, std::string>
+validate_repo_path(const std::string& path, bool is_absolute = true,
+                   bool exists = true);
 
 util::expected<repository, std::string>
 open_repository(const std::filesystem::path&);

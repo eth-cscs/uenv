@@ -103,6 +103,21 @@ util::expected<std::string, parse_error> parse_path(lexer& L) {
     }
     return parse_string(L, "path", is_path_tok);
 }
+util::expected<std::string, parse_error> parse_path(const std::string& in) {
+    auto L = lexer(in);
+    auto result = parse_path(L);
+    if (!result) {
+        return result;
+    }
+
+    if (const auto t = L.peek(); t.kind != tok::end) {
+        return util::unexpected(parse_error{
+            fmt::format("unexpected symbol at the end of the path '{}'",
+                        t.spelling),
+            t.loc});
+    }
+    return result;
+}
 
 util::expected<view_description, parse_error> parse_view_description(lexer& L) {
     // there are two valid inputs to parse

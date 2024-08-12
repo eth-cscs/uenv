@@ -32,4 +32,6 @@ parse_uenv_args(const std::string& arg);
 util::expected<std::vector<mount_entry>, parse_error>
 parse_mount_list(const std::string& arg);
 
+util::expected<std::string, parse_error> parse_path(const std::string& in);
+
 } // namespace uenv

@@ -13,6 +13,7 @@
 #include <uenv/envvars.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
+#include <uenv/repository.h>
 
 #include "config.hpp"
 
@@ -176,8 +177,16 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         return ESPANK_SUCCESS;
     }
 
-    const auto env =
-        uenv::concretise_env(*args.uenv_description, args.view_description);
+    const auto repo_path = uenv::default_repo_path();
+    if (!repo_path) {
+        slurm_error(
+            "environment variables that set the default repository path: %s",
+            repo_path.error().c_str());
+        return -ESPANK_ERROR;
+    }
+
+    const auto env = uenv::concretise_env(*args.uenv_description,
+                                          args.view_description, *repo_path);
 
     if (!env) {
         slurm_error("invalid arguments (--uenv and/or --view): %s",
