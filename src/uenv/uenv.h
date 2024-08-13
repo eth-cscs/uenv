@@ -89,11 +89,19 @@ template <> class fmt::formatter<uenv::uenv_label> {
     // format a value using stored specification:
     template <typename FmtContext>
     constexpr auto format(uenv::uenv_label const& d, FmtContext& ctx) const {
-        auto ctx_ = fmt::format_to(ctx.out(), "{}", d.name);
+        auto ctx_ = ctx.out();
+        if (d.name)
+            ctx_ = fmt::format_to(ctx.out(), "{}", *d.name);
+        else
+            ctx_ = fmt::format_to(ctx.out(), "<unamed>");
         if (d.version)
             ctx_ = fmt::format_to(ctx_, "/{}", *d.version);
         if (d.tag)
             ctx_ = fmt::format_to(ctx_, ":{}", *d.tag);
+        if (d.system)
+            ctx_ = fmt::format_to(ctx_, "@{}", *d.system);
+        if (d.uarch)
+            ctx_ = fmt::format_to(ctx_, "%{}", *d.uarch);
         return ctx_;
     }
 };
@@ -145,7 +153,7 @@ template <> class fmt::formatter<uenv::uenv_record> {
     // format a value using stored specification:
     template <typename FmtContext>
     constexpr auto format(uenv::uenv_record const& r, FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "{}/{}:{}@{}!{}", r.name, r.version,
+        return fmt::format_to(ctx.out(), "{}/{}:{}@{}%{}", r.name, r.version,
                               r.tag, r.system, r.uarch);
         /*
     std::string system;

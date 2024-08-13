@@ -161,12 +161,12 @@ util::expected<uenv_label, parse_error> parse_uenv_label(lexer& L) {
     bool system = false;
     bool uarch = false;
     while ((L.current_kind() == tok::at && !system) ||
-           (L.current_kind() == tok::bang && !uarch)) {
+           (L.current_kind() == tok::percent && !uarch)) {
         if (L.current_kind() == tok::at) {
             L.next();
             PARSE(L, name, result.system);
             system = true;
-        } else if (L.current_kind() == tok::bang) {
+        } else if (L.current_kind() == tok::percent) {
             L.next();
             PARSE(L, name, result.uarch);
             uarch = true;

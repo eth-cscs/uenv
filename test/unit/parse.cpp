@@ -86,7 +86,7 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(!result->system);
     }
     {
-        auto L = uenv::lexer("prgenv-gnu/24.7:v1@santis!a100");
+        auto L = uenv::lexer("prgenv-gnu/24.7:v1@santis%a100");
         auto result = uenv::parse_uenv_label(L);
         REQUIRE(result);
         REQUIRE(result->name == "prgenv-gnu");
@@ -96,7 +96,14 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(result->system == "santis");
     }
     {
-        auto L = uenv::lexer("prgenv-gnu/24.7:v1!a100@santis");
+        auto L = uenv::lexer("prgenv-gnu%a100");
+        auto result = uenv::parse_uenv_label(L);
+        REQUIRE(result);
+        REQUIRE(result->name == "prgenv-gnu");
+        REQUIRE(result->uarch == "a100");
+    }
+    {
+        auto L = uenv::lexer("prgenv-gnu/24.7:v1%a100@santis");
         auto result = uenv::parse_uenv_label(L);
         REQUIRE(result);
         REQUIRE(result->name == "prgenv-gnu");
@@ -106,7 +113,7 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(result->system == "santis");
     }
     {
-        auto L = uenv::lexer("prgenv-gnu/24.7:v1!a100");
+        auto L = uenv::lexer("prgenv-gnu/24.7:v1%a100");
         auto result = uenv::parse_uenv_label(L);
         REQUIRE(result);
         REQUIRE(result->name == "prgenv-gnu");

@@ -13,9 +13,10 @@ TEST_CASE("read-only", "[repository]") {
     auto store = uenv::open_repository(repo_path);
 
     if (!store) {
-        fmt::println("ERROR: {}", store.error());
+        SKIP(fmt::format("{}", store.error()));
     }
 
+    fmt::println("db path: {}", store->db_path().string());
     {
         auto results = store->query({{}, {}, {}});
         if (!results) {

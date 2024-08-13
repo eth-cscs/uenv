@@ -38,7 +38,7 @@ util::expected<std::optional<std::string>, std::string> default_repo_path() {
     if (auto p = std::getenv("UENV_REPO_PATH")) {
         return p;
     } else if (auto p = std::getenv("SCRATCH")) {
-        return std::string(p) + "/.uenv/repo";
+        return std::string(p) + "/.uenv-images";
     } else if (auto p = std::getenv("HOME")) {
         return std::string(p) + "/.uenv/repo";
     }
@@ -236,7 +236,6 @@ repository_impl::query(const uenv_label& label) {
     std::vector<uenv_record> results;
 
     std::string query = fmt::format("SELECT * FROM records");
-    // fmt::format("SELECT * FROM records WHERE name = '{}'", label.name);
     std::vector<std::string> query_terms;
     if (label.name) {
         query_terms.push_back(fmt::format("name  = '{}'", *label.name));

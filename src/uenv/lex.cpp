@@ -113,6 +113,10 @@ class lexer_impl {
                 character_token(tok::bang);
                 ++stream_;
                 return;
+            case '%':
+                character_token(tok::percent);
+                ++stream_;
+                return;
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
