@@ -5,6 +5,7 @@
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
+#include <spdlog/spdlog.h>
 
 #include <uenv/env.h>
 #include <uenv/meta.h>
@@ -35,12 +36,12 @@ void start_args::add_cli(CLI::App& cli,
 
 int start(const start_args& args,
           [[maybe_unused]] const global_settings& globals) {
-    fmt::println("running start with options {}", args);
+    spdlog::debug("running start with options {}", args);
     const auto env = concretise_env(args.uenv_description,
                                     args.view_description, globals.repo);
 
     if (!env) {
-        fmt::print("[error] {}\n", env.error());
+        spdlog::error("{}", env.error());
         return 1;
     }
 
@@ -48,7 +49,7 @@ int start(const start_args& args,
     auto env_vars = uenv::getenv(*env);
 
     if (auto rval = uenv::setenv(env_vars, "SQFSMNT_FWD_"); !rval) {
-        fmt::print("[error] setting environment variables {}\n", rval.error());
+        spdlog::error("setting environment variables {}", rval.error());
         return 1;
     }
 
@@ -62,15 +63,16 @@ int start(const start_args& args,
     // find the current shell (zsh, bash, etc)
     auto shell = util::current_shell();
     if (!shell) {
-        fmt::print("[error] unable to determine the current shell because {}\n",
-                   shell.error());
+        spdlog::error("unable to determine the current shell because {}",
+                      shell.error());
+        return 1;
     }
-    fmt::println("[log] shell found: {}", shell->string());
+    spdlog::info("shell found: {}", shell->string());
 
     commands.push_back("--");
     commands.push_back(shell->string());
 
-    fmt::print("[log] exec {}\n", fmt::join(commands, " "));
+    spdlog::info("exec {}", fmt::join(commands, " "));
     return util::exec(commands);
 }
 

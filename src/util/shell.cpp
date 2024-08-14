@@ -7,6 +7,7 @@
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <spdlog/spdlog.h>
 
 #include <util/expected.h>
 
@@ -42,12 +43,11 @@ int exec(const std::vector<std::string>& args) {
     }
     argv.push_back(nullptr);
 
-    fmt::print("[log] calling exec with the following:\n  {}\n",
-               fmt::join(args, " "));
+    spdlog::info("exec: {}", fmt::join(args, " "));
     int r = execvp(argv[0], argv.data());
     // } // end unsafe
 
-    fmt::print("[error] unable to exec\n  {}\n", fmt::join(args, " "));
+    spdlog::error("unable to launch a new shell");
 
     return r;
 }

@@ -20,7 +20,7 @@ constexpr int mode_run = 2;
 // constexpr int mode_image = 2;
 
 struct global_settings {
-    bool verbose = false;
+    int verbose = 0;
     bool no_color = false;
     int mode = mode_none;
 
