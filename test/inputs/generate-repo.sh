@@ -23,9 +23,10 @@ do
 
     echo ${sha} ${name}
 
-    mkdir -p $repo/${sha}
-    mv ${sqfs} $repo/${sha}/store.squashfs
-    cp -R ./${name}-uenv/meta $repo/${sha}
+    img_path=$repo/images/${sha}
+    mkdir -p $img_path
+    mv ${sqfs} $img_path/store.squashfs
+    cp -R ./${name}-uenv/meta $img_path
 
     sed -i "s|{${name}-sha}|${sha}|g" schema.sql
     sed -i "s|{${name}-id}|${id}|g" schema.sql
