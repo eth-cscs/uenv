@@ -67,6 +67,7 @@ namespace impl {
 struct arg_pack {
     std::optional<std::string> uenv_description;
     std::optional<std::string> view_description;
+    std::optional<std::string> repo_description;
 };
 
 static arg_pack args{};
@@ -124,10 +125,22 @@ static spank_option view_arg{
         return ESPANK_SUCCESS;
     }};
 
+static spank_option repo_arg{
+    (char*)"repo",
+    (char*)"path*",
+    (char*)"the absolute path of a uenv repository used to look up uenv images",
+    1, // requires an argument
+    0, // plugin specific value to pass to the callback (unnused)
+    [](int val, const char* optarg, int remote) -> int {
+        slurm_verbose("uenv: val:%d optarg:%s remote:%d", val, optarg, remote);
+        args.repo_description = optarg;
+        return ESPANK_SUCCESS;
+    }};
+
 int slurm_spank_init(spank_t sp, int ac [[maybe_unused]],
                      char** av [[maybe_unused]]) {
 
-    for (auto arg : {&uenv_arg, &view_arg}) {
+    for (auto arg : {&uenv_arg, &view_arg, &repo_arg}) {
         if (auto status = spank_option_register(sp, arg)) {
             return status;
         }
@@ -163,7 +176,9 @@ int init_post_opt_remote(spank_t sp) {
     return ESPANK_SUCCESS;
 }
 
-/// check if image/mountpoint are valid
+/// parse and validate the CLI arguments
+/// set environment variables that are used in the remote context to mount the
+/// image set environment variables for all requested views
 int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     if (!args.uenv_description) {
         // it is an error if the view argument was passed without the uenv
@@ -177,16 +192,37 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         return ESPANK_SUCCESS;
     }
 
-    const auto repo_path = uenv::default_repo_path();
-    if (!repo_path) {
-        slurm_error(
-            "environment variables that set the default repository path: %s",
-            repo_path.error().c_str());
-        return -ESPANK_ERROR;
+    // if no repository was explicitly set using the --repo argument, check
+    // UENV_REPO_PATH environment variable, before using default in SCRATCH or
+    // HOME.
+    if (!args.repo_description) {
+        if (const auto r = uenv::default_repo_path()) {
+            args.repo_description = *r;
+        } else {
+            slurm_error("unable to find a valid repo path: %s",
+                        r.error().c_str());
+            return -ESPANK_ERROR;
+        }
+    }
+
+    // parse and validate the repo path if one is set
+    // - it is a valid path description
+    // - it is an absolute path
+    // - it exists
+    std::optional<std::filesystem::path> repo_path;
+    if (args.repo_description) {
+        const auto r =
+            uenv::validate_repo_path(*args.repo_description, false, false);
+        if (!r) {
+            slurm_error("unable to find a valid repo path: %s",
+                        r.error().c_str());
+            return -ESPANK_ERROR;
+        }
+        repo_path = *r;
     }
 
     const auto env = uenv::concretise_env(*args.uenv_description,
-                                          args.view_description, *repo_path);
+                                          args.view_description, repo_path);
 
     if (!env) {
         slurm_error("invalid arguments (--uenv and/or --view): %s",
