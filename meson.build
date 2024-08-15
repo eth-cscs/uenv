@@ -7,7 +7,8 @@ project('uenv', ['cpp'],
         meson_version: '>=0.57')
 version = meson.project_version()
 
-uenv_build_slurm_plugin = get_option('slurm_plugin')
+uenv_slurm_plugin = get_option('slurm_plugin')
+uenv_cli = get_option('cli')
 
 conf_data = configuration_data()
 
@@ -46,18 +47,20 @@ lib_dep = declare_dependency(
 )
 
 # the uenv executable
-uenv_src = [
-        'src/cli/run.cpp',
-        'src/cli/start.cpp',
-        'src/cli/uenv.cpp',
-]
-uenv_dep = [sqlite3_dep]
+if uenv_cli
+    uenv_src = [
+            'src/cli/run.cpp',
+            'src/cli/start.cpp',
+            'src/cli/uenv.cpp',
+    ]
+    uenv_dep = [sqlite3_dep]
 
-uenv = executable('uenv',
-        sources: uenv_src,
-        dependencies: [uenv_dep, lib_dep, fmt_dep, spdlog_dep, cli11_dep],
-        c_args: ['-DVERSION="@0@"'.format(version)],
-        install: true)
+    cli = executable('uenv',
+            sources: uenv_src,
+            dependencies: [uenv_dep, lib_dep, fmt_dep, spdlog_dep, cli11_dep],
+            c_args: ['-DVERSION="@0@"'.format(version)],
+            install: true)
+endif
 
 unit_src = [
         'test/unit/env.cpp',
@@ -74,6 +77,6 @@ unit = executable('unit',
         build_by_default: true,
         install: false)
 
-if uenv_build_slurm_plugin
-        subdir('src/slurm')
+if uenv_slurm_plugin
+    subdir('src/slurm')
 endif
