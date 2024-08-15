@@ -39,49 +39,18 @@ concretise_env(const std::string& uenv_args,
     // after this loop, we have fully validated list of uenvs, mount points and
     // meta data (if they have meta data).
 
-    // the following are for assigning default mount points when no explicit
-    // mount point is provided.
-    std::vector<std::optional<std::string>> default_mounts{
-        "/user-environment", "/user-tools", {}};
-    auto default_mount = default_mounts.begin();
-
     std::unordered_map<std::string, uenv::concrete_uenv> uenvs;
     for (auto& desc : *uenv_descriptions) {
-        // determine the mount point of the uenv, then validate that it exists.
-        // TODO: delay assigning a mount point util after the meta data has been
-        // read because metadata includes a mount point
-        fs::path mount;
-        if (auto m = desc.mount()) {
-            mount = *m;
-            // once an explicit mount point has been set defaults are no longer
-            // applied. set default mount to the last entry, which is a nullopt
-            // std::optional.
-            default_mount = std::prev(default_mounts.end());
-        } else {
-            // no mount point was provided for this uenv, so use the default if
-            // it is available.
-            if (*default_mount) {
-                mount = **default_mount;
-                ++default_mount;
-            } else {
-                return unexpected(
-                    fmt::format("no mount point provided for {}", desc));
-            }
-        }
-        spdlog::info("{} will be mounted at {}", desc, mount);
-
-        // check that the mount point exists
-        if (!fs::exists(mount)) {
-            return unexpected(
-                fmt::format("the mount point '{}' does not exist", mount));
-        }
-
         // determine the sqfs_path
         fs::path sqfs_path;
+
+        // if a label was used to describe the uenv (e.g. "prgenv-gnu/24.7"
+        // it has to be looked up in a repo.
         if (const auto label = desc.label()) {
-            // open the repo
             if (!repo_arg) {
-                return unexpected("[error] no repo");
+                return unexpected(
+                    "a repo needs to be provided either using the --repo flag "
+                    "or by setting the UENV_REPO_PATH environment variable");
             }
             auto store = uenv::open_repository(*repo_arg);
             if (!store) {
@@ -90,33 +59,37 @@ concretise_env(const std::string& uenv_args,
             }
 
             // search for label in the repo
-            const auto results = store->query(*label);
+            auto results = store->query(*label);
             if (!results) {
                 return unexpected(fmt::format("{}", store.error()));
-            }
-
-            // ensure that all results share a unique has
-            for (auto& r : *results) {
-                fmt::println("possible image -- {}", r);
             }
             if (results->size() == 0u) {
                 return unexpected(fmt::format("no uenv matches '{}'", *label));
             }
 
+            // ensure that all results share a unique has
+            std::sort(results->begin(), results->end(),
+                      [](const auto& lhs, const auto& rhs) -> bool {
+                          return lhs.sha256 < rhs.sha256;
+                      });
+
             // set sqfs_path
             auto& r = *results->begin();
             sqfs_path = *repo_arg / "images" / r.sha256 / "store.squashfs";
-        } else {
+        }
+        // otherwise an explicit filename was provided, e.g.
+        // "/scratch/myimages/develp/store.squashfs"
+        else {
             sqfs_path = fs::path(*desc.filename());
         }
 
-        if (!fs::exists(sqfs_path)) {
-            return unexpected(fmt::format("{} does not exist", sqfs_path));
-        }
         sqfs_path = fs::absolute(sqfs_path);
-        if (!fs::is_regular_file(sqfs_path)) {
-            return unexpected(fmt::format("{} is not a file", sqfs_path));
+        if (!fs::exists(sqfs_path) || !fs::is_regular_file(sqfs_path)) {
+            return unexpected(
+                fmt::format("the uenv image {} does not exist or is not a file",
+                            sqfs_path));
         }
+        spdlog::info("{} squashfs image {}", desc, sqfs_path.string());
 
         // set the meta data path and env.json path if they exist
         const auto meta_p = sqfs_path.parent_path() / "meta";
@@ -130,19 +103,23 @@ concretise_env(const std::string& uenv_args,
         // if meta/env.json exists, parse the json therein
         std::string name;
         std::string description;
+        std::optional<std::string> mount_meta;
         std::unordered_map<std::string, concrete_view> views;
         if (env_meta_path) {
             if (const auto result = uenv::load_meta(*env_meta_path)) {
                 name = std::move(result->name);
-                description = std::move(result->description);
+                description = result->description.value_or("");
+                mount_meta = result->mount;
                 views = std::move(result->views);
-                spdlog::debug("loaded meta with name {}", name);
+                spdlog::info("{}: loaded meta (name {}, mount {})", desc, name,
+                             mount_meta);
             } else {
-                spdlog::error("error loading the uenv meta data in {}: {}",
+                spdlog::error("{} opening the uenv meta data {}: {}", desc,
                               *env_meta_path, result.error());
             }
         } else {
-            spdlog::debug("the meta data file {} does not exist", meta_path);
+            spdlog::debug("{} no meta file found at expected location {}", desc,
+                          meta_path);
             description = "";
             // generate a unique name for the uenv
             name = "anonymous";
@@ -152,6 +129,41 @@ concretise_env(const std::string& uenv_args,
                 ++i;
             }
         }
+
+        // if an explicit mount point was provided, use that
+        // otherwise use the mount point provided in the meta data
+        auto mount_string = desc.mount() ? desc.mount() : mount_meta;
+
+        // handle the case where no mount point was provided by the CLI or meta
+        // data
+        if (!mount_string) {
+            return unexpected(
+                fmt::format("no mount point provided for {}", desc));
+        }
+
+        fs::path mount;
+        if (auto p = parse_path(*mount_string)) {
+            mount = *p;
+            if (!fs::exists(mount)) {
+                return unexpected(fmt::format(
+                    "the mount point {} for {} does not exist", desc, mount));
+            }
+            if (!fs::is_directory(mount)) {
+                return unexpected(
+                    fmt::format("the mount point {} for {} is not a directory",
+                                desc, mount));
+            }
+            if (!mount.is_absolute()) {
+                return unexpected(fmt::format(
+                    "the mount point {} for {} must be an absolute path", desc,
+                    mount));
+            }
+        } else {
+            return unexpected(
+                fmt::format("invalid mount point provided for {}, {}", desc,
+                            p.error().msg));
+        }
+        spdlog::info("{} will be mounted at {}", desc, mount);
 
         uenvs[name] = concrete_uenv{name,      mount,       sqfs_path,
                                     meta_path, description, std::move(views)};

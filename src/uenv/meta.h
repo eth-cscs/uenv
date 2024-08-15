@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -13,7 +14,8 @@ namespace uenv {
 struct meta {
     // construct meta data from an input file
     std::string name;
-    std::string description;
+    std::optional<std::string> description;
+    std::optional<std::string> mount;
     std::unordered_map<std::string, concrete_view> views;
 };
 

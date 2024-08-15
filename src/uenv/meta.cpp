@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 
 #include <fmt/core.h>
@@ -19,7 +20,7 @@ util::expected<meta, std::string> load_meta(const std::filesystem::path& file) {
 
     if (!std::filesystem::is_regular_file(file)) {
         return util::unexpected(fmt::format(
-            "unable to read meta data file {}: it is not a file.", file));
+            "the uenv meta data file {} does not exist", file.string()));
     }
 
     auto fid = std::ifstream(file);
@@ -29,13 +30,16 @@ util::expected<meta, std::string> load_meta(const std::filesystem::path& file) {
         raw = json::parse(fid);
     } catch (std::exception& e) {
         return util::unexpected(
-            fmt::format("error parsing uenv meta data file {}: {}",
+            fmt::format("error parsing meta data file for uenv {}: {}",
                         file.string(), e.what()));
     }
 
     const std::string name = raw.contains("name") ? raw["name"] : "unnamed";
-    const std::string description =
-        raw.contains("description") ? raw["description"] : "";
+    using ostring = std::optional<std::string>;
+    const ostring description =
+        raw.contains("description") ? ostring(raw["description"]) : ostring{};
+    const ostring mount =
+        raw.contains("mount") ? ostring(raw["mount"]) : ostring{};
 
     std::unordered_map<std::string, concrete_view> views;
     if (auto& jviews = raw["views"]; jviews.is_object()) {
@@ -66,7 +70,7 @@ util::expected<meta, std::string> load_meta(const std::filesystem::path& file) {
         }
     }
 
-    return meta{name, description, views};
+    return meta{name, description, mount, views};
 }
 
 } // namespace uenv

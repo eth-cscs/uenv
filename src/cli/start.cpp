@@ -36,7 +36,7 @@ void start_args::add_cli(CLI::App& cli,
 
 int start(const start_args& args,
           [[maybe_unused]] const global_settings& globals) {
-    spdlog::debug("running start with options {}", args);
+    spdlog::info("start with options {}", args);
     const auto env = concretise_env(args.uenv_description,
                                     args.view_description, globals.repo);
 
@@ -72,7 +72,6 @@ int start(const start_args& args,
     commands.push_back("--");
     commands.push_back(shell->string());
 
-    spdlog::info("exec {}", fmt::join(commands, " "));
     return util::exec(commands);
 }
 

@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
     }
     uenv::init_log(console_log_level, spdlog::level::trace);
 
-    spdlog::debug("{}", settings);
+    spdlog::info("{}", settings);
 
     // post-process settings after the CLI arguments have been parsed
     if (settings.repo_) {

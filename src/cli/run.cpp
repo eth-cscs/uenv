@@ -5,6 +5,7 @@
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
+#include <spdlog/spdlog.h>
 
 #include <uenv/env.h>
 #include <uenv/meta.h>
@@ -37,12 +38,12 @@ void run_args::add_cli(CLI::App& cli, global_settings& settings) {
 }
 
 int run(const run_args& args, const global_settings& globals) {
-    fmt::println("[log] run with options {}", args);
+    spdlog::info("run with options {}", args);
     const auto env = concretise_env(args.uenv_description,
                                     args.view_description, globals.repo);
 
     if (!env) {
-        fmt::print("[error] {}\n", env.error());
+        spdlog::error("{}", env.error());
         return 1;
     }
 
@@ -50,7 +51,7 @@ int run(const run_args& args, const global_settings& globals) {
     auto env_vars = uenv::getenv(*env);
 
     if (auto rval = uenv::setenv(env_vars, "SQFSMNT_FWD_"); !rval) {
-        fmt::print("[error] setting environment variables {}\n", rval.error());
+        spdlog::error("setting environment variables {}", rval.error());
         return 1;
     }
 
@@ -64,7 +65,6 @@ int run(const run_args& args, const global_settings& globals) {
     commands.push_back("--");
     commands.insert(commands.end(), args.commands.begin(), args.commands.end());
 
-    fmt::print("[log] exec {}\n", fmt::join(commands, " "));
     return util::exec(commands);
 }
 
