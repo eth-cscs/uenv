@@ -8,9 +8,11 @@
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <spdlog/spdlog.h>
 
 #include <uenv/env.h>
 #include <uenv/envvars.h>
+#include <uenv/log.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
@@ -151,6 +153,11 @@ int slurm_spank_init(spank_t sp, int ac [[maybe_unused]],
 
 /// check if image, mountpoint is valid
 int init_post_opt_remote(spank_t sp) {
+    // initialise logging
+    // level warning to console
+    // level info to syslog
+    uenv::init_log(spdlog::level::warn, spdlog::level::info);
+
     // parse environment variables to test whether there is anything to mount
     auto mount_var = getenv_wrapper(sp, "UENV_MOUNT_LIST");
 
@@ -180,6 +187,11 @@ int init_post_opt_remote(spank_t sp) {
 /// set environment variables that are used in the remote context to mount the
 /// image set environment variables for all requested views
 int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
+    // initialise logging
+    // level warning to console
+    // level info to syslog
+    uenv::init_log(spdlog::level::warn, spdlog::level::info);
+
     if (!args.uenv_description) {
         // it is an error if the view argument was passed without the uenv
         // argument
@@ -191,7 +203,6 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         }
         return ESPANK_SUCCESS;
     }
-
     // if no repository was explicitly set using the --repo argument, check
     // UENV_REPO_PATH environment variable, before using default in SCRATCH or
     // HOME.
@@ -225,8 +236,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
                                           args.view_description, repo_path);
 
     if (!env) {
-        slurm_error("invalid arguments (--uenv and/or --view): %s",
-                    env.error().c_str());
+        slurm_error("%s", env.error().c_str());
         return -ESPANK_ERROR;
     }
 

@@ -24,13 +24,13 @@ concretise_env(const std::string& uenv_args,
 
     // parse the uenv description that was provided as a command line argument.
     // the command line argument is a comma-separated list of uenvs, where each
-    // uenc is either
+    // uenv is either
     // - the path of a squashfs image; or
-    // - a uenv description of the form name[/version][:tag][@system][!uarch]
+    // - a uenv description of the form name[/version][:tag][@system][%uarch]
     // with an optional mount point.
     const auto uenv_descriptions = uenv::parse_uenv_args(uenv_args);
     if (!uenv_descriptions) {
-        return unexpected(fmt::format("unable to read the uenv argument\n  {}",
+        return unexpected(fmt::format("invalid uenv description: {}",
                                       uenv_descriptions.error().msg));
     }
 

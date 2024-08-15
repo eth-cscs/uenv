@@ -6,6 +6,7 @@
 
 #include <uenv/env.h>
 #include <uenv/lex.h>
+#include <uenv/log.h>
 #include <uenv/parse.h>
 
 namespace uenv {
@@ -95,11 +96,9 @@ bool is_path_start_tok(tok t) {
 util::expected<std::string, parse_error> parse_path(lexer& L) {
     if (!is_path_start_tok(L.current_kind())) {
         const auto t = L.peek();
-        return util::unexpected(
-            parse_error{fmt::format("error parsing a path, which must start "
-                                    "with a '/' or '.', found unexpected {}",
-                                    t.kind, t.spelling),
-                        t.loc});
+        return util::unexpected(parse_error{
+            fmt::format("expected a path which must start with a '/' or '.'"),
+            t.loc});
     }
     return parse_string(L, "path", is_path_tok);
 }
@@ -311,6 +310,7 @@ parse_mount_list(const std::string& arg) {
     auto L = lexer(sanitised);
     std::vector<mount_entry> mounts;
 
+    spdlog::debug("parsing uenv description {}", arg);
     while (true) {
         mount_entry mnt;
         PARSE(L, mount_entry, mnt);
