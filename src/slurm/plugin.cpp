@@ -1,3 +1,4 @@
+#include <charconv>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -25,9 +26,35 @@ extern "C" {
 }
 
 namespace uenv {
+
 util::expected<void, std::string>
 do_mount(const std::vector<mount_entry>& mount_entries);
+
+spdlog::level::level_enum get_console_log_level() {
+    auto log_level_str = std::getenv("UENV_LOG_LEVEL");
+    if (log_level_str != nullptr) {
+        int lvl;
+        auto [ptr, ec] = std::from_chars(
+            log_level_str, log_level_str + std::strlen(log_level_str), lvl);
+
+        if (ec == std::errc()) {
+            if (lvl == 1) {
+                return spdlog::level::info;
+            } else if (lvl == 2) {
+                return spdlog::level::debug;
+            } else if (lvl > 2) {
+                return spdlog::level::trace;
+            }
+        } else {
+            spdlog::warn(fmt::format("UENV_LOG_LEVEL invalid value '{}' -- "
+                                     "expected a value between 0 and 3",
+                                     log_level_str));
+        }
+    }
+    return spdlog::level::warn;
 }
+
+} // namespace uenv
 
 //
 // Forward declare the implementation of the plugin callbacks.
@@ -188,9 +215,7 @@ int init_post_opt_remote(spank_t sp) {
 /// image set environment variables for all requested views
 int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // initialise logging
-    // level warning to console
-    // level info to syslog
-    uenv::init_log(spdlog::level::warn, spdlog::level::info);
+    uenv::init_log(uenv::get_console_log_level(), spdlog::level::info);
 
     if (!args.uenv_description) {
         // it is an error if the view argument was passed without the uenv
