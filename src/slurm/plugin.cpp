@@ -30,7 +30,12 @@ namespace uenv {
 util::expected<void, std::string>
 do_mount(const std::vector<mount_entry>& mount_entries);
 
-spdlog::level::level_enum get_console_log_level() {
+void set_log_level() {
+    // use warn as the default log level
+    auto log_level = spdlog::level::warn;
+    bool invalid_env = false;
+
+    // check the environment variable UENV_LOG_LEVEL
     auto log_level_str = std::getenv("UENV_LOG_LEVEL");
     if (log_level_str != nullptr) {
         int lvl;
@@ -39,19 +44,22 @@ spdlog::level::level_enum get_console_log_level() {
 
         if (ec == std::errc()) {
             if (lvl == 1) {
-                return spdlog::level::info;
+                log_level = spdlog::level::info;
             } else if (lvl == 2) {
-                return spdlog::level::debug;
+                log_level = spdlog::level::debug;
             } else if (lvl > 2) {
-                return spdlog::level::trace;
+                log_level = spdlog::level::trace;
             }
         } else {
-            spdlog::warn(fmt::format("UENV_LOG_LEVEL invalid value '{}' -- "
-                                     "expected a value between 0 and 3",
-                                     log_level_str));
+            invalid_env = true;
         }
     }
-    return spdlog::level::warn;
+    uenv::init_log(log_level, spdlog::level::info);
+    if (invalid_env) {
+        spdlog::warn(fmt::format("UENV_LOG_LEVEL invalid value '{}' -- "
+                                 "expected a value between 0 and 3",
+                                 log_level_str));
+    }
 }
 
 } // namespace uenv
@@ -215,7 +223,7 @@ int init_post_opt_remote(spank_t sp) {
 /// image set environment variables for all requested views
 int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // initialise logging
-    uenv::init_log(uenv::get_console_log_level(), spdlog::level::info);
+    uenv::set_log_level();
 
     if (!args.uenv_description) {
         // it is an error if the view argument was passed without the uenv

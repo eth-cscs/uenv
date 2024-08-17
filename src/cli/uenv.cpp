@@ -22,14 +22,6 @@ void help() {
 int main(int argc, char** argv) {
     uenv::global_settings settings;
 
-    if (const auto p = uenv::default_repo_path()) {
-        settings.repo_ = *uenv::default_repo_path();
-    } else {
-        fmt::println("[error] unable to determine the default repo path {}",
-                     p.error());
-        return 1;
-    }
-
     CLI::App cli("uenv");
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
     cli.add_flag("--no-color", settings.no_color, "disable color output");
@@ -57,14 +49,25 @@ int main(int argc, char** argv) {
 
     spdlog::info("{}", settings);
 
+    // if a repo was not provided as a flag, look at environment variables
+    if (!settings.repo_) {
+        if (const auto p = uenv::default_repo_path()) {
+            settings.repo_ = *uenv::default_repo_path();
+        } else {
+            spdlog::warn("ignoring the default repo path: {}", p.error());
+        }
+    }
+
     // post-process settings after the CLI arguments have been parsed
     if (settings.repo_) {
         if (const auto rpath =
                 uenv::validate_repo_path(*settings.repo_, false, false)) {
             settings.repo = *rpath;
         } else {
-            fmt::println("[error] invalid repo path {}", rpath.error());
-            return 1;
+            spdlog::warn("ignoring repo path due to an error, {}",
+                         rpath.error());
+            settings.repo = std::nullopt;
+            settings.repo_ = std::nullopt;
         }
     }
 

@@ -113,10 +113,7 @@ util::expected<std::string, parse_error> parse_path(const std::string& in) {
 
     if (const auto t = L.peek(); t.kind != tok::end) {
         return util::unexpected(parse_error{
-            L.string(),
-            fmt::format("unexpected symbol at the end of a path '{}'",
-                        t.spelling),
-            t});
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
     return result;
 }
