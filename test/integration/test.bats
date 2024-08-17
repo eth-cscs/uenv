@@ -45,14 +45,14 @@ function teardown() {
     assert_output --partial 'expected a path'
 
     run_srun_unchecked --uenv=a:/wombat true
-    assert_output --partial 'error parsing name, found unexpected slash'
+    assert_output --partial "invalid uenv description: found unexpected '/'"
 
     run_srun_unchecked --uenv=a? true
-    assert_output --partial 'invalid uenv description: unexpected symbol ?'
+    assert_output --partial "invalid uenv description: unexpected symbol '?'"
 
     run_srun_unchecked --uenv=app: true
-    assert_output --partial 'invalid uenv description: error parsing name'
+    assert_output --partial 'invalid uenv description:'
 
     run_srun_unchecked --uenv=app/42.0:v1@arapiles%zen3+ ls /user-environment
-    assert_output --partial 'invalid uenv description: unexpected symbol +'
+    assert_output --partial "invalid uenv description: unexpected symbol '+'"
 }

@@ -11,6 +11,11 @@
 
 namespace uenv {
 
+std::string parse_error::message() const {
+    return fmt::format("{}\n  {}\n  {}{}", detail, input, std::string(loc, ' '),
+                       std::string(std::max(1u, width), '^'));
+}
+
 // some pre-processor gubbins that generates code to attempt
 // parsing a value using a parse_x method. unwraps and
 // forwards the error if there was an error.
@@ -36,9 +41,7 @@ parse_string(lexer& L, std::string_view type, Test&& test) {
     if (result.empty()) {
         const auto t = L.peek();
         return util::unexpected(parse_error{
-            fmt::format("internal error parsing a {}, unexpected '{}'", type,
-                        t.spelling),
-            t.loc});
+            L.string(), fmt::format("unexpected '{}'", type, t.spelling), t});
     }
 
     return result;
@@ -73,10 +76,8 @@ bool is_name_start_tok(tok t) {
 util::expected<std::string, parse_error> parse_name(lexer& L) {
     if (!is_name_start_tok(L.current_kind())) {
         const auto t = L.peek();
-        return util::unexpected(
-            parse_error{fmt::format("error parsing name, found unexpected {}",
-                                    t.kind, t.spelling),
-                        t.loc});
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("found unexpected '{}'", t.spelling), t});
     }
     return parse_string(L, "name", is_name_tok);
 }
@@ -97,8 +98,9 @@ util::expected<std::string, parse_error> parse_path(lexer& L) {
     if (!is_path_start_tok(L.current_kind())) {
         const auto t = L.peek();
         return util::unexpected(parse_error{
+            L.string(),
             fmt::format("expected a path which must start with a '/' or '.'"),
-            t.loc});
+            t});
     }
     return parse_string(L, "path", is_path_tok);
 }
@@ -111,9 +113,10 @@ util::expected<std::string, parse_error> parse_path(const std::string& in) {
 
     if (const auto t = L.peek(); t.kind != tok::end) {
         return util::unexpected(parse_error{
-            fmt::format("unexpected symbol at the end of the path '{}'",
+            L.string(),
+            fmt::format("unexpected symbol at the end of a path '{}'",
                         t.spelling),
-            t.loc});
+            t});
     }
     return result;
 }
@@ -210,9 +213,7 @@ util::expected<uenv_description, parse_error> parse_uenv_description(lexer& L) {
     // neither path nor name label - oops
     const auto t = L.peek();
     return util::unexpected(parse_error{
-        fmt::format("not a valid uenv description, unexpected symbol '{}'",
-                    t.spelling),
-        t.loc});
+        L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
 }
 
 /* Public interface.
@@ -248,7 +249,7 @@ parse_view_args(const std::string& arg) {
     // consumed, and invalid token was encountered
     if (const auto t = L.peek(); t.kind != tok::end) {
         return util::unexpected(parse_error{
-            fmt::format("unexpected symbol {}", t.spelling), t.loc});
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
 
     return views;
@@ -280,7 +281,7 @@ parse_uenv_args(const std::string& arg) {
     // and invalid token was encountered
     if (const auto t = L.peek(); t.kind != tok::end) {
         return util::unexpected(parse_error{
-            fmt::format("unexpected symbol {}", t.spelling), t.loc});
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
     return uenvs;
 }
@@ -292,10 +293,11 @@ util::expected<mount_entry, parse_error> parse_mount_entry(lexer& L) {
     if (L.current_kind() != tok::colon) {
         const auto t = L.peek();
         return util::unexpected(parse_error(
+            L.string(),
             fmt::format("expected a ':' separating the squashfs image and "
                         "mount path, found '{}'",
-                        t.kind),
-            t.loc));
+                        t.spelling),
+            t));
     }
     // eat the colon
     L.next();
@@ -331,7 +333,7 @@ parse_mount_list(const std::string& arg) {
     // and invalid token was encountered
     if (const auto t = L.peek(); t.kind != tok::end) {
         return util::unexpected(parse_error{
-            fmt::format("unexpected symbol {}", t.spelling), t.loc});
+            L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
     }
     return mounts;
 }

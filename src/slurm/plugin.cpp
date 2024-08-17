@@ -196,7 +196,7 @@ int init_post_opt_remote(spank_t sp) {
     auto mount_list = uenv::parse_mount_list(*mount_var);
     if (!mount_list) {
         slurm_error("internal error parsing the mount list: %s",
-                    mount_list.error().msg.c_str());
+                    mount_list.error().message().c_str());
         return -ESPANK_ERROR;
     }
 

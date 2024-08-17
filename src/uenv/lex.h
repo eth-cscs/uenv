@@ -46,6 +46,9 @@ class lexer {
     // a convenience helper for checking the kind of the current token
     tok current_kind() const;
 
+    // return a string view of the full input
+    std::string string() const;
+
     ~lexer();
 
   private:

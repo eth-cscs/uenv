@@ -51,14 +51,13 @@ validate_repo_path(const std::string& path, bool is_absolute, bool exists) {
     if (!parsed_path_string) {
         return util::unexpected(
             fmt::format("{} is an invalid uenv repository path: {}", path,
-                        parsed_path_string.error().msg));
+                        parsed_path_string.error().message()));
     }
     try {
         const auto p = std::filesystem::path(*parsed_path_string);
     } catch (...) {
         return util::unexpected(
-            fmt::format("{} is an invalid uenv repository path {}", path,
-                        *parsed_path_string));
+            fmt::format("{} is an invalid uenv repository path", path));
     }
 
     const auto p = fs::path(path);

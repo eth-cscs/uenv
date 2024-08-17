@@ -31,7 +31,7 @@ concretise_env(const std::string& uenv_args,
     const auto uenv_descriptions = uenv::parse_uenv_args(uenv_args);
     if (!uenv_descriptions) {
         return unexpected(fmt::format("invalid uenv description: {}",
-                                      uenv_descriptions.error().msg));
+                                      uenv_descriptions.error().message()));
     }
 
     // concretise the uenv descriptions by looking for the squashfs file, or
@@ -160,8 +160,8 @@ concretise_env(const std::string& uenv_args,
             }
         } else {
             return unexpected(
-                fmt::format("invalid mount point provided for {}, {}", desc,
-                            p.error().msg));
+                fmt::format("invalid mount point provided for {}: {}", desc,
+                            p.error().message()));
         }
         spdlog::info("{} will be mounted at {}", desc, mount);
 
@@ -191,7 +191,7 @@ concretise_env(const std::string& uenv_args,
         const auto view_descriptions = uenv::parse_view_args(*view_args);
         if (!view_descriptions) {
             return unexpected(fmt::format("invalid view description: {}",
-                                          view_descriptions.error().msg));
+                                          view_descriptions.error().message()));
         }
 
         for (auto& view : *view_descriptions) {
