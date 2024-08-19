@@ -175,6 +175,21 @@ util::expected<uenv_label, parse_error> parse_uenv_label(lexer& L) {
     return result;
 }
 
+util::expected<uenv_label, parse_error>
+parse_uenv_label(const std::string& in) {
+    auto L = lexer(in);
+    auto result = parse_uenv_label(L);
+    if (!result) {
+        return result;
+    }
+
+    if (const auto t = L.peek(); t.kind != tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+    }
+    return result;
+}
+
 // parse an individual uenv description
 util::expected<uenv_description, parse_error> parse_uenv_description(lexer& L) {
     const auto k = L.current_kind();

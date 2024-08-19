@@ -11,6 +11,7 @@
 #include <uenv/repository.h>
 #include <util/expected.h>
 
+#include "image.h"
 #include "run.h"
 #include "start.h"
 #include "uenv.h"
@@ -29,9 +30,11 @@ int main(int argc, char** argv) {
 
     uenv::start_args start;
     uenv::run_args run;
+    uenv::image_args image;
 
     start.add_cli(cli, settings);
     run.add_cli(cli, settings);
+    image.add_cli(cli, settings);
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -46,8 +49,6 @@ int main(int argc, char** argv) {
         console_log_level = spdlog::level::trace;
     }
     uenv::init_log(console_log_level, spdlog::level::trace);
-
-    spdlog::info("{}", settings);
 
     // if a repo was not provided as a flag, look at environment variables
     if (!settings.repo_) {
@@ -82,6 +83,8 @@ int main(int argc, char** argv) {
         return uenv::start(start, settings);
     case uenv::mode_run:
         return uenv::run(run, settings);
+    case uenv::mode_image_ls:
+        return uenv::image_ls(image.ls_args, settings);
     case uenv::mode_none:
     default:
         help();
