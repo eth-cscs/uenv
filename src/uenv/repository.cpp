@@ -270,8 +270,8 @@ repository_impl::query(const uenv_label& label) {
         results.push_back({(*s)["system"].value(), (*s)["uarch"].value(),
                            (*s)["name"].value(), (*s)["version"].value(),
                            (*s)["tag"].value(), (*s)["date"].value(),
-                           (*s)["size"].value(), (*s)["sha256"].value(),
-                           (*s)["id"].value()});
+                           (*s)["size"].value(), sha256((*s)["sha256"].value()),
+                           uenv_id((*s)["id"].value())});
     }
 
     return results;

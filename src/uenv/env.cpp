@@ -72,12 +72,12 @@ concretise_env(const std::string& uenv_args,
                 auto work = *results;
                 std::stable_sort(work.begin(), work.end(),
                                  [](const auto& lhs, const auto& rhs) -> bool {
-                                     return lhs.sha256 < rhs.sha256;
+                                     return lhs.sha < rhs.sha;
                                  });
                 auto e =
                     std::unique(work.begin(), work.end(),
                                 [](const auto& lhs, const auto& rhs) -> bool {
-                                    return lhs.sha256 == rhs.sha256;
+                                    return lhs.sha == rhs.sha;
                                 });
                 if (std::distance(work.begin(), e) > 1u) {
                     auto errmsg = fmt::format(
@@ -93,7 +93,8 @@ concretise_env(const std::string& uenv_args,
 
             // set sqfs_path
             auto& r = *results->begin();
-            sqfs_path = *repo_arg / "images" / r.sha256 / "store.squashfs";
+            sqfs_path =
+                *repo_arg / "images" / r.sha.string() / "store.squashfs";
         }
         // otherwise an explicit filename was provided, e.g.
         // "/scratch/myimages/develp/store.squashfs"

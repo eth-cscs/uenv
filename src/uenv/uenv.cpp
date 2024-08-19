@@ -4,6 +4,23 @@
 
 namespace uenv {
 
+bool is_sha(std::string_view v, std::size_t n) {
+    if (n > 0) {
+        if (n != v.size()) {
+            return false;
+        }
+    }
+    auto is_sha_value = [](char c) -> bool {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+    };
+    for (auto& c : v) {
+        if (!is_sha_value(c)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 uenv_description::uenv_description(std::string file) : value_(std::move(file)) {
 }
 
