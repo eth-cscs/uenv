@@ -59,7 +59,7 @@ concretise_env(const std::string& uenv_args,
             }
 
             // search for label in the repo
-            auto results = store->query(*label);
+            const auto results = store->query(*label);
             if (!results) {
                 return unexpected(fmt::format("{}", store.error()));
             }
@@ -67,11 +67,29 @@ concretise_env(const std::string& uenv_args,
                 return unexpected(fmt::format("no uenv matches '{}'", *label));
             }
 
-            // ensure that all results share a unique has
-            std::sort(results->begin(), results->end(),
-                      [](const auto& lhs, const auto& rhs) -> bool {
-                          return lhs.sha256 < rhs.sha256;
-                      });
+            // ensure that all results share a unique sha
+            if (results->size() > 1u) {
+                auto work = *results;
+                std::stable_sort(work.begin(), work.end(),
+                                 [](const auto& lhs, const auto& rhs) -> bool {
+                                     return lhs.sha256 < rhs.sha256;
+                                 });
+                auto e =
+                    std::unique(work.begin(), work.end(),
+                                [](const auto& lhs, const auto& rhs) -> bool {
+                                    return lhs.sha256 == rhs.sha256;
+                                });
+                if (std::distance(work.begin(), e) > 1u) {
+                    auto errmsg = fmt::format(
+                        "more than one uenv matches the uenv description "
+                        "'{}':",
+                        desc.label().value());
+                    for (auto r : *results) {
+                        errmsg += fmt::format("\n  {}", r);
+                    }
+                    return unexpected(errmsg);
+                }
+            }
 
             // set sqfs_path
             auto& r = *results->begin();
@@ -195,6 +213,8 @@ concretise_env(const std::string& uenv_args,
         }
 
         for (auto& view : *view_descriptions) {
+            spdlog::debug("analysing view {}", view);
+
             // check whether the view name matches the name of any views
             // provided by uenv
             if (view2uenv.count(view.name)) {
@@ -205,7 +225,13 @@ concretise_env(const std::string& uenv_args,
                 if (!view.uenv) {
                     // it is ambiguous if more than one option is available
                     if (matching_uenvs.size() > 1) {
-                        return unexpected("ambiguous view name");
+                        auto errstr = fmt::format(
+                            "there is more than one view named '{}':",
+                            view.name);
+                        for (auto m : matching_uenvs) {
+                            errstr += fmt::format("\n  {}:{}", m, view.name);
+                        }
+                        return unexpected(errstr);
                     }
                     views.push_back({matching_uenvs[0], view.name});
                 }
@@ -219,16 +245,17 @@ concretise_env(const std::string& uenv_args,
                         });
                     // no uenv matches
                     if (it == matching_uenvs.end()) {
-                        return unexpected("");
+                        return unexpected(
+                            fmt::format("the view '{}:{}' does not exist",
+                                        *view.uenv, view.name));
                     }
                     views.push_back({*it, view.name});
                 }
             }
             // no view that matches the view is available
             else {
-                return unexpected(fmt::format("the requested view '{}' is not "
-                                              "provided by any of the uenv",
-                                              view.name));
+                return unexpected(
+                    fmt::format("the view '{}' does not exist", view));
             }
         }
     }

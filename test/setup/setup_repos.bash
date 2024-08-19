@@ -7,7 +7,7 @@ function setup_repo_apptool() {
     repo=${scratch}/repos/apptool
     sources=${working}/apptool
 
-    echo "repo path $(repo)"
+    echo "repo path ${repo}"
     echo "working path $working"
     echo "source path $sources"
 
@@ -21,10 +21,10 @@ function setup_repo_apptool() {
 
     # create a squashfs image for each uenv
     # and copy into the repo
-    for name in app tool
+    for name in app42 app43 tool
     do
         sqfs=${working}/${name}.squashfs
-        mksquashfs ${sources}/${name}-uenv ${sqfs} > /dev/null
+        mksquashfs ${sources}/${name} ${sqfs} > /dev/null
         sha=$(sha256sum ${sqfs} | awk '{print $1}')
         id=${sha:0:16}
 
@@ -33,7 +33,7 @@ function setup_repo_apptool() {
         img_path=$repo/images/${sha}
         mkdir -p $img_path
         mv ${sqfs} $img_path/store.squashfs
-        cp -R ${sources}/${name}-uenv/meta $img_path
+        cp -R ${sources}/${name}/meta $img_path
 
         sed -i "s|{${name}-sha}|${sha}|g" schema.sql
         sed -i "s|{${name}-id}|${id}|g" schema.sql

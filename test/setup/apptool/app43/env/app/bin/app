@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+if [ "$1" == "--version" ]; then
+    echo "43.0"
+    exit 0
+fi
+
+echo "hello app"

@@ -14,7 +14,8 @@ CREATE TABLE images (
     size INTEGER NOT NULL
 );
 
-INSERT INTO images VALUES('{app-sha}','{app-id}','2024-03-11 17:08:35.976000+00:00',4096);
+INSERT INTO images VALUES('{app42-sha}','{app42-id}','2024-03-11 17:08:35.976000+00:00',4096);
+INSERT INTO images VALUES('{app43-sha}','{app43-id}','2024-03-11 17:08:35.976000+00:00',4096);
 INSERT INTO images VALUES('{tool-sha}','{tool-id}','2024-05-01 14:02:32.976000+00:00',4096);
 
 CREATE TABLE uenv (
@@ -27,7 +28,8 @@ CREATE TABLE uenv (
 );
 
 INSERT INTO uenv VALUES(1,'arapiles','zen3','app','42.0');
-INSERT INTO uenv VALUES(2,'arapiles','zen3','tool','17.3.2');
+INSERT INTO uenv VALUES(2,'arapiles','zen3','app','43.0');
+INSERT INTO uenv VALUES(3,'arapiles','zen3','tool','17.3.2');
 
 CREATE TABLE tags (
     version_id INTEGER,
@@ -44,8 +46,9 @@ CREATE TABLE tags (
             ON UPDATE CASCADE
 );
 
-INSERT INTO tags VALUES(1,'v1','{app-sha}');
-INSERT INTO tags VALUES(2,'v1','{tool-sha}');
+INSERT INTO tags VALUES(1,'v1','{app42-sha}');
+INSERT INTO tags VALUES(2,'v1','{app43-sha}');
+INSERT INTO tags VALUES(3,'v1','{tool-sha}');
 
 CREATE VIEW records AS
 SELECT
