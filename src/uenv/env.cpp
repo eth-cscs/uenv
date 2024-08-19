@@ -59,32 +59,33 @@ concretise_env(const std::string& uenv_args,
             }
 
             // search for label in the repo
-            const auto results = store->query(*label);
-            if (!results) {
+            const auto result = store->query(*label);
+            if (!result) {
                 return unexpected(fmt::format("{}", store.error()));
             }
-            if (results->size() == 0u) {
+            std::vector<uenv_record> results = *result;
+
+            if (results.size() == 0u) {
                 return unexpected(fmt::format("no uenv matches '{}'", *label));
             }
 
             // ensure that all results share a unique sha
-            if (results->size() > 1u) {
-                auto work = *results;
-                std::stable_sort(work.begin(), work.end(),
+            if (results.size() > 1u) {
+                std::stable_sort(results.begin(), results.end(),
                                  [](const auto& lhs, const auto& rhs) -> bool {
                                      return lhs.sha < rhs.sha;
                                  });
                 auto e =
-                    std::unique(work.begin(), work.end(),
+                    std::unique(results.begin(), results.end(),
                                 [](const auto& lhs, const auto& rhs) -> bool {
                                     return lhs.sha == rhs.sha;
                                 });
-                if (std::distance(work.begin(), e) > 1u) {
+                if (std::distance(results.begin(), e) > 1u) {
                     auto errmsg = fmt::format(
                         "more than one uenv matches the uenv description "
                         "'{}':",
                         desc.label().value());
-                    for (auto r : *results) {
+                    for (auto r : results) {
                         errmsg += fmt::format("\n  {}", r);
                     }
                     return unexpected(errmsg);
@@ -92,7 +93,7 @@ concretise_env(const std::string& uenv_args,
             }
 
             // set sqfs_path
-            auto& r = *results->begin();
+            const auto& r = results[0];
             sqfs_path =
                 *repo_arg / "images" / r.sha.string() / "store.squashfs";
         }
@@ -315,6 +316,18 @@ setenv(const std::unordered_map<std::string, std::string>& variables,
         }
     }
     return 0;
+}
+
+bool operator==(const uenv_record& lhs, const uenv_record& rhs) {
+    return std::tie(lhs.name, lhs.version, lhs.tag, lhs.system, lhs.uarch,
+                    lhs.sha) == std::tie(rhs.name, rhs.version, rhs.tag,
+                                         rhs.system, rhs.uarch, rhs.sha);
+}
+
+bool operator<(const uenv_record& lhs, const uenv_record& rhs) {
+    return std::tie(lhs.name, lhs.version, lhs.tag, lhs.system, lhs.uarch,
+                    lhs.sha) < std::tie(rhs.name, rhs.version, rhs.tag,
+                                        rhs.system, rhs.uarch, rhs.sha);
 }
 
 } // namespace uenv

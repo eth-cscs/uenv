@@ -12,6 +12,7 @@
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <spdlog/spdlog.h>
 
 // the C API for sqlite3
 #include <sqlite3.h>
@@ -203,7 +204,7 @@ struct repository_impl {
     fs::path db_path;
 
     util::expected<std::vector<uenv_record>, std::string>
-    query(const uenv_label& label);
+    query(const uenv_label&);
 };
 
 repository::repository(repository&&) = default;
@@ -256,6 +257,7 @@ repository_impl::query(const uenv_label& label) {
         query += fmt::format(" WHERE {}", fmt::join(query_terms, " AND "));
     }
 
+    // spdlog::info("running database query\n{}", query);
     auto s = create_sqlite_statement(query, db);
     if (!s) {
         return unexpected(
@@ -273,6 +275,51 @@ repository_impl::query(const uenv_label& label) {
                            (*s)["size"].value(), sha256((*s)["sha256"].value()),
                            uenv_id((*s)["id"].value())});
     }
+
+    // now check for id and sha search terms
+    if (label.only_name()) {
+        // search for an if name could also be an id
+        if (is_sha(*label.name, 16)) {
+            auto result = create_sqlite_statement(
+                fmt::format("SELECT * FROM records WHERE id = '{}'",
+                            uenv_id(*label.name).string()),
+                db);
+            if (result) {
+                while (result->step()) {
+                    results.push_back(
+                        {(*result)["system"].value(),
+                         (*result)["uarch"].value(), (*result)["name"].value(),
+                         (*result)["version"].value(), (*result)["tag"].value(),
+                         (*result)["date"].value(), (*result)["size"].value(),
+                         sha256((*result)["sha256"].value()),
+                         uenv_id((*result)["id"].value())});
+                }
+            }
+        }
+        // search for a sha if name could also be a sha256
+        else if (is_sha(*label.name, 64)) {
+            auto result = create_sqlite_statement(
+                fmt::format("SELECT * FROM records WHERE sha256 = '{}'",
+                            sha256(*label.name).string()),
+                db);
+            if (result) {
+                while (result->step()) {
+                    results.push_back(
+                        {(*result)["system"].value(),
+                         (*result)["uarch"].value(), (*result)["name"].value(),
+                         (*result)["version"].value(), (*result)["tag"].value(),
+                         (*result)["date"].value(), (*result)["size"].value(),
+                         sha256((*result)["sha256"].value()),
+                         uenv_id((*result)["id"].value())});
+                }
+            }
+        }
+    }
+
+    // sort the results
+    std::sort(results.begin(), results.end());
+    // remove duplicates
+    results.erase(std::unique(results.begin(), results.end()), results.end());
 
     return results;
 }

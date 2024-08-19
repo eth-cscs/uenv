@@ -19,6 +19,9 @@ struct uenv_label {
     std::optional<std::string> tag;
     std::optional<std::string> system;
     std::optional<std::string> uarch;
+    bool only_name() const {
+        return name && !version && !tag && !system && !uarch;
+    }
 };
 
 bool is_sha(std::string_view v, std::size_t n = 0);
@@ -70,6 +73,9 @@ struct uenv_record {
     sha256 sha;
     uenv_id id;
 };
+
+bool operator==(const uenv_record& lhs, const uenv_record& rhs);
+bool operator<(const uenv_record& lhs, const uenv_record& rhs);
 
 struct uenv_description {
     uenv_description(uenv_label label);
