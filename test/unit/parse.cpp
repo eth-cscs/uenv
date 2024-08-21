@@ -177,6 +177,34 @@ TEST_CASE("parse uenv list", "[parse]") {
         REQUIRE(*d.mount() == "/user-environment");
     }
     {
+        // test case where no tag is provide - ensure that the mount point after
+        // the : character is read correctly.
+        auto in = "prgenv-gnu/24.7:/user-environment";
+        auto result = uenv::parse_uenv_args(in);
+        if (!result)
+            fmt::println("ERROR {}", result.error().message());
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        auto d = (*result)[0];
+        auto l = *d.label();
+        REQUIRE(l.name == "prgenv-gnu");
+        REQUIRE(l.version == "24.7");
+        REQUIRE(*d.mount() == "/user-environment");
+    }
+    {
+        // test that no mount point is handled correctly
+        auto in = "prgenv-gnu/24.7:rc1";
+        auto result = uenv::parse_uenv_args(in);
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        auto d = (*result)[0];
+        auto l = *d.label();
+        REQUIRE(l.name == "prgenv-gnu");
+        REQUIRE(l.version == "24.7");
+        REQUIRE(l.tag == "rc1");
+        REQUIRE(!d.mount());
+    }
+    {
         auto in =
             "/scratch/.uenv-images/sdfklsdf890df9a87sdf/store.squashfs:/"
             "user-environment/store-asdf/my-image_mnt_point3//,prgenv-nvidia";

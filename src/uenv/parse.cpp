@@ -153,6 +153,12 @@ util::expected<uenv_label, parse_error> parse_uenv_label(lexer& L) {
         PARSE(L, name, result.version);
     }
     if (L.current_kind() == tok::colon) {
+        // the ':' character is also used to set the mount point.
+        // do not continue parsing if a path follows the ':'.
+        if (is_path_start_tok(L.peek(1).kind)) {
+            return result;
+        }
+
         L.next();
         PARSE(L, name, result.tag);
     }
