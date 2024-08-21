@@ -66,7 +66,7 @@ validate_repo_path(const std::string& path, bool is_absolute, bool exists) {
         return unexpected(fmt::format("'{}' is not an absolute path.", path));
     }
     if (exists && !fs::exists(p)) {
-        return unexpected(fmt::format("'{}' does not exists.", path));
+        return unexpected(fmt::format("'{}' does not exist.", path));
     }
     return fs::absolute(p);
 }

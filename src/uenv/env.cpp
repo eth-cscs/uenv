@@ -257,7 +257,7 @@ concretise_env(const std::string& uenv_args,
             // no view that matches the view is available
             else {
                 return unexpected(
-                    fmt::format("the view '{}' does not exist", view));
+                    fmt::format("the view '{}' does not exist", view.name));
             }
         }
     }

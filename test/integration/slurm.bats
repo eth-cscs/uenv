@@ -82,11 +82,11 @@ function teardown() {
 
     # check that invalid view names are caught
     run_srun_unchecked  --uenv=tool --view=tools true
-    assert_output --partial "the requested view 'tools' is not provided"
+    assert_output --partial "the view 'tools' does not exist"
     run_srun_unchecked  --uenv=app/42.0,tool --view=app:app,tool:tools true
-    assert_output --partial "the requested view 'tools' is not provided"
+    assert_output --partial "the view 'tools' does not exist"
     run_srun_unchecked  --uenv=app/42.0,tool --view=app:app,wombat:tool true
-    assert_output --partial "the requested view 'tools' is not provided"
+    assert_output --partial "the view 'wombat:tool' does not exist"
 }
 
 # check for invalid arguments passed to --uenv
