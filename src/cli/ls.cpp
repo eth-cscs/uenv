@@ -22,7 +22,9 @@ void image_ls_args::add_cli(CLI::App& cli,
                             [[maybe_unused]] global_settings& settings) {
     auto* ls_cli = cli.add_subcommand("ls", "manage and query uenv images");
     ls_cli->add_option("uenv", uenv_description,
-                       "comma separated list of uenv to mount");
+                       "comma separated list of uenv to mount.");
+    ls_cli->add_flag("--no-header", no_header,
+                     "print only the matching records, with no header.");
     ls_cli->callback([&settings]() { settings.mode = uenv::mode_image_ls; });
 }
 
@@ -64,7 +66,9 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
     }
 
     if (result->empty()) {
-        fmt::println("no matching uenv");
+        if (!args.no_header) {
+            fmt::println("no matching uenv");
+        }
         return 0;
     }
 
@@ -82,8 +86,10 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
     ++w_name;
     ++w_sys;
     ++w_arch;
-    fmt::println("{:<{}}{:<{}}{:<{}}{:<18}", "uenv", w_name, "arch", w_arch,
-                 "system", w_sys, "id");
+    if (!args.no_header) {
+        fmt::println("{:<{}}{:<{}}{:<{}}{:<18}", "uenv", w_name, "arch", w_arch,
+                     "system", w_sys, "id");
+    }
     for (auto& r : *result) {
         auto name = fmt::format("{}/{}:{}", r.name, r.version, r.tag);
         fmt::println("{:<{}}{:<{}}{:<{}}{:<18}", name, w_name, r.uarch, w_arch,
