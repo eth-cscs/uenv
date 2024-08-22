@@ -13,7 +13,7 @@ uenv_cli = get_option('cli')
 conf_data = configuration_data()
 
 # configure the dependencies
-#
+
 # use meson wrap to provide the dependencies, because the 'default_library=static' option
 # will be propogated to each dependency, for a statically linked executable.
 catch_dep = subproject('catch2', default_options: 'werror=false').get_variable('catch2_with_main_dep')
@@ -21,7 +21,6 @@ cli11_dep = subproject('cli11', default_options: 'werror=false').get_variable('C
 fmt_dep   = subproject('fmt', default_options: 'werror=false').get_variable('fmt_dep')
 json_dep = subproject('nlohmann_json', default_options: 'werror=false').get_variable('nlohmann_json_dep')
 spdlog_dep   = subproject('spdlog', default_options: ['werror=false','std_format=disabled','external_fmt=enabled']).get_variable('spdlog_dep')
-# , external_fmt:true, std_format:false
 sqlite3_dep = subproject('sqlite3', default_options: 'werror=false').get_variable('sqlite3_dep')
 
 # the lib dependency is all of the common funtionality shared between the CLI
