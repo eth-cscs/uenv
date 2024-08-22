@@ -27,6 +27,7 @@ sqlite3_dep = subproject('sqlite3', default_options: 'werror=false').get_variabl
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
 lib_src = [
+        'src/uenv/cscs.cpp',
         'src/uenv/env.cpp',
         'src/uenv/envvars.cpp',
         'src/uenv/lex.cpp',

@@ -17,6 +17,7 @@ enum class tok {
     dot,        // comma ','
     whitespace, // sequence of spaces
     bang,       // exclamation mark '!'
+    star,       // '*'
     percent,    // percentage symbol '%'
     end,        // end of input
     error,      // invalid input encountered in stream
@@ -69,6 +70,8 @@ template <> class fmt::formatter<uenv::tok> {
         switch (t) {
         case uenv::tok::colon:
             return fmt::format_to(ctx.out(), "colon");
+        case uenv::tok::star:
+            return fmt::format_to(ctx.out(), "star");
         case uenv::tok::comma:
             return fmt::format_to(ctx.out(), "comma");
         case uenv::tok::slash:

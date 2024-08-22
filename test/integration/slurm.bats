@@ -96,9 +96,6 @@ function teardown() {
     run_srun_unchecked --uenv=a:b:c true
     assert_output --partial 'expected a path'
 
-    run_srun_unchecked --uenv=a:/wombat true
-    assert_output --partial "invalid uenv description: found unexpected '/'"
-
     run_srun_unchecked --uenv=a? true
     assert_output --partial "invalid uenv description: unexpected symbol '?'"
 
@@ -107,4 +104,49 @@ function teardown() {
 
     run_srun_unchecked --uenv=app/42.0:v1@arapiles%zen3+ ls /user-environment
     assert_output --partial "invalid uenv description: unexpected symbol '+'"
+}
+
+@test "custom mount point" {
+    unset UENV_MOUNT_LIST
+    export UENV_REPO_PATH=$REPOS/apptool
+
+    run_srun_unchecked  --uenv=app/42.0:/user-environment bash -c 'findmnt -r | grep /user-environment'
+    assert_output --partial "/user-environment"
+}
+
+@test "duplicate_mount_fails" {
+    unset UENV_MOUNT_LIST
+    export UENV_REPO_PATH=$REPOS/apptool
+
+    # duplicate images fail
+    run_srun_unchecked  --uenv=tool:/user-environment,app/42.0:/user-environment true
+    assert_output --partial "more than one image mounted at the mount point '/user-environment'"
+}
+
+@test "duplicate_image_fails" {
+    unset UENV_MOUNT_LIST
+    export UENV_REPO_PATH=$REPOS/apptool
+
+    # duplicate images fail
+    run_srun_unchecked  --uenv=tool:/user-environment,tool true
+    assert_output --partial "uenv is mounted more than once"
+}
+
+@test "empty --uenv argument" {
+    run_srun_unchecked --uenv='' true
+    assert_output --partial 'invalid uenv description'
+}
+
+@test "sbatch_override_in_srun" {
+    # check that images mounted via sbatch --uenv are overriden when `--uenv` flag is given to srun
+    run_sbatch <<EOF
+#!/bin/bash
+#SBATCH --uenv=app/42.0
+
+# override --uenv and mount under /user-tools instead
+srun --uenv=tool findmnt /user-tools
+
+# override, /user-environment must not be mounted
+srun --uenv=tool bash -c '! findmnt /user-environment'
+EOF
 }

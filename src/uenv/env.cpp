@@ -1,12 +1,14 @@
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
 #include <fmt/core.h>
 #include <spdlog/spdlog.h>
 
+#include <uenv/cscs.h>
 #include <uenv/env.h>
 #include <uenv/meta.h>
 #include <uenv/parse.h>
@@ -40,13 +42,15 @@ concretise_env(const std::string& uenv_args,
     // meta data (if they have meta data).
 
     std::unordered_map<std::string, uenv::concrete_uenv> uenvs;
+    std::set<fs::path> used_mounts;
+    std::set<fs::path> used_sqfs;
     for (auto& desc : *uenv_descriptions) {
         // determine the sqfs_path
         fs::path sqfs_path;
 
         // if a label was used to describe the uenv (e.g. "prgenv-gnu/24.7"
         // it has to be looked up in a repo.
-        if (const auto label = desc.label()) {
+        if (auto label = desc.label()) {
             if (!repo_arg) {
                 return unexpected(
                     "a repo needs to be provided either using the --repo flag "
@@ -57,6 +61,10 @@ concretise_env(const std::string& uenv_args,
                 return unexpected(
                     fmt::format("unable to open repo: {}", store.error()));
             }
+
+            // set label->system to the current cluster name if it has not
+            // already been set.
+            label->system = cscs::get_system_name(label->system);
 
             // search for label in the repo
             const auto result = store->query(*label);
@@ -184,6 +192,24 @@ concretise_env(const std::string& uenv_args,
                             p.error().message()));
         }
         spdlog::info("{} will be mounted at {}", desc, mount);
+
+        // check for unique mount points and squashfs images
+        {
+            mount = fs::canonical(mount);
+            if (used_mounts.count(mount)) {
+                return unexpected(fmt::format("more than one image mounted "
+                                              "at the mount point '{}'",
+                                              mount));
+            }
+            used_mounts.insert(mount);
+
+            sqfs_path = fs::canonical(sqfs_path);
+            if (used_sqfs.count(sqfs_path)) {
+                return unexpected(fmt::format(
+                    "the '{}' uenv is mounted more than once", sqfs_path));
+            }
+            used_sqfs.insert(sqfs_path);
+        }
 
         uenvs[name] = concrete_uenv{name,      mount,       sqfs_path,
                                     meta_path, description, std::move(views)};

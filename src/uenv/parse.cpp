@@ -169,7 +169,12 @@ util::expected<uenv_label, parse_error> parse_uenv_label(lexer& L) {
            (L.current_kind() == tok::percent && !uarch)) {
         if (L.current_kind() == tok::at) {
             L.next();
-            PARSE(L, name, result.system);
+            if (L.current_kind() == tok::star) {
+                result.system = "*";
+                L.next();
+            } else {
+                PARSE(L, name, result.system);
+            }
             system = true;
         } else if (L.current_kind() == tok::percent) {
             L.next();

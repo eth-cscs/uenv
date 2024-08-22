@@ -236,6 +236,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         }
         return ESPANK_SUCCESS;
     }
+
     // if no repository was explicitly set using the --repo argument, check
     // UENV_REPO_PATH environment variable, before using default in SCRATCH or
     // HOME.
