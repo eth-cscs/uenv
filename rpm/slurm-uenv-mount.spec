@@ -20,7 +20,7 @@ A SLURM spank plugin to mount squashfs images.
 %autosetup -c
 
 %build
-%meson
+%meson_setup
 %meson_build
 
 %install
@@ -33,5 +33,5 @@ mkdir -p /etc/plugstack.conf.d
 echo "$REQ" > "$CNF"
 
 %files
-%license %{_vpath_srcdir}/LICENSE
+%license LICENSE
 %{_libdir}/lib%{name}.so

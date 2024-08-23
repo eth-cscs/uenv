@@ -1,16 +1,14 @@
-%__meson /usr/bin/meson
 %__sourcedir .
 %__builddir %{_target_platform}
 %__meson_wrap_mode nodownload
 
-%meson \
+%meson_setup \
   mkdir -p %{__builddir} \
   CFLAGS="${CFLAGS:-%optflags}"; export CFLAGS; \
   CXXFLAGS="${CXXFLAGS:-%optflags}"; export CXXFLAGS; \
   FFLAGS="${FFLAGS:-%optflags}"; export FFLAGS; \
   FCFLAGS="${FCFLAGS:-%optflags}"; export FCFLAGS; \
-  %__meson setup %{__sourcedir} %{__builddir}  \\\
-	-Doptimization=2 \\\
+  meson setup %{__sourcedir} %{__builddir}  \\\
 	%{?_enable_debug:-Ddebug=true} \\\
 	--prefix=%{_prefix} \\\
 	--bindir=%{_bindir} \\\
@@ -25,21 +23,12 @@
 	--mandir=%{_mandir} \\\
 	--infodir=%{_infodir} \\\
 	--localedir=%{_datadir}/locale \\\
+	-Dcli=false \\\
+	-Dslurm_plugin=true \\\
 	%{nil}
 
 %meson_build \
-ninja %_smp_mflags -C %{__builddir}
-
-%__meson_build \
-%__meson compile %_smp_mflags -C %{__builddir}
+meson compile %_smp_mflags -C %{__builddir}
 
 %meson_install \
-DESTDIR=%buildroot ninja -C %{__builddir} install
-
-%__meson_install \
-DESTDIR=%buildroot %__meson install --no-rebuild -C %{__builddir}
-
-%meson_test ninja -C %{__builddir} test
-
-# builtin meson test
-%__meson_test %__meson test --no-rebuild --print-errorlogs -C %{__builddir}
+DESTDIR=%buildroot meson install --no-rebuild --skip-subprojects -C %{__builddir}

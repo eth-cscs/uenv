@@ -97,7 +97,6 @@ tarball=slurm-uenv-mount-"${SLURM_UENV_MOUNT_VERSION}".tar.gz
 
   (
     cd "${_projectdir}"
-    #git archive --format=tar.gz --prefix="${source_prefix}/" --output="${dstdir}/SOURCES/${tarball}" HEAD
     git archive --format=tar.gz --output="${dstdir}/SOURCES/${tarball}" HEAD
   )
 
