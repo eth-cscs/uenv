@@ -84,4 +84,4 @@ if uenv_slurm_plugin
 endif
 
 # install the license
-install_data('LICENSE', install_mode : 'rw-r--r--', install_dir : 'license')
+#install_data('LICENSE', install_mode : 'rw-r--r--', install_dir : 'license')
