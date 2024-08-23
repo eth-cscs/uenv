@@ -111,7 +111,6 @@ tarball=slurm-uenv-mount-"${SLURM_UENV_MOUNT_VERSION}".tar.gz
     # create binary rpm
     rpmbuild --nodeps --define "_topdir $(pwd)" \
       --define "set_build_flags CXXFLAGS=\"-O2 -Wall -Wpedantic\"" \
-      --define "_smp_build_ncpus 4" \
       --define "_vpath_srcdir ${source_prefix}" \
       --rebuild SRPMS/slurm-uenv-mount-*.src.rpm
   fi
