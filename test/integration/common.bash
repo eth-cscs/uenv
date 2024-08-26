@@ -23,19 +23,16 @@ function run_srun() {
 }
 
 function run_sbatch_unchecked() {
-  log "+ sbatch --wait $@"
-
   slurm_log=$(mktemp)
   run sbatch --wait -o "${slurm_log}" "$@"
-
   log "${output}"
   logf "+ job log (${slurm_log}):\n$(cat ${slurm_log})"
-  rm -f "${slurm_log}"
-
-  echo "+ exit status from sbatch: ${status}"
 }
 
 function run_sbatch() {
   run_sbatch_unchecked "$@"
-  [ "${status}" -eq 0 ]
+  # workaround for `run sbatch --wait` always returning status==0
+  # grep slurm log for 'srun: error'
+  run bash -c "cat $slurm_log | grep -q 'srun: error'"
+  [ ! "${status}" -eq 0 ]
 }
