@@ -17,7 +17,7 @@ jobs:
       - name: Update apt repositories for ccache
         run: sudo apt update
       - name: Install dependencies
-        run: sudo apt-get install util-linux libmount-dev
+        run: sudo apt-get install util-linux libmount-dev slurm-wlm
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
