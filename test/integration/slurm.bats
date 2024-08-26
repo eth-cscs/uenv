@@ -7,6 +7,8 @@ function setup() {
     load ./common
 
     export REPOS=$(realpath ../scratch/repos)
+
+    unset UENV_MOUNT_LIST
 }
 
 function teardown() {
@@ -16,12 +18,12 @@ function teardown() {
 @test "noargs" {
     # nothing is done if no --uenv is present and UENV_MOUNT_LIST is empty
     unset UENV_MOUNT_LIST
+    unset UENV_REPO_PATH
     run_srun_unchecked  bash -c 'findmnt -r | grep /user-environment'
     refute_output --partial '/user-environment'
 }
 
 @test "mount uenv" {
-    unset UENV_MOUNT_LIST
     export UENV_REPO_PATH=$REPOS/apptool
 
     # if no mount point is provided the default provided by the uenv's meta
@@ -61,7 +63,6 @@ function teardown() {
 }
 
 @test "views" {
-    unset UENV_MOUNT_LIST
     export UENV_REPO_PATH=$REPOS/apptool
 
     # if the view is mounted, the app should be visible
@@ -107,15 +108,13 @@ function teardown() {
 }
 
 @test "custom mount point" {
-    unset UENV_MOUNT_LIST
     export UENV_REPO_PATH=$REPOS/apptool
 
     run_srun_unchecked  --uenv=app/42.0:/user-environment bash -c 'findmnt -r | grep /user-environment'
     assert_output --partial "/user-environment"
 }
 
-@test "duplicate_mount_fails" {
-    unset UENV_MOUNT_LIST
+@test "duplicate mount fails" {
     export UENV_REPO_PATH=$REPOS/apptool
 
     # duplicate images fail
@@ -123,8 +122,7 @@ function teardown() {
     assert_output --partial "more than one image mounted at the mount point '/user-environment'"
 }
 
-@test "duplicate_image_fails" {
-    unset UENV_MOUNT_LIST
+@test "duplicate image fails" {
     export UENV_REPO_PATH=$REPOS/apptool
 
     # duplicate images fail
@@ -133,11 +131,13 @@ function teardown() {
 }
 
 @test "empty --uenv argument" {
+    export UENV_REPO_PATH=$REPOS/apptool
     run_srun_unchecked --uenv='' true
     assert_output --partial 'invalid uenv description'
 }
 
-@test "sbatch_override_in_srun" {
+@test "sbatch override in srun" {
+    export UENV_REPO_PATH=$REPOS/apptool
     # check that images mounted via sbatch --uenv are overriden when `--uenv` flag is given to srun
     run_sbatch <<EOF
 #!/bin/bash
