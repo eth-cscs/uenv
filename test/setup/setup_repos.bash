@@ -5,6 +5,7 @@ function setup_repo_apptool() {
     working=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
 
     repo=${scratch}/repos/apptool
+    sqfs_path=${scratch}/sqfs/apptool
     sources=${working}/apptool
 
     echo "repo path ${repo}"
@@ -13,9 +14,11 @@ function setup_repo_apptool() {
 
     # clean up previous builds before starting
     rm -rf ${repo}
+    rm -rf ${sqfs_path}
 
     # create an empty repo
     mkdir -p ${repo}
+    mkdir -p ${sqfs_path}
 
     cp ${sources}/schema.sql.template schema.sql
 
@@ -30,10 +33,13 @@ function setup_repo_apptool() {
 
         echo ${sha} ${name}
 
-        img_path=$repo/images/${sha}
-        mkdir -p $img_path
-        mv ${sqfs} $img_path/store.squashfs
-        cp -R ${sources}/${name}/meta $img_path
+        for img_path in "$repo/images/${sha}" "$sqfs_path/$name"
+        do
+            mkdir -p $img_path
+            cp ${sqfs} $img_path/store.squashfs
+            cp -R ${sources}/${name}/meta $img_path
+        done
+        rm ${sqfs}
 
         sed -i "s|{${name}-sha}|${sha}|g" schema.sql
         sed -i "s|{${name}-id}|${id}|g" schema.sql

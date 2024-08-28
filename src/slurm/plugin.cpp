@@ -137,6 +137,22 @@ std::optional<std::string> getenv_wrapper(spank_t sp, const char* var) {
     throw ret;
 }
 
+util::expected<std::vector<uenv::mount_entry>, std::string>
+validate_uenv_mount_list(std::string mount_var) {
+    auto mount_list = uenv::parse_mount_list(mount_var);
+    if (!mount_list) {
+        return util::unexpected(mount_list.error().message());
+    }
+
+    for (auto& entry : *mount_list) {
+        if (auto valid = entry.validate(); !valid) {
+            return util::unexpected(valid.error());
+        }
+    }
+
+    return *mount_list;
+}
+
 static spank_option uenv_arg{
     (char*)"uenv",
     (char*)"<file>[:mount-point][,<file:mount-point>]*",
@@ -201,10 +217,10 @@ int init_post_opt_remote(spank_t sp) {
         return ESPANK_SUCCESS;
     }
 
-    auto mount_list = uenv::parse_mount_list(*mount_var);
+    auto mount_list = validate_uenv_mount_list(*mount_var);
     if (!mount_list) {
         slurm_error("internal error parsing the mount list: %s",
-                    mount_list.error().message().c_str());
+                    mount_list.error().c_str());
         return -ESPANK_ERROR;
     }
 
@@ -234,6 +250,21 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
                         args.view_description->c_str());
             return -ESPANK_ERROR;
         }
+
+        // check whether a uenv has been mounted in the calling environment.
+        // this will be mounted in the remote context, so check that:
+        // * the squashfs image exists
+        // * the user has read access to the squashfs image
+        // * the mount point exists
+        if (auto mount_var = getenv_wrapper(sp, "UENV_MOUNT_LIST")) {
+            if (auto mount_list = validate_uenv_mount_list(*mount_var);
+                !mount_list) {
+                slurm_error("invalid UENV_MOUNT_LIST: %s",
+                            mount_list.error().c_str());
+                return -ESPANK_ERROR;
+            }
+        }
+
         return ESPANK_SUCCESS;
     }
 

@@ -7,6 +7,7 @@ function setup() {
     load ./common
 
     export REPOS=$(realpath ../scratch/repos)
+    export SQFS_LIB=$(realpath ../scratch/sqfs)
 
     unset UENV_MOUNT_LIST
 }
@@ -136,6 +137,17 @@ function teardown() {
     assert_output --partial 'invalid uenv description'
 }
 
+@test "sbatch" {
+    export UENV_REPO_PATH=$REPOS/apptool
+    run_sbatch <<EOF
+#!/bin/bash
+#SBATCH --uenv=app/42.0,tool
+set -e
+srun findmnt /user-environment
+srun findmnt /user-tools
+EOF
+}
+
 @test "sbatch override in srun" {
     export UENV_REPO_PATH=$REPOS/apptool
     # check that images mounted via sbatch --uenv are overriden when `--uenv` flag is given to srun
@@ -143,10 +155,41 @@ function teardown() {
 #!/bin/bash
 #SBATCH --uenv=app/42.0
 
+set -e
+
 # override --uenv and mount under /user-tools instead
 srun --uenv=tool findmnt /user-tools
 
 # override, /user-environment must not be mounted
 srun --uenv=tool bash -c '! findmnt /user-environment'
 EOF
+}
+
+@test "sbatch UENV_MOUNT_LIST with no --uenv" {
+    # this should be independent of the repo
+    unset UENV_REPO_PATH
+
+    export UENV_MOUNT_LIST=$SQFS_LIB/apptool/tool/store.squashfs:/user-tools
+    run_sbatch <<EOF
+#!/bin/bash
+set -e
+srun findmnt /user-tools
+srun bash -c '! findmnt /user-environment'
+EOF
+
+    # sbatch should error if sqfs does not exist (there is a typo "toool" in sqfs name)
+    export UENV_MOUNT_LIST=$SQFS_LIB/apptool/toool/store.squashfs:/user-tools
+    run run_sbatch <<EOF
+#!/bin/bash
+echo "should not get here"
+EOF
+    [ "${status}" -eq "1" ]
+
+    # sbatch should error if mount does not exist
+    export UENV_MOUNT_LIST=$SQFS_LIB/apptool/tool/store.squashfs:/user-toooools
+    run run_sbatch <<EOF
+#!/bin/bash
+echo "should not get here"
+EOF
+    [ "${status}" -eq "1" ]
 }

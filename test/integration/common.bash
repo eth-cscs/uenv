@@ -31,8 +31,5 @@ function run_sbatch_unchecked() {
 
 function run_sbatch() {
   run_sbatch_unchecked "$@"
-  # workaround for `run sbatch --wait` always returning status==0
-  # grep slurm log for 'srun: error'
-  run bash -c "cat $slurm_log | grep -q 'srun: error'"
-  [ ! "${status}" -eq 0 ]
+  [ "${status}" -eq 0 ]
 }

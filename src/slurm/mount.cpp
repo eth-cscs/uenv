@@ -13,13 +13,64 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <fmt/format.h>
 #include <libmount/libmount.h>
 
-// #include "filesystem.hpp"
 #include <uenv/mount.h>
 #include <util/expected.h>
 
 namespace uenv {
+
+util::expected<void, std::string> mount_entry::validate() const {
+    namespace fs = std::filesystem;
+
+    auto mount = fs::path(mount_path);
+
+    // does the mount point exist?
+    if (!fs::exists(mount)) {
+        return util::unexpected(
+            fmt::format("the mount point '{}' does not exist", mount_path));
+    }
+
+    mount = fs::canonical(mount);
+
+    // is the mount point a directory?
+    if (!fs::is_directory(mount)) {
+        return util::unexpected(
+            fmt::format("the mount point '{}' is not a directory", mount_path));
+    }
+
+    auto sqfs = fs::path(sqfs_path);
+
+    // does the squashfs path exist?
+    if (!fs::exists(sqfs)) {
+        return util::unexpected(
+            fmt::format("the squashfs file '{}' does not exist", sqfs_path));
+    }
+
+    // remove symlink etc, so that we can test file and permissions
+    sqfs = fs::canonical(sqfs);
+
+    // is the squashfs path a file ?
+    if (!fs::is_regular_file(sqfs)) {
+        return util::unexpected(
+            fmt::format("the squashfs file '{}' is not a file", sqfs_path));
+    }
+
+    // do we have read access to the squashfs file
+    const fs::perms sqfs_perm = fs::status(sqfs).permissions();
+    auto satisfies = [&sqfs_perm](fs::perms c) {
+        return fs::perms::none != (sqfs_perm & c);
+    };
+    if (!(satisfies(fs::perms::owner_read) ||
+          satisfies(fs::perms::group_read))) {
+        return util::unexpected(
+            fmt::format("you do not have read access to the squashfs file '{}'",
+                        sqfs_path));
+    }
+
+    return {};
+}
 
 util::expected<void, std::string>
 do_mount(const std::vector<mount_entry>& mount_entries) {
