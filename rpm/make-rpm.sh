@@ -57,7 +57,7 @@ while true; do
 done
 
 # Remaining dstdir is in $1
-dstdir=$1
+dstdir=$(realpath $1)
 
 # Check if the positional argument was provided
 if [ -z "$dstdir" ]; then
