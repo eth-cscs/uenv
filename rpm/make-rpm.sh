@@ -112,7 +112,6 @@ tarball=slurm-uenv-mount-"${SLURM_UENV_MOUNT_VERSION}".tar.gz
     rpmbuild --nodeps --define "_topdir $(pwd)" \
       --define "set_build_flags CXXFLAGS=\"-O2 -Wall -Wpedantic\"" \
       --define "_vpath_srcdir ${source_prefix}" \
-      --load ${_scriptdir}/macros.meson \
       --rebuild SRPMS/slurm-uenv-mount-*.src.rpm
   fi
 )
