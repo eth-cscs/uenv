@@ -85,7 +85,7 @@ util::expected<std::string, parse_error> parse_name(lexer& L) {
 // all of the symbols that can occur in a path.
 // this is a subset of the characters that posix allows (which is effectively
 // every character). But it is a sane subset. If the user somehow has spaces or
-// colons in their file names, we aer doing them a favor.
+// colons in their file names, we are doing them a favor.
 bool is_path_tok(tok t) {
     return t == tok::slash || t == tok::symbol || t == tok::dash ||
            t == tok::dot;
