@@ -1,27 +1,34 @@
 // vim: ts=4 sts=4 sw=4 et
 #pragma once
 
+#include <filesystem>
+#include <optional>
+#include <string>
+
 #include <fmt/core.h>
+
+#include <util/expected.h>
 
 namespace uenv {
 
 extern int mode;
-// extern bool verbose;
 
 constexpr int mode_none = 0;
 constexpr int mode_start = 1;
-// constexpr int mode_status = 1;
-// constexpr int mode_image = 2;
-// constexpr int mode_run = 3;
+constexpr int mode_run = 2;
+constexpr int mode_image_ls = 3;
 
 struct global_settings {
     int verbose = 0;
     bool no_color = false;
     int mode = mode_none;
 
-    // bool color = true;
-    // std::string repo;
-    // std::string const to_string()
+    // repo_ is the unverified string description of the repo path that is
+    // either read from an environment variable or as a --repo CLI argument. the
+    // value should be validated using uenv::validate_repo_path before use.
+    std::optional<std::string> repo_;
+
+    std::optional<std::filesystem::path> repo;
 };
 
 } // namespace uenv

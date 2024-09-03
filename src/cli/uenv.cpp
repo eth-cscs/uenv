@@ -7,6 +7,12 @@
 
 #include <uenv/log.h>
 
+#include <uenv/parse.h>
+#include <uenv/repository.h>
+#include <util/expected.h>
+
+#include "image.h"
+#include "run.h"
 #include "start.h"
 #include "uenv.h"
 
@@ -20,9 +26,15 @@ int main(int argc, char** argv) {
     CLI::App cli("uenv");
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
     cli.add_flag("--no-color", settings.no_color, "disable color output");
+    cli.add_flag("--repo", settings.repo_, "the uenv repository");
 
-    uenv::start_args start_args;
-    start_args.add_cli(cli, settings);
+    uenv::start_args start;
+    uenv::run_args run;
+    uenv::image_args image;
+
+    start.add_cli(cli, settings);
+    run.add_cli(cli, settings);
+    image.add_cli(cli, settings);
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -38,11 +50,41 @@ int main(int argc, char** argv) {
     }
     uenv::init_log(console_log_level, spdlog::level::trace);
 
-    spdlog::debug("{}", settings);
+    // if a repo was not provided as a flag, look at environment variables
+    if (!settings.repo_) {
+        if (const auto p = uenv::default_repo_path()) {
+            settings.repo_ = *uenv::default_repo_path();
+        } else {
+            spdlog::warn("ignoring the default repo path: {}", p.error());
+        }
+    }
+
+    // post-process settings after the CLI arguments have been parsed
+    if (settings.repo_) {
+        if (const auto rpath =
+                uenv::validate_repo_path(*settings.repo_, false, false)) {
+            settings.repo = *rpath;
+        } else {
+            spdlog::warn("ignoring repo path due to an error, {}",
+                         rpath.error());
+            settings.repo = std::nullopt;
+            settings.repo_ = std::nullopt;
+        }
+    }
+
+    if (settings.repo) {
+        spdlog::info("repo is set {}", *settings.repo);
+    }
+
+    spdlog::info("{}", settings);
 
     switch (settings.mode) {
     case uenv::mode_start:
-        return uenv::start(start_args, settings);
+        return uenv::start(start, settings);
+    case uenv::mode_run:
+        return uenv::run(run, settings);
+    case uenv::mode_image_ls:
+        return uenv::image_ls(image.ls_args, settings);
     case uenv::mode_none:
     default:
         help();

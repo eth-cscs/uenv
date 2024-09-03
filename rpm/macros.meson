@@ -1,0 +1,34 @@
+%__sourcedir .
+%__builddir %{_target_platform}
+%__meson_wrap_mode nodownload
+
+%meson_setup \
+  mkdir -p %{__builddir} \
+  CFLAGS="${CFLAGS:-%optflags}"; export CFLAGS; \
+  CXXFLAGS="${CXXFLAGS:-%optflags}"; export CXXFLAGS; \
+  FFLAGS="${FFLAGS:-%optflags}"; export FFLAGS; \
+  FCFLAGS="${FCFLAGS:-%optflags}"; export FCFLAGS; \
+  meson setup %{__sourcedir} %{__builddir}  \\\
+	%{?_enable_debug:-Ddebug=true} \\\
+	--prefix=%{_prefix} \\\
+	--bindir=%{_bindir} \\\
+	--sbindir=%{_sbindir} \\\
+	--libexecdir=%{_libexecdir} \\\
+	--libdir=%{_libdir} \\\
+	--localstatedir=%{_var} \\\
+	--sharedstatedir=%{_sharedstatedir} \\\
+	--includedir=%{_includedir} \\\
+	--datadir=%{_datadir} \\\
+	--sysconfdir=%{_sysconfdir} \\\
+	--mandir=%{_mandir} \\\
+	--infodir=%{_infodir} \\\
+	--localedir=%{_datadir}/locale \\\
+	-Dcli=false \\\
+	-Dslurm_plugin=true \\\
+	%{nil}
+
+%meson_build \
+meson compile %_smp_mflags -C %{__builddir}
+
+%meson_install \
+DESTDIR=%buildroot meson install --no-rebuild --skip-subprojects -C %{__builddir}

@@ -1,0 +1,17 @@
+#%Module1.0
+## Module file created by bcumming
+
+
+module-whatis {A not so useful tool for testing uenv.}
+
+proc ModulesHelp { } {
+    puts stderr {Name   : tool}
+    puts stderr {Version: 17.3.2}
+    puts stderr {Target : zen4}
+    puts stderr {}
+    puts stderr {A not so useful tool for testing uenv.}
+}
+
+
+prepend-path PATH {/user-tools/env/tool/bin}
+

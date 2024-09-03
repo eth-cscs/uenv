@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
 #include <util/expected.h>
@@ -42,7 +43,7 @@ int exec(const std::vector<std::string>& args) {
     }
     argv.push_back(nullptr);
 
-    spdlog::info("running {}", argv[0]);
+    spdlog::info("exec: {}", fmt::join(args, " "));
     int r = execvp(argv[0], argv.data());
     // } // end unsafe
 

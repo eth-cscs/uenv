@@ -1,0 +1,17 @@
+#%Module1.0
+## Module file created by bcumming
+
+
+module-whatis {A not so fancy app for testing uenv.}
+
+proc ModulesHelp { } {
+    puts stderr {Name   : app}
+    puts stderr {Version: 43.0}
+    puts stderr {Target : zen4}
+    puts stderr {}
+    puts stderr {A not so fancy app for testing uenv.}
+}
+
+
+prepend-path PATH {/user-environment/env/app/bin}
+

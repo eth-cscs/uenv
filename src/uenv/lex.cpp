@@ -36,6 +36,10 @@ class lexer_impl {
         parse();
     }
 
+    std::string string() const {
+        return std::string(input_);
+    }
+
     token next() {
         auto t = token_;
         parse();
@@ -109,6 +113,18 @@ class lexer_impl {
                 character_token(tok::at);
                 ++stream_;
                 return;
+            case '!':
+                character_token(tok::bang);
+                ++stream_;
+                return;
+            case '%':
+                character_token(tok::percent);
+                ++stream_;
+                return;
+            case '*':
+                character_token(tok::star);
+                ++stream_;
+                return;
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -136,7 +152,11 @@ class lexer_impl {
     }
 
     void character_token(tok kind) {
-        token_ = {loc(), kind, std::string_view(&*stream_, 1)};
+        if (kind != tok::end) {
+            token_ = {loc(), kind, std::string_view(&*stream_, 1)};
+        } else {
+            token_ = {loc(), kind, std::string_view("end", 3)};
+        }
     }
 
     char character() {
@@ -183,6 +203,10 @@ token lexer::peek(unsigned n) {
 
 tok lexer::current_kind() const {
     return impl_->current_kind();
+}
+
+std::string lexer::string() const {
+    return impl_->string();
 }
 
 lexer::~lexer() = default;

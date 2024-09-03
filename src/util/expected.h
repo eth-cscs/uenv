@@ -190,7 +190,7 @@ struct expected {
     using unexpected_type = unexpected<E>;
     using data_type = std::variant<T, unexpected_type>;
 
-    expected() = default;
+    expected() requires std::is_default_constructible_v<T>: data_(T()) {};
     expected(const expected&) = default;
     expected(expected&&) = default;
 

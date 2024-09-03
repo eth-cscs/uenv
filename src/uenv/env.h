@@ -1,14 +1,8 @@
 #pragma once
 
-// #include <filesystem>
-// #include <optional>
-// #include <string>
-// #include <variant>
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-// #include <fmt/core.h>
 
 #include <util/expected.h>
 
@@ -26,6 +20,13 @@ struct env {
 
 util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
-               std::optional<std::string> view_args);
+               std::optional<std::string> view_args,
+               std::optional<std::filesystem::path> repo_arg);
+
+std::unordered_map<std::string, std::string> getenv(const env&);
+
+util::expected<int, std::string>
+setenv(const std::unordered_map<std::string, std::string>& variables,
+       const std::string& prefix);
 
 } // namespace uenv

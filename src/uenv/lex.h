@@ -1,7 +1,7 @@
 #pragma once
 
 #include <memory>
-#include <string>
+#include <string_view>
 
 #include <fmt/core.h>
 
@@ -15,8 +15,11 @@ enum class tok {
     symbol,     // string, e.g. prgenv-gnu
     dash,       // comma ','
     dot,        // comma ','
-    end,        // end of input
     whitespace, // sequence of spaces
+    bang,       // exclamation mark '!'
+    star,       // '*'
+    percent,    // percentage symbol '%'
+    end,        // end of input
     error,      // invalid input encountered in stream
 };
 
@@ -44,6 +47,9 @@ class lexer {
     // a convenience helper for checking the kind of the current token
     tok current_kind() const;
 
+    // return a string view of the full input
+    std::string string() const;
+
     ~lexer();
 
   private:
@@ -64,6 +70,8 @@ template <> class fmt::formatter<uenv::tok> {
         switch (t) {
         case uenv::tok::colon:
             return fmt::format_to(ctx.out(), "colon");
+        case uenv::tok::star:
+            return fmt::format_to(ctx.out(), "star");
         case uenv::tok::comma:
             return fmt::format_to(ctx.out(), "comma");
         case uenv::tok::slash:
@@ -78,6 +86,10 @@ template <> class fmt::formatter<uenv::tok> {
             return fmt::format_to(ctx.out(), "whitespace");
         case uenv::tok::at:
             return fmt::format_to(ctx.out(), "at");
+        case uenv::tok::bang:
+            return fmt::format_to(ctx.out(), "bang");
+        case uenv::tok::percent:
+            return fmt::format_to(ctx.out(), "percent");
         case uenv::tok::end:
             return fmt::format_to(ctx.out(), "end");
         case uenv::tok::error:

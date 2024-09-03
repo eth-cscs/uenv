@@ -1,0 +1,68 @@
+-- v2 schema for uenv
+-- template for a simple repo with
+--   an app image to mount at /user-environment
+--   a tool image to mount at /user-tools
+
+BEGIN;
+
+PRAGMA foreign_keys=on;
+
+CREATE TABLE images (
+    sha256 TEXT PRIMARY KEY CHECK(length(sha256)==64),
+    id TEXT UNIQUE CHECK(length(id)==16),
+    date TEXT NOT NULL,
+    size INTEGER NOT NULL
+);
+
+INSERT INTO images VALUES('{app42-sha}','{app42-id}','2024-03-11 17:08:35.976000+00:00',4096);
+INSERT INTO images VALUES('{app43-sha}','{app43-id}','2024-03-11 17:08:35.976000+00:00',4096);
+INSERT INTO images VALUES('{tool-sha}','{tool-id}','2024-05-01 14:02:32.976000+00:00',4096);
+
+CREATE TABLE uenv (
+    version_id INTEGER PRIMARY KEY,
+    system TEXT NOT NULL,
+    uarch TEXT NOT NULL,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    UNIQUE (system, uarch, name, version)
+);
+
+INSERT INTO uenv VALUES(1,'arapiles','zen3','app','42.0');
+INSERT INTO uenv VALUES(2,'arapiles','zen3','app','43.0');
+INSERT INTO uenv VALUES(3,'arapiles','zen3','tool','17.3.2');
+
+CREATE TABLE tags (
+    version_id INTEGER,
+    tag TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    PRIMARY KEY (version_id, tag),
+    FOREIGN KEY (version_id)
+        REFERENCES uenv (version_id)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE,
+    FOREIGN KEY (sha256)
+        REFERENCES images (sha256)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE
+);
+
+INSERT INTO tags VALUES(1,'v1','{app42-sha}');
+INSERT INTO tags VALUES(2,'v1','{app43-sha}');
+INSERT INTO tags VALUES(3,'v1','{tool-sha}');
+
+CREATE VIEW records AS
+SELECT
+    uenv.system  AS system,
+    uenv.uarch   AS uarch,
+    uenv.name      AS name,
+    uenv.version   AS version,
+    tags.tag       AS tag,
+    images.date    AS date,
+    images.size    AS size,
+    tags.sha256    AS sha256,
+    images.id      AS id
+FROM tags
+    INNER JOIN uenv   ON uenv.version_id = tags.version_id
+    INNER JOIN images ON images.sha256   = tags.sha256;
+
+COMMIT;

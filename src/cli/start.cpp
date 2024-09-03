@@ -13,7 +13,6 @@
 #include <util/expected.h>
 #include <util/shell.h>
 
-#include "env.h"
 #include "start.h"
 #include "uenv.h"
 
@@ -37,10 +36,9 @@ void start_args::add_cli(CLI::App& cli,
 
 int start(const start_args& args,
           [[maybe_unused]] const global_settings& globals) {
-    spdlog::debug("running start with options {}", args);
-
-    const auto env =
-        concretise_env(args.uenv_description, args.view_description);
+    spdlog::info("start with options {}", args);
+    const auto env = concretise_env(args.uenv_description,
+                                    args.view_description, globals.repo);
 
     if (!env) {
         spdlog::error("{}", env.error());
@@ -50,7 +48,7 @@ int start(const start_args& args,
     // generate the environment variables to set
     auto env_vars = uenv::getenv(*env);
 
-    if (auto rval = uenv::setenv(env_vars); !rval) {
+    if (auto rval = uenv::setenv(env_vars, "SQFSMNT_FWD_"); !rval) {
         spdlog::error("setting environment variables {}", rval.error());
         return 1;
     }
@@ -74,7 +72,6 @@ int start(const start_args& args,
     commands.push_back("--");
     commands.push_back(shell->string());
 
-    spdlog::info("exec {}", fmt::join(commands, " "));
     return util::exec(commands);
 }
 
