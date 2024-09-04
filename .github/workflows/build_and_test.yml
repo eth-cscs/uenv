@@ -33,5 +33,7 @@ jobs:
               build .
       - name: Build
         run: ninja -C build
+      - name: Setup Test
+        run: cd test/setup && ./setup
       - name: Test
         run: ./build/unit
