@@ -9,7 +9,7 @@
 namespace fs = std::filesystem;
 
 TEST_CASE("read-only", "[repository]") {
-    fs::path repo_path{"../test/scratch/repo"};
+    fs::path repo_path{"../test/scratch/repos/apptool"};
     auto store = uenv::open_repository(repo_path);
 
     if (!store) {
@@ -24,9 +24,9 @@ TEST_CASE("read-only", "[repository]") {
         }
         REQUIRE(results);
 
-        for (auto& r : *results) {
-            fmt::println("{}", r);
-        }
+        // for (auto& r : *results) {
+        // fmt::println("{}", r);
+        //}
     }
 
     fmt::println("");
@@ -37,9 +37,9 @@ TEST_CASE("read-only", "[repository]") {
         }
         REQUIRE(results);
 
-        for (auto& r : *results) {
-            fmt::println("{}", r);
-        }
+        // for (auto& r : *results) {
+        // fmt::println("{}", r);
+        //}
     }
 
     fmt::println("");
@@ -50,9 +50,9 @@ TEST_CASE("read-only", "[repository]") {
         }
         REQUIRE(results);
 
-        for (auto& r : *results) {
-            fmt::println("{}", r);
-        }
+        // for (auto& r : *results) {
+        // fmt::println("{}", r);
+        //}
     }
 
     fmt::println("");
@@ -63,9 +63,9 @@ TEST_CASE("read-only", "[repository]") {
         }
         REQUIRE(results);
 
-        for (auto& r : *results) {
-            fmt::println("{}", r);
-        }
+        // for (auto& r : *results) {
+        // fmt::println("{}", r);
+        //}
     }
 
     fmt::println("");
@@ -77,8 +77,8 @@ TEST_CASE("read-only", "[repository]") {
         REQUIRE(results);
         REQUIRE(results->empty());
 
-        for (auto& r : *results) {
-            fmt::println("{}", r);
-        }
+        // for (auto& r : *results) {
+        // fmt::println("{}", r);
+        //}
     }
 }

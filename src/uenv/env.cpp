@@ -142,8 +142,8 @@ concretise_env(const std::string& uenv_args,
                 spdlog::info("{}: loaded meta (name {}, mount {})", desc, name,
                              mount_meta);
             } else {
-                spdlog::error("{} opening the uenv meta data {}: {}", desc,
-                              *env_meta_path, result.error());
+                spdlog::warn("{} opening the uenv meta data {}: {}", desc,
+                             *env_meta_path, result.error());
             }
         } else {
             spdlog::debug("{} no meta file found at expected location {}", desc,
