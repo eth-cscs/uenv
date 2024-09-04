@@ -36,4 +36,4 @@ jobs:
       - name: Setup Test
         run: cd test/setup && ./setup
       - name: Test
-        run: ./build/unit
+        run: cd build && ./unit
