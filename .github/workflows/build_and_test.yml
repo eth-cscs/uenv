@@ -11,7 +11,11 @@ jobs:
     strategy:
       matrix:
         buildtype: [debug, release]
-        sanitizer: [none, leak, undefined, thread]
+        sanitizer: [none, address, leak, undefined, thread]
+        exclude:
+          # False positive warnings in release builds: https://godbolt.org/z/vT3nqGxzW
+          - buildtype: release
+            sanitizer: address
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
