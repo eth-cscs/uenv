@@ -42,4 +42,7 @@ jobs:
       - name: Setup Test
         run: cd test/setup && ./setup
       - name: Test
-        run: cd build && ./unit
+        run: |
+          export ASAN_OPTIONS=fast_unwind_on_malloc=0:strict_string_checks=1:detect_leaks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
+          export UBSAN_OPTIONS=print_stacktrace=1
+          cd build && ./unit
