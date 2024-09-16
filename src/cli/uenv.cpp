@@ -92,7 +92,8 @@ int main(int argc, char** argv) {
         return uenv::image_ls(image.ls_args, settings);
     case uenv::mode_none:
     default:
-        spdlog::error("internal error, missing implementation for mode {}", settings.mode);
+        spdlog::error("internal error, missing implementation for mode {}",
+                      settings.mode);
         return 1;
     }
 
