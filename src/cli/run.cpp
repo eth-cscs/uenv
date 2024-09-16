@@ -34,7 +34,7 @@ void run_args::add_cli(CLI::App& cli, global_settings& settings) {
         ->add_option("commands", commands,
                      "the command to run, including with arguments")
         ->required();
-    run_cli->callback([&settings]() { settings.mode = uenv::mode_run; });
+    run_cli->callback([&settings]() { settings.mode = uenv::cli_mode::run; });
 }
 
 int run(const run_args& args, const global_settings& globals) {

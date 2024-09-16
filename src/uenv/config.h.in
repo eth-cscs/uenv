@@ -1,0 +1,7 @@
+#pragma once
+
+#define UENV_VERSION "@version@"
+#define UENV_VERSION_MAJOR @version_major@
+#define UENV_VERSION_MINOR @version_minor@
+#define UENV_VERSION_PATCH @version_patch@
+#define UENV_VERSION_PRERELEASE "@version_prerelease@"

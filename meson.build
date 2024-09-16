@@ -46,6 +46,8 @@ lib_dep = declare_dependency(
         include_directories: lib_inc
 )
 
+subdir('src/uenv')
+
 # the uenv executable
 if uenv_cli
     uenv_src = [

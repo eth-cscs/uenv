@@ -1,6 +1,7 @@
 // vim: ts=4 sts=4 sw=4 et
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -11,17 +12,15 @@
 
 namespace uenv {
 
-extern int mode;
-
-constexpr int mode_none = 0;
-constexpr int mode_start = 1;
-constexpr int mode_run = 2;
-constexpr int mode_image_ls = 3;
+enum class cli_mode : std::uint32_t { unset, start, run, image_ls };
 
 struct global_settings {
+    using enum cli_mode;
+
     int verbose = 0;
     bool no_color = false;
-    int mode = mode_none;
+    // int mode = mode_none;
+    cli_mode mode = unset;
 
     // repo_ is the unverified string description of the repo path that is
     // either read from an environment variable or as a --repo CLI argument. the
@@ -32,6 +31,30 @@ struct global_settings {
 };
 
 } // namespace uenv
+
+template <> class fmt::formatter<uenv::cli_mode> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(uenv::cli_mode mode, FmtContext& ctx) const {
+        using enum uenv::cli_mode;
+        switch (mode) {
+        case unset:
+            return format_to(ctx.out(), "unset");
+        case start:
+            return format_to(ctx.out(), "start");
+        case run:
+            return format_to(ctx.out(), "run");
+        case image_ls:
+            return format_to(ctx.out(), "image-ls");
+        }
+        return format_to(ctx.out(), "unknown");
+    }
+};
 
 template <> class fmt::formatter<uenv::global_settings> {
   public:
