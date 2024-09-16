@@ -7,6 +7,7 @@
 
 #include <uenv/log.h>
 
+#include <uenv/config.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
@@ -16,17 +17,15 @@
 #include "start.h"
 #include "uenv.h"
 
-void help() {
-    fmt::println("usage main");
-}
-
 int main(int argc, char** argv) {
     uenv::global_settings settings;
+    bool print_version = false;
 
     CLI::App cli("uenv");
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
     cli.add_flag("--no-color", settings.no_color, "disable color output");
     cli.add_flag("--repo", settings.repo_, "the uenv repository");
+    cli.add_flag("--version", print_version, "print version");
 
     uenv::start_args start;
     uenv::run_args run;
@@ -49,6 +48,12 @@ int main(int argc, char** argv) {
         console_log_level = spdlog::level::trace;
     }
     uenv::init_log(console_log_level, spdlog::level::trace);
+
+    // print the version and exit if the --version flag was passed
+    if (print_version) {
+        fmt::print("{}\n", UENV_VERSION);
+        return 0;
+    }
 
     // if a repo was not provided as a flag, look at environment variables
     if (!settings.repo_) {
@@ -73,7 +78,7 @@ int main(int argc, char** argv) {
     }
 
     if (settings.repo) {
-        spdlog::info("repo is set {}", *settings.repo);
+        spdlog::info("using repo {}", *settings.repo);
     }
 
     spdlog::info("{}", settings);
@@ -87,7 +92,8 @@ int main(int argc, char** argv) {
         return uenv::image_ls(image.ls_args, settings);
     case uenv::mode_none:
     default:
-        help();
+        spdlog::error("internal error, missing implementation for mode {}", settings.mode);
+        return 1;
     }
 
     return 0;
