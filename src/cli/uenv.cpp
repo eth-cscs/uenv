@@ -12,10 +12,13 @@
 #include <uenv/repository.h>
 #include <util/expected.h>
 
+#include "help.h"
 #include "image.h"
 #include "run.h"
 #include "start.h"
 #include "uenv.h"
+
+std::string help_footer();
 
 int main(int argc, char** argv) {
     uenv::global_settings settings;
@@ -26,6 +29,8 @@ int main(int argc, char** argv) {
     cli.add_flag("--no-color", settings.no_color, "disable color output");
     cli.add_flag("--repo", settings.repo_, "the uenv repository");
     cli.add_flag("--version", print_version, "print version");
+
+    cli.footer(help_footer);
 
     uenv::start_args start;
     uenv::run_args run;
@@ -102,4 +107,18 @@ int main(int argc, char** argv) {
     }
 
     return 0;
+}
+
+std::string help_footer() {
+    using enum help::block::admonition;
+    help::block prelude = {
+        none,
+        {"Use the --help flag in with sub-commands for more information."}};
+    help::example run_example = {
+        {"get help with the run command"}, {"uenv run --help"}, {}};
+    help::example ls_example = {
+        {fmt::format("get help with the {} command", help::lst("image ls"))},
+        {"uenv image ls --help"},
+        {}};
+    return fmt::format("{}\n\n{}\n\n{}", prelude, run_example, ls_example);
 }
