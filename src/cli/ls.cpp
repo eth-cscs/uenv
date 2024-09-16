@@ -26,7 +26,8 @@ void image_ls_args::add_cli(CLI::App& cli,
                        "comma separated list of uenv to mount.");
     ls_cli->add_flag("--no-header", no_header,
                      "print only the matching records, with no header.");
-    ls_cli->callback([&settings]() { settings.mode = uenv::mode_image_ls; });
+    ls_cli->callback(
+        [&settings]() { settings.mode = uenv::cli_mode::image_ls; });
 }
 
 int image_ls(const image_ls_args& args, const global_settings& settings) {

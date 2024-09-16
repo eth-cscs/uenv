@@ -31,7 +31,8 @@ void start_args::add_cli(CLI::App& cli,
         ->add_option("uenv", uenv_description,
                      "comma separated list of uenv to mount")
         ->required();
-    start_cli->callback([&settings]() { settings.mode = uenv::mode_start; });
+    start_cli->callback(
+        [&settings]() { settings.mode = uenv::cli_mode::start; });
 }
 
 int start(const start_args& args,

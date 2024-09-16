@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
     uenv::global_settings settings;
     bool print_version = false;
 
-    CLI::App cli("uenv");
+    CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
     cli.add_flag("--no-color", settings.no_color, "disable color output");
     cli.add_flag("--repo", settings.repo_, "the uenv repository");
@@ -84,14 +84,18 @@ int main(int argc, char** argv) {
     spdlog::info("{}", settings);
 
     switch (settings.mode) {
-    case uenv::mode_start:
+    case settings.start:
         return uenv::start(start, settings);
-    case uenv::mode_run:
+    case settings.run:
         return uenv::run(run, settings);
-    case uenv::mode_image_ls:
+    case settings.image_ls:
         return uenv::image_ls(image.ls_args, settings);
-    case uenv::mode_none:
+    case settings.unset:
+        fmt::println("uenv version {}", UENV_VERSION);
+        fmt::println("call '{} --help' for help", argv[0]);
+        return 0;
     default:
+        spdlog::warn("{}", (int)settings.mode);
         spdlog::error("internal error, missing implementation for mode {}",
                       settings.mode);
         return 1;
