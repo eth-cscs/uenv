@@ -21,9 +21,6 @@ if not fs.is_file(version_path)
   conf.set('version_patch', uenv_version_patch)
   conf.set('version_prerelease', uenv_version_prerelease)
 
-  #gitlog = run_command('../gitlog', check: true).stdout().strip()
-  #buildtype = get_option('buildtype').to_upper()
-  #configstring = ';'.join(arb_configurations)
   configure_file(input : 'config.h.in',
                  output : 'config.h',
                  configuration : conf)
