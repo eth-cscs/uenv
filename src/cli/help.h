@@ -1,18 +1,18 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <fmt/color.h>
 #include <fmt/format.h>
 
-#include "color.h"
-
 namespace help {
 
 struct lst {
     std::string content;
 };
+std::string render(const lst&);
 
 struct block {
     enum class admonition : std::uint32_t {
@@ -26,16 +26,67 @@ struct block {
     admonition kind = none;
     std::vector<std::string> lines;
 };
+std::string render(const block&);
 
 struct example {
     std::vector<std::string> description;
     std::vector<std::string> code;
     std::vector<block> blocks;
+    std::string string() const;
+};
+std::string render(const example&);
+
+class item {
+  public:
+    template <typename T>
+    item(T impl) : impl_(std::make_unique<wrap<T>>(std::move(impl))) {
+    }
+
+    item(item&& other) = default;
+
+    item(const item& other) : impl_(other.impl_->clone()) {
+    }
+
+    item& operator=(item&& other) = default;
+    item& operator=(const item& other) {
+        return *this = item(other);
+    }
+
+    std::string render() const {
+        return impl_->render();
+    }
+
+  private:
+    struct interface {
+        virtual ~interface() {
+        }
+        virtual std::unique_ptr<interface> clone() = 0;
+        virtual std::string render() const = 0;
+    };
+
+    std::unique_ptr<interface> impl_;
+
+    template <typename T> struct wrap : interface {
+        explicit wrap(const T& impl) : wrapped(impl) {
+        }
+        explicit wrap(T&& impl) : wrapped(std::move(impl)) {
+        }
+
+        virtual std::unique_ptr<interface> clone() override {
+            return std::unique_ptr<interface>(new wrap<T>(wrapped));
+        }
+
+        virtual std::string render() const override {
+            return help::render(wrapped);
+        }
+
+        T wrapped;
+    };
 };
 
 } // namespace help
 
-template <> class fmt::formatter<help::lst> {
+template <> class fmt::formatter<help::item> {
   public:
     // parse format specification and store it:
     constexpr auto parse(format_parse_context& ctx) {
@@ -43,93 +94,7 @@ template <> class fmt::formatter<help::lst> {
     }
     // format a value using stored specification:
     template <typename FmtContext>
-    constexpr auto format(help::lst const& listing, FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "{}", ::color::white(listing.content));
-    }
-};
-
-template <> class fmt::formatter<help::block> {
-  public:
-    // parse format specification and store it:
-    constexpr auto parse(format_parse_context& ctx) {
-        return ctx.end();
-    }
-
-    // format a value using stored specification:
-    template <typename FmtContext>
-    constexpr auto format(help::block const& block, FmtContext& ctx) const {
-        using enum help::block::admonition;
-        auto ctx_ = ctx.out();
-        switch (block.kind) {
-        case none:
-            break;
-        case note:
-            ctx_ = fmt::format_to(ctx.out(), "{} - ", ::color::cyan("note"));
-            break;
-        case info:
-            ctx_ = fmt::format_to(ctx.out(), "{} - ",
-                                  ::color::bright_green("info"));
-            break;
-        case warn:
-            ctx_ = fmt::format_to(ctx.out(), "{} - ",
-                                  ::color::bright_red("warning"));
-            break;
-        case deprecated:
-            ctx_ = fmt::format_to(ctx.out(), "{} - ",
-                                  ::color::bright_red("deprecated"));
-        }
-        bool first = true;
-        for (auto& l : block.lines) {
-            if (!first) {
-                ctx_ = fmt::format_to(ctx_, "\n");
-            }
-            ctx_ = fmt::format_to(ctx_, "{}", l);
-            first = false;
-        }
-
-        return ctx_;
-    }
-};
-
-template <typename FmtContext>
-constexpr auto format_lines(FmtContext& ctx,
-                            const std::vector<std::string>& lines,
-                            std::string_view prefix = "") {
-    auto ctx_ = ctx;
-    bool first = true;
-    for (auto& l : lines) {
-        if (!first) {
-            ctx_ = fmt::format_to(ctx_, "\n");
-        }
-        ctx_ = fmt::format_to(ctx_, "{}{}", prefix, l);
-    }
-
-    return ctx_;
-}
-
-template <> class fmt::formatter<help::example> {
-  public:
-    // parse format specification and store it:
-    constexpr auto parse(format_parse_context& ctx) {
-        return ctx.end();
-    }
-    // format a value using stored specification:
-    template <typename FmtContext>
-    constexpr auto format(help::example const& E, FmtContext& ctx) const {
-        using namespace color;
-        auto ctx_ = fmt::format_to(ctx.out(), "{} - ", blue("Example"));
-        ctx_ = format_lines(ctx_, E.description);
-        ctx_ = fmt::format_to(ctx_, ":");
-        for (auto& l : E.code) {
-            ctx_ = fmt::format_to(ctx_, "\n  {}", white(l));
-        }
-        if (!E.blocks.empty()) {
-            ctx_ = fmt::format_to(ctx_, "\n");
-        }
-        for (auto& b : E.blocks) {
-            ctx_ = fmt::format_to(ctx_, "{}", b);
-        }
-
-        return ctx_;
+    constexpr auto format(help::item const& item, FmtContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}", item.render());
     }
 };

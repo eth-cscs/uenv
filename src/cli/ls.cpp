@@ -3,6 +3,7 @@
 #include <string>
 
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
@@ -108,50 +109,71 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
 
 std::string image_ls_footer() {
     using enum help::block::admonition;
-    help::block prelude = {none,
-                           {"Search for uenv that are available to run."}};
-    help::example list_all = {{"list all uenv"}, {"uenv image ls"}, {}};
-    help::example list_all_prg = {{"list all uenv with the name prgenv-gnu"},
-                                  {"uenv image ls prgenv-gnu"},
-                                  {}};
-    help::example list_all_prg2 = {
-        {"list all uenv with the name prgenv-gnu and version 24.7"},
-        {"uenv image ls prgenv-gnu/24.7"},
-        {}};
-    help::example list_all_prg3 = {
-        {"list all uenv with the name prgenv-gnu, version 24.7 and release v2"},
-        {"uenv image ls prgenv-gnu/24.7:v2"},
-        {}};
-    help::example list_system = {
-        {"use the @ symbol to specify a target system name"},
-        {"uenv image ls prgenv-gnu@todi"},
-        {{none,
-          {"this feature is useful when using images that were built for a "
-           "different system",
-           "than the one you are currently working on."}}}};
-    help::example list_uarch = {
-        {"use the % symbol to specify a target microarchitecture (uarch)"},
-        {"uenv image ls prgenv-gnu%gh200"},
-        {{none, {"this feature is useful on a system with multiple uarch."}}}};
-    help::example list_sha = {
-        {"list any uenv with a concrete sha256 checksum"},
-        {"uenv image ls "
-         "510094ddb3484e305cb8118e21cbb9c94e9aff2004f0d6499763f42bdafccfb5"},
-        {}};
-    help::block unique_note = {
-        note,
-        {"more than one uenv might be listed if there are two uenv that "
-         "refer",
-         "to the same underlying uenv sha256."}};
-    help::example list_id = {{"search for uenv by id (id is the first 16 "
-                              "characters of the sha256):"},
-                             {"uenv image ls 510094ddb3484e30"},
-                             {}};
+    std::vector<help::item> items{
+        // clang-format off
+        help::block{
+            none,
+            {"Search for uenv that are available to run."}
+        },
+        help::example{
+            {"list all uenv"},
+            {"uenv image ls"},
+            {}
+        },
+        help::example{
+            {"list all uenv with the name prgenv-gnu"},
+            {"uenv image ls prgenv-gnu"},
+            {}
+        },
+        help::example{
+            {"list all uenv with the name prgenv-gnu and version 24.7"},
+            {"uenv image ls prgenv-gnu/24.7"},
+            {}
+        },
+        help::example{
+            {"list all uenv with the name prgenv-gnu, version 24.7 and release v2"},
+            {"uenv image ls prgenv-gnu/24.7:v2"},
+            {}
+        },
+        help::example{
+            {"use the @ symbol to specify a target system name"},
+            {"uenv image ls prgenv-gnu@todi"},
+            {
+                {
+                    none, {
+                        "this feature is useful when using images that were built for a different system",
+                        "than the one you are currently working on."
+                    }
+                }
+            }
+        },
+        help::example {
+            {"use the % symbol to specify a target microarchitecture (uarch)"},
+            {"uenv image ls prgenv-gnu%gh200"},
+            {
+                { none, {"this feature is useful on a system with multiple uarch."} }
+            }
+        },
+        help::example {
+            {"list any uenv with a concrete sha256 checksum"},
+            {"uenv image ls 510094ddb3484e305cb8118e21cbb9c94e9aff2004f0d6499763f42" "bdafccfb5"},
+            {}
+        },
+        help::block {
+            note, {
+                "more than one uenv might be listed if there are two uenv that refer",
+                "to the same underlying uenv sha256."
+            }
+        },
+        help::example {
+            {"search for uenv by id (id is the first 16 characters of the sha256):"},
+            {"uenv image ls 510094ddb3484e30"},
+            {}
+        }
+        // clang-format on
+    };
 
-    return fmt::format(
-        "{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}", prelude,
-        list_all, list_all_prg, list_all_prg2, list_all_prg3, list_system,
-        list_uarch, list_sha, unique_note, list_id);
+    return fmt::format("{}", fmt::join(items, "\n\n"));
 }
 
 } // namespace uenv
