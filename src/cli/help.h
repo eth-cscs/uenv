@@ -7,34 +7,40 @@
 #include <fmt/color.h>
 #include <fmt/format.h>
 
+#include "color.h"
+
 namespace help {
 
 struct lst {
     std::string content;
 };
-std::string render(const lst&);
 
 struct block {
     enum class admonition : std::uint32_t {
         none,
         note,
+        xmpl,
+        code,
         info,
         warn,
-        deprecated
+        depr
     };
     using enum admonition;
     admonition kind = none;
     std::vector<std::string> lines;
+
+    block() = default;
+    block(std::string);
+    template <typename... Args>
+    block(admonition k, Args&&... args)
+        : kind(k), lines{std::forward<Args>(args)...} {
+    }
 };
 std::string render(const block&);
 
-struct example {
-    std::vector<std::string> description;
-    std::vector<std::string> code;
-    std::vector<block> blocks;
-    std::string string() const;
-};
-std::string render(const example&);
+// linebreak
+struct linebreak {};
+std::string render(const linebreak&);
 
 class item {
   public:
@@ -96,5 +102,18 @@ template <> class fmt::formatter<help::item> {
     template <typename FmtContext>
     constexpr auto format(help::item const& item, FmtContext& ctx) const {
         return fmt::format_to(ctx.out(), "{}", item.render());
+    }
+};
+
+template <> class fmt::formatter<help::lst> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(help::lst const& l, FmtContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}", ::color::yellow(l.content));
     }
 };

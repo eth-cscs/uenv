@@ -7,8 +7,11 @@
 
 namespace help {
 
-std::string render(const lst& l) {
-    return fmt::format("{}", ::color::white(l.content));
+block::block(std::string msg) : kind(none), lines{std::move(msg)} {
+}
+
+std::string render(const linebreak&) {
+    return "";
 }
 
 std::string render(const block& b) {
@@ -16,51 +19,34 @@ std::string render(const block& b) {
     std::string result{};
     switch (b.kind) {
     case none:
+    case code:
         break;
     case note:
-        result += fmt::format("{} - ", ::color::cyan("note"));
+        result += fmt::format("{} - ", ::color::cyan("Note"));
+        break;
+    case xmpl:
+        result += fmt::format("{} - ", ::color::blue("Example"));
         break;
     case info:
-        result += fmt::format("{} - ", ::color::bright_green("info"));
+        result += fmt::format("{} - ", ::color::green("Info"));
         break;
     case warn:
-        result += fmt::format("{} - ", ::color::bright_red("warning"));
+        result += fmt::format("{} - ", ::color::red("Warning"));
         break;
-    case deprecated:
-        result += fmt::format("{} - ", ::color::bright_red("deprecated"));
+    case depr:
+        result += fmt::format("{} - ", ::color::red("Deprecated"));
     }
     bool first = true;
     for (auto& l : b.lines) {
         if (!first) {
             result += "\n";
         }
-        result += l;
-        first = false;
-    }
-
-    return result;
-}
-
-std::string render(const example& e) {
-    using namespace color;
-    auto result = fmt::format("{} - ", blue("Example"));
-    bool first = true;
-    for (auto& l : e.description) {
-        if (!first) {
-            result += "\n";
+        if (b.kind == code) {
+            result += fmt::format("  {}", ::color::white(l));
+        } else {
+            result += l;
         }
-        result += l;
         first = false;
-    }
-    result += ":";
-    for (auto& l : e.code) {
-        result += fmt::format("\n  {}", white(l));
-    }
-    if (!e.blocks.empty()) {
-        result += "\n";
-    }
-    for (auto& b : e.blocks) {
-        result += render(b);
     }
 
     return result;

@@ -111,25 +111,23 @@ int main(int argc, char** argv) {
 
 std::string help_footer() {
     using enum help::block::admonition;
+    using help::lst;
 
     // clang-format off
     std::vector<help::item> items{
-        help::block{
-            none,
-            {"Use the --help flag in with sub-commands for more information."}
-        },
-        help::example{
-            {"get help with the run command"},
-            {"uenv run --help"},
-            {}
-        },
-        help::example{
-            {fmt::format("get help with the {} command", render(help::lst("image ls")))},
-            {"uenv image ls --help"},
-            {}
-        }
+        help::block{none, "Use the --help flag in with sub-commands for more information."},
+        help::linebreak{},
+        help::block{xmpl, fmt::format("use the {} flag to generate more verbose output", lst{"-v"})},
+        help::block{code,   "uenv -v  image ls    # info level logging"},
+        help::block{code,   "uenv -vv image ls    # debug level logging"},
+        help::linebreak{},
+        help::block{xmpl, "get help with the run command"},
+        help::block{code,   "uenv run --help"},
+        help::linebreak{},
+        help::block{xmpl, fmt::format("get help with the {} command", lst("image ls"))},
+        help::block{code,   "uenv image ls --help"},
     };
     // clang-format on
 
-    return fmt::format("{}", fmt::join(items, "\n\n"));
+    return fmt::format("{}", fmt::join(items, "\n"));
 }
