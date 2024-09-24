@@ -3,6 +3,7 @@
 
 subprojects/Catch2-*
 subprojects/CLI11-*
+subprojects/curl-*
 subprojects/fmt-*
 subprojects/packagecache
 subprojects/spdlog-*
