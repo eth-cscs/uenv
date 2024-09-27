@@ -112,6 +112,7 @@ std::string image_ls_footer() {
     std::vector<help::item> items{
         // clang-format off
         help::block{none, "Search for uenv that are available to run." },
+        help::linebreak{},
         help::block{xmpl, "list all uenv"},
         help::block{code,   "uenv image ls"},
         help::linebreak{},
