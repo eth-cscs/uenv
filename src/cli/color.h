@@ -2,12 +2,12 @@
 
 #include <fmt/color.h>
 
-#define MAKE_COLOR(color)                                            \
-    static auto color() {                                            \
-        return fmt::emphasis::bold | fg(fmt::terminal_color::color); \
+#define MAKE_COLOR(color)                                                      \
+    static auto color() {                                                      \
+        return fmt::emphasis::bold | fg(fmt::terminal_color::color);           \
     }                                                                          \
     template <typename S> constexpr auto color(const S& s) {                   \
-        return use_color()? fmt::format(color(), "{}", s): std::string(s);     \
+        return use_color() ? fmt::format(color(), "{}", s) : std::string(s);   \
     }
 
 namespace color {

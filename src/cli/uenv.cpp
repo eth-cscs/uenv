@@ -30,12 +30,12 @@ int main(int argc, char** argv) {
 
     CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
-    cli.add_flag_callback("--no-color",
-                            []() -> void {color::set_color(false);},
-                            "disable color output");
-    cli.add_flag_callback("--color",
-                            []() -> void {color::set_color(true);},
-                            "enable color output");
+    cli.add_flag_callback(
+        "--no-color", []() -> void { color::set_color(false); },
+        "disable color output");
+    cli.add_flag_callback(
+        "--color", []() -> void { color::set_color(true); },
+        "enable color output");
     cli.add_flag("--repo", settings.repo_, "the uenv repository");
     cli.add_flag("--version", print_version, "print version");
 
@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(cli, argc, argv);
 
-    //color::set_color(!settings.no_color);
+    // color::set_color(!settings.no_color);
 
     // Warnings and errors are always logged. The verbosity level is increased
     // with repeated uses of --verbose.

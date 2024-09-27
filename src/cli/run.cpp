@@ -71,8 +71,8 @@ int run(const run_args& args, const global_settings& globals) {
 std::string run_footer() {
     using enum help::block::admonition;
     using help::block;
-    using help::lst;
     using help::linebreak;
+    using help::lst;
     std::vector<help::item> items{
         // clang-format off
         block{none, "Run a command in an environment."},
