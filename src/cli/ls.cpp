@@ -1,8 +1,9 @@
 // vim: ts=4 sts=4 sw=4 et
 
-// #include <string>
+#include <string>
 
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
@@ -11,13 +12,12 @@
 #include <uenv/repository.h>
 #include <util/expected.h>
 
+#include "help.h"
 #include "ls.h"
 
 namespace uenv {
 
-void image_ls_help() {
-    fmt::println("image ls help");
-}
+std::string image_ls_footer();
 
 void image_ls_args::add_cli(CLI::App& cli,
                             [[maybe_unused]] global_settings& settings) {
@@ -28,6 +28,8 @@ void image_ls_args::add_cli(CLI::App& cli,
                      "print only the matching records, with no header.");
     ls_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_ls; });
+
+    ls_cli->footer(image_ls_footer);
 }
 
 int image_ls(const image_ls_args& args, const global_settings& settings) {
@@ -103,6 +105,55 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
     }
 
     return 0;
+}
+
+std::string image_ls_footer() {
+    using enum help::block::admonition;
+    std::vector<help::item> items{
+        // clang-format off
+        help::block{none, "Search for uenv that are available to run." },
+        help::linebreak{},
+        help::block{xmpl, "list all uenv"},
+        help::block{code,   "uenv image ls"},
+        help::linebreak{},
+        help::block{xmpl, "list all uenv"},
+        help::block{code,   "uenv image ls"},
+        help::linebreak{},
+        help::block{xmpl, "list all uenv with the name prgenv-gnu"},
+        help::block{code,   "uenv image ls prgenv-gnu"},
+        help::linebreak{},
+        help::block{xmpl, "list all uenv with the name prgenv-gnu and version 24.7"},
+        help::block{code,   "uenv image ls prgenv-gnu/24.7"},
+        help::linebreak{},
+        help::block{xmpl, "list all uenv with the name prgenv-gnu, version 24.7 and release v2"},
+        help::block{code, "uenv image ls prgenv-gnu/24.7:v2"},
+        help::linebreak{},
+        help::block{xmpl, "use the @ symbol to specify a target system name"},
+        help::block{code,   "uenv image ls prgenv-gnu@todi"},
+        help::block{none, "this feature is useful when using images that were built for a different system",
+                          "than the one you are currently working on."},
+        help::linebreak{},
+        help::block{xmpl, "use the @ symbol to specify a target system name"},
+        help::block{code,   "uenv image ls prgenv-gnu@todi"},
+        help::block{none, "this feature is useful when using images that were built for a different system",
+                          "than the one you are currently working on."},
+        help::linebreak{},
+        help::block{xmpl, "use the % symbol to specify a target microarchitecture (uarch)"},
+        help::block{code,   "uenv image ls prgenv-gnu%gh200"},
+        help::block{none, "this feature is useful on a system with multiple uarch."},
+        help::linebreak{},
+        help::block{xmpl, "list any uenv with a concrete sha256 checksum"},
+        help::block{code,   "uenv image ls 510094ddb3484e305cb8118e21cbb9c94e9aff2004f0d6499763f42" "bdafccfb5"},
+        help::linebreak{},
+        help::block{note, "more than one uenv might be listed if there are two uenv that refer",
+                          "to the same underlying uenv sha256."},
+        help::linebreak{},
+        help::block{xmpl, "search for uenv by id (id is the first 16 characters of the sha256):"},
+        help::block{code,   "uenv image ls 510094ddb3484e30"},
+        // clang-format on
+    };
+
+    return fmt::format("{}", fmt::join(items, "\n"));
 }
 
 } // namespace uenv

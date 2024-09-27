@@ -13,14 +13,13 @@
 #include <util/expected.h>
 #include <util/shell.h>
 
+#include "help.h"
 #include "start.h"
 #include "uenv.h"
 
 namespace uenv {
 
-void start_help() {
-    fmt::println("start help");
-}
+std::string start_footer();
 
 void start_args::add_cli(CLI::App& cli,
                          [[maybe_unused]] global_settings& settings) {
@@ -33,6 +32,7 @@ void start_args::add_cli(CLI::App& cli,
         ->required();
     start_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::start; });
+    start_cli->footer(start_footer);
 }
 
 int start(const start_args& args,
@@ -76,4 +76,52 @@ int start(const start_args& args,
     return util::exec(commands);
 }
 
+std::string start_footer() {
+    using enum help::block::admonition;
+    using help::lst;
+    std::vector<help::item> items{
+        // clang-format off
+        help::block{none, "Start a new shell with a uenv environment. The shell will be",
+                          fmt::format("the default shell set using the SHELL envronment variable ({}).", lst("echo $SHELL"))},
+        help::linebreak{},
+        help::block{note,
+                "the uenv must have been pulled before it can be used. See the list",
+                fmt::format("of available uenv using {}.", lst("uenv image ls")),
+                "If using a path to a squashfs file, you need to have read rights in",
+                "the path where the file is stored.",
+        },
+        help::linebreak{},
+        help::block{xmpl, "start a uenv"},
+        help::block{code,   "uenv start prgenv-gnu/24.7:v3"},
+        help::block{none, "use the full name/version:tag format to disambiguate fully the image "},
+        help::linebreak{},
+        help::block{info, "uenv will mount the image at the correct location, which for most uenv",
+                          "is /user-enviroment."},
+        help::linebreak{},
+        help::block{xmpl, fmt::format("start an image built for the system daint using {}", lst("@daint"))},
+        help::block{code,   "uenv start prgenv-gnu/24.7:v1@daint"},
+        help::linebreak{},
+        help::block{xmpl, "use the @ symbol to specify a target system name"},
+        help::block{code,   "uenv start prgenv-gnu@todi"},
+        help::block{none, "this feature is useful when using images that were built for a different system",
+                          "than the one you are currently working on."},
+        help::linebreak{},
+        help::block{xmpl, "two uenv images can be used at the same time"},
+        help::block{code,   "uenv start prgenv-gnu/24.7:v3,editors/24.7:v1"},
+        help::linebreak{},
+        help::block{info, "to start two uenv at the same time, they must be mounted at different mount.",
+                          "points. uenv provided by CSCS are designed to be mounted at two locations:",
+                          fmt::format("  - {} programming environments and applications", help::lst("/user-enviroment")),
+                          fmt::format("  - {} tools like debuggers and profilers that are used", help::lst("/user-tools")),
+                                      "    alongside PE and applications"},
+        help::linebreak{},
+        help::block{xmpl, "example of using the full specification:"},
+        help::block{code,   "uenv start prgenv-gnu/24.7:v3:/user-environemnt,editors/24.7:v1:user-tools \\",
+                            "           --view=prgenv-gnu:default,editors:modules"},
+        help::linebreak{},
+        // clang-format on
+    };
+
+    return fmt::format("{}", fmt::join(items, "\n"));
+}
 } // namespace uenv

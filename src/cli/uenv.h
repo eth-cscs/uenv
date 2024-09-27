@@ -25,8 +25,6 @@ struct global_settings {
     using enum cli_mode;
 
     int verbose = 0;
-    bool no_color = false;
-    // int mode = mode_none;
     cli_mode mode = unset;
 
     // repo_ is the unverified string description of the repo path that is
