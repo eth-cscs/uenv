@@ -46,7 +46,7 @@ std::string render(const linebreak&);
 //   std::string render(const T&)
 template <typename T>
 concept Renderable = requires(T v) {
-    {render(v)} -> std::convertible_to<std::string>;
+    { render(v) } -> std::convertible_to<std::string>;
 };
 
 class item {
