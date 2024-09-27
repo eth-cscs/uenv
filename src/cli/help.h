@@ -38,13 +38,20 @@ struct block {
 };
 std::string render(const block&);
 
-// linebreak
 struct linebreak {};
 std::string render(const linebreak&);
 
+// type erasure for items to print in a help message.
+// any type T for which the following is provided will be supported
+//   std::string render(const T&)
+template <typename T>
+concept Renderable = requires(T v) {
+    {render(v)} -> std::convertible_to<std::string>;
+};
+
 class item {
   public:
-    template <typename T>
+    template <Renderable T>
     item(T impl) : impl_(std::make_unique<wrap<T>>(std::move(impl))) {
     }
 
@@ -72,7 +79,7 @@ class item {
 
     std::unique_ptr<interface> impl_;
 
-    template <typename T> struct wrap : interface {
+    template <Renderable T> struct wrap : interface {
         explicit wrap(const T& impl) : wrapped(impl) {
         }
         explicit wrap(T&& impl) : wrapped(std::move(impl)) {

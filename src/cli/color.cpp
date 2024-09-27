@@ -12,12 +12,15 @@ bool use = true;
 }
 
 void default_color() {
-    // check whether NO_COLOR has been set
+    // enable color by default
+    set_color(true);
+
+    // disable color if NO_COLOR env. variable is set
     if (std::getenv("NO_COLOR")) {
         set_color(false);
-        return;
     }
 
+    // disable color if stdout is not a terminal
     if (!isatty(fileno(stdout))) {
         set_color(false);
     }
