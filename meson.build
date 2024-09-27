@@ -51,6 +51,7 @@ subdir('src/uenv')
 # the uenv executable
 if uenv_cli
     uenv_src = [
+            'src/cli/color.cpp',
             'src/cli/help.cpp',
             'src/cli/image.cpp',
             'src/cli/ls.cpp',

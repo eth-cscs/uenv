@@ -1,7 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
 #include <CLI/CLI.hpp>
-#include <fmt/color.h>
 #include <fmt/core.h>
 #include <spdlog/spdlog.h>
 
@@ -12,6 +11,7 @@
 #include <uenv/repository.h>
 #include <util/expected.h>
 
+#include "color.h"
 #include "help.h"
 #include "image.h"
 #include "run.h"
@@ -24,9 +24,18 @@ int main(int argc, char** argv) {
     uenv::global_settings settings;
     bool print_version = false;
 
+    // enable/disable color depending on NOCOLOR env. var
+    // and tty terminal status.
+    color::default_color();
+
     CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
-    cli.add_flag("--no-color", settings.no_color, "disable color output");
+    cli.add_flag_callback("--no-color",
+                            []() -> void {color::set_color(false);},
+                            "disable color output");
+    cli.add_flag_callback("--color",
+                            []() -> void {color::set_color(true);},
+                            "enable color output");
     cli.add_flag("--repo", settings.repo_, "the uenv repository");
     cli.add_flag("--version", print_version, "print version");
 
@@ -41,6 +50,8 @@ int main(int argc, char** argv) {
     image.add_cli(cli, settings);
 
     CLI11_PARSE(cli, argc, argv);
+
+    //color::set_color(!settings.no_color);
 
     // Warnings and errors are always logged. The verbosity level is increased
     // with repeated uses of --verbose.

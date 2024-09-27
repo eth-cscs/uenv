@@ -2,15 +2,19 @@
 
 #include <fmt/color.h>
 
-#define MAKE_COLOR(color)                                                      \
-    constexpr auto color() {                                                   \
-        return fmt::emphasis::bold | fg(fmt::terminal_color::color);           \
+#define MAKE_COLOR(color)                                            \
+    static auto color() {                                            \
+        return fmt::emphasis::bold | fg(fmt::terminal_color::color); \
     }                                                                          \
     template <typename S> constexpr auto color(const S& s) {                   \
-        return fmt::format(color(), "{}", s);                                  \
+        return use_color()? fmt::format(color(), "{}", s): std::string(s);     \
     }
 
 namespace color {
+
+void default_color();
+void set_color(bool v);
+bool use_color();
 
 MAKE_COLOR(black)
 MAKE_COLOR(red)
