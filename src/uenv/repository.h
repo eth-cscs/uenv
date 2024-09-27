@@ -19,6 +19,9 @@ util::expected<std::filesystem::path, std::string>
 validate_repo_path(const std::string& path, bool is_absolute = true,
                    bool exists = true);
 
+enum class repo_state { readonly, readwrite, no_exist, invalid };
+repo_state validate_repository(const std::filesystem::path& repo_path);
+
 enum class repo_mode : std::uint8_t { readonly, readwrite };
 
 struct repository_impl;
@@ -53,5 +56,8 @@ struct repository {
 util::expected<repository, std::string>
 open_repository(const std::filesystem::path&,
                 repo_mode mode = repo_mode::readonly);
+util::expected<repository, std::string>
+create_repository(const std::filesystem::path& repo_path,
+                  bool exists_ok = false);
 
 } // namespace uenv

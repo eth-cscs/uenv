@@ -56,6 +56,7 @@ if uenv_cli
     uenv_src = [
             'src/cli/image.cpp',
             'src/cli/ls.cpp',
+            'src/cli/repo.cpp',
             'src/cli/run.cpp',
             'src/cli/start.cpp',
             'src/cli/uenv.cpp',

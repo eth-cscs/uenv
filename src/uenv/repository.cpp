@@ -34,16 +34,37 @@ using util::unexpected;
 /// returns error if
 /// - the provided path is not absolute
 /// - the path string was not valid
+///
+/// returns error if it a path is set, but it is invalid
 util::expected<std::optional<std::string>, std::string> default_repo_path() {
-    std::string path_string;
+    std::optional<std::string> path_string;
     if (auto p = std::getenv("UENV_REPO_PATH")) {
-        return p;
-    } else if (auto p = std::getenv("SCRATCH")) {
-        return std::string(p) + "/.uenv-images";
-    } else if (auto p = std::getenv("HOME")) {
-        return std::string(p) + "/.uenv/repo";
+        spdlog::debug(
+            fmt::format("default_repo_path: found UENV_REPO_PATH={}", p));
+        return path_string = p;
+    } else {
+        spdlog::debug("default_repo_path: skipping UENV_REPO_PATH");
+        if (auto p = std::getenv("SCRATCH")) {
+            spdlog::info(fmt::format("default_repo_path: found SCRATCH={}", p));
+            path_string = std::string(p) + "/.uenv-images";
+        } else {
+            spdlog::debug("default_repo_path: skipping SCRATCH");
+            if (auto p = std::getenv("HOME")) {
+                spdlog::info(
+                    fmt::format("default_repo_path: found HOME={}", p));
+                path_string = std::string(p) + "/.uenv/repo";
+            } else {
+                spdlog::debug("default_repo_path: no default location found");
+            }
+        }
     }
-    return std::nullopt;
+    if (path_string) {
+        if (auto result = parse_path(*path_string); !result) {
+            return unexpected(fmt::format("invalid repository path {}",
+                                          result.error().message()));
+        }
+    }
+    return path_string;
 }
 
 util::expected<std::filesystem::path, std::string>
@@ -72,9 +93,10 @@ validate_repo_path(const std::string& path, bool is_absolute, bool exists) {
 }
 
 // A thin wrapper around sqlite3*
-// A shared pointer with a custom destructor that calls the sqlite3 C API
-// descructor is used to manage the lifetime of the sqlite3* object. The shared
-// pointer is used because the statement type needs to hold a re
+// A shared pointer with a custom destructor that calls the sqlite3 C
+// API descructor is used to manage the lifetime of the sqlite3* object.
+// The shared pointer is used because the statement type needs to hold a
+// re
 struct sqlite_database {
     // type definitions
     using db_ptr_type = std::shared_ptr<sqlite3>;
@@ -98,7 +120,8 @@ hopefully<sqlite_database> open_sqlite_database(const fs::path path,
         return unexpected(fmt::format(
             "internal sqlite3 error opening database file {}", path.string()));
     }
-    // double check that the database can be written if in readwrite mode
+    // double check that the database can be written if in readwrite
+    // mode
     if (mode == readwrite && sqlite3_db_readonly(db, "main") == 1) {
         // close the database before returning an error
         sqlite3_close(db);
@@ -175,10 +198,10 @@ struct query : private statement {
             result.value = std::string(reinterpret_cast<const char*>(
                 sqlite3_column_text(wrap.get(), i)));
         } else if (type == "INTEGER") {
-            // sqlite3 stores integers in the database using between 1-8 bytes
-            // (according to the size of the value) but when they are loaded
-            // into memory, it always stores them as a signed 8 byte value.
-            // So always convert from int64.
+            // sqlite3 stores integers in the database using between 1-8
+            // bytes (according to the size of the value) but when they
+            // are loaded into memory, it always stores them as a signed
+            // 8 byte value. So always convert from int64.
             result.value =
                 static_cast<std::int64_t>(sqlite3_column_int64(wrap.get(), i));
         } else {
@@ -229,8 +252,8 @@ hopefully<statement> create_statement(const std::string& text,
 
 // create a statement and execute it.
 // assumes that the statement will return success after one step
-// - use a query type for queries that are stepped once for each return row of
-// the database
+// - use a query type for queries that are stepped once for each return
+// row of the database
 hopefully<void> exec_statement(const std::string& text, sqlite_database& db) {
     auto stmnt = create_statement(text, db);
     if (!stmnt) {
@@ -277,20 +300,155 @@ repository::repository(std::unique_ptr<repository_impl> impl)
     : impl_(std::move(impl)) {
 }
 
+// for determining the level of access to a file or directory
+// NOTE: if there is an error, or the file does not exist `none` is
+// returned.
+enum class file_level { none = 0, readonly = 1, readwrite = 2 };
+file_level file_access_level(const fs::path& path) {
+    using enum file_level;
+    std::error_code ec;
+    auto status = fs::status(path, ec);
+
+    if (ec) {
+        spdlog::error("file_access_level {} error '{}'", path, ec.message());
+        return none;
+    }
+
+    auto p = status.permissions();
+
+    // check if the path is readable by the user, group, or others
+    file_level lvl = none;
+    constexpr auto pnone = std::filesystem::perms::none;
+    if ((p & fs::perms::owner_read) != pnone ||
+        (p & fs::perms::group_read) != pnone ||
+        (p & fs::perms::others_read) != pnone) {
+        spdlog::debug("file_access_level {} can be read", path, ec.message());
+        lvl = readonly;
+    }
+    // check if the path is writable by the user, group, or others
+    if ((p & fs::perms::owner_write) != pnone ||
+        (p & fs::perms::group_write) != pnone ||
+        (p & fs::perms::others_write) != pnone) {
+        spdlog::debug("file_access_level {} can be written", path,
+                      ec.message());
+        lvl = readwrite;
+    }
+    return lvl;
+}
+
+repo_state validate_repository(const fs::path& repo_path) {
+    using enum repo_state;
+
+    if (!fs::is_directory(repo_path)) {
+        spdlog::debug("validate_repository: repository path {} does not exist",
+                      repo_path);
+        return no_exist;
+    }
+    spdlog::debug("validate_repository: repository path {} exists", repo_path);
+
+    auto db_path = repo_path / "index.db";
+    if (!fs::is_regular_file(db_path)) {
+        spdlog::debug("validate_repository: database {} does not exist",
+                      db_path);
+        // the path exists, but there is no database file
+        return no_exist;
+    }
+    spdlog::debug("validate_repository: database {} exists", db_path);
+
+    const auto level =
+        std::min(file_access_level(repo_path), file_access_level(db_path));
+    spdlog::debug("validate_repository: level {}", static_cast<int>(level));
+    switch (level) {
+    case file_level::none:
+        return invalid;
+    case file_level::readonly:
+        return readonly;
+    case file_level::readwrite:
+        return readwrite;
+    }
+
+    // all cases should be handled above
+    return invalid;
+}
+
 util::expected<repository, std::string>
 open_repository(const fs::path& repo_path, repo_mode mode) {
     using enum repo_mode;
-    auto db_path = repo_path / "index.db";
-    if (!fs::is_regular_file(db_path)) {
-        return unexpected(fmt::format("the repository is invalid - the index "
-                                      "database {} does not exist",
-                                      db_path.string()));
+    const auto initial_state = validate_repository(repo_path);
+
+    switch (initial_state) {
+    case repo_state::invalid:
+        return unexpected(
+            fmt::format("the repository {} is invalid", repo_path));
+    case repo_state::no_exist:
+        return unexpected(
+            fmt::format("the repository {} does not exist", repo_path));
+    case repo_state::readonly:
+        if (mode == readwrite) {
+            return unexpected(
+                fmt::format("the repository {} is read only", repo_path));
+        }
+    default:
+        break;
     }
 
     // open the sqlite database
+    auto db_path = repo_path / "index.db";
     auto db = open_sqlite_database(db_path, mode);
     if (!db) {
         return unexpected(db.error());
+    }
+
+    return repository(std::make_unique<repository_impl>(
+        std::move(*db), repo_path, db_path, true));
+}
+
+std::vector<std::string> schema_tables();
+
+util::expected<repository, std::string>
+create_repository(const fs::path& repo_path, bool exists_ok) {
+    using enum repo_state;
+
+    const auto initial_state = validate_repository(repo_path);
+    switch (initial_state) {
+    case invalid:
+        return unexpected(
+            fmt::format("the repository {} is invalid", repo_path));
+    case readonly:
+        return unexpected(fmt::format(
+            "the repository {} already exists and is read only", repo_path));
+    case readwrite:
+        if (exists_ok) {
+            return open_repository(repo_path, repo_mode::readwrite);
+        }
+        return unexpected(
+            fmt::format("the repository {} already exists", repo_path));
+    default:
+        break;
+    }
+
+    auto db_path = repo_path / "index.db";
+
+    // open the sqlite database
+    auto db = open_sqlite_database(db_path, repo_mode::readwrite);
+    if (!db) {
+        return unexpected(fmt::format("unable to create repository {}: {}",
+                                      repo_path.string(), db.error()));
+    }
+
+    if (auto r = exec_statement("BEGIN;", *db); !r) {
+        return unexpected(r.error());
+    }
+    if (auto r = exec_statement("PRAGMA foreign_keys=on;", *db); !r) {
+        return unexpected(r.error());
+    }
+    for (const auto& table : schema_tables()) {
+        if (auto r = exec_statement(table, *db); !r) {
+            return unexpected(r.error());
+        }
+    }
+    if (auto r = exec_statement("COMMIT;", *db); !r) {
+        return unexpected(r.error());
     }
 
     return repository(std::make_unique<repository_impl>(
@@ -332,9 +490,9 @@ repository_impl::query(const uenv_label& label) {
     while (s->step()) {
         // unsafe: unwrap using .value() without checking for errors.
         // the best way to do this would be to "validate" the database
-        // beforehand by checking the columns exist. Even better, validate that
-        // column 0 -> 'system', etc, and use integer indexes to look up more
-        // effiently.
+        // beforehand by checking the columns exist. Even better,
+        // validate that column 0 -> 'system', etc, and use integer
+        // indexes to look up more effiently.
         results.push_back({(*s)["system"].value(), (*s)["uarch"].value(),
                            (*s)["name"].value(), (*s)["version"].value(),
                            (*s)["tag"].value(), (*s)["date"].value(),
@@ -437,16 +595,6 @@ std::vector<std::string> schema_tables() {
                 INNER JOIN uenv   ON uenv.version_id = tags.version_id
                 INNER JOIN images ON images.sha256   = tags.sha256;
         )"};
-}
-
-// std::string_view schema() {
-void schema(sqlite_database& db) {
-    exec_statement("BEGIN;", db);
-    exec_statement("PRAGMA foreign_keys=on;", db);
-    for (const auto& table : schema_tables()) {
-        exec_statement(table, db);
-    }
-    exec_statement("COMMIT;", db);
 }
 
 // wrapping the pimpled implementation
