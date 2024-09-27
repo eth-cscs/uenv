@@ -1,7 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
 #include <CLI/CLI.hpp>
-#include <fmt/color.h>
 #include <fmt/core.h>
 #include <spdlog/spdlog.h>
 
@@ -12,20 +11,35 @@
 #include <uenv/repository.h>
 #include <util/expected.h>
 
+#include "color.h"
+#include "help.h"
 #include "image.h"
 #include "run.h"
 #include "start.h"
 #include "uenv.h"
 
+std::string help_footer();
+
 int main(int argc, char** argv) {
     uenv::global_settings settings;
     bool print_version = false;
 
+    // enable/disable color depending on NOCOLOR env. var
+    // and tty terminal status.
+    color::default_color();
+
     CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
-    cli.add_flag("--no-color", settings.no_color, "disable color output");
+    cli.add_flag_callback(
+        "--no-color", []() -> void { color::set_color(false); },
+        "disable color output");
+    cli.add_flag_callback(
+        "--color", []() -> void { color::set_color(true); },
+        "enable color output");
     cli.add_flag("--repo", settings.repo_, "the uenv repository");
     cli.add_flag("--version", print_version, "print version");
+
+    cli.footer(help_footer);
 
     uenv::start_args start;
     uenv::run_args run;
@@ -36,6 +50,8 @@ int main(int argc, char** argv) {
     image.add_cli(cli, settings);
 
     CLI11_PARSE(cli, argc, argv);
+
+    // color::set_color(!settings.no_color);
 
     // Warnings and errors are always logged. The verbosity level is increased
     // with repeated uses of --verbose.
@@ -102,4 +118,27 @@ int main(int argc, char** argv) {
     }
 
     return 0;
+}
+
+std::string help_footer() {
+    using enum help::block::admonition;
+    using help::lst;
+
+    // clang-format off
+    std::vector<help::item> items{
+        help::block{none, "Use the --help flag in with sub-commands for more information."},
+        help::linebreak{},
+        help::block{xmpl, fmt::format("use the {} flag to generate more verbose output", lst{"-v"})},
+        help::block{code,   "uenv -v  image ls    # info level logging"},
+        help::block{code,   "uenv -vv image ls    # debug level logging"},
+        help::linebreak{},
+        help::block{xmpl, "get help with the run command"},
+        help::block{code,   "uenv run --help"},
+        help::linebreak{},
+        help::block{xmpl, fmt::format("get help with the {} command", lst("image ls"))},
+        help::block{code,   "uenv image ls --help"},
+    };
+    // clang-format on
+
+    return fmt::format("{}", fmt::join(items, "\n"));
 }
