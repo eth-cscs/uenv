@@ -106,6 +106,10 @@ struct sqlite_database {
     }
     sqlite_database(sqlite_database&&) = default;
 
+    std::string error() {
+        return sqlite3_errmsg(data.get());
+    }
+
     // state
     db_ptr_type data;
 };
@@ -114,20 +118,54 @@ hopefully<sqlite_database> open_sqlite_database(const fs::path path,
                                                 repo_mode mode) {
     using enum repo_mode;
 
-    int flags = mode == readonly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE;
+    if (!fs::exists(path)) {
+        return unexpected(
+            fmt::format("database file {} does not exist", path.string()));
+    }
+
+    const int flags =
+        mode == readonly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE;
+    spdlog::info("open_sqlite_database: attempting to open {} in {} mode.",
+                 path, mode == readonly ? "readonly" : "readwrite");
     sqlite3* db;
     if (sqlite3_open_v2(path.string().c_str(), &db, flags, NULL) != SQLITE_OK) {
-        return unexpected(fmt::format(
-            "internal sqlite3 error opening database file {}", path.string()));
+        return unexpected(fmt::format("did not open database file {}: {}",
+                                      path.string(), sqlite3_errmsg(db)));
     }
-    // double check that the database can be written if in readwrite
-    // mode
+    spdlog::info("open_sqlite_database: opened {}.", path);
+
+    // double check that the database can be written if in readwrite mode
     if (mode == readwrite && sqlite3_db_readonly(db, "main") == 1) {
+        spdlog::error("open_sqlite_database: {} was opened read only.", path);
         // close the database before returning an error
         sqlite3_close(db);
         return unexpected(
             fmt::format("the repo {} is read only", path.string()));
     }
+
+    return sqlite_database(db);
+}
+
+hopefully<sqlite_database> create_sqlite_database(const fs::path path) {
+    using enum repo_mode;
+
+    if (fs::exists(path)) {
+        return unexpected(
+            fmt::format("database file {} already exists", path.string()));
+    }
+    if (!fs::exists(path.parent_path())) {
+        return unexpected(fmt::format("the path {} needs to be crated first",
+                                      path.parent_path().string()));
+    }
+
+    const int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+    spdlog::info("create_sqlite_database: attempting to open {}");
+    sqlite3* db;
+    if (sqlite3_open_v2(path.string().c_str(), &db, flags, NULL) != SQLITE_OK) {
+        return unexpected(fmt::format("did not create database file {}: {}",
+                                      path.string(), sqlite3_errmsg(db)));
+    }
+    spdlog::info("create_sqlite3_database: opened {}.", path);
 
     return sqlite_database(db);
 }
@@ -147,7 +185,7 @@ struct statement {
     // perform the statement.
     // return false if there was an error
     bool step() {
-        return SQLITE_OK == sqlite3_step(wrap.get());
+        return SQLITE_DONE == sqlite3_step(wrap.get());
     }
 
     // state
@@ -261,7 +299,7 @@ hopefully<void> exec_statement(const std::string& text, sqlite_database& db) {
     }
     if (!stmnt->step()) {
         return unexpected(
-            fmt::format("error executing the SQL statment {}", text));
+            fmt::format("SQL error '{}' executing {}", db.error(), text));
     }
     return {};
 }
@@ -406,53 +444,64 @@ open_repository(const fs::path& repo_path, repo_mode mode) {
 std::vector<std::string> schema_tables();
 
 util::expected<repository, std::string>
-create_repository(const fs::path& repo_path, bool exists_ok) {
+create_repository(const fs::path& repo_path) {
     using enum repo_state;
 
-    const auto initial_state = validate_repository(repo_path);
+    auto abs_repo_path = fs::absolute(repo_path);
+
+    const auto initial_state = validate_repository(abs_repo_path);
     switch (initial_state) {
     case invalid:
-        return unexpected(
-            fmt::format("the repository {} is invalid", repo_path));
-    case readonly:
         return unexpected(fmt::format(
-            "the repository {} already exists and is read only", repo_path));
+            "unable to create repository: {} is invalid", abs_repo_path));
+    case readonly:
     case readwrite:
-        if (exists_ok) {
-            return open_repository(repo_path, repo_mode::readwrite);
-        }
-        return unexpected(
-            fmt::format("the repository {} already exists", repo_path));
+        return unexpected(fmt::format(
+            "unable to create repository: {} already exists", abs_repo_path));
     default:
         break;
     }
 
-    auto db_path = repo_path / "index.db";
+    spdlog::debug("creating repo path {}", abs_repo_path);
+    {
+        std::error_code ec;
+        fs::create_directories(abs_repo_path, ec);
+        if (ec) {
+            spdlog::error("unable to create repository path: {}", ec.message());
+            return unexpected("unable to create repository");
+        }
+    }
+
+    auto db_path = abs_repo_path / "index.db";
 
     // open the sqlite database
-    auto db = open_sqlite_database(db_path, repo_mode::readwrite);
+    auto db = create_sqlite_database(db_path);
     if (!db) {
-        return unexpected(fmt::format("unable to create repository {}: {}",
-                                      repo_path.string(), db.error()));
+        spdlog::error("unable to create repository database: {}", db.error());
+        return unexpected(fmt::format("unable to create repository"));
     }
 
-    if (auto r = exec_statement("BEGIN;", *db); !r) {
-        return unexpected(r.error());
+    if (auto r = exec_statement("BEGIN", *db); !r) {
+        spdlog::error(r.error());
+        return unexpected("unable to create repository");
     }
-    if (auto r = exec_statement("PRAGMA foreign_keys=on;", *db); !r) {
-        return unexpected(r.error());
+    if (auto r = exec_statement("PRAGMA foreign_keys=on", *db); !r) {
+        spdlog::error(r.error());
+        return unexpected("unable to create repository");
     }
     for (const auto& table : schema_tables()) {
         if (auto r = exec_statement(table, *db); !r) {
-            return unexpected(r.error());
+            spdlog::error(r.error());
+            return unexpected("unable to create repository");
         }
     }
-    if (auto r = exec_statement("COMMIT;", *db); !r) {
-        return unexpected(r.error());
+    if (auto r = exec_statement("COMMIT", *db); !r) {
+        spdlog::error(r.error());
+        return unexpected("unable to create repository");
     }
 
     return repository(std::make_unique<repository_impl>(
-        std::move(*db), repo_path, db_path, true));
+        std::move(*db), abs_repo_path, db_path, true));
 }
 
 util::expected<std::vector<uenv_record>, std::string>

@@ -57,7 +57,6 @@ util::expected<repository, std::string>
 open_repository(const std::filesystem::path&,
                 repo_mode mode = repo_mode::readonly);
 util::expected<repository, std::string>
-create_repository(const std::filesystem::path& repo_path,
-                  bool exists_ok = false);
+create_repository(const std::filesystem::path& repo_path);
 
 } // namespace uenv
