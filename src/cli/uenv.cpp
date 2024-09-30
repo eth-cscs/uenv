@@ -11,6 +11,7 @@
 #include <uenv/repository.h>
 #include <util/expected.h>
 
+#include "add_remove.h"
 #include "color.h"
 #include "help.h"
 #include "image.h"
@@ -109,6 +110,10 @@ int main(int argc, char** argv) {
         return uenv::run(run, settings);
     case settings.image_ls:
         return uenv::image_ls(image.ls_args, settings);
+    case settings.image_add:
+        return uenv::image_add(image.add_args, settings);
+    case settings.image_remove:
+        return uenv::image_remove(image.remove_args, settings);
     case settings.repo_create:
         return uenv::repo_create(repo.create_args, settings);
     case settings.repo_status:

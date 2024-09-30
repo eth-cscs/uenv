@@ -12,8 +12,6 @@
 
 namespace uenv {
 
-void image_ls_help();
-
 struct image_ls_args {
     std::optional<std::string> uenv_description;
     bool no_header = false;

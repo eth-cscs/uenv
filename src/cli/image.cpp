@@ -11,6 +11,7 @@
 #include <util/expected.h>
 #include <util/shell.h>
 
+#include "add_remove.h"
 #include "image.h"
 #include "ls.h"
 
@@ -27,6 +28,12 @@ void image_args::add_cli(CLI::App& cli,
 
     // add the `uenv image ls` command
     ls_args.add_cli(*image_cli, settings);
+
+    // add the `uenv image add` command
+    add_args.add_cli(*image_cli, settings);
+
+    // add the `uenv image remove` command
+    remove_args.add_cli(*image_cli, settings);
 }
 
 } // namespace uenv
