@@ -22,7 +22,8 @@ function setup() {
 }
 
 function teardown() {
-    :
+    export REPO_ROOT=/tmp/uenv-repo
+    rm -rf $REPO_ROOT
 }
 
 @test "noargs" {

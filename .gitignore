@@ -9,3 +9,5 @@ subprojects/packagecache
 subprojects/spdlog-*
 subprojects/sqlite-amalgamation-*
 subprojects/nlohmann_json-*
+
+install
