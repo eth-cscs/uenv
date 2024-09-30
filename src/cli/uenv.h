@@ -12,7 +12,14 @@
 
 namespace uenv {
 
-enum class cli_mode : std::uint32_t { unset, start, run, image_ls };
+enum class cli_mode : std::uint32_t {
+    unset,
+    start,
+    run,
+    image_ls,
+    repo_create,
+    repo_status
+};
 
 struct global_settings {
     using enum cli_mode;
@@ -49,6 +56,10 @@ template <> class fmt::formatter<uenv::cli_mode> {
             return format_to(ctx.out(), "run");
         case image_ls:
             return format_to(ctx.out(), "image-ls");
+        case repo_create:
+            return format_to(ctx.out(), "repo-create");
+        case repo_status:
+            return format_to(ctx.out(), "repo-status");
         }
         return format_to(ctx.out(), "unknown");
     }

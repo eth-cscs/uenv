@@ -22,6 +22,9 @@ fmt_dep   = subproject('fmt', default_options: ['werror=false', 'warning_level=0
 json_dep = subproject('nlohmann_json', default_options: ['werror=false', 'warning_level=0']).get_variable('nlohmann_json_dep')
 spdlog_dep   = subproject('spdlog', default_options: ['werror=false', 'warning_level=0','std_format=disabled','external_fmt=enabled']).get_variable('spdlog_dep')
 sqlite3_dep = subproject('sqlite3', default_options: ['werror=false', 'warning_level=0']).get_variable('sqlite3_dep')
+subproject('curl', default_options: ['werror=false', 'warning_level=0'])
+
+curl_dep = dependency('libcurl', required: true)
 
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
@@ -42,7 +45,7 @@ lib_inc = include_directories('src')
 
 lib_dep = declare_dependency(
         sources: lib_src,
-        dependencies: [sqlite3_dep, fmt_dep, spdlog_dep, json_dep],
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep],
         include_directories: lib_inc
 )
 
@@ -55,6 +58,7 @@ if uenv_cli
             'src/cli/help.cpp',
             'src/cli/image.cpp',
             'src/cli/ls.cpp',
+            'src/cli/repo.cpp',
             'src/cli/run.cpp',
             'src/cli/start.cpp',
             'src/cli/uenv.cpp',
@@ -86,6 +90,3 @@ unit = executable('unit',
 if uenv_slurm_plugin
     subdir('src/slurm')
 endif
-
-# install the license
-#install_data('LICENSE', install_mode : 'rw-r--r--', install_dir : 'license')

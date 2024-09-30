@@ -14,6 +14,7 @@
 #include "color.h"
 #include "help.h"
 #include "image.h"
+#include "repo.h"
 #include "run.h"
 #include "start.h"
 #include "uenv.h"
@@ -44,10 +45,12 @@ int main(int argc, char** argv) {
     uenv::start_args start;
     uenv::run_args run;
     uenv::image_args image;
+    uenv::repo_args repo;
 
     start.add_cli(cli, settings);
     run.add_cli(cli, settings);
     image.add_cli(cli, settings);
+    repo.add_cli(cli, settings);
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -74,7 +77,7 @@ int main(int argc, char** argv) {
     // if a repo was not provided as a flag, look at environment variables
     if (!settings.repo_) {
         if (const auto p = uenv::default_repo_path()) {
-            settings.repo_ = *uenv::default_repo_path();
+            settings.repo_ = *p;
         } else {
             spdlog::warn("ignoring the default repo path: {}", p.error());
         }
@@ -94,7 +97,7 @@ int main(int argc, char** argv) {
     }
 
     if (settings.repo) {
-        spdlog::info("using repo {}", *settings.repo);
+        spdlog::info("the repo {}", *settings.repo);
     }
 
     spdlog::info("{}", settings);
@@ -106,6 +109,10 @@ int main(int argc, char** argv) {
         return uenv::run(run, settings);
     case settings.image_ls:
         return uenv::image_ls(image.ls_args, settings);
+    case settings.repo_create:
+        return uenv::repo_create(repo.create_args, settings);
+    case settings.repo_status:
+        return uenv::repo_status(repo.status_args, settings);
     case settings.unset:
         fmt::println("uenv version {}", UENV_VERSION);
         fmt::println("call '{} --help' for help", argv[0]);
