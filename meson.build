@@ -54,6 +54,7 @@ subdir('src/uenv')
 # the uenv executable
 if uenv_cli
     uenv_src = [
+            'src/cli/add_remove.cpp',
             'src/cli/color.cpp',
             'src/cli/help.cpp',
             'src/cli/image.cpp',
