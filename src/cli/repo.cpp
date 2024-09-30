@@ -64,6 +64,7 @@ int repo_create(const repo_create_args& args, const global_settings& settings) {
     auto x = create_repository(*path);
     if (!x) {
         spdlog::error("{}", x.error());
+        return 1;
     }
     return 0;
 }
