@@ -39,6 +39,7 @@ lib_src = [
         'src/uenv/repository.cpp',
         'src/util/shell.cpp',
         'src/util/strings.cpp',
+        'src/util/subprocess.cpp',
         'src/uenv/uenv.cpp',
 ]
 lib_inc = include_directories('src')
@@ -79,6 +80,7 @@ unit_src = [
         'test/unit/main.cpp',
         'test/unit/parse.cpp',
         'test/unit/repository.cpp',
+        'test/unit/subprocess.cpp',
 ]
 
 unit = executable('unit',
