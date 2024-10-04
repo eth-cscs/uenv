@@ -7,24 +7,9 @@
 
 namespace util {
 
-class temp_dir {
-    std::filesystem::path path_{};
+std::filesystem::path make_temp_dir();
 
-  public:
-    temp_dir() = delete;
-    temp_dir(const temp_dir&) = delete;
-
-    temp_dir(temp_dir&& p);
-    temp_dir(std::filesystem::path p);
-
-    const std::filesystem::path& path() const;
-
-    ~temp_dir();
-};
-
-temp_dir make_temp_dir();
-
-util::expected<temp_dir, std::string>
+util::expected<std::filesystem::path, std::string>
 unsquashfs_tmp(const std::filesystem::path& sqfs,
                const std::filesystem::path& contents);
 

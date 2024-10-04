@@ -10,9 +10,9 @@ namespace fs = std::filesystem;
 
 TEST_CASE("make_temp_dir", "[fs]") {
     auto dir1 = util::make_temp_dir();
-    REQUIRE(fs::is_directory(dir1.path()));
+    REQUIRE(fs::is_directory(dir1));
     auto dir2 = util::make_temp_dir();
-    REQUIRE(dir1.path() != dir2.path());
+    REQUIRE(dir1 != dir2);
     fmt::println("end-of-funtion");
 }
 
@@ -25,15 +25,14 @@ TEST_CASE("unsquashfs", "[fs]") {
         auto meta = util::unsquashfs_tmp(sqfs, "meta");
         fmt::println("returned from unsquashfs");
         REQUIRE(meta);
-        REQUIRE(fs::is_directory(meta->path()));
-        REQUIRE(fs::is_directory(meta->path() / "meta"));
+        REQUIRE(fs::is_directory(*meta));
+        REQUIRE(fs::is_directory(*meta / "meta"));
     }
     {
-        std::vector<util::temp_dir> buffer;
         const int nbuf = 5;
         {
             for (int i = 0; i < nbuf; ++i) {
-                buffer.push_back(*util::unsquashfs_tmp(sqfs, "meta/env.json"));
+                auto x = util::unsquashfs_tmp(sqfs, "meta/env.json");
             }
         }
     }

@@ -12,34 +12,25 @@
 
 namespace util {
 
-temp_dir::~temp_dir() {
+struct temp_dir_wrap {
+    std::filesystem::path path;
     std::error_code ec;
-
-    if (std::filesystem::is_directory(path_)) {
-        // ignore the error code - being unable to delete a temp path is not the
-        // end of the world.
-        auto n = std::filesystem::remove_all(path_, ec);
-        spdlog::debug("temp_dir: deleted {} files in {}", n, path_.string());
+    ~temp_dir_wrap() {
+        if (std::filesystem::is_directory(path)) {
+            // ignore the error code - being unable to delete a temp path is not
+            // the end of the world.
+            auto n = std::filesystem::remove_all(path, ec);
+            spdlog::debug("temp_dir: deleted {} files in {}", n, path.string());
+        }
     }
+};
 
-    // path_ is either set, or default constructed as
-    //   std::filesystem::path::empty
-    //   https://en.cppreference.com/w/cpp/filesystem/path/empty deleting an
-    //   empty
-    // path is safe - it is a noop.
-}
+std::filesystem::path make_temp_dir() {
+    // persistant storage for the temporary paths that will delete the paths on
+    // exit. This makes temporary paths persistent for the duration of the
+    // application's execution.
+    static std::vector<temp_dir_wrap> cache;
 
-temp_dir::temp_dir(temp_dir&& p) : path_(std::move(p.path_)) {
-}
-
-temp_dir::temp_dir(std::filesystem::path p) : path_(std::move(p)) {
-}
-
-const std::filesystem::path& temp_dir::path() const {
-    return path_;
-}
-
-temp_dir make_temp_dir() {
     namespace fs = std::filesystem;
     auto tmp_template =
         fs::temp_directory_path().string() + "/uenv-XXXXXXXXXXXX";
@@ -51,10 +42,12 @@ temp_dir make_temp_dir() {
     spdlog::debug("make_temp_dir: created {}", tmp_path.string(),
                   fs::is_directory(tmp_path));
 
+    cache.emplace_back(tmp_path);
+
     return tmp_path;
 }
 
-util::expected<temp_dir, std::string>
+util::expected<std::filesystem::path, std::string>
 unsquashfs_tmp(const std::filesystem::path& sqfs,
                const std::filesystem::path& contents) {
 
@@ -67,7 +60,7 @@ unsquashfs_tmp(const std::filesystem::path& sqfs,
 
     auto base = make_temp_dir();
     std::vector<std::string> command{"unsquashfs",  "-no-exit",
-                                     "-d",          base.path().string(),
+                                     "-d",          base.string(),
                                      sqfs.string(), contents.string()};
     spdlog::debug("unsquashfs_tmp: attempting to unpack {} from {}",
                   contents.string(), sqfs.string());
@@ -92,7 +85,7 @@ unsquashfs_tmp(const std::filesystem::path& sqfs,
                         contents.string(), sqfs.string()));
     }
 
-    spdlog::info("unsquashfs_tmp: data unpacked to {}", base.path().string());
+    spdlog::info("unsquashfs_tmp: data unpacked to {}", base.string());
     return base;
 }
 } // namespace util
