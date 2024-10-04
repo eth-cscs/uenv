@@ -13,10 +13,38 @@
 #include <uenv/meta.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <util/subprocess.h>
 
 namespace uenv {
 
 using util::unexpected;
+
+std::filesystem::path meta_path(const std::filesystem::path& sqfs_path) {
+    namespace fs = std::filesystem;
+
+    // set the meta data path and env.json path if they exist
+    auto meta_p = sqfs_path.parent_path() / "meta";
+    auto env_meta_p = meta_p / "env.json";
+
+    // the meta path exists - use it
+    if (fs::is_directory(meta_p)) {
+        return meta_p;
+    }
+
+    // open the image
+
+    auto p = util::run({
+        "unsquashfs",
+        sqfs_path.string(),
+    });
+
+    /*
+    std::optional<fs::path> meta_path =
+        fs::is_directory(meta_p) ? meta_p : std::optional<fs::path>{};
+    */
+
+    return {};
+}
 
 util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
