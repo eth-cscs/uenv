@@ -13,37 +13,37 @@
 #include <uenv/meta.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <util/fs.h>
 #include <util/subprocess.h>
 
 namespace uenv {
 
 using util::unexpected;
 
-std::filesystem::path meta_path(const std::filesystem::path& sqfs_path) {
+struct meta_info {
+    std::optional<std::filesystem::path> path;
+    std::optional<std::filesystem::path> env;
+};
+
+meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
     namespace fs = std::filesystem;
 
-    // set the meta data path and env.json path if they exist
-    auto meta_p = sqfs_path.parent_path() / "meta";
-    auto env_meta_p = meta_p / "env.json";
-
-    // the meta path exists - use it
-    if (fs::is_directory(meta_p)) {
-        return meta_p;
+    meta_info meta;
+    if (fs::is_directory(sqfs_path.parent_path() / "meta")) {
+        meta.path = sqfs_path.parent_path() / "meta";
+    } else if (auto p = util::unsquashfs_tmp(sqfs_path, "meta")) {
+        meta.path = *p;
     }
 
-    // open the image
+    if (meta.path) {
+        auto env_meta = meta.path.value() / "env.json";
 
-    auto p = util::run({
-        "unsquashfs",
-        sqfs_path.string(),
-    });
+        if (fs::is_regular_file(env_meta)) {
+            meta.env = env_meta;
+        }
+    }
 
-    /*
-    std::optional<fs::path> meta_path =
-        fs::is_directory(meta_p) ? meta_p : std::optional<fs::path>{};
-    */
-
-    return {};
+    return meta;
 }
 
 util::expected<env, std::string>
@@ -52,12 +52,12 @@ concretise_env(const std::string& uenv_args,
                std::optional<std::filesystem::path> repo_arg) {
     namespace fs = std::filesystem;
 
-    // parse the uenv description that was provided as a command line argument.
-    // the command line argument is a comma-separated list of uenvs, where each
-    // uenv is either
+    // parse the uenv description that was provided as a command line
+    // argument. the command line argument is a comma-separated list of
+    // uenvs, where each uenv is either
     // - the path of a squashfs image; or
-    // - a uenv description of the form name[/version][:tag][@system][%uarch]
-    // with an optional mount point.
+    // - a uenv description of the form
+    // name[/version][:tag][@system][%uarch] with an optional mount point.
     const auto uenv_descriptions = uenv::parse_uenv_args(uenv_args);
     if (!uenv_descriptions) {
         return unexpected(fmt::format("invalid uenv description: {}",
@@ -66,8 +66,8 @@ concretise_env(const std::string& uenv_args,
 
     // concretise the uenv descriptions by looking for the squashfs file, or
     // looking up the uenv descrition in a registry.
-    // after this loop, we have fully validated list of uenvs, mount points and
-    // meta data (if they have meta data).
+    // after this loop, we have fully validated list of uenvs, mount points
+    // and meta data (if they have meta data).
 
     std::unordered_map<std::string, uenv::concrete_uenv> uenvs;
     std::set<fs::path> used_mounts;
@@ -80,9 +80,10 @@ concretise_env(const std::string& uenv_args,
         // it has to be looked up in a repo.
         if (auto label = desc.label()) {
             if (!repo_arg) {
-                return unexpected(
-                    "a repo needs to be provided either using the --repo flag "
-                    "or by setting the UENV_REPO_PATH environment variable");
+                return unexpected("a repo needs to be provided either "
+                                  "using the --repo flag "
+                                  "or by setting the UENV_REPO_PATH "
+                                  "environment variable");
             }
             auto store = uenv::open_repository(*repo_arg);
             if (!store) {
@@ -147,22 +148,22 @@ concretise_env(const std::string& uenv_args,
         }
         spdlog::info("{} squashfs image {}", desc, sqfs_path.string());
 
-        // set the meta data path and env.json path if they exist
-        const auto meta_p = sqfs_path.parent_path() / "meta";
-        const auto env_meta_p = meta_p / "env.json";
-        const std::optional<fs::path> meta_path =
-            fs::is_directory(meta_p) ? meta_p : std::optional<fs::path>{};
-        const std::optional<fs::path> env_meta_path =
-            fs::is_regular_file(env_meta_p) ? env_meta_p
-                                            : std::optional<fs::path>{};
-
-        // if meta/env.json exists, parse the json therein
-        std::string name;
-        std::string description;
+        // create a default "anonymous" name for the uenv that will be
+        // overwritten if meta data is provided.
+        std::string name = "anonymous";
+        unsigned name_idx = 0;
+        while (uenvs.count(name)) {
+            name = fmt::format("anonymous{}", name_idx);
+            ++name_idx;
+        }
+        std::string description = "";
         std::optional<std::string> mount_meta;
         std::unordered_map<std::string, concrete_view> views;
-        if (env_meta_path) {
-            if (const auto result = uenv::load_meta(*env_meta_path)) {
+
+        // if meta/env.json exists, parse the json therein
+        auto meta = find_meta_path(sqfs_path);
+        if (meta.env) {
+            if (const auto result = uenv::load_meta(*(meta.env))) {
                 name = std::move(result->name);
                 description = result->description.value_or("");
                 mount_meta = result->mount;
@@ -171,27 +172,19 @@ concretise_env(const std::string& uenv_args,
                              mount_meta);
             } else {
                 spdlog::warn("{} opening the uenv meta data {}: {}", desc,
-                             *env_meta_path, result.error());
+                             meta.env->string(), result.error());
             }
         } else {
-            spdlog::debug("{} no meta file found at expected location {}", desc,
-                          meta_path);
-            description = "";
-            // generate a unique name for the uenv
-            name = "anonymous";
-            unsigned i = 1;
-            while (uenvs.count(name)) {
-                name = fmt::format("anonymous{}", i);
-                ++i;
-            }
+            spdlog::warn("{} no meta file available for {}", desc,
+                         sqfs_path.string());
         }
 
         // if an explicit mount point was provided, use that
         // otherwise use the mount point provided in the meta data
         auto mount_string = desc.mount() ? desc.mount() : mount_meta;
 
-        // handle the case where no mount point was provided by the CLI or meta
-        // data
+        // handle the case where no mount point was provided by the CLI or
+        // meta data
         if (!mount_string) {
             return unexpected(
                 fmt::format("no mount point provided for {}", desc));
@@ -240,7 +233,7 @@ concretise_env(const std::string& uenv_args,
         }
 
         uenvs[name] = concrete_uenv{name,      mount,       sqfs_path,
-                                    meta_path, description, std::move(views)};
+                                    meta.path, description, std::move(views)};
     }
 
     // A dictionary with view name as a key, and a list of uenv that provide
@@ -277,7 +270,8 @@ concretise_env(const std::string& uenv_args,
                 // a list of uenv that have a view with name v.name
                 const auto& matching_uenvs = view2uenv[view.name];
 
-                // handle the case where no uenv name was provided, e.g. develop
+                // handle the case where no uenv name was provided, e.g.
+                // develop
                 if (!view.uenv) {
                     // it is ambiguous if more than one option is available
                     if (matching_uenvs.size() > 1) {
@@ -291,8 +285,8 @@ concretise_env(const std::string& uenv_args,
                     }
                     views.push_back({matching_uenvs[0], view.name});
                 }
-                // handle the case where both uenv and view name are provided,
-                // e.g. prgenv-gnu:develop
+                // handle the case where both uenv and view name are
+                // provided, e.g. prgenv-gnu:develop
                 else {
                     auto it = std::find_if(
                         matching_uenvs.begin(), matching_uenvs.end(),
@@ -326,8 +320,8 @@ std::unordered_map<std::string, std::string> getenv(const env& environment) {
 
     // returns the value of an environment variable.
     // if the variable has been recorded in env_vars, that value is returned
-    // else the cstdlib getenv function is called to get the currently set value
-    // returns nullptr if the variable is not set anywhere
+    // else the cstdlib getenv function is called to get the currently set
+    // value returns nullptr if the variable is not set anywhere
     auto ge = [&env_vars](const std::string& name) -> const char* {
         if (env_vars.count(name)) {
             return env_vars[name].c_str();
@@ -335,10 +329,9 @@ std::unordered_map<std::string, std::string> getenv(const env& environment) {
         return ::getenv(name.c_str());
     };
 
-    // iterate over each view in order, and set the environment variables that
-    // each view configures.
-    // the variables are not set directly, instead they are accumulated in
-    // env_vars.
+    // iterate over each view in order, and set the environment variables
+    // that each view configures. the variables are not set directly,
+    // instead they are accumulated in env_vars.
     for (auto& view : environment.views) {
         auto result = environment.uenvs.at(view.uenv)
                           .views.at(view.name)
