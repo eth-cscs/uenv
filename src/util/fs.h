@@ -13,4 +13,6 @@ util::expected<std::filesystem::path, std::string>
 unsquashfs_tmp(const std::filesystem::path& sqfs,
                const std::filesystem::path& contents);
 
+void clear_temp_dirs();
+
 } // namespace util

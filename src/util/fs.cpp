@@ -25,12 +25,17 @@ struct temp_dir_wrap {
     }
 };
 
-std::filesystem::path make_temp_dir() {
-    // persistant storage for the temporary paths that will delete the paths on
-    // exit. This makes temporary paths persistent for the duration of the
-    // application's execution.
-    static std::vector<temp_dir_wrap> cache;
+// persistant storage for the temporary paths that will delete the paths on
+// exit. This makes temporary paths persistent for the duration of the
+// application's execution.
+static std::vector<temp_dir_wrap> tmp_dir_cache;
 
+void clear_temp_dirs() {
+    tmp_dir_cache.clear();
+    spdlog::debug("clear_temp_dir: deleted all temp files");
+}
+
+std::filesystem::path make_temp_dir() {
     namespace fs = std::filesystem;
     auto tmp_template =
         fs::temp_directory_path().string() + "/uenv-XXXXXXXXXXXX";
@@ -42,7 +47,7 @@ std::filesystem::path make_temp_dir() {
     spdlog::debug("make_temp_dir: created {}", tmp_path.string(),
                   fs::is_directory(tmp_path));
 
-    cache.emplace_back(tmp_path);
+    tmp_dir_cache.emplace_back(tmp_path);
 
     return tmp_path;
 }

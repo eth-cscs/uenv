@@ -10,6 +10,7 @@
 #include <spdlog/spdlog.h>
 
 #include <util/expected.h>
+#include <util/fs.h>
 
 namespace util {
 
@@ -36,6 +37,11 @@ util::expected<std::filesystem::path, std::string> current_shell() {
 
 int exec(const std::vector<std::string>& args) {
     std::vector<char*> argv;
+
+    // clean up temporary files before calling execve, because the descructor
+    // that manages their deletion will not be deleted after the current process
+    // has been replaced.
+    util::clear_temp_dirs();
 
     // unsafe {
     for (auto& arg : args) {
