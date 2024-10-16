@@ -1,3 +1,4 @@
+#include <deque>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -14,13 +15,14 @@ namespace util {
 
 struct temp_dir_wrap {
     std::filesystem::path path;
-    std::error_code ec;
     ~temp_dir_wrap() {
         if (std::filesystem::is_directory(path)) {
             // ignore the error code - being unable to delete a temp path is not
             // the end of the world.
+            std::error_code ec;
             auto n = std::filesystem::remove_all(path, ec);
-            spdlog::debug("temp_dir: deleted {} files in {}", n, path.string());
+            spdlog::debug("temp_dir_wrap: deleted {} files in {}", n,
+                          path.string());
         }
     }
 };
@@ -28,11 +30,11 @@ struct temp_dir_wrap {
 // persistant storage for the temporary paths that will delete the paths on
 // exit. This makes temporary paths persistent for the duration of the
 // application's execution.
-static std::vector<temp_dir_wrap> tmp_dir_cache;
+// Use a dequeu because it will not copy/move/delete its contents as it grows.
+static std::deque<temp_dir_wrap> tmp_dir_cache;
 
 void clear_temp_dirs() {
     tmp_dir_cache.clear();
-    spdlog::debug("clear_temp_dir: deleted all temp files");
 }
 
 std::filesystem::path make_temp_dir() {
@@ -90,7 +92,8 @@ unsquashfs_tmp(const std::filesystem::path& sqfs,
                         contents.string(), sqfs.string()));
     }
 
-    spdlog::info("unsquashfs_tmp: data unpacked to {}", base.string());
+    spdlog::info("unsquashfs_tmp: unpacked {} from {} to {}", contents.string(),
+                 sqfs.string(), base.string());
     return base;
 }
 } // namespace util

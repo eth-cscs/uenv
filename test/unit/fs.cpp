@@ -13,26 +13,40 @@ TEST_CASE("make_temp_dir", "[fs]") {
     REQUIRE(fs::is_directory(dir1));
     auto dir2 = util::make_temp_dir();
     REQUIRE(dir1 != dir2);
-    fmt::println("end-of-funtion");
 }
 
 TEST_CASE("unsquashfs", "[fs]") {
-    std::string sqfs =
-        "/home/bcumming/software/uenv2/test/scratch/repos/apptool/images/"
-        "0343a5636e6d59ed8e5f7fcc35c34719597ff024be0ce796cc0532804b3aeefa/"
-        "store.squashfs";
+    std::string sqfs = "../test/scratch/sqfs/apptool/standalone/app43.squashfs";
     {
+        REQUIRE(fs::is_regular_file(sqfs));
         auto meta = util::unsquashfs_tmp(sqfs, "meta");
-        fmt::println("returned from unsquashfs");
         REQUIRE(meta);
         REQUIRE(fs::is_directory(*meta));
         REQUIRE(fs::is_directory(*meta / "meta"));
+        REQUIRE(fs::is_regular_file(*meta / "meta" / "env.json"));
     }
+    // unpack from a squashfs image many times to validate that the unpacked
+    // data is persistant.
     {
-        const int nbuf = 5;
+        const int nbuf = 128;
         {
+            std::vector<fs::path> paths;
             for (int i = 0; i < nbuf; ++i) {
-                auto x = util::unsquashfs_tmp(sqfs, "meta/env.json");
+                auto meta = util::unsquashfs_tmp(sqfs, "meta/env.json");
+                REQUIRE(meta);
+                auto file = *meta / "meta/env.json";
+                REQUIRE(fs::is_regular_file(file));
+                paths.push_back(file);
+            }
+
+            // the generated paths should be unique
+            std::sort(paths.begin(), paths.end());
+            auto e = std::unique(paths.begin(), paths.end());
+            REQUIRE(e == paths.end());
+
+            // the generated paths should still exist
+            for (auto& file : paths) {
+                REQUIRE(fs::is_regular_file(file));
             }
         }
     }
