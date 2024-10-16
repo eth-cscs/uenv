@@ -37,10 +37,11 @@ lib_src = [
         'src/uenv/meta.cpp',
         'src/uenv/parse.cpp',
         'src/uenv/repository.cpp',
+        'src/uenv/uenv.cpp',
+        'src/util/fs.cpp',
         'src/util/shell.cpp',
         'src/util/strings.cpp',
         'src/util/subprocess.cpp',
-        'src/uenv/uenv.cpp',
 ]
 lib_inc = include_directories('src')
 
@@ -76,6 +77,7 @@ endif
 unit_src = [
         'test/unit/env.cpp',
         'test/unit/envvars.cpp',
+        'test/unit/fs.cpp',
         'test/unit/lex.cpp',
         'test/unit/main.cpp',
         'test/unit/parse.cpp',
