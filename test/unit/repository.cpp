@@ -16,7 +16,6 @@ TEST_CASE("read-only", "[repository]") {
         SKIP(fmt::format("{}", store.error()));
     }
 
-    fmt::println("db path: {}", store->db_path().string());
     {
         auto results = store->query({{}, {}, {}, {}, {}});
         if (!results) {
@@ -29,7 +28,6 @@ TEST_CASE("read-only", "[repository]") {
         //}
     }
 
-    fmt::println("");
     {
         auto results = store->query({"mch", {}, {}, {}, {}});
         if (!results) {
@@ -42,7 +40,6 @@ TEST_CASE("read-only", "[repository]") {
         //}
     }
 
-    fmt::println("");
     {
         auto results = store->query({{}, "v7", {}, {}, {}});
         if (!results) {
@@ -55,7 +52,6 @@ TEST_CASE("read-only", "[repository]") {
         //}
     }
 
-    fmt::println("");
     {
         auto results = store->query({{}, "24.7", "v1-rc1", {}, "a100"});
         if (!results) {
@@ -68,7 +64,6 @@ TEST_CASE("read-only", "[repository]") {
         //}
     }
 
-    fmt::println("");
     {
         auto results = store->query({"wombat", {}, {}, {}, {}});
         if (!results) {

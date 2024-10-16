@@ -11,7 +11,7 @@ function setup() {
 
     export SRC_PATH=$(realpath ../../)
 
-    export PATH="$(realpath ../../install/bin):$PATH"
+    export PATH="$(realpath ../../build):$PATH"
 
     unset UENV_MOUNT_LIST
 
@@ -153,4 +153,38 @@ function teardown() {
     run uenv repo create $RP/test
     assert_failure
     assert_line --partial "Permission denied"
+}
+
+@test "run" {
+    export UENV_REPO_PATH=$REPOS/apptool
+
+    #
+    # check that run looks up images in the repo and mounts at the correct location
+    #
+    run uenv run tool -- ls /user-tools
+    assert_success
+    assert_output --regexp "meta"
+
+    run uenv run app/42.0:v1 -- ls /user-environment
+    assert_success
+    assert_output --regexp "meta"
+
+    #
+    # check --view
+    #
+    run uenv run --view=tool tool -- tool
+    assert_success
+    assert_output "hello tool"
+
+    run uenv run --view=app app/42.0:v1 -- app
+    assert_success
+    assert_output "hello app"
+
+    #
+    # check --view works when reading meta data from inside a standalone sqfs file
+    #
+
+    run uenv run --view=tool $SQFS_LIB/apptool/standalone/tool.squashfs -- tool
+    assert_success
+    assert_output "hello tool"
 }
