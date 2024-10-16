@@ -39,6 +39,11 @@ function setup_repo_apptool() {
             cp ${sqfs} $img_path/store.squashfs
             cp -R ${sources}/${name}/meta $img_path
         done
+
+        img_path="$sqfs_path/standalone"
+        mkdir -p $img_path
+        cp ${sqfs} $img_path/${name}.squashfs
+
         rm ${sqfs}
 
         sed -i "s|{${name}-sha}|${sha}|g" schema.sql
