@@ -355,11 +355,53 @@ std::unordered_map<std::string, std::string> getenv(const env& environment) {
     return env_vars;
 }
 
+// list of environment variables that are ignored in setuid applications
+// the full list is defined here:
+//      https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/generic/unsecvars.h
+std::set<std::string_view> unsecure_envvars__{
+    "GCONV_PATH",
+    "GETCONF_DIR",
+    "GLIBC_TUNABLES",
+    "HOSTALIASES",
+    "LD_AUDIT",
+    "LD_BIND_NOT",
+    "LD_BIND_NOW",
+    "LD_DEBUG",
+    "LD_DEBUG_OUTPUT",
+    "LD_DYNAMIC_WEAK",
+    "LD_LIBRARY_PATH",
+    "LD_ORIGIN_PATH",
+    "LD_PRELOAD",
+    "LD_PROFILE",
+    "LD_SHOW_AUXV",
+    "LD_VERBOSE",
+    "LD_WARN",
+    "LOCALDOMAIN",
+    "LOCPATH",
+    "MALLOC_ARENA_MAX",
+    "MALLOC_ARENA_TEST",
+    "MALLOC_MMAP_MAX_",
+    "MALLOC_MMAP_THRESHOLD_",
+    "MALLOC_PERTURB_",
+    "MALLOC_TOP_PAD_",
+    "MALLOC_TRACE",
+    "MALLOC_TRIM_THRESHOLD_",
+    "NIS_PATH",
+    "NLSPATH",
+    "RESOLV_HOST_CONF",
+    "RES_OPTIONS",
+    "TMPDIR",
+};
+
 util::expected<int, std::string>
 setenv(const std::unordered_map<std::string, std::string>& variables,
        const std::string& prefix) {
     for (auto var : variables) {
-        std::string fwd_name = prefix + var.first;
+        // prepend prefix to unsecure environment variables
+        std::string fwd_name = unsecure_envvars__.contains(var.first)
+                                   ? prefix + var.first
+                                   : var.first;
+        fmt::println("setting {} to {}", fwd_name, var.second);
         if (auto rcode = ::setenv(fwd_name.c_str(), var.second.c_str(), true)) {
             switch (rcode) {
             case EINVAL:
@@ -372,6 +414,7 @@ setenv(const std::unordered_map<std::string, std::string>& variables,
                     fmt::format("unknown error setting {}", fwd_name));
             }
         }
+        fmt::println("set!");
     }
     return 0;
 }
