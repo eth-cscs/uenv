@@ -30,9 +30,14 @@ struct temp_dir_wrap {
 // persistant storage for the temporary paths that will delete the paths on
 // exit. This makes temporary paths persistent for the duration of the
 // application's execution.
-// Use a dequeu because it will not copy/move/delete its contents as it grows.
+// Use a deque because it will not copy/move/delete its contents as it grows.
 static std::deque<temp_dir_wrap> tmp_dir_cache;
 
+// the temp paths are deleted automatically when tmp_dir_cache is cleaned up
+// at the end of execution, except when execvp is used to replace the current
+// process.
+// use this function to force early clean up in such situations, so that no
+// tmp paths remain after execution.
 void clear_temp_dirs() {
     tmp_dir_cache.clear();
 }
@@ -57,7 +62,6 @@ std::filesystem::path make_temp_dir() {
 util::expected<std::filesystem::path, std::string>
 unsquashfs_tmp(const std::filesystem::path& sqfs,
                const std::filesystem::path& contents) {
-
     namespace fs = std::filesystem;
 
     if (!fs::is_regular_file(sqfs)) {

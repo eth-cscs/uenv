@@ -11,7 +11,7 @@ function setup() {
 
     export SRC_PATH=$(realpath ../../)
 
-    export PATH="$(realpath ../../install/bin):$PATH"
+    export PATH="$(realpath ../../build):$PATH"
 
     unset UENV_MOUNT_LIST
 
