@@ -146,26 +146,40 @@ hopefully<sqlite_database> open_sqlite_database(const fs::path path,
     return sqlite_database(db);
 }
 
-hopefully<sqlite_database> create_sqlite_database(const fs::path path) {
+// Takes a single argument which is the path of the database to create.
+// If path is not set, an in memory database is created.
+hopefully<sqlite_database>
+create_sqlite_database(const std::optional<fs::path> path = {}) {
     using enum repo_mode;
 
-    if (fs::exists(path)) {
+    if (path && fs::exists(*path)) {
         return unexpected(
-            fmt::format("database file {} already exists", path.string()));
+            fmt::format("database file {} already exists", path->string()));
     }
-    if (!fs::exists(path.parent_path())) {
+    if (!fs::exists(path->parent_path())) {
         return unexpected(fmt::format("the path {} needs to be crated first",
-                                      path.parent_path().string()));
+                                      path->parent_path().string()));
     }
 
-    const int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
-    spdlog::info("create_sqlite_database: attempting to open {}");
     sqlite3* db;
-    if (sqlite3_open_v2(path.string().c_str(), &db, flags, NULL) != SQLITE_OK) {
-        return unexpected(fmt::format("did not create database file {}: {}",
-                                      path.string(), sqlite3_errmsg(db)));
+    if (path) {
+        const int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+        if (sqlite3_open_v2(path->string().c_str(), &db, flags, NULL) !=
+            SQLITE_OK) {
+            return unexpected(
+                fmt::format("unable to create database file {}: {}",
+                            path->string(), sqlite3_errmsg(db)));
+        }
+        spdlog::info("create_sqlite3_database: created db {}", path);
+    } else {
+        const int flags =
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_MEMORY;
+        if (sqlite3_open_v2("in-memory", &db, flags, NULL) != SQLITE_OK) {
+            return unexpected(fmt::format(
+                "unable to create in memory database: {}", sqlite3_errmsg(db)));
+        }
+        spdlog::info("create_sqlite_database: created in-memory db");
     }
-    spdlog::info("create_sqlite3_database: opened {}.", path);
 
     return sqlite_database(db);
 }
@@ -314,15 +328,13 @@ hopefully<query> create_query(const std::string& text, sqlite_database& db) {
 }
 
 struct repository_impl {
-    repository_impl(sqlite_database db, fs::path path, fs::path db_path,
+    repository_impl(sqlite_database db, std::optional<fs::path> path,
                     bool readonly = true)
-        : db(std::move(db)), path(std::move(path)), db_path(std::move(db_path)),
-          is_readonly(readonly) {
+        : db(std::move(db)), path(std::move(path)), is_readonly(readonly) {
     }
     repository_impl(repository_impl&&) = default;
     sqlite_database db;
-    fs::path path;
-    fs::path db_path;
+    std::optional<fs::path> path;
 
     util::expected<std::vector<uenv_record>, std::string>
     query(const uenv_label&);
@@ -437,8 +449,8 @@ open_repository(const fs::path& repo_path, repo_mode mode) {
         return unexpected(db.error());
     }
 
-    return repository(std::make_unique<repository_impl>(
-        std::move(*db), repo_path, db_path, true));
+    return repository(
+        std::make_unique<repository_impl>(std::move(*db), repo_path, true));
 }
 
 std::vector<std::string> schema_tables();
@@ -500,8 +512,41 @@ create_repository(const fs::path& repo_path) {
         return unexpected("unable to create repository");
     }
 
-    return repository(std::make_unique<repository_impl>(
-        std::move(*db), abs_repo_path, db_path, true));
+    return repository(
+        std::make_unique<repository_impl>(std::move(*db), abs_repo_path, true));
+}
+
+util::expected<repository, std::string> create_repository() {
+    using enum repo_state;
+
+    // open the sqlite database
+    auto db = create_sqlite_database();
+    if (!db) {
+        spdlog::error("unable to create repository database: {}", db.error());
+        return unexpected(fmt::format("unable to create repository"));
+    }
+
+    if (auto r = exec_statement("BEGIN", *db); !r) {
+        spdlog::error(r.error());
+        return unexpected("unable to create repository");
+    }
+    if (auto r = exec_statement("PRAGMA foreign_keys=on", *db); !r) {
+        spdlog::error(r.error());
+        return unexpected("unable to create repository");
+    }
+    for (const auto& table : schema_tables()) {
+        if (auto r = exec_statement(table, *db); !r) {
+            spdlog::error(r.error());
+            return unexpected("unable to create repository");
+        }
+    }
+    if (auto r = exec_statement("COMMIT", *db); !r) {
+        spdlog::error(r.error());
+        return unexpected("unable to create repository");
+    }
+
+    return repository(
+        std::make_unique<repository_impl>(std::move(*db), std::nullopt, true));
 }
 
 util::expected<std::vector<uenv_record>, std::string>
@@ -650,17 +695,17 @@ std::vector<std::string> schema_tables() {
 
 repository::~repository() = default;
 
-const fs::path& repository::path() const {
+std::optional<fs::path> repository::path() const {
     return impl_->path;
-}
-
-const fs::path& repository::db_path() const {
-    return impl_->db_path;
 }
 
 util::expected<std::vector<uenv_record>, std::string>
 repository::query(const uenv_label& label) {
     return impl_->query(label);
+}
+
+bool repository::is_in_memory() const {
+    return impl_->path.has_value();
 }
 
 bool repository::is_readonly() const {

@@ -31,21 +31,25 @@ struct repository {
 
   public:
     using enum repo_mode;
+    repository() = delete;
+
     repository(repository&&);
     repository(std::unique_ptr<repository_impl>);
 
     // copying a repository is not permitted
-    repository() = delete;
     repository(const repository&) = delete;
 
-    const std::filesystem::path& path() const;
-    const std::filesystem::path& db_path() const;
+    // returns nullopt if the data base is in memory
+    std::optional<std::filesystem::path> path() const;
 
     util::expected<std::vector<uenv_record>, std::string>
     query(const uenv_label& label);
 
     // return true if the repository is readonly
     bool is_readonly() const;
+
+    // return true if the repository is in memory
+    bool is_in_memory() const;
 
     ~repository();
 
@@ -56,7 +60,10 @@ struct repository {
 util::expected<repository, std::string>
 open_repository(const std::filesystem::path&,
                 repo_mode mode = repo_mode::readonly);
+
 util::expected<repository, std::string>
 create_repository(const std::filesystem::path& repo_path);
+
+util::expected<repository, std::string> create_repository();
 
 } // namespace uenv
