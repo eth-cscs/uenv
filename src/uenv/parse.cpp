@@ -139,7 +139,7 @@ util::expected<uenv_label, parse_error> parse_uenv_label(lexer& L) {
     uenv_label result;
 
     // labels are of the form:
-    // name[/version][:tag][!uarch][@system]
+    // name[/version][:tag][@system][%uarch]
     // - name is required
     // - the other fields are optional
     // - version and tag are required to be in order (tag after version and

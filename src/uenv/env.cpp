@@ -31,15 +31,12 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
     meta_info meta;
     if (fs::is_directory(sqfs_path.parent_path() / "meta")) {
         meta.path = sqfs_path.parent_path() / "meta";
-        spdlog::debug("find_meta_path: {} found external meta path {}",
-                      sqfs_path.string(), meta.path->string());
     } else if (auto p = util::unsquashfs_tmp(sqfs_path, "meta")) {
         meta.path = *p / "meta";
-        spdlog::debug("find_meta_path: {} found internal meta path {}",
+    }
+    if (meta.path) {
+        spdlog::debug("find_meta_path: {} found meta path {}",
                       sqfs_path.string(), meta.path->string());
-    } else {
-        spdlog::debug("find_meta_path: {} no meta path found",
-                      sqfs_path.string());
     }
 
     if (meta.path) {
@@ -47,10 +44,10 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
 
         if (fs::is_regular_file(env_meta)) {
             meta.env = env_meta;
+        }
+        if (meta.env) {
             spdlog::debug("find_meta_path: {} found env meta {}",
                           sqfs_path.string(), meta.env->string());
-        } else {
-            spdlog::debug("find_meta_path: {} no env meta", sqfs_path.string());
         }
     }
 
