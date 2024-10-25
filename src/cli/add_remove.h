@@ -16,7 +16,8 @@ void image_add_help();
 void image_remove_help();
 
 struct image_add_args {
-    std::optional<std::string> uenv_description;
+    std::string uenv_description;
+    std::string squashfs;
     void add_cli(CLI::App&, global_settings& settings);
 };
 
@@ -26,7 +27,8 @@ struct image_remove_args {
 };
 
 int image_add(const image_add_args& args, const global_settings& settings);
-int image_remove(const image_remove_args& args, const global_settings& settings);
+int image_remove(const image_remove_args& args,
+                 const global_settings& settings);
 
 } // namespace uenv
 
