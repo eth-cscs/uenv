@@ -20,9 +20,9 @@ struct temp_dir_wrap {
             // ignore the error code - being unable to delete a temp path is not
             // the end of the world.
             std::error_code ec;
-            auto n = std::filesystem::remove_all(path, ec);
-            spdlog::debug("temp_dir_wrap: deleted {} files in {}", n,
-                          path.string());
+            std::filesystem::remove_all(path, ec);
+            //  warning: this might be called after spdlog is deactivated, so no
+            //  logging!
         }
     }
 };
