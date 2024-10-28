@@ -24,6 +24,29 @@ struct uenv_label {
     }
 };
 
+struct uenv_date {
+    using int_t = std::uint32_t;
+
+    int_t year = 2024;
+    int_t month = 1;
+    int_t day = 1;
+
+    int_t hour = 0;
+    int_t minute = 0;
+    int_t second = 0;
+
+    bool validate() const;
+
+    uenv_date() = default;
+    uenv_date(int_t y, int_t m, int_t d) : year(y), month(m), day(d) {
+    }
+    uenv_date(int_t y, int_t m, int_t d, int_t h, int_t min, int_t s)
+        : year(y), month(m), day(d), hour(h), minute(min), second(s) {
+    }
+
+    auto operator<=>(const uenv_date&) const = default;
+};
+
 bool is_sha(std::string_view v, std::size_t n = 0);
 
 template <unsigned N> struct sha_type {
@@ -68,7 +91,7 @@ struct uenv_record {
     std::string name;
     std::string version;
     std::string tag;
-    std::string date;
+    uenv_date date;
     std::size_t size_byte;
     sha256 sha;
     uenv_id id;
@@ -177,6 +200,19 @@ template <> class fmt::formatter<uenv::concrete_uenv> {
     }
 };
 
+template <unsigned N> class fmt::formatter<uenv::sha_type<N>> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(uenv::sha_type<N> const& sha, FmtContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}", sha.string());
+    }
+};
+
 template <> class fmt::formatter<uenv::uenv_record> {
   public:
     // parse format specification and store it:
@@ -188,16 +224,41 @@ template <> class fmt::formatter<uenv::uenv_record> {
     constexpr auto format(uenv::uenv_record const& r, FmtContext& ctx) const {
         return fmt::format_to(ctx.out(), "{}/{}:{}@{}%{}", r.name, r.version,
                               r.tag, r.system, r.uarch);
-        /*
-    std::string system;
-    std::string uarch;
-    std::string name;
-    std::string version;
-    std::string tag;
-    std::string date;
-    std::size_t size_byte;
-    std::string sha256;
-    std::string id;
-        */
     }
+};
+
+template <> class fmt::formatter<uenv::uenv_date> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        auto i = ctx.begin(), end = ctx.end();
+        if (i != end && (*i == 'l' || *i == 's')) {
+            mode_ = *i++;
+        }
+        if (i != end && *i != '}') {
+            throw format_error("invalid date format");
+        }
+        return i;
+    }
+
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(uenv::uenv_date const& d, FmtContext& ctx) const {
+        switch (mode_) {
+        default:
+        case 'l':
+            return format_to(ctx.out(), "{}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}",
+                             d.year, d.month, d.day, d.hour, d.minute,
+                             d.second);
+        case 's':
+            return format_to(ctx.out(), "{}-{:02d}-{:02d}", d.year, d.month,
+                             d.day);
+        }
+    }
+
+  private:
+    // mode can be one of:
+    // 'l' = long:  yyyy-mm-dd hh:mm:ss
+    // 's' = short: yyyy-mm-dd
+    char mode_ = 'l';
 };

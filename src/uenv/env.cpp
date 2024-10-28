@@ -398,7 +398,8 @@ setenv(const std::unordered_map<std::string, std::string>& variables,
         std::string fwd_name = unsecure_envvars__.contains(var.first)
                                    ? prefix + var.first
                                    : var.first;
-        fmt::println("setting {} to {}", fwd_name, var.second);
+        spdlog::trace("forwarding environment variable {} as {}", fwd_name,
+                      var.second);
         if (auto rcode = ::setenv(fwd_name.c_str(), var.second.c_str(), true)) {
             switch (rcode) {
             case EINVAL:
@@ -411,7 +412,6 @@ setenv(const std::unordered_map<std::string, std::string>& variables,
                     fmt::format("unknown error setting {}", fwd_name));
             }
         }
-        fmt::println("set!");
     }
     return 0;
 }

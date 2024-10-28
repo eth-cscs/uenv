@@ -27,6 +27,19 @@ TEST_CASE("punctuation", "[lex]") {
     REQUIRE(L.next() == uenv::token{8, uenv::tok::end, ""});
 }
 
+TEST_CASE("number", "[lex]") {
+    uenv::lexer L("42 42wombat42 42");
+    REQUIRE(L.next() == uenv::token{0, uenv::tok::integer, "42"});
+    REQUIRE(L.next() == uenv::token{2, uenv::tok::whitespace, " "});
+    REQUIRE(L.next() == uenv::token{3, uenv::tok::integer, "42"});
+    REQUIRE(L.next() == uenv::token{5, uenv::tok::symbol, "wombat42"});
+    REQUIRE(L.next() == uenv::token{13, uenv::tok::whitespace, " "});
+    REQUIRE(L.next() == uenv::token{14, uenv::tok::integer, "42"});
+    //  pop the end token twice to check that it does not run off the end
+    REQUIRE(L.next() == uenv::token{16, uenv::tok::end, ""});
+    REQUIRE(L.next() == uenv::token{16, uenv::tok::end, ""});
+}
+
 TEST_CASE("peek", "[lex]") {
     uenv::lexer L(":apple");
     REQUIRE(L.peek() == uenv::token{0, uenv::tok::colon, ":"});
@@ -40,11 +53,11 @@ TEST_CASE("peek", "[lex]") {
 }
 
 TEST_CASE("whitespace", "[lex]") {
-    uenv::lexer L("wombat  soup ");
+    uenv::lexer L("wombat  soup \n\v");
     REQUIRE(L.next() == uenv::token{0, uenv::tok::symbol, "wombat"});
     REQUIRE(L.next() == uenv::token{6, uenv::tok::whitespace, "  "});
     REQUIRE(L.next() == uenv::token{8, uenv::tok::symbol, "soup"});
-    REQUIRE(L.next() == uenv::token{12, uenv::tok::whitespace, " "});
+    REQUIRE(L.next() == uenv::token{12, uenv::tok::whitespace, " \n\v"});
 }
 
 TEST_CASE("empty input", "[lex]") {

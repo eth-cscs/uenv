@@ -43,8 +43,8 @@ struct parse_error {
 };
 
 // apply to strings before parsing them.
-// - removes tab, vertical tab, newline and carriage return.
-std::string sanitise_input(std::string_view input);
+// - strips white space from beginning and end of input
+std::string strip(std::string_view input);
 
 util::expected<std::vector<view_description>, parse_error>
 parse_view_args(const std::string& arg);
@@ -54,6 +54,8 @@ parse_uenv_args(const std::string& arg);
 
 util::expected<std::vector<mount_entry>, parse_error>
 parse_mount_list(const std::string& arg);
+
+util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg);
 
 util::expected<std::string, parse_error> parse_path(const std::string& in);
 

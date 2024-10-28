@@ -76,6 +76,7 @@ if uenv_cli
 endif
 
 unit_src = [
+        'test/unit/dates.cpp',
         'test/unit/env.cpp',
         'test/unit/envvars.cpp',
         'test/unit/fs.cpp',

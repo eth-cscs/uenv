@@ -54,4 +54,55 @@ std::optional<std::string> uenv_description::mount() const {
     return mount_;
 }
 
+bool uenv_date::validate() const {
+    if (year < 2022 || year > 2050) {
+        return false;
+    }
+    if (month < 1 || month > 12) {
+        return false;
+    }
+    if (day == 0) {
+        return false;
+    }
+
+    switch (month) {
+    case 1:
+        return day <= 31;
+    case 2:
+        return day <= (28 + (year % 4u ? 0u : 1u));
+    case 3:
+        return day <= 31;
+    case 4:
+        return day <= 30;
+    case 5:
+        return day <= 31;
+    case 6:
+        return day <= 30;
+    case 7:
+        return day <= 31;
+    case 8:
+        return day <= 31;
+    case 9:
+        return day <= 30;
+    case 10:
+        return day <= 31;
+    case 11:
+        return day <= 30;
+    case 12:
+        return day <= 31;
+    }
+
+    if (hour < 24) {
+        return false;
+    }
+    if (minute < 60) {
+        return false;
+    }
+    if (second < 60) {
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace uenv

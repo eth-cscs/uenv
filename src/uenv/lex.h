@@ -10,12 +10,14 @@ namespace uenv {
 enum class tok {
     at,         // at '@'
     slash,      // forward slash /
+    integer,    // unsigned integer
     comma,      // comma ','
     colon,      // colon ':'
     symbol,     // string, e.g. prgenv-gnu
     dash,       // comma ','
     dot,        // comma ','
-    whitespace, // sequence of spaces
+    whitespace, // spaces, tabs, etc. Contiguous white space characters are
+                // joined together.
     bang,       // exclamation mark '!'
     star,       // '*'
     percent,    // percentage symbol '%'
@@ -74,6 +76,8 @@ template <> class fmt::formatter<uenv::tok> {
             return fmt::format_to(ctx.out(), "star");
         case uenv::tok::comma:
             return fmt::format_to(ctx.out(), "comma");
+        case uenv::tok::integer:
+            return fmt::format_to(ctx.out(), "integer");
         case uenv::tok::slash:
             return fmt::format_to(ctx.out(), "slash");
         case uenv::tok::symbol:
@@ -108,7 +112,9 @@ template <> class fmt::formatter<uenv::token> {
     // format a value using stored specification:
     template <typename FmtContext>
     constexpr auto format(uenv::token const& t, FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "{loc: {}, kind: {}, spelling: '{}')",
-                              t.loc, t.kind, t.spelling);
+        // return fmt::format_to(ctx.out(), "{loc: {}, kind: {}, spelling:
+        // '{}')", t.loc, t.kind, t.spelling);
+        return fmt::format_to(ctx.out(), "loc: {}, kind: {} '{}'", t.loc,
+                              t.kind, t.spelling);
     }
 };

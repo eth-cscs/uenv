@@ -156,7 +156,7 @@ create_sqlite_database(const std::optional<fs::path> path = {}) {
         return unexpected(
             fmt::format("database file {} already exists", path->string()));
     }
-    if (!fs::exists(path->parent_path())) {
+    if (path && !fs::exists(path->parent_path())) {
         return unexpected(fmt::format("the path {} needs to be crated first",
                                       path->parent_path().string()));
     }
@@ -307,6 +307,7 @@ hopefully<statement> create_statement(const std::string& text,
 // - use a query type for queries that are stepped once for each return
 // row of the database
 hopefully<void> exec_statement(const std::string& text, sqlite_database& db) {
+    spdlog::trace("exec_statement: {}", text);
     auto stmnt = create_statement(text, db);
     if (!stmnt) {
         return unexpected(stmnt.error());
@@ -319,6 +320,7 @@ hopefully<void> exec_statement(const std::string& text, sqlite_database& db) {
 }
 
 hopefully<query> create_query(const std::string& text, sqlite_database& db) {
+    spdlog::trace("create_query: {}", text);
     auto ptr = create_sqlite3_stmt(text, db);
     if (!ptr) {
         return unexpected(ptr.error());
@@ -339,8 +341,7 @@ struct repository_impl {
     util::expected<std::vector<uenv_record>, std::string>
     query(const uenv_label&);
 
-    util::expected<void, std::string> exec(const std::string&);
-    util::expected<int, std::string> add_uenv(const uenv_record&);
+    util::expected<void, std::string> add(const uenv_record&);
 
     const bool is_readonly;
 };
@@ -549,6 +550,75 @@ util::expected<repository, std::string> create_repository() {
         std::make_unique<repository_impl>(std::move(*db), std::nullopt, true));
 }
 
+util::expected<void, std::string>
+repository_impl::add(const uenv::uenv_record& r) {
+    std::vector<std::string> statements{
+        // begin the transaction
+        "BEGIN",
+        "PRAGMA foreign_keys=on",
+        // insert the image information to images
+        fmt::format("INSERT OR IGNORE INTO images (sha256, id, date, size) "
+                    "VALUES ('{}', '{}', '{}', {})",
+                    r.sha, r.id, r.date, r.size_byte),
+        // insert the uenv information to uenv
+        fmt::format("INSERT OR IGNORE INTO uenv (system, uarch, name, version) "
+                    "VALUES ('{}', '{}', "
+                    "'{}', '{}')",
+                    r.system, r.uarch, r.name, r.version),
+    };
+
+    for (auto stmt : statements) {
+        if (auto r = exec_statement(stmt, db); !r) {
+            spdlog::error("repository_impl::add: {}", r.error());
+            return unexpected("unable to update database");
+        }
+    }
+
+    // Retrieve the version_id of the system/uarch/name/version identifier
+    // This requires a SELECT query to get the correct version_id whether or not
+    // a new row was added in the last INSERT
+    std::int64_t version_id;
+    {
+        auto stmt = fmt::format(
+            "SELECT version_id FROM uenv WHERE system = '{}' AND uarch = '{}' "
+            "AND name = '{}' AND version = '{}'",
+            r.system, r.uarch, r.name, r.version);
+        auto result = create_query(stmt, db);
+        result->step();
+
+        version_id = (*result)["version_id"].value();
+    }
+
+    bool tag_exists;
+    {
+        auto stmt = fmt::format(
+            "SELECT tag FROM tags WHERE version_id = '{}' AND tag = '{}'",
+            version_id, r.tag);
+
+        auto result = create_query(stmt, db);
+        tag_exists = result->step();
+    }
+
+    auto stmt = tag_exists ? fmt::format("UPDATE tags SET sha256 = '{}' WHERE "
+                                         "version_id = {} AND tag = '{}'",
+                                         r.sha, version_id, r.tag)
+                           : fmt::format("INSERT INTO tags (version_id, tag, "
+                                         "sha256) VALUES ('{}', '{}', '{}')",
+                                         version_id, r.tag, r.sha);
+
+    if (auto r = exec_statement(stmt, db); !r) {
+        spdlog::error("repository_impl::add: {}", r.error());
+        return unexpected(r.error());
+    }
+
+    if (auto r = exec_statement("COMMIT", db); !r) {
+        spdlog::error("repository_impl::add: {}", r.error());
+        return unexpected(r.error());
+    }
+
+    return {};
+}
+
 util::expected<std::vector<uenv_record>, std::string>
 repository_impl::query(const uenv_label& label) {
     std::vector<uenv_record> results;
@@ -575,23 +645,35 @@ repository_impl::query(const uenv_label& label) {
         query += fmt::format(" WHERE {}", fmt::join(query_terms, " AND "));
     }
 
-    // spdlog::info("running database query\n{}", query);
     auto s = create_query(query, db);
     if (!s) {
         return unexpected(
             fmt::format("creating database query: {}", s.error()));
     }
-    while (s->step()) {
+
+    auto record_from_query = [](auto& stmnt) -> hopefully<uenv_record> {
         // unsafe: unwrap using .value() without checking for errors.
         // the best way to do this would be to "validate" the database
         // beforehand by checking the columns exist. Even better,
         // validate that column 0 -> 'system', etc, and use integer
         // indexes to look up more effiently.
-        results.push_back({(*s)["system"].value(), (*s)["uarch"].value(),
-                           (*s)["name"].value(), (*s)["version"].value(),
-                           (*s)["tag"].value(), (*s)["date"].value(),
-                           (*s)["size"].value(), sha256((*s)["sha256"].value()),
-                           uenv_id((*s)["id"].value())});
+        auto date =
+            parse_uenv_date(static_cast<std::string>(stmnt["date"].value()));
+        if (!date) {
+            fmt::println("date: {}", date.error().message());
+            return unexpected(
+                fmt::format("invalid date {}", date.error().message()));
+        }
+        return uenv_record{
+            stmnt["system"].value(),     stmnt["uarch"].value(),
+            stmnt["name"].value(),       stmnt["version"].value(),
+            stmnt["tag"].value(),        date.value(),
+            stmnt["size"].value(),       sha256(stmnt["sha256"].value()),
+            uenv_id(stmnt["id"].value())};
+    };
+
+    while (s->step()) {
+        results.push_back(record_from_query(*s).value());
     }
 
     // now check for id and sha search terms
@@ -604,13 +686,7 @@ repository_impl::query(const uenv_label& label) {
                 db);
             if (result) {
                 while (result->step()) {
-                    results.push_back(
-                        {(*result)["system"].value(),
-                         (*result)["uarch"].value(), (*result)["name"].value(),
-                         (*result)["version"].value(), (*result)["tag"].value(),
-                         (*result)["date"].value(), (*result)["size"].value(),
-                         sha256((*result)["sha256"].value()),
-                         uenv_id((*result)["id"].value())});
+                    results.push_back(record_from_query(*result).value());
                 }
             }
         }
@@ -622,13 +698,7 @@ repository_impl::query(const uenv_label& label) {
                 db);
             if (result) {
                 while (result->step()) {
-                    results.push_back(
-                        {(*result)["system"].value(),
-                         (*result)["uarch"].value(), (*result)["name"].value(),
-                         (*result)["version"].value(), (*result)["tag"].value(),
-                         (*result)["date"].value(), (*result)["size"].value(),
-                         sha256((*result)["sha256"].value()),
-                         uenv_id((*result)["id"].value())});
+                    results.push_back(record_from_query(*result).value());
                 }
             }
         }
@@ -702,6 +772,10 @@ std::optional<fs::path> repository::path() const {
 util::expected<std::vector<uenv_record>, std::string>
 repository::query(const uenv_label& label) {
     return impl_->query(label);
+}
+
+util::expected<void, std::string> repository::add(const uenv_record& r) {
+    return impl_->add(r);
 }
 
 bool repository::is_in_memory() const {

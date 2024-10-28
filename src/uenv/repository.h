@@ -45,6 +45,8 @@ struct repository {
     util::expected<std::vector<uenv_record>, std::string>
     query(const uenv_label& label);
 
+    util::expected<void, std::string> add(const uenv_record&);
+
     // return true if the repository is readonly
     bool is_readonly() const;
 

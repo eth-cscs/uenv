@@ -116,19 +116,12 @@ int image_add(const image_add_args& args, const global_settings& settings) {
             "setting the UENV_REPO_PATH environment variable");
         return 1;
     }
-    auto store = uenv::open_repository(settings.repo.value());
+    auto store =
+        uenv::open_repository(settings.repo.value(), repo_mode::readwrite);
     if (!store) {
         spdlog::error("unable to open repo: {}", store.error());
         return 1;
     }
-
-    /*
-    if (!store->is_readwrite()) {
-        spdlog::error("the repository {} is read only",
-                      settings.repo.value().string());
-        return 1;
-    }
-    */
 
     //
     // check whether the label also exists
@@ -219,7 +212,16 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
 
     // this interface lets us fully control
-    // store.add_uenv(hash, label);
+    uenv_record r{
+        *label->system,      *label->uarch,
+        *label->name,        *label->version,
+        *label->tag,         {2024, 10, 21}, // TODO: add the date
+        fs::file_size(sqfs), hash,
+        hash.substr(0, 16),
+    };
+    store->add(r);
+
+    fmt::println("{} {}", sha256{hash}, uenv_id{hash.substr(0, 16)});
 
     return 0;
 }
