@@ -19,6 +19,10 @@ function setup() {
     export REPO_ROOT=/tmp/uenv-repo
     rm -rf $REPO_ROOT
     mkdir -p $REPO_ROOT
+
+    # remove the bash function uenv, if an older version of uenv is installed on
+    # the system
+    unset -f uenv
 }
 
 function teardown() {
