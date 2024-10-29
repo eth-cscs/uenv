@@ -40,6 +40,7 @@ function teardown() {
 
 @test "image ls" {
     export UENV_REPO_PATH=$REPOS/apptool
+    export CLUSTER_NAME=arapiles
 
     run uenv image ls
     assert_success
@@ -83,7 +84,7 @@ function teardown() {
     assert_output ""
 
     # unset the UENV_REPO_PATH variable and use the --repo flag instead
-    unset UENV_REPO_PATH=$REPOS/apptool
+    unset UENV_REPO_PATH
 
     run uenv --repo=/wombat image ls --no-header
     assert_failure
@@ -157,6 +158,7 @@ function teardown() {
 
 @test "run" {
     export UENV_REPO_PATH=$REPOS/apptool
+    export CLUSTER_NAME=arapiles
 
     #
     # check that run looks up images in the repo and mounts at the correct location
