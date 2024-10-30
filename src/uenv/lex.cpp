@@ -79,9 +79,12 @@ class lexer_impl {
 
         while (!empty()) {
             switch (*stream_) {
-            // fix with a whitespace token type that handles 1 or more
-            // contiguous spaces
-            case ' ':
+            case ' ':  // space
+            case '\f': // form feed
+            case '\n': // newline
+            case '\r': // carriage return
+            case '\t': // tab
+            case '\v': // vertical tab
                 token_ = whitespace();
                 return;
 
@@ -130,11 +133,13 @@ class lexer_impl {
 #pragma GCC diagnostic ignored "-Wpedantic"
             case 'a' ... 'z':
             case 'A' ... 'Z':
-            case '0' ... '9':
-#pragma GCC diagnostic pop
             case '_':
                 token_ = symbol();
                 return;
+            case '0' ... '9':
+                token_ = integer();
+                return;
+#pragma GCC diagnostic pop
             default:
                 character_token(tok::error);
                 return;
@@ -176,12 +181,27 @@ class lexer_impl {
                 std::string_view(&(*start), std::distance(start, stream_))};
     }
 
+    token integer() {
+        using namespace std::string_literals;
+        const auto start_loc = loc();
+        const auto start = stream_;
+
+        auto v = *stream_;
+        while (v <= '9' && v >= '0') {
+            ++stream_;
+            v = *stream_;
+        }
+
+        return {start_loc, tok::integer,
+                std::string_view(&(*start), std::distance(start, stream_))};
+    }
+
     token whitespace() {
         using namespace std::string_literals;
         const auto start_loc = loc();
         const auto start = stream_;
 
-        while (*stream_ == ' ') {
+        while (std::iswspace(*stream_)) {
             ++stream_;
         }
 

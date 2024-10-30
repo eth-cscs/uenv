@@ -16,12 +16,19 @@ util::expected<mount_entry, parse_error> parse_mount_entry(lexer& L);
 } // namespace uenv
 
 TEST_CASE("sanitise inputs", "[parse]") {
-    REQUIRE(uenv::sanitise_input("wombat") == "wombat");
-    REQUIRE(uenv::sanitise_input("wombat soup") == "wombat soup");
-    REQUIRE(uenv::sanitise_input("wombat-soup") == "wombat-soup");
-    REQUIRE(uenv::sanitise_input("wombat \nsoup") == "wombat soup");
-    REQUIRE(uenv::sanitise_input("wombat\t\nsoup") == "wombatsoup");
-    REQUIRE(uenv::sanitise_input("\vwombat soup\r") == "wombat soup");
+    REQUIRE(uenv::strip("wombat") == "wombat");
+    REQUIRE(uenv::strip("wombat soup") == "wombat soup");
+    REQUIRE(uenv::strip("wombat-soup") == "wombat-soup");
+    REQUIRE(uenv::strip("wombat \nsoup") == "wombat \nsoup");
+    REQUIRE(uenv::strip("") == "");
+    REQUIRE(uenv::strip(" ") == "");
+    REQUIRE(uenv::strip(" x") == "x");
+    REQUIRE(uenv::strip("x ") == "x");
+    REQUIRE(uenv::strip(" x ") == "x");
+    REQUIRE(uenv::strip(" \n\f  ") == "");
+    REQUIRE(uenv::strip(" wombat") == "wombat");
+    REQUIRE(uenv::strip("wombat \n") == "wombat");
+    REQUIRE(uenv::strip("\t\f\vwombat \n") == "wombat");
 }
 
 TEST_CASE("parse names", "[parse]") {
@@ -36,7 +43,8 @@ TEST_CASE("parse names", "[parse]") {
 TEST_CASE("parse path", "[parse]") {
     for (const auto& in :
          {"./etc", "/etc", "/etc.", "/etc/usr/file.txt", "/etc-car/hole_s/_.",
-          ".", "./.ssh/config", ".bashrc"}) {
+          ".", "./.ssh/config", ".bashrc", ".2", "./2-w_00",
+          "/tmp/uenv-repo/create-6urQBN"}) {
         auto L = uenv::lexer(in);
         auto result = uenv::parse_path(L);
         REQUIRE(result);
@@ -177,8 +185,8 @@ TEST_CASE("parse uenv list", "[parse]") {
         REQUIRE(*d.mount() == "/user-environment");
     }
     {
-        // test case where no tag is provide - ensure that the mount point after
-        // the : character is read correctly.
+        // test case where no tag is provide - ensure that the mount point
+        // after the : character is read correctly.
         auto in = "prgenv-gnu/24.7:/user-environment";
         auto result = uenv::parse_uenv_args(in);
         if (!result)
@@ -205,9 +213,9 @@ TEST_CASE("parse uenv list", "[parse]") {
         REQUIRE(!d.mount());
     }
     {
-        auto in =
-            "/scratch/.uenv-images/sdfklsdf890df9a87sdf/store.squashfs:/"
-            "user-environment/store-asdf/my-image_mnt_point3//,prgenv-nvidia";
+        auto in = "/scratch/.uenv-images/sdfklsdf890df9a87sdf/store.squashfs:/"
+                  "user-environment/store-asdf/my-image_mnt_point3//"
+                  ",prgenv-nvidia";
         auto result = uenv::parse_uenv_args(in);
         REQUIRE(result);
         REQUIRE(result->size() == 2);
@@ -251,6 +259,57 @@ TEST_CASE("parse mount", "[parse]") {
     {
         auto in = "";
         auto result = uenv::parse_mount_list(in);
+        REQUIRE(!result);
+    }
+}
+
+TEST_CASE("date", "[parse]") {
+    {
+        auto in = "2024-12-3";
+        auto result = uenv::parse_uenv_date(in);
+        REQUIRE(result);
+        REQUIRE(result->year == 2024);
+        REQUIRE(result->month == 12);
+        REQUIRE(result->day == 3);
+    }
+    {
+        auto in = "2024-12-03";
+        auto result = uenv::parse_uenv_date(in);
+        REQUIRE(result);
+        REQUIRE(result->year == 2024);
+        REQUIRE(result->month == 12);
+        REQUIRE(result->day == 3);
+    }
+    {
+        auto in = "2024-2-29";
+        auto result = uenv::parse_uenv_date(in);
+        REQUIRE(result);
+        REQUIRE(result->year == 2024);
+        REQUIRE(result->month == 2);
+        REQUIRE(result->day == 29);
+    }
+    {
+        auto in = "2024-03-11 17:08:35.976000+00:00";
+        auto result = uenv::parse_uenv_date(in);
+        REQUIRE(result);
+        REQUIRE(result->year == 2024);
+        REQUIRE(result->month == 3);
+        REQUIRE(result->day == 11);
+        REQUIRE(result->hour == 17);
+        REQUIRE(result->minute == 8);
+        REQUIRE(result->second == 35);
+
+        REQUIRE(*result == *uenv::parse_uenv_date("2024-03-11 17:08:35"));
+    }
+    {
+        for (auto in : {"2024-0-3", "2024-13-3", "2023-2-29"}) {
+            auto result = uenv::parse_uenv_date(in);
+            REQUIRE(!result);
+        }
+    }
+    {
+        auto in = "2024-1a-3";
+        auto result = uenv::parse_uenv_date(in);
         REQUIRE(!result);
     }
 }

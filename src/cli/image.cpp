@@ -2,6 +2,7 @@
 #include <string>
 
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
@@ -11,14 +12,14 @@
 #include <util/expected.h>
 #include <util/shell.h>
 
+#include "add_remove.h"
+#include "help.h"
 #include "image.h"
 #include "ls.h"
 
 namespace uenv {
 
-void image_help() {
-    fmt::println("image help");
-}
+std::string image_footer();
 
 void image_args::add_cli(CLI::App& cli,
                          [[maybe_unused]] global_settings& settings) {
@@ -27,6 +28,31 @@ void image_args::add_cli(CLI::App& cli,
 
     // add the `uenv image ls` command
     ls_args.add_cli(*image_cli, settings);
+
+    // add the `uenv image add` command
+    add_args.add_cli(*image_cli, settings);
+
+    // add the `uenv image remove` command
+    remove_args.add_cli(*image_cli, settings);
+
+    image_cli->footer(image_footer);
+}
+
+std::string image_footer() {
+    using enum help::block::admonition;
+    using help::lst;
+    std::vector<help::item> items{
+        // clang-format off
+        help::block{none, "Manage and query uenv images." },
+        help::linebreak{},
+        help::block{none, fmt::format("For more information on how to use individual commands use the {} flag.", lst("--help")) },
+        help::linebreak{},
+        help::block{xmpl, fmt::format("get help on the {} command", lst("ls"))},
+        help::block{code,   "uenv image ls --help"},
+        // clang-format on
+    };
+
+    return fmt::format("{}", fmt::join(items, "\n"));
 }
 
 } // namespace uenv

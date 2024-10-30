@@ -1,3 +1,4 @@
+#include <charconv>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -48,29 +49,31 @@ parse_string(lexer& L, std::string_view type, Test&& test) {
 }
 
 // strip all tabs, newlines, cariage returns, etc from an input string.
-std::string sanitise_input(std::string_view input) {
-    std::string sanitised;
-    sanitised.reserve(input.size());
-
-    for (auto c : input) {
-        if (c == '\n' || c == '\t' || c == '\v' || c == '\r') {
-            continue;
-        }
-        sanitised.push_back(c);
+std::string strip(std::string_view input) {
+    if (input.empty()) {
+        return {};
     }
-    return sanitised;
+    auto b = std::find_if_not(input.begin(), input.end(), std::iswspace);
+    if (b == input.end()) {
+        return {};
+    }
+    auto e = input.end();
+    while (std::iswspace(*--e))
+        ;
+    return {b, e + 1};
 }
 
 // tokens that can appear in names
-// names aer used for uenv names, versions, tags
+// names are used for uenv names, versions, tags
 bool is_name_tok(tok t) {
-    return t == tok::symbol || t == tok::dash || t == tok::dot;
+    return t == tok::symbol || t == tok::dash || t == tok::dot ||
+           t == tok::integer;
 };
 
 // tokens that can be the first token in a name
 // don't allow leading dashes and periods
 bool is_name_start_tok(tok t) {
-    return t == tok::symbol;
+    return t == tok::symbol || t == tok::integer;
 };
 
 util::expected<std::string, parse_error> parse_name(lexer& L) {
@@ -82,18 +85,43 @@ util::expected<std::string, parse_error> parse_name(lexer& L) {
     return parse_string(L, "name", is_name_tok);
 }
 
+util::expected<std::uint64_t, parse_error> parse_uint64(lexer& L) {
+    const auto t = L.peek();
+    if (t.kind != tok::integer) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("{} is not an integer", t.spelling), t});
+    }
+
+    auto s = t.spelling;
+    std::uint64_t value;
+    auto result = std::from_chars(s.data(), s.data() + s.size(), value);
+
+    if (result.ec != std::errc{}) {
+        return util::unexpected(
+            parse_error{L.string(),
+                        fmt::format("{} is not an integer '{}'", s,
+                                    std::make_error_code(result.ec).message()),
+                        t});
+    }
+
+    L.next();
+
+    return value;
+}
+
 // all of the symbols that can occur in a path.
 // this is a subset of the characters that posix allows (which is effectively
 // every character). But it is a sane subset. If the user somehow has spaces or
 // colons in their file names, we are doing them a favor.
 bool is_path_tok(tok t) {
     return t == tok::slash || t == tok::symbol || t == tok::dash ||
-           t == tok::dot;
+           t == tok::dot || t == tok::integer;
 };
 // require that all paths start with a dot or /
 bool is_path_start_tok(tok t) {
     return t == tok::slash || t == tok::dot;
 };
+
 util::expected<std::string, parse_error> parse_path(lexer& L) {
     if (!is_path_start_tok(L.current_kind())) {
         const auto t = L.peek();
@@ -104,6 +132,7 @@ util::expected<std::string, parse_error> parse_path(lexer& L) {
     }
     return parse_string(L, "path", is_path_tok);
 }
+
 util::expected<std::string, parse_error> parse_path(const std::string& in) {
     auto L = lexer(in);
     auto result = parse_path(L);
@@ -139,7 +168,7 @@ util::expected<uenv_label, parse_error> parse_uenv_label(lexer& L) {
     uenv_label result;
 
     // labels are of the form:
-    // name[/version][:tag][!uarch][@system]
+    // name[/version][:tag][@system][%uarch]
     // - name is required
     // - the other fields are optional
     // - version and tag are required to be in order (tag after version and
@@ -239,6 +268,26 @@ util::expected<uenv_description, parse_error> parse_uenv_description(lexer& L) {
         L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
 }
 
+util::expected<mount_entry, parse_error> parse_mount_entry(lexer& L) {
+    mount_entry result;
+
+    PARSE(L, path, result.sqfs_path);
+    if (L.current_kind() != tok::colon) {
+        const auto t = L.peek();
+        return util::unexpected(parse_error(
+            L.string(),
+            fmt::format("expected a ':' separating the squashfs image and "
+                        "mount path, found '{}'",
+                        t.spelling),
+            t));
+    }
+    // eat the colon
+    L.next();
+    PARSE(L, path, result.mount_path);
+
+    return result;
+}
+
 /* Public interface.
  * These are the high level functions for parsing raw strings passed to the
  * command line.
@@ -248,7 +297,9 @@ util::expected<uenv_description, parse_error> parse_uenv_description(lexer& L) {
 // e.g. prgenv-gnu:spack,modules
 util::expected<std::vector<view_description>, parse_error>
 parse_view_args(const std::string& arg) {
-    const std::string sanitised = sanitise_input(arg);
+    spdlog::trace("parsing view args {}", arg);
+
+    const std::string sanitised = strip(arg);
     auto L = lexer(sanitised);
     std::vector<view_description> views;
 
@@ -280,7 +331,9 @@ parse_view_args(const std::string& arg) {
 // parse a comma-separated list of uenv descriptions
 util::expected<std::vector<uenv_description>, parse_error>
 parse_uenv_args(const std::string& arg) {
-    const std::string sanitised = sanitise_input(arg);
+    spdlog::trace("parsing uenv args {}", arg);
+
+    const std::string sanitised = strip(arg);
     auto L = lexer(sanitised);
     std::vector<uenv_description> uenvs;
 
@@ -309,33 +362,13 @@ parse_uenv_args(const std::string& arg) {
     return uenvs;
 }
 
-util::expected<mount_entry, parse_error> parse_mount_entry(lexer& L) {
-    mount_entry result;
-
-    PARSE(L, path, result.sqfs_path);
-    if (L.current_kind() != tok::colon) {
-        const auto t = L.peek();
-        return util::unexpected(parse_error(
-            L.string(),
-            fmt::format("expected a ':' separating the squashfs image and "
-                        "mount path, found '{}'",
-                        t.spelling),
-            t));
-    }
-    // eat the colon
-    L.next();
-    PARSE(L, path, result.mount_path);
-
-    return result;
-}
-
 util::expected<std::vector<mount_entry>, parse_error>
 parse_mount_list(const std::string& arg) {
-    const std::string sanitised = sanitise_input(arg);
+    const std::string sanitised = strip(arg);
     auto L = lexer(sanitised);
     std::vector<mount_entry> mounts;
 
-    spdlog::debug("parsing uenv description {}", arg);
+    spdlog::trace("parsing uenv mount list {}", arg);
     while (true) {
         mount_entry mnt;
         PARSE(L, mount_entry, mnt);
@@ -359,6 +392,74 @@ parse_mount_list(const std::string& arg) {
             L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
     }
     return mounts;
+}
+
+// yyyy.mm.dd [hh:mm:ss]
+// 2024.12.10
+// 2025.1.24
+// 2025.01.24
+// 2023.07.16 21:13:06
+util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg) {
+    const std::string sanitised = strip(arg);
+    auto L = lexer(sanitised);
+    uenv_date date;
+
+    spdlog::trace("parsing uenv_date {}", arg);
+
+    PARSE(L, uint64, date.year);
+    if (L.peek().kind != tok::dash) {
+        goto unexpected_symbol;
+    }
+    L.next();
+    PARSE(L, uint64, date.month);
+    if (L.peek().kind != tok::dash) {
+        goto unexpected_symbol;
+    }
+    L.next();
+    PARSE(L, uint64, date.day);
+
+    // time to finish - date was in 'yyyy-mm-dd' format
+    if (L.peek().kind == tok::end) {
+        goto validate_and_return;
+    }
+
+    // continue processing on the assumption that the date is in the
+    // 'yyyy-mm-dd hh:mm:ss.uuuuuu+hh:mm' format
+    if (L.peek().kind != tok::whitespace) {
+        goto unexpected_symbol;
+    }
+    // eat whitespace
+    L.next();
+
+    PARSE(L, uint64, date.hour);
+    if (L.peek().kind != tok::colon) {
+        goto unexpected_symbol;
+    }
+    L.next();
+    PARSE(L, uint64, date.minute);
+    if (L.peek().kind != tok::colon) {
+        goto unexpected_symbol;
+    }
+    L.next();
+    PARSE(L, uint64, date.second);
+
+    if (!(L.peek().kind == tok::end || L.peek().kind == tok::dot)) {
+        goto unexpected_symbol;
+    }
+
+validate_and_return:
+    if (!date.validate()) {
+        auto t = L.peek();
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("date {} is out of bounds", t.spelling),
+            t});
+    }
+    return date;
+
+unexpected_symbol:
+    auto t = L.peek();
+    return util::unexpected(parse_error{
+        L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
 }
 
 } // namespace uenv

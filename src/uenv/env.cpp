@@ -31,15 +31,12 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
     meta_info meta;
     if (fs::is_directory(sqfs_path.parent_path() / "meta")) {
         meta.path = sqfs_path.parent_path() / "meta";
-        spdlog::debug("find_meta_path: {} found external meta path {}",
-                      sqfs_path.string(), meta.path->string());
     } else if (auto p = util::unsquashfs_tmp(sqfs_path, "meta")) {
         meta.path = *p / "meta";
-        spdlog::debug("find_meta_path: {} found internal meta path {}",
+    }
+    if (meta.path) {
+        spdlog::debug("find_meta_path: {} found meta path {}",
                       sqfs_path.string(), meta.path->string());
-    } else {
-        spdlog::debug("find_meta_path: {} no meta path found",
-                      sqfs_path.string());
     }
 
     if (meta.path) {
@@ -47,10 +44,10 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
 
         if (fs::is_regular_file(env_meta)) {
             meta.env = env_meta;
+        }
+        if (meta.env) {
             spdlog::debug("find_meta_path: {} found env meta {}",
                           sqfs_path.string(), meta.env->string());
-        } else {
-            spdlog::debug("find_meta_path: {} no env meta", sqfs_path.string());
         }
     }
 
@@ -401,7 +398,8 @@ setenv(const std::unordered_map<std::string, std::string>& variables,
         std::string fwd_name = unsecure_envvars__.contains(var.first)
                                    ? prefix + var.first
                                    : var.first;
-        fmt::println("setting {} to {}", fwd_name, var.second);
+        spdlog::trace("forwarding environment variable {} as {}", fwd_name,
+                      var.second);
         if (auto rcode = ::setenv(fwd_name.c_str(), var.second.c_str(), true)) {
             switch (rcode) {
             case EINVAL:
@@ -414,7 +412,6 @@ setenv(const std::unordered_map<std::string, std::string>& variables,
                     fmt::format("unknown error setting {}", fwd_name));
             }
         }
-        fmt::println("set!");
     }
     return 0;
 }

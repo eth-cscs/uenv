@@ -19,11 +19,18 @@ function setup() {
     export REPO_ROOT=/tmp/uenv-repo
     rm -rf $REPO_ROOT
     mkdir -p $REPO_ROOT
+
+    # make a scratch space in the same file system as the repo root
+    mkdir -p $REPO_ROOT/scratch
+
+    # remove the bash function uenv, if an older version of uenv is installed on
+    # the system
+    unset -f uenv
 }
 
 function teardown() {
     export REPO_ROOT=/tmp/uenv-repo
-    rm -rf $REPO_ROOT
+    #rm -rf $REPO_ROOT
 }
 
 @test "noargs" {
@@ -40,6 +47,7 @@ function teardown() {
 
 @test "image ls" {
     export UENV_REPO_PATH=$REPOS/apptool
+    export CLUSTER_NAME=arapiles
 
     run uenv image ls
     assert_success
@@ -83,7 +91,7 @@ function teardown() {
     assert_output ""
 
     # unset the UENV_REPO_PATH variable and use the --repo flag instead
-    unset UENV_REPO_PATH=$REPOS/apptool
+    unset UENV_REPO_PATH
 
     run uenv --repo=/wombat image ls --no-header
     assert_failure
@@ -157,6 +165,7 @@ function teardown() {
 
 @test "run" {
     export UENV_REPO_PATH=$REPOS/apptool
+    export CLUSTER_NAME=arapiles
 
     #
     # check that run looks up images in the repo and mounts at the correct location
@@ -187,4 +196,72 @@ function teardown() {
     run uenv run --view=tool $SQFS_LIB/apptool/standalone/tool.squashfs -- tool
     assert_success
     assert_output "hello tool"
+}
+
+@test "image add" {
+    # using UENV_REPO_PATH env variable
+    RP=$(mktemp -d $REPO_ROOT/create-XXXXXX)
+    run uenv repo create $RP
+    assert_success
+
+    run uenv --repo=$RP image add wombat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
+    assert_success
+    assert_output --partial "the uenv wombat/24:v1@arapiles%zen3"
+    assert_output --partial "was added to $RP"
+    refute_output --partial "warning"
+    refute_output --partial "error"
+
+    # trying to add the same image should be a failure
+    run uenv --repo=$RP image add wombat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
+    assert_failure
+    assert_output --partial "uenv already exists"
+
+    # trying to add the same image with a different label should add the image and generate a warning
+    run uenv --repo=$RP image add numbat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
+    assert_success
+    assert_output --partial "[warning] a uenv with the same sha"
+
+    run uenv --repo=$RP image ls --no-header
+    assert_success
+    assert_line --partial 'wombat/24:v1'
+    assert_line --partial 'numbat/24:v1'
+    # assert that the number of lines in the output is 2: one for each uenv
+    [ "${#lines[@]}" -eq "2" ]
+
+    # trying to add the same image with a different label should add the image and generate a warning
+    run uenv --repo=$RP image add bilby/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/app42.squashfs
+    assert_success
+    refute_output --partial "warning"
+    refute_output --partial "error"
+
+    run uenv --repo=$RP image ls --no-header
+    assert_success
+    assert_line --partial 'wombat/24:v1'
+    assert_line --partial 'numbat/24:v1'
+    assert_line --partial 'bilby/24:v1'
+    [ "${#lines[@]}" -eq "3" ]
+
+    # test that moving an image into place works
+    # we have to move the image from the same file system as the repo
+    # so we use a copy in REPO_ROOT/scratch
+    sqfs_file=$REPO_ROOT/scratch/app43.squashfs
+    cp $SQFS_LIB/apptool/standalone/app43.squashfs $sqfs_file
+    [ -f  $sqfs_file ]
+    run uenv --repo=$RP image add --move quokka/24:v1@arapiles%zen3 $sqfs_file
+    assert_success
+    refute_output --partial "warning"
+    refute_output --partial "error"
+    # assert that the input file was moved properly
+    ! [ -f  $sqfs_file ]
+
+    run uenv --repo=$RP image ls --no-header
+    assert_success
+    assert_line --partial 'wombat/24:v1'
+    assert_line --partial 'numbat/24:v1'
+    assert_line --partial 'bilby/24:v1'
+    assert_line --partial 'quokka/24:v1'
+    [ "${#lines[@]}" -eq "4" ]
+
+    # TODO:
+    # - check a read-only repo
 }

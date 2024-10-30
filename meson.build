@@ -2,6 +2,8 @@ project('uenv', ['cpp'],
         default_options : [
           'cpp_std=c++20',
           'default_library=static',
+          'werror=true',
+          'warning_level=3',
         ],
         version: files('VERSION'),
         meson_version: '>=0.57')
@@ -11,6 +13,8 @@ uenv_slurm_plugin = get_option('slurm_plugin')
 uenv_cli = get_option('cli')
 
 conf_data = configuration_data()
+
+add_global_arguments('-Wno-missing-field-initializers', language : 'cpp')
 
 # configure the dependencies
 
@@ -56,6 +60,7 @@ subdir('src/uenv')
 # the uenv executable
 if uenv_cli
     uenv_src = [
+            'src/cli/add_remove.cpp',
             'src/cli/color.cpp',
             'src/cli/help.cpp',
             'src/cli/image.cpp',
@@ -75,6 +80,7 @@ if uenv_cli
 endif
 
 unit_src = [
+        'test/unit/dates.cpp',
         'test/unit/env.cpp',
         'test/unit/envvars.cpp',
         'test/unit/fs.cpp',
