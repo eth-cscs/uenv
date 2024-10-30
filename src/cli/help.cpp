@@ -31,7 +31,7 @@ std::string render(const block& b) {
         result += fmt::format("{} - ", ::color::green("Info"));
         break;
     case warn:
-        result += fmt::format("{} - ", ::color::red("Warning"));
+        result += fmt::format("{} - ", ::color::yellow("Warning"));
         break;
     case depr:
         result += fmt::format("{} - ", ::color::red("Deprecated"));

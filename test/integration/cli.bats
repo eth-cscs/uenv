@@ -20,6 +20,9 @@ function setup() {
     rm -rf $REPO_ROOT
     mkdir -p $REPO_ROOT
 
+    # make a scratch space in the same file system as the repo root
+    mkdir -p $REPO_ROOT/scratch
+
     # remove the bash function uenv, if an older version of uenv is installed on
     # the system
     unset -f uenv
@@ -237,6 +240,27 @@ function teardown() {
     assert_line --partial 'numbat/24:v1'
     assert_line --partial 'bilby/24:v1'
     [ "${#lines[@]}" -eq "3" ]
+
+    # test that moving an image into place works
+    # we have to move the image from the same file system as the repo
+    # so we use a copy in REPO_ROOT/scratch
+    sqfs_file=$REPO_ROOT/scratch/app43.squashfs
+    cp $SQFS_LIB/apptool/standalone/app43.squashfs $sqfs_file
+    [ -f  $sqfs_file ]
+    run uenv --repo=$RP image add --move quokka/24:v1@arapiles%zen3 $sqfs_file
+    assert_success
+    refute_output --partial "warning"
+    refute_output --partial "error"
+    # assert that the input file was moved properly
+    ! [ -f  $sqfs_file ]
+
+    run uenv --repo=$RP image ls --no-header
+    assert_success
+    assert_line --partial 'wombat/24:v1'
+    assert_line --partial 'numbat/24:v1'
+    assert_line --partial 'bilby/24:v1'
+    assert_line --partial 'quokka/24:v1'
+    [ "${#lines[@]}" -eq "4" ]
 
     # TODO:
     # - check a read-only repo

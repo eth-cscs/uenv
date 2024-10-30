@@ -121,6 +121,6 @@ template <> class fmt::formatter<help::lst> {
     // format a value using stored specification:
     template <typename FmtContext>
     constexpr auto format(help::lst const& l, FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "{}", ::color::yellow(l.content));
+        return fmt::format_to(ctx.out(), "{}", ::color::white(l.content));
     }
 };

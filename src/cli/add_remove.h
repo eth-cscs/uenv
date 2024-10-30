@@ -18,6 +18,7 @@ void image_remove_help();
 struct image_add_args {
     std::string uenv_description;
     std::string squashfs;
+    bool move = false;
     void add_cli(CLI::App&, global_settings& settings);
 };
 

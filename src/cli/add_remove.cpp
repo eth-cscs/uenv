@@ -30,6 +30,8 @@ void image_add_args::add_cli(CLI::App& cli,
         ->add_option("label", uenv_description,
                      "the label, of the form name:version:tag@system#uarch")
         ->required();
+    add_cli->add_flag("--move", move,
+                      "move the squahfs image instead of copying it.");
     add_cli->add_option("squashfs", squashfs, "the squashfs file to add.")
         ->required();
     add_cli->callback(
@@ -170,18 +172,12 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                       img_path.string());
         fs::remove_all(img_path);
     }
+    uenv::uenv_date date{*util::file_creation_date(sqfs)};
 
     fs::create_directories(img_path, ec);
     if (ec) {
         spdlog::error("unable to create path {}: {}", img_path.string(),
                       ec.message());
-        return 1;
-    }
-
-    fs::copy_file(sqfs, img_path / "store.squashfs", ec);
-    if (ec) {
-        spdlog::error("unable to copy squashfs image {} to {}: {}",
-                      sqfs.string(), img_path.string(), ec.message());
         return 1;
     }
 
@@ -200,18 +196,49 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         }
     }
 
+    // copy or move the
+    const auto sqfs_destination = img_path / "store.squashfs";
+    if (!args.move) {
+        fs::copy_file(sqfs, sqfs_destination, ec);
+        if (ec) {
+            spdlog::error("unable to copy squashfs image {} to {}: {}",
+                          sqfs.string(), img_path.string(), ec.message());
+            return 1;
+        }
+    } else {
+        fs::rename(sqfs, sqfs_destination, ec);
+        if (ec) {
+            spdlog::error("unable to move squashfs image {} to {}: {}",
+                          sqfs.string(), img_path.string(), ec.message());
+            fmt::println(
+                "{}",
+                help::item{help::block{
+                    help::block::admonition::note,
+                    fmt::format(
+                        "check that the file {} is on the same filesystem as "
+                        "the repository, and that you have write access to it.",
+                        sqfs)}});
+            return 1;
+        }
+    }
+
     //
     // add the uenv to the database
     //
-    uenv::uenv_date date{*util::file_creation_date(sqfs)};
     if (!date.validate()) {
         spdlog::error("the date {} is invalid", date);
         return 1;
     }
     uenv_record r{
-        *label->system,      *label->uarch, *label->name,
-        *label->version,     *label->tag,   date,
-        fs::file_size(sqfs), hash,          hash.substr(0, 16),
+        *label->system,
+        *label->uarch,
+        *label->name,
+        *label->version,
+        *label->tag,
+        date,
+        fs::file_size(sqfs_destination),
+        hash,
+        hash.substr(0, 16),
     };
     if (auto result = store->add(r); !result) {
         spdlog::error("image_add: {}", result.error());
@@ -230,12 +257,21 @@ int image_remove([[maybe_unused]] const image_remove_args& args,
 
 std::string image_add_footer() {
     using enum help::block::admonition;
+    using help::lst;
+
     std::vector<help::item> items{
         // clang-format off
         help::block{none, "Add a uenv image to a repository." },
         help::linebreak{},
-        help::block{xmpl, "add an image, providing the full label"},
-        help::block{code,   "uenv image add myenv/24.7:v1@todi#gh200 ./store.squashfs"},
+        help::block{xmpl, "add an image to the default repository:"},
+        help::block{code,   "uenv image add myenv/24.7:v1@todi%gh200 ./store.squashfs"},
+        help::block{none, fmt::format("the label must be of the complete {} form.", lst("name/version:tag@system%uarch"))},
+        help::linebreak{},
+        help::block{xmpl, "add an image by moving the input image into the repository:"},
+        help::block{code,   "uenv image add --move myenv/24.7:v1@todi%gh200 ./store.squashfs"},
+        help::block{none, "this method is significantly faster for large image files, however it should"},
+        help::block{none, "only be used when the original input squashfs file is no longer needed."},
+
         // clang-format on
     };
 
