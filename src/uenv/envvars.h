@@ -28,7 +28,7 @@ struct prefix_path_update {
 };
 
 struct prefix_path {
-    prefix_path(std::string name) : name_(std::move(name)) {};
+    prefix_path(std::string name) : name_(std::move(name)){};
     prefix_path() = delete;
 
     void update(prefix_path_update u);
