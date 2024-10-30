@@ -38,7 +38,7 @@ void image_add_args::add_cli(CLI::App& cli,
     add_cli->footer(image_add_footer);
 }
 
-void image_remove_args::add_cli(CLI::App& cli,
+void image_remove_args::add_cli([[maybe_unused]] CLI::App& cli,
                                 [[maybe_unused]] global_settings& settings) {
     /*
     auto* remove_cli =
@@ -223,8 +223,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     return 0;
 }
 
-int image_remove(const image_remove_args& args,
-                 const global_settings& settings) {
+int image_remove([[maybe_unused]] const image_remove_args& args,
+                 [[maybe_unused]] const global_settings& settings) {
     return 0;
 }
 
