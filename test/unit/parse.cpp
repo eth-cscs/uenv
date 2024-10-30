@@ -43,7 +43,8 @@ TEST_CASE("parse names", "[parse]") {
 TEST_CASE("parse path", "[parse]") {
     for (const auto& in :
          {"./etc", "/etc", "/etc.", "/etc/usr/file.txt", "/etc-car/hole_s/_.",
-          ".", "./.ssh/config", ".bashrc"}) {
+          ".", "./.ssh/config", ".bashrc", ".2", "./2-w_00",
+          "/tmp/uenv-repo/create-6urQBN"}) {
         auto L = uenv::lexer(in);
         auto result = uenv::parse_path(L);
         REQUIRE(result);
@@ -184,8 +185,8 @@ TEST_CASE("parse uenv list", "[parse]") {
         REQUIRE(*d.mount() == "/user-environment");
     }
     {
-        // test case where no tag is provide - ensure that the mount point after
-        // the : character is read correctly.
+        // test case where no tag is provide - ensure that the mount point
+        // after the : character is read correctly.
         auto in = "prgenv-gnu/24.7:/user-environment";
         auto result = uenv::parse_uenv_args(in);
         if (!result)
@@ -212,9 +213,9 @@ TEST_CASE("parse uenv list", "[parse]") {
         REQUIRE(!d.mount());
     }
     {
-        auto in =
-            "/scratch/.uenv-images/sdfklsdf890df9a87sdf/store.squashfs:/"
-            "user-environment/store-asdf/my-image_mnt_point3//,prgenv-nvidia";
+        auto in = "/scratch/.uenv-images/sdfklsdf890df9a87sdf/store.squashfs:/"
+                  "user-environment/store-asdf/my-image_mnt_point3//"
+                  ",prgenv-nvidia";
         auto result = uenv::parse_uenv_args(in);
         REQUIRE(result);
         REQUIRE(result->size() == 2);

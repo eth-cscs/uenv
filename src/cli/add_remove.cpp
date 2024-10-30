@@ -24,7 +24,8 @@ std::string image_remove_footer();
 
 void image_add_args::add_cli(CLI::App& cli,
                              [[maybe_unused]] global_settings& settings) {
-    auto* add_cli = cli.add_subcommand("add", "manage and query uenv images");
+    auto* add_cli =
+        cli.add_subcommand("add", "add a uenv image to a repository");
     add_cli
         ->add_option("label", uenv_description,
                      "the label, of the form name:version:tag@system#uarch")
@@ -39,13 +40,15 @@ void image_add_args::add_cli(CLI::App& cli,
 
 void image_remove_args::add_cli(CLI::App& cli,
                                 [[maybe_unused]] global_settings& settings) {
+    /*
     auto* remove_cli =
-        cli.add_subcommand("remove", "manage and query uenv images");
+        cli.add_subcommand("remove", "delete a uenv image from a repository");
     remove_cli->add_option("uenv", uenv_description, "the uenv to remove.");
     remove_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_remove; });
 
     remove_cli->footer(image_remove_footer);
+    */
 }
 
 int image_add(const image_add_args& args, const global_settings& settings) {
@@ -131,14 +134,10 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         auto results = store->query(*label);
         // TODO check error on results
         existing_label = !results->empty();
-        for (auto& r : *results) {
-            fmt::println(":: {}", r);
-        }
 
         if (existing_label) {
-            spdlog::error(
-                "image_add: a uenv image already exists with the label {}",
-                *label);
+            spdlog::error("image_add: a uenv already exists with the label {}",
+                          *label);
             return 1;
         }
     }
@@ -153,21 +152,16 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         auto results = store->query(hash_label);
         // TODO check error on results
         existing_hash = !results->empty();
-        for (auto& r : *results) {
-            fmt::println(":: {}", r);
-        }
 
         if (existing_hash) {
-            spdlog::warn(
-                "image_add: a uenv with the same sha is already in the repo");
+            spdlog::warn("a uenv with the same sha {} is already in the repo",
+                         hash);
         }
     }
 
     //
     // create the path inside the repo
     //
-    fmt::println("repo {}", *(settings.repo));
-
     std::error_code ec;
     auto img_path = settings.repo.value() / "images" / hash;
     // if the path exists, delete it, as it might contain a partial download
@@ -195,11 +189,10 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     // copy the meta data into the repo
     //
     if (auto p = util::unsquashfs_tmp(sqfs, "meta")) {
-        // TODO: make this recursive, check error codes
-        fs::copy_options options;
+        fs::copy_options options{};
         options |= fs::copy_options::recursive;
-        options |= fs::copy_options::update_existing;
-        fs::copy(p.value() / "meta", img_path / "meta", options, ec);
+        auto meta_path = img_path / "meta";
+        fs::copy(p.value() / "meta", meta_path, options, ec);
         if (ec) {
             spdlog::error("unable to copy meta data to {}: {}",
                           (img_path / "meta").string(), ec.message());
@@ -210,18 +203,18 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     // add the uenv to the database
     //
-
-    // this interface lets us fully control
+    uenv::uenv_date date;
     uenv_record r{
-        *label->system,      *label->uarch,
-        *label->name,        *label->version,
-        *label->tag,         {2024, 10, 21}, // TODO: add the date
-        fs::file_size(sqfs), hash,
-        hash.substr(0, 16),
+        *label->system,      *label->uarch, *label->name,
+        *label->version,     *label->tag,   date,
+        fs::file_size(sqfs), hash,          hash.substr(0, 16),
     };
-    store->add(r);
-
-    fmt::println("{} {}", sha256{hash}, uenv_id{hash.substr(0, 16)});
+    if (auto result = store->add(r); !result) {
+        spdlog::error("image_add: {}", result.error());
+        return 1;
+    }
+    fmt::println("the uenv {} with sha {} was added to {}", r, hash,
+                 store->path()->string());
 
     return 0;
 }
@@ -238,19 +231,7 @@ std::string image_add_footer() {
         help::block{none, "Add a uenv image to a repository." },
         help::linebreak{},
         help::block{xmpl, "add an image, providing the full label"},
-        help::block{code,   "uenv image add myenv/24.7:v1 ./store.squashfs"},
         help::block{code,   "uenv image add myenv/24.7:v1@todi#gh200 ./store.squashfs"},
-        /*
-        help::linebreak{},
-        help::block{xmpl, "infer the name from the meta data"},
-        help::block{code,   "uenv image add --version=24.7 --tag=v1 ./store.squashfs"},
-        help::linebreak{},
-        help::block{xmpl, "infer the name from the meta data"},
-        help::block{code,   "uenv image add --version=24.7 --tag=v1 --uarch=a100 ./store.squashfs"},
-        help::linebreak{},
-        help::block{xmpl, "add cluster name"},
-        help::block{code,   "uenv image add --version=24.7 --tag=v1 --uarch=a100 --system=daint ./store.squashfs"},
-        */
         // clang-format on
     };
 

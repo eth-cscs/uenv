@@ -21,7 +21,8 @@ std::string image_ls_footer();
 
 void image_ls_args::add_cli(CLI::App& cli,
                             [[maybe_unused]] global_settings& settings) {
-    auto* ls_cli = cli.add_subcommand("ls", "manage and query uenv images");
+    auto* ls_cli =
+        cli.add_subcommand("ls", "search for uenv that are available to run");
     ls_cli->add_option("uenv", uenv_description,
                        "comma separated list of uenv to mount.");
     ls_cli->add_flag("--no-header", no_header,

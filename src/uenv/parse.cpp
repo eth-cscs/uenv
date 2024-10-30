@@ -115,7 +115,7 @@ util::expected<std::uint64_t, parse_error> parse_uint64(lexer& L) {
 // colons in their file names, we are doing them a favor.
 bool is_path_tok(tok t) {
     return t == tok::slash || t == tok::symbol || t == tok::dash ||
-           t == tok::dot;
+           t == tok::dot || t == tok::integer;
 };
 // require that all paths start with a dot or /
 bool is_path_start_tok(tok t) {
@@ -268,6 +268,26 @@ util::expected<uenv_description, parse_error> parse_uenv_description(lexer& L) {
         L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
 }
 
+util::expected<mount_entry, parse_error> parse_mount_entry(lexer& L) {
+    mount_entry result;
+
+    PARSE(L, path, result.sqfs_path);
+    if (L.current_kind() != tok::colon) {
+        const auto t = L.peek();
+        return util::unexpected(parse_error(
+            L.string(),
+            fmt::format("expected a ':' separating the squashfs image and "
+                        "mount path, found '{}'",
+                        t.spelling),
+            t));
+    }
+    // eat the colon
+    L.next();
+    PARSE(L, path, result.mount_path);
+
+    return result;
+}
+
 /* Public interface.
  * These are the high level functions for parsing raw strings passed to the
  * command line.
@@ -277,6 +297,8 @@ util::expected<uenv_description, parse_error> parse_uenv_description(lexer& L) {
 // e.g. prgenv-gnu:spack,modules
 util::expected<std::vector<view_description>, parse_error>
 parse_view_args(const std::string& arg) {
+    spdlog::trace("parsing view args {}", arg);
+
     const std::string sanitised = strip(arg);
     auto L = lexer(sanitised);
     std::vector<view_description> views;
@@ -309,6 +331,8 @@ parse_view_args(const std::string& arg) {
 // parse a comma-separated list of uenv descriptions
 util::expected<std::vector<uenv_description>, parse_error>
 parse_uenv_args(const std::string& arg) {
+    spdlog::trace("parsing uenv args {}", arg);
+
     const std::string sanitised = strip(arg);
     auto L = lexer(sanitised);
     std::vector<uenv_description> uenvs;
@@ -338,33 +362,13 @@ parse_uenv_args(const std::string& arg) {
     return uenvs;
 }
 
-util::expected<mount_entry, parse_error> parse_mount_entry(lexer& L) {
-    mount_entry result;
-
-    PARSE(L, path, result.sqfs_path);
-    if (L.current_kind() != tok::colon) {
-        const auto t = L.peek();
-        return util::unexpected(parse_error(
-            L.string(),
-            fmt::format("expected a ':' separating the squashfs image and "
-                        "mount path, found '{}'",
-                        t.spelling),
-            t));
-    }
-    // eat the colon
-    L.next();
-    PARSE(L, path, result.mount_path);
-
-    return result;
-}
-
 util::expected<std::vector<mount_entry>, parse_error>
 parse_mount_list(const std::string& arg) {
     const std::string sanitised = strip(arg);
     auto L = lexer(sanitised);
     std::vector<mount_entry> mounts;
 
-    spdlog::debug("parsing uenv description {}", arg);
+    spdlog::trace("parsing uenv mount list {}", arg);
     while (true) {
         mount_entry mnt;
         PARSE(L, mount_entry, mnt);
@@ -400,7 +404,7 @@ util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg) {
     auto L = lexer(sanitised);
     uenv_date date;
 
-    spdlog::debug("parsing uenv_date {}", arg);
+    spdlog::trace("parsing uenv_date {}", arg);
 
     PARSE(L, uint64, date.year);
     if (L.peek().kind != tok::dash) {
