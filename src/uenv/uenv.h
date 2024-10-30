@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ctime>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
@@ -43,6 +44,7 @@ struct uenv_date {
     uenv_date(int_t y, int_t m, int_t d, int_t h, int_t min, int_t s)
         : year(y), month(m), day(d), hour(h), minute(min), second(s) {
     }
+    uenv_date(std::tm);
 
     auto operator<=>(const uenv_date&) const = default;
 };

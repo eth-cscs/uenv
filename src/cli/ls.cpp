@@ -96,13 +96,13 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
     ++w_sys;
     ++w_arch;
     if (!args.no_header) {
-        fmt::println("{:<{}}{:<{}}{:<{}}{:<18}", "uenv", w_name, "arch", w_arch,
-                     "system", w_sys, "id");
+        fmt::println("{:<{}}{:<{}}{:<{}}{:<17}{:<10}", "uenv", w_name, "arch",
+                     w_arch, "system", w_sys, "id", "date");
     }
     for (auto& r : *result) {
         auto name = fmt::format("{}/{}:{}", r.name, r.version, r.tag);
-        fmt::println("{:<{}}{:<{}}{:<{}}{:<18}", name, w_name, r.uarch, w_arch,
-                     r.system, w_sys, r.id.string());
+        fmt::println("{:<{}}{:<{}}{:<{}}{:<17}{:s}", name, w_name, r.uarch,
+                     w_arch, r.system, w_sys, r.id.string(), r.date);
     }
 
     return 0;

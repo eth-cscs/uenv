@@ -54,6 +54,11 @@ std::optional<std::string> uenv_description::mount() const {
     return mount_;
 }
 
+uenv_date::uenv_date(std::tm other)
+    : year(other.tm_year + 1900), month(other.tm_mon + 1), day(other.tm_mday),
+      hour(other.tm_hour), minute(other.tm_min), second(other.tm_sec) {
+}
+
 bool uenv_date::validate() const {
     if (year < 2022 || year > 2050) {
         return false;

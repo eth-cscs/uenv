@@ -100,4 +100,24 @@ unsquashfs_tmp(const std::filesystem::path& sqfs,
                  sqfs.string(), base.string());
     return base;
 }
+
+util::expected<std::tm, std::string>
+file_creation_date(const std::filesystem::path& path) {
+    namespace fs = std::filesystem;
+    namespace cr = std::chrono;
+
+    const auto creation_time = fs::last_write_time(path);
+
+    // convert file_time_type to system clock time_point
+    const auto sctp = cr::time_point_cast<cr::system_clock::duration>(
+        creation_time - fs::file_time_type::clock::now() +
+        cr::system_clock::now());
+
+    // convert to time_t for easy manipulation
+    std::time_t cftime = cr::system_clock::to_time_t(sctp);
+
+    // extract the date components
+    return *std::gmtime(&cftime);
+}
+
 } // namespace util

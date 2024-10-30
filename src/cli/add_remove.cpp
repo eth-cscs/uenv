@@ -203,7 +203,11 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     // add the uenv to the database
     //
-    uenv::uenv_date date;
+    uenv::uenv_date date{*util::file_creation_date(sqfs)};
+    if (!date.validate()) {
+        spdlog::error("the date {} is invalid", date);
+        return 1;
+    }
     uenv_record r{
         *label->system,      *label->uarch, *label->name,
         *label->version,     *label->tag,   date,
