@@ -340,7 +340,7 @@ struct repository_impl {
 
     util::expected<std::vector<uenv_record>, std::string>
     query(const uenv_label&);
-    repository::pathset uenv_paths(sha256);
+    repository::pathset uenv_paths(sha256) const;
 
     util::expected<void, std::string> add(const uenv_record&);
 
@@ -551,7 +551,7 @@ util::expected<repository, std::string> create_repository() {
         std::make_unique<repository_impl>(std::move(*db), std::nullopt, true));
 }
 
-repository::pathset repository_impl::uenv_paths(sha256 sha) {
+repository::pathset repository_impl::uenv_paths(sha256 sha) const {
     namespace fs = std::filesystem;
 
     const auto lit = sha.string();
@@ -801,7 +801,7 @@ bool repository::is_readonly() const {
     return impl_->is_readonly;
 }
 
-repository::pathset repository::uenv_paths(sha256 sha) {
+repository::pathset repository::uenv_paths(sha256 sha) const {
     return impl_->uenv_paths(sha);
 }
 

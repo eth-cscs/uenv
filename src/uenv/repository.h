@@ -62,7 +62,7 @@ struct repository {
     // return the paths that identify where the uenv image with sha256 and its
     // meta data would be stored in the repository if they were in the
     // repository. An image with sha256 does not need to be in the repository.
-    pathset uenv_paths(sha256);
+    pathset uenv_paths(sha256) const;
 
     ~repository();
 
