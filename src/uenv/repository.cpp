@@ -335,11 +335,11 @@ struct repository_impl {
         : db(std::move(db)), path(std::move(path)), is_readonly(readonly) {
     }
     repository_impl(repository_impl&&) = default;
-    sqlite_database db;
+    mutable sqlite_database db;
     std::optional<fs::path> path;
 
     util::expected<std::vector<uenv_record>, std::string>
-    query(const uenv_label&);
+    query(const uenv_label&) const;
     repository::pathset uenv_paths(sha256) const;
 
     util::expected<void, std::string> add(const uenv_record&);
@@ -635,7 +635,7 @@ repository_impl::add(const uenv::uenv_record& r) {
 }
 
 util::expected<std::vector<uenv_record>, std::string>
-repository_impl::query(const uenv_label& label) {
+repository_impl::query(const uenv_label& label) const {
     std::vector<uenv_record> results;
 
     std::string query = fmt::format("SELECT * FROM records");
@@ -785,7 +785,7 @@ std::optional<fs::path> repository::path() const {
 }
 
 util::expected<std::vector<uenv_record>, std::string>
-repository::query(const uenv_label& label) {
+repository::query(const uenv_label& label) const {
     return impl_->query(label);
 }
 

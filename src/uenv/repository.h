@@ -49,7 +49,7 @@ struct repository {
     std::optional<std::filesystem::path> path() const;
 
     util::expected<std::vector<uenv_record>, std::string>
-    query(const uenv_label& label);
+    query(const uenv_label& label) const;
 
     util::expected<void, std::string> add(const uenv_record&);
 
