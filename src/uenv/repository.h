@@ -30,6 +30,12 @@ struct repository {
     std::unique_ptr<repository_impl> impl_;
 
   public:
+    struct pathset {
+        std::filesystem::path store;
+        std::filesystem::path meta;
+        std::filesystem::path squashfs;
+    };
+
     using enum repo_mode;
     repository() = delete;
 
@@ -43,7 +49,7 @@ struct repository {
     std::optional<std::filesystem::path> path() const;
 
     util::expected<std::vector<uenv_record>, std::string>
-    query(const uenv_label& label);
+    query(const uenv_label& label) const;
 
     util::expected<void, std::string> add(const uenv_record&);
 
@@ -52,6 +58,11 @@ struct repository {
 
     // return true if the repository is in memory
     bool is_in_memory() const;
+
+    // return the paths that identify where the uenv image with sha256 and its
+    // meta data would be stored in the repository if they were in the
+    // repository. An image with sha256 does not need to be in the repository.
+    pathset uenv_paths(sha256) const;
 
     ~repository();
 

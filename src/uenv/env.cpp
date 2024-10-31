@@ -139,8 +139,7 @@ concretise_env(const std::string& uenv_args,
 
             // set sqfs_path
             const auto& r = results[0];
-            sqfs_path =
-                *repo_arg / "images" / r.sha.string() / "store.squashfs";
+            sqfs_path = store->uenv_paths(r.sha).squashfs;
         }
         // otherwise an explicit filename was provided, e.g.
         // "/scratch/myimages/develp/store.squashfs"

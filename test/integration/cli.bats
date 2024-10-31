@@ -265,3 +265,34 @@ function teardown() {
     # TODO:
     # - check a read-only repo
 }
+
+@test "image inspect" {
+    export UENV_REPO_PATH=$REPOS/apptool
+    export CLUSTER_NAME=arapiles
+
+    run uenv image inspect --format='{name}:{tag}' tool
+    assert_success
+    assert_output "tool:v1"
+
+    # check a format string that contains no fields
+    run uenv image inspect --format='hello world' tool
+    assert_success
+    assert_output "hello world"
+
+    run uenv image inspect --format='{sha256}' tool
+    assert_success
+    run uenv image inspect --format='{sqfs}' tool
+    assert_success
+
+    # get the sha and path of the tool squashfs image
+    sha=$(uenv image inspect --format='{sha256}' tool)
+    sqfs=$(uenv image inspect --format='{sqfs}' tool)
+
+    # check that the squashfs file exists
+    [ -f $sqfs ]
+
+    # compute the actual sha and validate that it matches the one
+    # returned by inspect
+    computed_sha=$(sha256sum ${sqfs} | awk '{print $1}')
+    [ "$computed_sha" == "$sha" ]
+}
