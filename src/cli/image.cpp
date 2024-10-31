@@ -15,6 +15,7 @@
 #include "add_remove.h"
 #include "help.h"
 #include "image.h"
+#include "inspect.h"
 #include "ls.h"
 
 namespace uenv {
@@ -34,6 +35,9 @@ void image_args::add_cli(CLI::App& cli,
 
     // add the `uenv image remove` command
     remove_args.add_cli(*image_cli, settings);
+
+    // add the `uenv image inspect` command
+    inspect_args.add_cli(*image_cli, settings);
 
     image_cli->footer(image_footer);
 }

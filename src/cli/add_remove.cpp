@@ -161,22 +161,23 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         }
     }
 
+    const auto uenv_paths = store->uenv_paths(hash);
+
     //
     // create the path inside the repo
     //
     std::error_code ec;
-    auto img_path = settings.repo.value() / "images" / hash;
     // if the path exists, delete it, as it might contain a partial download
-    if (fs::exists(img_path)) {
+    if (fs::exists(uenv_paths.store)) {
         spdlog::debug("image_add: remove the target path {} before copying",
-                      img_path.string());
-        fs::remove_all(img_path);
+                      uenv_paths.store.string());
+        fs::remove_all(uenv_paths.store);
     }
     uenv::uenv_date date{*util::file_creation_date(sqfs)};
 
-    fs::create_directories(img_path, ec);
+    fs::create_directories(uenv_paths.store, ec);
     if (ec) {
-        spdlog::error("unable to create path {}: {}", img_path.string(),
+        spdlog::error("unable to create path {}: {}", uenv_paths.store.string(),
                       ec.message());
         return 1;
     }
@@ -187,29 +188,29 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     if (auto p = util::unsquashfs_tmp(sqfs, "meta")) {
         fs::copy_options options{};
         options |= fs::copy_options::recursive;
-        auto meta_path = img_path / "meta";
-        fs::copy(p.value() / "meta", meta_path, options, ec);
+        fs::copy(p.value() / "meta", uenv_paths.meta, options, ec);
         if (ec) {
             spdlog::error("unable to copy meta data to {}: {}",
-                          (img_path / "meta").string(), ec.message());
+                          uenv_paths.meta.string(), ec.message());
             return 1;
         }
     }
 
     // copy or move the
-    const auto sqfs_destination = img_path / "store.squashfs";
     if (!args.move) {
-        fs::copy_file(sqfs, sqfs_destination, ec);
+        fs::copy_file(sqfs, uenv_paths.squashfs, ec);
         if (ec) {
             spdlog::error("unable to copy squashfs image {} to {}: {}",
-                          sqfs.string(), img_path.string(), ec.message());
+                          sqfs.string(), uenv_paths.squashfs.string(),
+                          ec.message());
             return 1;
         }
     } else {
-        fs::rename(sqfs, sqfs_destination, ec);
+        fs::rename(sqfs, uenv_paths.squashfs, ec);
         if (ec) {
             spdlog::error("unable to move squashfs image {} to {}: {}",
-                          sqfs.string(), img_path.string(), ec.message());
+                          sqfs.string(), uenv_paths.squashfs.string(),
+                          ec.message());
             fmt::println(
                 "{}",
                 help::item{help::block{
@@ -236,7 +237,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         *label->version,
         *label->tag,
         date,
-        fs::file_size(sqfs_destination),
+        fs::file_size(uenv_paths.squashfs),
         hash,
         hash.substr(0, 16),
     };

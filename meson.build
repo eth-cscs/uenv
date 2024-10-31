@@ -64,6 +64,7 @@ if uenv_cli
             'src/cli/color.cpp',
             'src/cli/help.cpp',
             'src/cli/image.cpp',
+            'src/cli/inspect.cpp',
             'src/cli/ls.cpp',
             'src/cli/repo.cpp',
             'src/cli/run.cpp',

@@ -62,6 +62,9 @@ template <unsigned N> struct sha_type {
         value.fill('0');
     }
 
+    sha_type(const sha_type&) = default;
+    sha_type(sha_type&&) = default;
+
     sha_type(const std::string& input) {
         // assert input.size() == N
         // assert input values in correct range a...z,0..9

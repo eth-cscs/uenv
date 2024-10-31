@@ -340,6 +340,7 @@ struct repository_impl {
 
     util::expected<std::vector<uenv_record>, std::string>
     query(const uenv_label&);
+    repository::pathset uenv_paths(sha256);
 
     util::expected<void, std::string> add(const uenv_record&);
 
@@ -548,6 +549,20 @@ util::expected<repository, std::string> create_repository() {
 
     return repository(
         std::make_unique<repository_impl>(std::move(*db), std::nullopt, true));
+}
+
+repository::pathset repository_impl::uenv_paths(sha256 sha) {
+    namespace fs = std::filesystem;
+
+    const auto lit = sha.string();
+    repository::pathset paths{};
+
+    fs::path repo_root = path ? *path : fs::path(".");
+    paths.store = repo_root / "images" / lit;
+    paths.meta = paths.store / "meta";
+    paths.squashfs = paths.store / "store.squashfs";
+
+    return paths;
 }
 
 util::expected<void, std::string>
@@ -784,6 +799,10 @@ bool repository::is_in_memory() const {
 
 bool repository::is_readonly() const {
     return impl_->is_readonly;
+}
+
+repository::pathset repository::uenv_paths(sha256 sha) {
+    return impl_->uenv_paths(sha);
 }
 
 } // namespace uenv
