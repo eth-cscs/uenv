@@ -62,10 +62,12 @@ if uenv_cli
     uenv_src = [
             'src/cli/add_remove.cpp',
             'src/cli/color.cpp',
+            'src/cli/find.cpp',
             'src/cli/help.cpp',
             'src/cli/image.cpp',
             'src/cli/inspect.cpp',
             'src/cli/ls.cpp',
+            'src/cli/print.cpp',
             'src/cli/repo.cpp',
             'src/cli/run.cpp',
             'src/cli/start.cpp',
