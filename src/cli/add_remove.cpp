@@ -72,6 +72,13 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                       args.uenv_description);
         return 1;
     }
+    // no automatic cluster/uarch detection yet, enforce them to be set
+    if (!(label->system && label->uarch)) {
+        spdlog::error("the label {} must provide the system and uarch as "
+                      "name/version:tag@system%uarch",
+                      args.uenv_description);
+        return 1;
+    }
     spdlog::info("image_add: label {}", *label);
 
     auto file = uenv::parse_path(args.squashfs);
