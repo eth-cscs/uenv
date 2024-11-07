@@ -7,7 +7,7 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
-#include <uenv/cscs.h>
+#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
@@ -61,7 +61,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
 
     // set label->system to the current cluster name if it has not
     // already been set.
-    label.system = cscs::get_system_name(label.system);
+    label.system = site::get_system_name(label.system);
 
     // query the repo
     const auto result = store->query(label);

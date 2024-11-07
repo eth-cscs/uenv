@@ -16,12 +16,16 @@ inline bool is_alphanumeric(char c) {
     return std::isalnum(static_cast<unsigned char>(c));
 }
 
+inline bool is_alpha(char c) {
+    return std::isalpha(static_cast<unsigned char>(c));
+}
+
 inline bool is_valid_symbol(char c) {
     switch (c) {
     case '_':
         return true;
     default:
-        return is_alphanumeric(c);
+        return is_alpha(c);
     }
 }
 

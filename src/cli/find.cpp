@@ -5,11 +5,13 @@
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
+#include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
-#include <uenv/cscs.h>
+#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <util/curl.h>
 #include <util/expected.h>
 
 #include "find.h"
@@ -27,6 +29,8 @@ void image_find_args::add_cli(CLI::App& cli,
     find_cli->add_option("uenv", uenv_description, "search term");
     find_cli->add_flag("--no-header", no_header,
                        "print only the matching records, with no header.");
+    find_cli->add_option("-n,--namespace", nspace,
+                         "the namespace in which to search (default 'deploy')");
     find_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_find; });
 
@@ -35,7 +39,6 @@ void image_find_args::add_cli(CLI::App& cli,
 
 int image_find([[maybe_unused]] const image_find_args& args,
                [[maybe_unused]] const global_settings& settings) {
-
     // find the search term that was provided by the user
     uenv_label label{};
     if (args.uenv_description) {
@@ -46,34 +49,25 @@ int image_find([[maybe_unused]] const image_find_args& args,
             return 1;
         }
     }
-    label.system = cscs::get_system_name(label.system);
+    label.system = site::get_system_name(label.system);
 
-    // perform curl call against middleware end point
-    //      https://github.com/eth-cscs/uenv/blob/master/lib/jfrog.py
-    //      https://uenv-list.svc.cscs.ch/list
+    spdlog::info("image_find: {}::{}", args.nspace, label);
 
-    // generate list of records from json
-
-    // create in memory db and insert records into in memory db
-    /*
-    auto store = uenv::open_repository(*settings.repo);
+    auto store = site::get_remote_listing(args.nspace);
     if (!store) {
-        spdlog::error("unable to open repo: {}", store.error());
+        spdlog::error("unable to get a listing of the uenv", store.error());
         return 1;
     }
-    */
 
     // search db for matching records
-    /*
     const auto result = store->query(label);
     if (!result) {
         spdlog::error("invalid search term: {}", store.error());
         return 1;
     }
-    */
 
     // pass results to print
-    print_record_list({}, args.no_header);
+    print_record_list(*result, args.no_header);
 
     return 0;
 }

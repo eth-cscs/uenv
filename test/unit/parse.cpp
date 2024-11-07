@@ -189,8 +189,6 @@ TEST_CASE("parse uenv list", "[parse]") {
         // after the : character is read correctly.
         auto in = "prgenv-gnu/24.7:/user-environment";
         auto result = uenv::parse_uenv_args(in);
-        if (!result)
-            fmt::println("ERROR {}", result.error().message());
         REQUIRE(result);
         REQUIRE(result->size() == 1);
         auto d = (*result)[0];
@@ -263,6 +261,70 @@ TEST_CASE("parse mount", "[parse]") {
     }
 }
 
+TEST_CASE("parse registry entry", "[parse]") {
+    {
+        auto r = uenv::parse_registry_entry("deploy/balfrin/a100/mch/v8/rc1");
+        REQUIRE(r);
+        REQUIRE(r->nspace == "deploy");
+        REQUIRE(r->system == "balfrin");
+        REQUIRE(r->uarch == "a100");
+        REQUIRE(r->name == "mch");
+        REQUIRE(r->version == "v8");
+        REQUIRE(r->tag == "rc1");
+    }
+
+    {
+        auto r = uenv::parse_registry_entry(
+            "build/eiger/zen2/prgenv-gnu/24.11/1529952520");
+        REQUIRE(r);
+        REQUIRE(r->nspace == "build");
+        REQUIRE(r->system == "eiger");
+        REQUIRE(r->uarch == "zen2");
+        REQUIRE(r->name == "prgenv-gnu");
+        REQUIRE(r->version == "24.11");
+        REQUIRE(r->tag == "1529952520");
+    }
+    for (auto s : {
+             "build/eiger/zen2/cp2k/2024.3/1456857513",
+             "deploy/todi/gh200/cp2k/2024.3/v1",
+             "deploy/daint/gh200/cp2k/2024.3/v1",
+             "deploy/eiger/zen2/cp2k/2024.3/v1",
+             "build/eiger/zen2/prgenv-gnu/24.7/1459977671",
+             "build/eiger/zen2/julia/24.9/1462160001",
+             "deploy/todi/gh200/linaro-forge/24.0.2/v1",
+             "build/todi/gh200/prgenv-gnu/24.7/1465755671",
+             "build/todi/gh200/eurohack/24.9/1466916530",
+             "build/eiger/zen2/cp2k/2024.3/1468668296",
+             "build/todi/gh200/eurohack/24.9/1475733521",
+             "deploy/todi/gh200/eurohack/24.9/rc1",
+             "deploy/todi/gh200/quantumespresso/v7.3.1/v2",
+             "build/balfrin/a100/climana/24.10/1481801863",
+             "deploy/balfrin/a100/climana/24.10/rc1",
+             "build/todi/gh200/eurohack/24.9/1481930276",
+             "deploy/todi/gh200/eurohack/24.9/v2",
+             "build/todi/gh200/eurohack/24.9-nvhpc/1486605082",
+             "deploy/todi/gh200/eurohack/24.9-nvhpc/v2-nvhpc",
+             "build/todi/gh200/eurohack/24.9-nvhpc/1486538704",
+             "deploy/balfrin/a100/climana/24.10/v1",
+             "build/eiger/zen2/prgenv-gnu/24.7/1496614274",
+             "build/todi/gh200/gromacs/2024/1502090596",
+             "build/todi/gh200/cp2k/2024.3/1502220409",
+             "deploy/todi/gh200/cp2k/2024.3/v2",
+             "build/balfrin/a100/mch/prgenv-icon/1518374117",
+             "deploy/balfrin/a100/mch/prgenv-icon/rc1",
+             "build/balfrin/a100/mch/v8/1529719759",
+             "deploy/balfrin/a100/mch/v8/rc1",
+             "build/eiger/zen2/prgenv-gnu/24.11/1529952520",
+         }) {
+        auto r = uenv::parse_registry_entry(s);
+        if (!r) {
+            fmt::println("{}", r.error().message());
+        } else {
+            REQUIRE(r);
+        }
+    }
+}
+
 TEST_CASE("date", "[parse]") {
     {
         auto in = "2024-12-3";
@@ -300,6 +362,17 @@ TEST_CASE("date", "[parse]") {
         REQUIRE(result->second == 35);
 
         REQUIRE(*result == *uenv::parse_uenv_date("2024-03-11 17:08:35"));
+    }
+    {
+        auto in = "2024-10-15T11:46:22.533Z";
+        auto result = uenv::parse_uenv_date(in);
+        REQUIRE(result);
+        REQUIRE(result->year == 2024);
+        REQUIRE(result->month == 10);
+        REQUIRE(result->day == 15);
+        REQUIRE(result->hour == 11);
+        REQUIRE(result->minute == 46);
+        REQUIRE(result->second == 22);
     }
     {
         for (auto in : {"2024-0-3", "2024-13-3", "2023-2-29"}) {

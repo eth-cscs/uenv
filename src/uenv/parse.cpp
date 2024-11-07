@@ -175,7 +175,9 @@ util::expected<uenv_label, parse_error> parse_uenv_label(lexer& L) {
     // before uarch or system)
     // - uarch and system come after tag, and can be in any order
 
-    PARSE(L, name, result.name);
+    if (is_name_tok(L.current_kind())) {
+        PARSE(L, name, result.name);
+    }
     // process version and tag in order, if they are present
     if (L.current_kind() == tok::slash) {
         L.next();
@@ -394,11 +396,65 @@ parse_mount_list(const std::string& arg) {
     return mounts;
 }
 
+util::expected<uenv_registry_entry, parse_error>
+parse_registry_entry(const std::string& in) {
+    const std::string sanitised = strip(in);
+    auto L = lexer(sanitised);
+
+    spdlog::trace("parsing uenv registry entry {}", in);
+
+    uenv_registry_entry r;
+
+    PARSE(L, name, r.nspace);
+    if (L.peek().kind != tok::slash) {
+        goto unexpected_symbol;
+    }
+    L.next();
+
+    PARSE(L, name, r.system);
+    if (L.peek().kind != tok::slash) {
+        goto unexpected_symbol;
+    }
+    L.next();
+
+    PARSE(L, name, r.uarch);
+    if (L.peek().kind != tok::slash) {
+        goto unexpected_symbol;
+    }
+    L.next();
+
+    PARSE(L, name, r.name);
+    if (L.peek().kind != tok::slash) {
+        goto unexpected_symbol;
+    }
+    L.next();
+
+    PARSE(L, name, r.version);
+    if (L.peek().kind != tok::slash) {
+        goto unexpected_symbol;
+    }
+    L.next();
+
+    PARSE(L, name, r.tag);
+    if (L.peek().kind != tok::end) {
+        goto unexpected_symbol;
+    }
+    L.next();
+
+    return r;
+
+unexpected_symbol:
+    auto t = L.peek();
+    return util::unexpected(parse_error{
+        L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+}
+
 // yyyy.mm.dd [hh:mm:ss]
 // 2024.12.10
 // 2025.1.24
 // 2025.01.24
 // 2023.07.16 21:13:06
+// 2023.07.16T21:13:06
 util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg) {
     const std::string sanitised = strip(arg);
     auto L = lexer(sanitised);
@@ -423,9 +479,11 @@ util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg) {
         goto validate_and_return;
     }
 
-    // continue processing on the assumption that the date is in the
-    // 'yyyy-mm-dd hh:mm:ss.uuuuuu+hh:mm' format
-    if (L.peek().kind != tok::whitespace) {
+    // continue processing on the assumption that the date is one of
+    // 'yyyy-mm-dd hh:mm:ss.uuuuuu+hh:mm'
+    // 'yyyy-mm-ddThh:mm:ss.uuuuuu+hh:mm'
+    if (!(L.peek().kind == tok::whitespace ||
+          (L.peek().kind == tok::symbol && L.peek().spelling == "T"))) {
         goto unexpected_symbol;
     }
     // eat whitespace

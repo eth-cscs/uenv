@@ -7,7 +7,6 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
-#include <uenv/cscs.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
