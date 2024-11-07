@@ -32,7 +32,8 @@ TEST_CASE("number", "[lex]") {
     REQUIRE(L.next() == uenv::token{0, uenv::tok::integer, "42"});
     REQUIRE(L.next() == uenv::token{2, uenv::tok::whitespace, " "});
     REQUIRE(L.next() == uenv::token{3, uenv::tok::integer, "42"});
-    REQUIRE(L.next() == uenv::token{5, uenv::tok::symbol, "wombat42"});
+    REQUIRE(L.next() == uenv::token{5, uenv::tok::symbol, "wombat"});
+    REQUIRE(L.next() == uenv::token{11, uenv::tok::integer, "42"});
     REQUIRE(L.next() == uenv::token{13, uenv::tok::whitespace, " "});
     REQUIRE(L.next() == uenv::token{14, uenv::tok::integer, "42"});
     //  pop the end token twice to check that it does not run off the end

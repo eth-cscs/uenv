@@ -39,6 +39,9 @@ void image_args::add_cli(CLI::App& cli,
     // add the `uenv image inspect` command
     inspect_args.add_cli(*image_cli, settings);
 
+    // add the `uenv image find` command
+    find_args.add_cli(*image_cli, settings);
+
     image_cli->footer(image_footer);
 }
 

@@ -8,7 +8,7 @@
 #include <fmt/core.h>
 #include <spdlog/spdlog.h>
 
-#include <uenv/cscs.h>
+#include <site/site.h>
 #include <uenv/env.h>
 #include <uenv/meta.h>
 #include <uenv/parse.h>
@@ -101,7 +101,7 @@ concretise_env(const std::string& uenv_args,
 
             // set label->system to the current cluster name if it has not
             // already been set.
-            label->system = cscs::get_system_name(label->system);
+            label->system = site::get_system_name(label->system);
 
             // search for label in the repo
             const auto result = store->query(*label);

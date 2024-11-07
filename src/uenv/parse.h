@@ -61,4 +61,7 @@ util::expected<std::string, parse_error> parse_path(const std::string& in);
 
 util::expected<uenv_label, parse_error> parse_uenv_label(const std::string& in);
 
+util::expected<uenv_registry_entry, parse_error>
+parse_registry_entry(const std::string& in);
+
 } // namespace uenv

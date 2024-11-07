@@ -49,6 +49,15 @@ struct uenv_date {
     auto operator<=>(const uenv_date&) const = default;
 };
 
+struct uenv_registry_entry {
+    std::string nspace;
+    std::string system;
+    std::string uarch;
+    std::string name;
+    std::string version;
+    std::string tag;
+};
+
 bool is_sha(std::string_view v, std::size_t n = 0);
 
 template <unsigned N> struct sha_type {
@@ -229,6 +238,21 @@ template <> class fmt::formatter<uenv::uenv_record> {
     constexpr auto format(uenv::uenv_record const& r, FmtContext& ctx) const {
         return fmt::format_to(ctx.out(), "{}/{}:{}@{}%{}", r.name, r.version,
                               r.tag, r.system, r.uarch);
+    }
+};
+
+template <> class fmt::formatter<uenv::uenv_registry_entry> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(uenv::uenv_registry_entry const& r,
+                          FmtContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}::{}/{}:{}@{}%{}", r.nspace, r.name,
+                              r.version, r.tag, r.system, r.uarch);
     }
 };
 

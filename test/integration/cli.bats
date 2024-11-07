@@ -63,6 +63,23 @@ function teardown() {
     assert_line --regexp "app/43.0:v1\s+zen3\s+arapiles"
     assert_line --regexp "tool/17.3.2:v1\s+zen3\s+arapiles"
 
+    # test a label of the form "@system" with no name
+    run uenv image ls --no-header @$CLUSTER_NAME
+    assert_success
+    refute_line --regexp "^uenv\s+arch\s+system\s+id"
+    assert_line --regexp "app/42.0:v1\s+zen3\s+arapiles"
+    assert_line --regexp "app/43.0:v1\s+zen3\s+arapiles"
+    assert_line --regexp "tool/17.3.2:v1\s+zen3\s+arapiles"
+
+    # test a label of the form "@'*'" with no name
+    # this matches all clusters (overriding the default)
+    run uenv image ls --no-header @'*'
+    assert_success
+    refute_line --regexp "^uenv\s+arch\s+system\s+id"
+    assert_line --regexp "app/42.0:v1\s+zen3\s+arapiles"
+    assert_line --regexp "app/43.0:v1\s+zen3\s+arapiles"
+    assert_line --regexp "tool/17.3.2:v1\s+zen3\s+arapiles"
+
     run uenv image ls --no-header app
     assert_success
     assert_line --partial "app/42.0:v1"
@@ -179,9 +196,9 @@ function teardown() {
     assert_output --regexp "meta"
 
     #
-    # check --view
+    # check --view and @system
     #
-    run uenv run --view=tool tool -- tool
+    run uenv run --view=tool tool@$CLUSTER_NAME -- tool
     assert_success
     assert_output "hello tool"
 

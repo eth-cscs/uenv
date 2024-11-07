@@ -33,7 +33,7 @@ curl_dep = dependency('libcurl', required: true)
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
 lib_src = [
-        'src/uenv/cscs.cpp',
+        'src/site/site.cpp',
         'src/uenv/env.cpp',
         'src/uenv/envvars.cpp',
         'src/uenv/lex.cpp',
@@ -42,6 +42,7 @@ lib_src = [
         'src/uenv/parse.cpp',
         'src/uenv/repository.cpp',
         'src/uenv/uenv.cpp',
+        'src/util/curl.cpp',
         'src/util/fs.cpp',
         'src/util/shell.cpp',
         'src/util/strings.cpp',
@@ -62,10 +63,12 @@ if uenv_cli
     uenv_src = [
             'src/cli/add_remove.cpp',
             'src/cli/color.cpp',
+            'src/cli/find.cpp',
             'src/cli/help.cpp',
             'src/cli/image.cpp',
             'src/cli/inspect.cpp',
             'src/cli/ls.cpp',
+            'src/cli/print.cpp',
             'src/cli/repo.cpp',
             'src/cli/run.cpp',
             'src/cli/start.cpp',

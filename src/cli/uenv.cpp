@@ -116,6 +116,8 @@ int main(int argc, char** argv) {
         return uenv::image_inspect(image.inspect_args, settings);
     case settings.image_remove:
         return uenv::image_remove(image.remove_args, settings);
+    case settings.image_find:
+        return uenv::image_find(image.find_args, settings);
     case settings.repo_create:
         return uenv::repo_create(repo.create_args, settings);
     case settings.repo_status:
