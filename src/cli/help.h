@@ -7,7 +7,7 @@
 #include <fmt/color.h>
 #include <fmt/format.h>
 
-#include "color.h"
+#include <util/color.h>
 
 namespace help {
 

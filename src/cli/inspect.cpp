@@ -86,7 +86,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         return 1;
     }
 
-    const auto r = result->front();
+    const auto r = *result->begin();
     auto paths = store->uenv_paths(r.sha);
 
     try {

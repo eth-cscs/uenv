@@ -9,6 +9,34 @@
 
 namespace uenv {
 
+class record_set {
+    std::vector<uenv_record> records_;
+
+  public:
+    record_set() = default;
+    record_set(const std::vector<uenv_record> r) : records_(std::move(r)) {
+    }
+    using iterator = std::vector<uenv_record>::iterator;
+    using const_iterator = std::vector<uenv_record>::const_iterator;
+
+    bool empty() const;
+
+    std::size_t size() const;
+
+    // return true if there is one or more record, and they all have
+    // the same sha. Otherwise returns false if no records, or if there are at
+    // least 2 records with different sha
+    bool unique_sha() const;
+
+    // iterator access to the underlying records
+    iterator begin();
+    iterator end();
+    const_iterator begin() const;
+    const_iterator end() const;
+    const_iterator cbegin() const;
+    const_iterator cend() const;
+};
+
 /// get the default location for the user's repository.
 /// - use the environment variable UENV_REPO_PATH if it is set
 /// - use $SCRATCH/.uenv-images if $SCRATCH is set
@@ -48,7 +76,7 @@ struct repository {
     // returns nullopt if the data base is in memory
     std::optional<std::filesystem::path> path() const;
 
-    util::expected<std::vector<uenv_record>, std::string>
+    util::expected<record_set, std::string>
     query(const uenv_label& label) const;
 
     util::expected<void, std::string> add(const uenv_record&);

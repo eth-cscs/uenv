@@ -1,8 +1,8 @@
 #include <string>
 
-#include "fmt/format.h"
+#include <fmt/format.h>
+#include <util/color.h>
 
-#include "color.h"
 #include "help.h"
 
 namespace help {

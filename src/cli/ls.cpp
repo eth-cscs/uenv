@@ -9,12 +9,12 @@
 
 #include <site/site.h>
 #include <uenv/parse.h>
+#include <uenv/print.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
 
 #include "help.h"
 #include "ls.h"
-#include "print.h"
 
 namespace uenv {
 
@@ -71,7 +71,7 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
         return 1;
     }
 
-    print_record_list(*result, args.no_header);
+    print_record_set(*result, args.no_header);
 
     return 0;
 }

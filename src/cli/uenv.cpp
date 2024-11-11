@@ -9,10 +9,11 @@
 #include <uenv/config.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <util/color.h>
 #include <util/expected.h>
+#include <util/fs.h>
 
 #include "add_remove.h"
-#include "color.h"
 #include "help.h"
 #include "image.h"
 #include "repo.h"
@@ -69,6 +70,13 @@ int main(int argc, char** argv) {
     }
     uenv::init_log(console_log_level, spdlog::level::trace);
 
+    if (auto bin = util::exe_path()) {
+        spdlog::info("using uenv {}", bin->string());
+    }
+    if (auto oras = util::oras_path()) {
+        spdlog::info("using oras {}", oras->string());
+    }
+
     // print the version and exit if the --version flag was passed
     if (print_version) {
         fmt::print("{}\n", UENV_VERSION);
@@ -98,7 +106,7 @@ int main(int argc, char** argv) {
     }
 
     if (settings.repo) {
-        spdlog::info("the repo {}", *settings.repo);
+        spdlog::info("using repo {}", *settings.repo);
     }
 
     spdlog::info("{}", settings);
@@ -118,6 +126,8 @@ int main(int argc, char** argv) {
         return uenv::image_remove(image.remove_args, settings);
     case settings.image_find:
         return uenv::image_find(image.find_args, settings);
+    case settings.image_pull:
+        return uenv::image_pull(image.pull_args, settings);
     case settings.repo_create:
         return uenv::repo_create(repo.create_args, settings);
     case settings.repo_status:

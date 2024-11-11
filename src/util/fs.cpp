@@ -1,7 +1,10 @@
 #include <deque>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
+
+#include <sys/file.h>
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
@@ -118,6 +121,78 @@ file_creation_date(const std::filesystem::path& path) {
 
     // extract the date components
     return *std::gmtime(&cftime);
+}
+
+util::expected<file_lock, std::string>
+make_file_lock(const std::filesystem::path& path) {
+    int fd = open(path.c_str(), O_RDWR | O_CREAT, 0666);
+    if (fd == -1) {
+        return unexpected{"unable to open file for locking"};
+    }
+    if (flock(fd, LOCK_EX) != 0) {
+        close(fd);
+        return unexpected{"unable to aquire file lock"};
+    }
+
+    return file_lock{fd};
+}
+
+// Allow move semantics
+file_lock::file_lock(file_lock&& other) noexcept : fd(other.fd) {
+    other.fd = -1;
+}
+
+file_lock& file_lock::operator=(file_lock&& other) noexcept {
+    if (this != &other) {
+        release();
+        fd = other.fd;
+        other.fd = -1;
+    }
+    return *this;
+}
+
+file_lock::~file_lock() {
+    release();
+}
+
+void file_lock::release() {
+    if (fd != -1) {
+        flock(fd, LOCK_UN);
+        close(fd);
+        fd = -1;
+    }
+}
+
+std::optional<std::filesystem::path> exe_path() {
+    char buffer[PATH_MAX];
+    std::size_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+
+    if (len == std::size_t(-1)) {
+        return std::nullopt;
+    }
+
+    return std::string_view(buffer, buffer + len);
+}
+
+std::optional<std::filesystem::path> oras_path() {
+    namespace fs = std::filesystem;
+
+    auto exe = exe_path();
+    if (!exe) {
+        return std::nullopt;
+    }
+
+    const auto prefix = exe->parent_path();
+
+    for (auto& path : {"../libexec/oras", "oras"}) {
+        const auto p = prefix / path;
+        if (fs::is_regular_file(p)) {
+            return fs::canonical(p);
+        }
+    }
+
+    // maybe this could be extended to search PATH
+    return std::nullopt;
 }
 
 } // namespace util

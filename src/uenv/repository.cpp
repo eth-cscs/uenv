@@ -45,12 +45,13 @@ util::expected<std::optional<std::string>, std::string> default_repo_path() {
     } else {
         spdlog::debug("default_repo_path: skipping UENV_REPO_PATH");
         if (auto p = std::getenv("SCRATCH")) {
-            spdlog::info(fmt::format("default_repo_path: found SCRATCH={}", p));
+            spdlog::debug(
+                fmt::format("default_repo_path: found SCRATCH={}", p));
             path_string = std::string(p) + "/.uenv-images";
         } else {
             spdlog::debug("default_repo_path: skipping SCRATCH");
             if (auto p = std::getenv("HOME")) {
-                spdlog::info(
+                spdlog::debug(
                     fmt::format("default_repo_path: found HOME={}", p));
                 path_string = std::string(p) + "/.uenv/repo";
             } else {
@@ -125,14 +126,14 @@ hopefully<sqlite_database> open_sqlite_database(const fs::path path,
 
     const int flags =
         mode == readonly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE;
-    spdlog::info("open_sqlite_database: attempting to open {} in {} mode.",
-                 path, mode == readonly ? "readonly" : "readwrite");
+    spdlog::debug("open_sqlite_database: attempting to open {} in {} mode.",
+                  path, mode == readonly ? "readonly" : "readwrite");
     sqlite3* db;
     if (sqlite3_open_v2(path.string().c_str(), &db, flags, NULL) != SQLITE_OK) {
         return unexpected(fmt::format("did not open database file {}: {}",
                                       path.string(), sqlite3_errmsg(db)));
     }
-    spdlog::info("open_sqlite_database: opened {}.", path);
+    spdlog::info("open_sqlite_database: {}", path);
 
     // double check that the database can be written if in readwrite mode
     if (mode == readwrite && sqlite3_db_readonly(db, "main") == 1) {
@@ -776,6 +777,48 @@ std::vector<std::string> schema_tables() {
         )"};
 }
 
+bool record_set::empty() const {
+    return records_.empty();
+}
+std::size_t record_set::size() const {
+    return records_.size();
+}
+
+bool record_set::unique_sha() const {
+    if (empty()) {
+        return false;
+    }
+    if (size() == 1u) {
+        return true;
+    }
+    auto sha = records_.front().sha;
+    for (auto& r : records_) {
+        if (r.sha != sha) {
+            return false;
+        }
+    }
+    return true;
+};
+
+record_set::iterator record_set::begin() {
+    return records_.begin();
+}
+record_set::iterator record_set::end() {
+    return records_.end();
+}
+record_set::const_iterator record_set::begin() const {
+    return records_.begin();
+}
+record_set::const_iterator record_set::end() const {
+    return records_.end();
+}
+record_set::const_iterator record_set::cbegin() const {
+    return records_.cbegin();
+}
+record_set::const_iterator record_set::cend() const {
+    return records_.cend();
+}
+
 // wrapping the pimpled implementation
 
 repository::~repository() = default;
@@ -784,7 +827,7 @@ std::optional<fs::path> repository::path() const {
     return impl_->path;
 }
 
-util::expected<std::vector<uenv_record>, std::string>
+util::expected<record_set, std::string>
 repository::query(const uenv_label& label) const {
     return impl_->query(label);
 }

@@ -10,13 +10,13 @@
 
 #include <site/site.h>
 #include <uenv/parse.h>
+#include <uenv/print.h>
 #include <uenv/repository.h>
 #include <util/curl.h>
 #include <util/expected.h>
 
 #include "find.h"
 #include "help.h"
-#include "print.h"
 
 namespace uenv {
 
@@ -53,7 +53,7 @@ int image_find([[maybe_unused]] const image_find_args& args,
 
     spdlog::info("image_find: {}::{}", args.nspace, label);
 
-    auto store = site::get_remote_listing(args.nspace);
+    auto store = site::registry_listing(args.nspace);
     if (!store) {
         spdlog::error("unable to get a listing of the uenv", store.error());
         return 1;
@@ -67,7 +67,7 @@ int image_find([[maybe_unused]] const image_find_args& args,
     }
 
     // pass results to print
-    print_record_list(*result, args.no_header);
+    print_record_set(*result, args.no_header);
 
     return 0;
 }

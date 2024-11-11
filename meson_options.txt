@@ -1,2 +1,3 @@
 option('slurm_plugin', type: 'boolean', value: true)
 option('cli', type: 'boolean', value: true)
+option('oras_version', type: 'string', value: '1.2.0')
