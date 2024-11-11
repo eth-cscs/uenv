@@ -109,9 +109,7 @@ tarball=slurm-uenv-mount-"${SLURM_UENV_MOUNT_VERSION}".tar.gz
 
   if [ "${skip_bin}" -eq "0" ]; then
     # create binary rpm
-    rpmbuild --nodeps --define "_topdir $(pwd)" \
-      --define "set_build_flags CXXFLAGS=\"-O2 -Wall -Wpedantic\"" \
-      --define "_vpath_srcdir ${source_prefix}" \
-      --rebuild SRPMS/slurm-uenv-mount-*.src.rpm
+    rpmbuild -vv --nodeps --define "_topdir $(pwd)" \
+             --rebuild SRPMS/slurm-uenv-mount-*.src.rpm
   fi
 )
