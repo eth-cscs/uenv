@@ -4,10 +4,7 @@
 
 %meson_setup \
   mkdir -p %{__builddir} \
-  CFLAGS="${CFLAGS:-%optflags}"; export CFLAGS; \
-  CXXFLAGS="${CXXFLAGS:-%optflags}"; export CXXFLAGS; \
-  FFLAGS="${FFLAGS:-%optflags}"; export FFLAGS; \
-  FCFLAGS="${FCFLAGS:-%optflags}"; export FCFLAGS; \
+  %{set_build_flags} \
   meson setup %{__sourcedir} %{__builddir}  \\\
 	%{?_enable_debug:-Ddebug=true} \\\
 	--prefix=%{_prefix} \\\
