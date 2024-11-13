@@ -10,6 +10,7 @@
 #include <spdlog/spdlog.h>
 
 #include <site/site.h>
+#include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -141,6 +142,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         auto source_url = site::registry_url(record, args.nspace);
         spdlog::debug("image url: {}", source_url);
 
+        auto manifests = oras::discover("jfrog.svc.cscs.ch/uenv", args.nspace, record);
         //if (!oras::pull(args.nspace, record.sha, pull_sqfs, pull_meta)) {
         //if (!site::pull_image(record, repo, args.only_meta)) {
         //{

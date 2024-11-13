@@ -357,6 +357,7 @@ repository::repository(std::unique_ptr<repository_impl> impl)
 // NOTE: if there is an error, or the file does not exist `none` is
 // returned.
 enum class file_level { none = 0, readonly = 1, readwrite = 2 };
+
 file_level file_access_level(const fs::path& path) {
     using enum file_level;
     std::error_code ec;
@@ -375,14 +376,14 @@ file_level file_access_level(const fs::path& path) {
     if ((p & fs::perms::owner_read) != pnone ||
         (p & fs::perms::group_read) != pnone ||
         (p & fs::perms::others_read) != pnone) {
-        spdlog::debug("file_access_level {} can be read", path, ec.message());
+        spdlog::trace("file_access_level {} can be read", path, ec.message());
         lvl = readonly;
     }
     // check if the path is writable by the user, group, or others
     if ((p & fs::perms::owner_write) != pnone ||
         (p & fs::perms::group_write) != pnone ||
         (p & fs::perms::others_write) != pnone) {
-        spdlog::debug("file_access_level {} can be written", path,
+        spdlog::trace("file_access_level {} can be written", path,
                       ec.message());
         lvl = readwrite;
     }
@@ -410,7 +411,11 @@ repo_state validate_repository(const fs::path& repo_path) {
 
     const auto level =
         std::min(file_access_level(repo_path), file_access_level(db_path));
-    spdlog::debug("validate_repository: level {}", static_cast<int>(level));
+    spdlog::debug(
+        "validate_repository: status {}",
+        (level == file_level::none
+             ? "invalid"
+             : (level == file_level::readonly ? "read-only" : "read-write")));
     switch (level) {
     case file_level::none:
         return invalid;

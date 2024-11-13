@@ -122,6 +122,10 @@ std::istream& buffered_istream::stream() {
     return *stream_;
 }
 
+std::string buffered_istream::string() {
+    return {std::istreambuf_iterator<char>(*stream_), {}};
+}
+
 std::optional<std::string> buffered_istream::getline() {
     if (std::string line; std::getline(stream(), line)) {
         return line;

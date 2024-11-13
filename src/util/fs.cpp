@@ -164,14 +164,16 @@ void file_lock::release() {
 }
 
 std::optional<std::filesystem::path> exe_path() {
-    char buffer[PATH_MAX];
-    std::size_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+    std::error_code ec;
+    // /proc/self/exe is a symlink to the currently executing process in
+    // posix-land
+    auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
 
-    if (len == std::size_t(-1)) {
+    if (ec) {
         return std::nullopt;
     }
 
-    return std::string_view(buffer, buffer + len);
+    return p;
 }
 
 std::optional<std::filesystem::path> oras_path() {
