@@ -59,12 +59,8 @@ discover(const std::string& registry, const std::string& nspace,
     std::vector<std::string> manifests;
     using json = nlohmann::json;
     try {
-        auto raw = json::parse(result.stdout);
-        if (raw["schema"] != 2) {
-            spdlog::warn("oras returned schema version {}, expected 2",
-                         (int)raw["schema"]);
-        }
-        for (auto& j : raw["manifests"]) {
+        const auto raw = json::parse(result.stdout);
+        for (const auto& j : raw["manifests"]) {
             manifests.push_back(j["digest"]);
         }
     } catch (std::exception& e) {
@@ -73,6 +69,20 @@ discover(const std::string& registry, const std::string& nspace,
     }
 
     return manifests;
+}
+
+int pull_digest(const std::string& registry, const std::string& nspace, const uenv_record& uenv, const std::string& digest, const std::filesystem::path& destination) {
+    auto address =
+        fmt::format("{}/{}/{}/{}/{}/{}@{}", registry, nspace, uenv.system,
+                    uenv.uarch, uenv.name, uenv.version, digest);
+
+    spdlog::debug("oras::pull_digest: {}", address);
+
+    //proc = run_command_internal(["pull", "-o", image_path,
+    //        f"{source_address}@{digest}"])
+    auto proc = run_oras({"pull", "--output", destination.string(), address});
+
+    return 0;
 }
 
 auto run_oras_async() {

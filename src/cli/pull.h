@@ -13,7 +13,7 @@
 namespace uenv {
 
 struct image_pull_args {
-    std::optional<std::string> uenv_description;
+    std::string uenv_description;
     bool only_meta = false;
     bool force = false;
     std::string nspace = "deploy";

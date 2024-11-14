@@ -53,14 +53,13 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
 
     // pull the search term that was provided by the user
     uenv_label label{};
-    if (args.uenv_description) {
-        if (const auto parse = parse_uenv_label(*args.uenv_description)) {
-            label = *parse;
-        } else {
-            spdlog::error("invalid search term: {}", parse.error().message());
-            return 1;
-        }
+    if (const auto parse = parse_uenv_label(args.uenv_description)) {
+        label = *parse;
+    } else {
+        spdlog::error("invalid search term: {}", parse.error().message());
+        return 1;
     }
+
     label.system = site::get_system_name(label.system);
     if (!label.name) {
         spdlog::error(
@@ -97,8 +96,10 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         return 1;
     }
 
+
     const auto record = *(result->begin());
-    spdlog::info("selected {} {} to pull", record.sha, record);
+    spdlog::info("pulling {} {}", record.sha, record);
+    fmt::print("pulling {} {}\n", record.id, record);
 
     // open the repo
     auto store = uenv::open_repository(*settings.repo, repo_mode::readwrite);
@@ -139,10 +140,27 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         spdlog::debug("pull sqfs: {}", pull_sqfs);
         // clang-format off
 
-        auto source_url = site::registry_url(record, args.nspace);
-        spdlog::debug("image url: {}", source_url);
+        auto rego_url = site::registry_url();
+        spdlog::debug("registry url: {}", rego_url);
 
-        auto manifests = oras::discover("jfrog.svc.cscs.ch/uenv", args.nspace, record);
+        auto digests = oras::discover(rego_url, args.nspace, record);
+        if (!digests || digests->empty()) {
+            fmt::println("unable to pull image - rerun with -vvv flag and send error report to service desk.");
+            return 1;
+        }
+        spdlog::debug("manifests: {}", fmt::join(*digests, ", "));
+
+        const auto digest = *(digests->begin());
+
+        fmt::println("{}", digest);
+
+        auto xx = oras::pull_digest(rego_url, args.nspace, record, digest);
+        if (xx) {
+            return xx;
+        }
+
+        //auto yy = oras::pull_tag(rego_url, args.nspace, record, digest);
+
         //if (!oras::pull(args.nspace, record.sha, pull_sqfs, pull_meta)) {
         //if (!site::pull_image(record, repo, args.only_meta)) {
         //{

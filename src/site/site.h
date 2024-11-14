@@ -15,7 +15,6 @@ std::optional<std::string> get_system_name(std::optional<std::string>);
 util::expected<uenv::repository, std::string>
 registry_listing(const std::string& nspace);
 
-std::string registry_url(const uenv::uenv_record& record,
-                         const std::string& nspace);
+std::string registry_url();
 
 } // namespace site

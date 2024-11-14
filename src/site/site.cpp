@@ -88,10 +88,8 @@ registry_listing(const std::string& nspace) {
     return store;
 }
 
-std::string registry_url(const uenv::uenv_record& record,
-                         const std::string& nspace) {
-    return fmt::format("jfrog.svc.cscs.ch/uenv/{}/{}/{}/{}/{}:{}", nspace,
-                       record.system, record.uarch, record.name, record.version,
-                       record.tag);
+std::string registry_url() {
+    return "jfrog.svc.cscs.ch/uenv";
 }
+
 } // namespace site

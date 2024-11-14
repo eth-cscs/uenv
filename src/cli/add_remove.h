@@ -23,7 +23,7 @@ struct image_add_args {
 };
 
 struct image_remove_args {
-    std::optional<std::string> uenv_description;
+    std::string uenv_description;
     void add_cli(CLI::App&, global_settings& settings);
 };
 

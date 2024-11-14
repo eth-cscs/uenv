@@ -86,7 +86,8 @@ if uenv_cli
             c_args: ['-DVERSION="@0@"'.format(version)],
             install: true)
 
-    oras_url = 'https://github.com/oras-project/oras/releases/download/v@0@/oras_@0@_linux_amd64.tar.gz'.format(oras_version)
+    #oras_url = 'https://github.com/oras-project/oras/releases/download/v@0@/oras_@0@_linux_amd64.tar.gz'.format(oras_version)
+    oras_url = 'https://github.com/oras-project/oras/releases/download/v@0@/oras_@0@_linux_arm64.tar.gz'.format(oras_version)
 
     oras_download = custom_target(
         'oras-download',
