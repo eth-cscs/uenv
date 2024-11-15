@@ -131,14 +131,15 @@ util::expected<void, int> pull_tag(const std::string& registry,
 
     std::size_t downloaded_mb{0u};
     std::size_t total_mb{uenv.size_byte / (1024 * 1024)};
-    auto bar =
-        bk::ProgressBar(&downloaded_mb, {
-                                            .total = total_mb,
-                                            .message = "pulling uenv",
-                                            .speed = 1.,
-                                            .speed_unit = "MB/s",
-                                            .style = bk::ProgressBarStyle::Rich,
-                                        });
+    auto bar = bk::ProgressBar(
+        &downloaded_mb,
+        {
+            .total = total_mb,
+            .message = std::format("pulling {}", uenv.id.string()),
+            .speed = 1.,
+            .speed_unit = "MB/s",
+            .style = bk::ProgressBarStyle::Rich,
+        });
     while (!proc->finished()) {
         std::this_thread::sleep_for(500ms);
         if (fs::is_regular_file(sqfs)) {
@@ -149,8 +150,7 @@ util::expected<void, int> pull_tag(const std::string& registry,
     downloaded_mb = total_mb;
 
     if (proc->rvalue()) {
-        spdlog::error("unable to pull digest with oras: {}",
-                      proc->err.string());
+        spdlog::error("unable to pull tag with oras: {}", proc->err.string());
         return util::unexpected{proc->rvalue()};
     }
 

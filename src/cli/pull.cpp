@@ -137,45 +137,38 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
 
         spdlog::debug("pull meta: {}", pull_meta);
         spdlog::debug("pull sqfs: {}", pull_sqfs);
-        // clang-format off
 
         auto rego_url = site::registry_url();
         spdlog::debug("registry url: {}", rego_url);
 
         auto digests = oras::discover(rego_url, args.nspace, record);
         if (!digests || digests->empty()) {
-            fmt::print("unable to pull image - rerun with -vvv flag and send error report to service desk.\n");
+            fmt::print("unable to pull image - rerun with -vvv flag and send "
+                       "error report to service desk.\n");
             return 1;
         }
         spdlog::debug("manifests: {}", fmt::join(*digests, ", "));
 
         const auto digest = *(digests->begin());
 
-        if (auto okay = oras::pull_digest(rego_url, args.nspace, record, digest, paths.store); !okay) {
-            fmt::print("unable to pull image - rerun with -vvv flag and send error report to service desk.\n");
+        if (auto okay = oras::pull_digest(rego_url, args.nspace, record, digest,
+                                          paths.store);
+            !okay) {
+            fmt::print("unable to pull image - rerun with -vvv flag and send "
+                       "error report to service desk.\n");
             return 1;
         }
 
-    auto tag_result = oras::pull_tag(rego_url,
-                                       args.nspace,
-                                       record,
-                                       paths.store);
+        auto tag_result =
+            oras::pull_tag(rego_url, args.nspace, record, paths.store);
         if (!tag_result) {
             return 1;
         }
-        //auto yy = oras::pull_tag(rego_url, args.nspace, record, digest);
-
-        //if (!oras::pull(args.nspace, record.sha, pull_sqfs, pull_meta)) {
-        //if (!site::pull_image(record, repo, args.only_meta)) {
-        //{
-        //  // this needs to be implemented - remove all references to sha because there was a failure or interruption
-        //  store->remove(sha);
-        //  return 1;
-        //}
-        // clang-format on
     }
 
     // add the label to the repo, even if there was no download.
+    // download may have been skipped if a squashfs with the same sha has
+    // been downloaded, and this download uses a different label.
     if (!label_in_repo) {
         spdlog::debug("adding label {} to the repo", record);
         store->add(record);
