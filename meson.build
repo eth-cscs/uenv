@@ -31,6 +31,10 @@ sqlite3_dep = subproject('sqlite3', default_options: ['werror=false', 'warning_l
 subproject('curl', default_options: ['werror=false', 'warning_level=0'])
 
 curl_dep = dependency('libcurl', required: true)
+barkeep_dep = declare_dependency(
+        include_directories: 'extern/barkeep',
+        compile_args: ['-DBARKEEP_ENABLE_FMT_FORMAT'],
+)
 
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
@@ -57,7 +61,7 @@ lib_inc = include_directories('src')
 
 lib_dep = declare_dependency(
         sources: lib_src,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep],
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
         include_directories: lib_inc
 )
 
@@ -82,12 +86,15 @@ if uenv_cli
 
     cli = executable('uenv',
             sources: uenv_src,
-            dependencies: [uenv_dep, lib_dep, fmt_dep, spdlog_dep, cli11_dep],
+            dependencies: [uenv_dep, lib_dep, fmt_dep, spdlog_dep, cli11_dep, barkeep_dep],
             c_args: ['-DVERSION="@0@"'.format(version)],
             install: true)
 
-    #oras_url = 'https://github.com/oras-project/oras/releases/download/v@0@/oras_@0@_linux_amd64.tar.gz'.format(oras_version)
-    oras_url = 'https://github.com/oras-project/oras/releases/download/v@0@/oras_@0@_linux_arm64.tar.gz'.format(oras_version)
+    arch = 'amd64'
+    if host_machine.cpu_family() == 'aarch64'
+        arch = 'arm64'
+    endif
+    oras_url = 'https://github.com/oras-project/oras/releases/download/v@0@/oras_@0@_linux_@1@.tar.gz'.format(oras_version, arch)
 
     oras_download = custom_target(
         'oras-download',

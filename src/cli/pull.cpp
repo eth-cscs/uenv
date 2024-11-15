@@ -96,7 +96,6 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         return 1;
     }
 
-
     const auto record = *(result->begin());
     spdlog::info("pulling {} {}", record.sha, record);
     fmt::print("pulling {} {}\n", record.id, record);
@@ -145,20 +144,25 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
 
         auto digests = oras::discover(rego_url, args.nspace, record);
         if (!digests || digests->empty()) {
-            fmt::println("unable to pull image - rerun with -vvv flag and send error report to service desk.");
+            fmt::print("unable to pull image - rerun with -vvv flag and send error report to service desk.\n");
             return 1;
         }
         spdlog::debug("manifests: {}", fmt::join(*digests, ", "));
 
         const auto digest = *(digests->begin());
 
-        fmt::println("{}", digest);
-
-        auto xx = oras::pull_digest(rego_url, args.nspace, record, digest);
-        if (xx) {
-            return xx;
+        if (auto okay = oras::pull_digest(rego_url, args.nspace, record, digest, paths.store); !okay) {
+            fmt::print("unable to pull image - rerun with -vvv flag and send error report to service desk.\n");
+            return 1;
         }
 
+    auto tag_result = oras::pull_tag(rego_url,
+                                       args.nspace,
+                                       record,
+                                       paths.store);
+        if (!tag_result) {
+            return 1;
+        }
         //auto yy = oras::pull_tag(rego_url, args.nspace, record, digest);
 
         //if (!oras::pull(args.nspace, record.sha, pull_sqfs, pull_meta)) {
