@@ -135,7 +135,7 @@ util::expected<void, int> pull_tag(const std::string& registry,
         &downloaded_mb,
         {
             .total = total_mb,
-            .message = std::format("pulling {}", uenv.id.string()),
+            .message = fmt::format("pulling {}", uenv.id.string()),
             .speed = 1.,
             .speed_unit = "MB/s",
             .style = bk::ProgressBarStyle::Rich,

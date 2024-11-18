@@ -87,7 +87,9 @@ if uenv_cli
     cli = executable('uenv',
             sources: uenv_src,
             dependencies: [uenv_dep, lib_dep, fmt_dep, spdlog_dep, cli11_dep, barkeep_dep],
-            c_args: ['-DVERSION="@0@"'.format(version)],
+            c_args: [
+              '-DVERSION="@0@"'.format(version),
+            ],
             install: true)
 
     arch = 'amd64'
