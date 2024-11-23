@@ -19,6 +19,7 @@
 #include "repo.h"
 #include "run.h"
 #include "start.h"
+#include "terminal.h"
 #include "uenv.h"
 
 std::string help_footer();
@@ -79,7 +80,7 @@ int main(int argc, char** argv) {
 
     // print the version and exit if the --version flag was passed
     if (print_version) {
-        fmt::print("{}\n", UENV_VERSION);
+        term::msg("{}\n", UENV_VERSION);
         return 0;
     }
 
@@ -88,7 +89,8 @@ int main(int argc, char** argv) {
         if (const auto p = uenv::default_repo_path()) {
             settings.repo_ = *p;
         } else {
-            spdlog::warn("ignoring the default repo path: {}", p.error());
+            spdlog::warn("ignoring the repo path: {}", p.error());
+            term::warn("ignoring the repo path: {}", p.error());
         }
     }
 
@@ -99,6 +101,8 @@ int main(int argc, char** argv) {
             settings.repo = *rpath;
         } else {
             spdlog::warn("ignoring repo path due to an error, {}",
+                         rpath.error());
+            term::warn("ignoring repo path: {}",
                          rpath.error());
             settings.repo = std::nullopt;
             settings.repo_ = std::nullopt;
@@ -138,8 +142,8 @@ int main(int argc, char** argv) {
         return 0;
     default:
         spdlog::warn("{}", (int)settings.mode);
-        spdlog::error("internal error, missing implementation for mode {}",
-                      settings.mode);
+        term::error("internal error, missing implementation for mode {}",
+                    settings.mode);
         return 1;
     }
 
