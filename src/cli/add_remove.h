@@ -13,7 +13,7 @@
 namespace uenv {
 
 void image_add_help();
-void image_remove_help();
+void image_rm_help();
 
 struct image_add_args {
     std::string uenv_description;
@@ -22,14 +22,13 @@ struct image_add_args {
     void add_cli(CLI::App&, global_settings& settings);
 };
 
-struct image_remove_args {
+struct image_rm_args {
     std::string uenv_description;
     void add_cli(CLI::App&, global_settings& settings);
 };
 
 int image_add(const image_add_args& args, const global_settings& settings);
-int image_remove(const image_remove_args& args,
-                 const global_settings& settings);
+int image_rm(const image_rm_args& args, const global_settings& settings);
 
 } // namespace uenv
 
@@ -48,7 +47,7 @@ template <> class fmt::formatter<uenv::image_add_args> {
     }
 };
 
-template <> class fmt::formatter<uenv::image_remove_args> {
+template <> class fmt::formatter<uenv::image_rm_args> {
   public:
     // parse format specification and store it:
     constexpr auto parse(format_parse_context& ctx) {
@@ -56,7 +55,7 @@ template <> class fmt::formatter<uenv::image_remove_args> {
     }
     // format a value using stored specification:
     template <typename FmtContext>
-    constexpr auto format(uenv::image_remove_args const& opts,
+    constexpr auto format(uenv::image_rm_args const& opts,
                           FmtContext& ctx) const {
         return fmt::format_to(ctx.out(), "{{uenv: '{}'}}",
                               opts.uenv_description);

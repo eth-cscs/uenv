@@ -20,7 +20,7 @@
 namespace uenv {
 
 std::string image_add_footer();
-std::string image_remove_footer();
+std::string image_rm_footer();
 
 void image_add_args::add_cli(CLI::App& cli,
                              [[maybe_unused]] global_settings& settings) {
@@ -40,17 +40,16 @@ void image_add_args::add_cli(CLI::App& cli,
     add_cli->footer(image_add_footer);
 }
 
-void image_remove_args::add_cli([[maybe_unused]] CLI::App& cli,
-                                [[maybe_unused]] global_settings& settings) {
-    /*
-    auto* remove_cli =
-        cli.add_subcommand("remove", "delete a uenv image from a repository");
-    remove_cli->add_option("uenv", uenv_description, "the uenv to remove.");
-    remove_cli->callback(
-        [&settings]() { settings.mode = uenv::cli_mode::image_remove; });
+void image_rm_args::add_cli([[maybe_unused]] CLI::App& cli,
+                            [[maybe_unused]] global_settings& settings) {
+    auto* rm_cli =
+        cli.add_subcommand("rm", "delete a uenv image from a repository");
+    rm_cli->add_option("label", uenv_description, "the uenv to remove.")
+        ->required();
+    rm_cli->callback(
+        [&settings]() { settings.mode = uenv::cli_mode::image_rm; });
 
-    remove_cli->footer(image_remove_footer);
-    */
+    rm_cli->footer(image_rm_footer);
 }
 
 int image_add(const image_add_args& args, const global_settings& settings) {
@@ -265,8 +264,9 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     return 0;
 }
 
-int image_remove([[maybe_unused]] const image_remove_args& args,
-                 [[maybe_unused]] const global_settings& settings) {
+int image_rm([[maybe_unused]] const image_rm_args& args,
+             [[maybe_unused]] const global_settings& settings) {
+    term::msg("image");
     return 0;
 }
 
@@ -293,25 +293,21 @@ std::string image_add_footer() {
     return fmt::format("{}", fmt::join(items, "\n"));
 }
 
-std::string image_remove_footer() {
+std::string image_rm_footer() {
     using enum help::block::admonition;
     std::vector<help::item> items{
         // clang-format off
         help::block{none, "Remove a uenv image from a repository." },
         help::linebreak{},
         help::block{xmpl, "by label"},
-        help::block{code,   "uenv image remove prgenv-gnu/24.7:v1"},
-        help::linebreak{},
-        help::block{xmpl, "by label"},
-        help::block{code,   "uenv image remove prgenv-gnu"},
-        help::block{code,   "uenv image remove prgenv-gnu/24.7"},
-        help::block{none, "should this delete all images that match?"},
+        help::block{code,   "uenv image rm prgenv-gnu/24.7:v1"},
+        help::block{code,   "uenv image rm prgenv-gnu/24.7:v1@daint%gh200"},
         help::linebreak{},
         help::block{xmpl, "by sha"},
-        help::block{code,   "uenv image remove abcd1234abcd1234abcd1234abcd1234"},
+        help::block{code,   "uenv image rm abcd1234abcd1234abcd1234abcd1234"},
         help::linebreak{},
         help::block{xmpl, "by id"},
-        help::block{code,   "uenv image remove abcd1234"},
+        help::block{code,   "uenv image rm abcd1234"},
         help::linebreak{},
         // clang-format on
     };

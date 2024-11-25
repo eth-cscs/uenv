@@ -2,6 +2,7 @@
 #include <fmt/core.h>
 
 #include <uenv/env.h>
+#include <uenv/print.h>
 #include <uenv/repository.h>
 
 namespace {
@@ -44,6 +45,22 @@ auto create_full_repo() {
         for (auto r : record_set) {
             repo->add(r);
         }
+    }
+
+    return repo;
+}
+
+auto create_mini_repo(std::optional<std::filesystem::path> p = {}) {
+    auto repo = p ? uenv::create_repository(*p) : uenv::create_repository();
+    // clang-format off
+    std::vector<uenv::uenv_record> wombat_records = {
+        {"arapiles", "gh200", "wombat", "2024", "rc1", {}, 1024, msha('a'), mid('a')},
+        {"arapiles", "gh200", "wombat", "2024", "v1",  {}, 1024, msha('a'), mid('a')},
+        {"arapiles", "gh200", "wombat", "2024", "v2",  {}, 5024, msha('b'), mid('b')},
+    };
+    // clang-format on
+    for (auto& r : wombat_records) {
+        repo->add(r);
     }
 
     return repo;
@@ -128,4 +145,83 @@ TEST_CASE("search_sha", "[repository]") {
         REQUIRE(result.begin()->name == "prgenv-gnu");
         REQUIRE((result.begin() + 1)->name == "prgenv-gnu");
     }
+}
+
+TEST_CASE("remove sha", "[repository]") {
+    auto repo = create_mini_repo();
+    REQUIRE(repo);
+
+    auto num_images = [&repo]() { return repo->query({})->size(); };
+
+    // remove an image that does not exist
+    // this is not an error
+    REQUIRE(repo->remove(msha('7')));
+    REQUIRE(num_images() == 3);
+
+    // delete a sha that corresponds to one image
+    {
+        auto sha = msha('b');
+
+        // double check that there is 1 image with this sha
+        {
+            auto result = *(repo->query({.name = sha.string()}));
+            REQUIRE(result.size() == 1u);
+        }
+
+        // remove the sha
+        REQUIRE(repo->remove(sha));
+
+        // check that there are now no matches
+        {
+            auto result = *(repo->query({.name = sha.string()}));
+            REQUIRE(result.size() == 0u);
+        }
+    }
+    // 1 images should have been removed
+    REQUIRE(num_images() == 2);
+
+    // delete a sha that corresponds to two images
+    {
+        auto sha = msha('a');
+
+        // double check that there are 2 images with this sha
+        {
+            auto result = *(repo->query({.name = sha.string()}));
+            REQUIRE(result.size() == 2u);
+        }
+
+        // remove the sha
+        REQUIRE(repo->remove(sha));
+
+        // check that there are now no matches
+        {
+            auto result = *(repo->query({.name = sha.string()}));
+            REQUIRE(result.size() == 0u);
+        }
+    }
+
+    // 2 images should have been removed
+    REQUIRE(num_images() == 0);
+}
+
+TEST_CASE("remove label", "[repository]") {
+    auto repo = create_mini_repo();
+    REQUIRE(repo);
+
+    auto num_images = [&repo]() { return repo->query({})->size(); };
+
+    auto uenv_a = *(repo->query({.name = msha('a').string()}));
+    auto uenv_c = *(repo->query({.name = msha('b').string()}));
+
+    REQUIRE(uenv_a.size() == 2u);
+    REQUIRE(uenv_c.size() == 1u);
+
+    REQUIRE(repo->remove(*uenv_c.begin()));
+    REQUIRE(num_images() == 2);
+
+    REQUIRE(repo->remove(*uenv_a.begin()));
+    REQUIRE(num_images() == 1);
+
+    REQUIRE(repo->remove(*(uenv_a.begin() + 1)));
+    REQUIRE(num_images() == 0);
 }

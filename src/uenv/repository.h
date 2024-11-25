@@ -80,6 +80,8 @@ struct repository {
     query(const uenv_label& label) const;
 
     util::expected<void, std::string> add(const uenv_record&);
+    util::expected<void, std::string> remove(const uenv_record&);
+    util::expected<void, std::string> remove(const sha256&);
 
     // return true if the repository is readonly
     bool is_readonly() const;

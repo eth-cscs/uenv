@@ -126,8 +126,8 @@ int main(int argc, char** argv) {
         return uenv::image_add(image.add_args, settings);
     case settings.image_inspect:
         return uenv::image_inspect(image.inspect_args, settings);
-    case settings.image_remove:
-        return uenv::image_remove(image.remove_args, settings);
+    case settings.image_rm:
+        return uenv::image_rm(image.remove_args, settings);
     case settings.image_find:
         return uenv::image_find(image.find_args, settings);
     case settings.image_pull:
