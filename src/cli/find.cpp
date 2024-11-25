@@ -17,6 +17,7 @@
 
 #include "find.h"
 #include "help.h"
+#include "terminal.h"
 
 namespace uenv {
 
@@ -45,7 +46,7 @@ int image_find([[maybe_unused]] const image_find_args& args,
         if (const auto parse = parse_uenv_label(*args.uenv_description)) {
             label = *parse;
         } else {
-            spdlog::error("invalid search term: {}", parse.error().message());
+            term::error("invalid search term: {}", parse.error().message());
             return 1;
         }
     }
@@ -55,14 +56,14 @@ int image_find([[maybe_unused]] const image_find_args& args,
 
     auto store = site::registry_listing(args.nspace);
     if (!store) {
-        spdlog::error("unable to get a listing of the uenv", store.error());
+        term::error("unable to get a listing of the uenv", store.error());
         return 1;
     }
 
     // search db for matching records
     const auto result = store->query(label);
     if (!result) {
-        spdlog::error("invalid search term: {}", store.error());
+        term::error("invalid search term: {}", store.error());
         return 1;
     }
 

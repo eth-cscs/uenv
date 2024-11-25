@@ -59,9 +59,11 @@ int main(int argc, char** argv) {
 
     // color::set_color(!settings.no_color);
 
-    // Warnings and errors are always logged. The verbosity level is increased
-    // with repeated uses of --verbose.
-    spdlog::level::level_enum console_log_level = spdlog::level::warn;
+    // By default there is no logging to the console
+    //   user-friendly logging off errors and warnings is handled using
+    //   term::error and term::warn
+    // The level of logging is increased by adding --verbose
+    spdlog::level::level_enum console_log_level = spdlog::level::off;
     if (settings.verbose == 1) {
         console_log_level = spdlog::level::info;
     } else if (settings.verbose == 2) {
@@ -69,7 +71,8 @@ int main(int argc, char** argv) {
     } else if (settings.verbose >= 3) {
         console_log_level = spdlog::level::trace;
     }
-    uenv::init_log(console_log_level, spdlog::level::trace);
+    // note: syslog uses level::info to capture key events
+    uenv::init_log(console_log_level, spdlog::level::info);
 
     if (auto bin = util::exe_path()) {
         spdlog::info("using uenv {}", bin->string());
@@ -100,10 +103,7 @@ int main(int argc, char** argv) {
                 uenv::validate_repo_path(*settings.repo_, false, false)) {
             settings.repo = *rpath;
         } else {
-            spdlog::warn("ignoring repo path due to an error, {}",
-                         rpath.error());
-            term::warn("ignoring repo path: {}",
-                         rpath.error());
+            term::warn("ignoring repo path: {}", rpath.error());
             settings.repo = std::nullopt;
             settings.repo_ = std::nullopt;
         }
@@ -137,8 +137,8 @@ int main(int argc, char** argv) {
     case settings.repo_status:
         return uenv::repo_status(repo.status_args, settings);
     case settings.unset:
-        fmt::println("uenv version {}", UENV_VERSION);
-        fmt::println("call '{} --help' for help", argv[0]);
+        term::msg("uenv version {}", UENV_VERSION);
+        term::msg("call '{} --help' for help", argv[0]);
         return 0;
     default:
         spdlog::warn("{}", (int)settings.mode);

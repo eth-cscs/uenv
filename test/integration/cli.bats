@@ -175,8 +175,10 @@ function teardown() {
     # try to create a uenv in a read-only path
     RP=$REPO_ROOT/ro
     mkdir --mode=-w $RP
-    run uenv repo create $RP/test
+    # run with logging to check for detailed "Permission denied" message
+    run uenv -v repo create $RP/test
     assert_failure
+    assert_line --partial "error: unable to create repository"
     assert_line --partial "Permission denied"
 }
 
@@ -236,7 +238,8 @@ function teardown() {
     # trying to add the same image with a different label should add the image and generate a warning
     run uenv --repo=$RP image add numbat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
     assert_success
-    assert_output --partial "[warning] a uenv with the same sha"
+    assert_output --partial "warning"
+    assert_output --partial "a uenv with the same sha"
 
     run uenv --repo=$RP image ls --no-header
     assert_success

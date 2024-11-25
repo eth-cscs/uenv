@@ -15,6 +15,7 @@
 
 #include "help.h"
 #include "start.h"
+#include "terminal.h"
 #include "uenv.h"
 
 namespace uenv {
@@ -42,7 +43,7 @@ int start(const start_args& args,
                                     args.view_description, globals.repo);
 
     if (!env) {
-        spdlog::error("{}", env.error());
+        term::error("{}", env.error());
         return 1;
     }
 
@@ -50,7 +51,7 @@ int start(const start_args& args,
     auto env_vars = uenv::getenv(*env);
 
     if (auto rval = uenv::setenv(env_vars, "SQFSMNT_FWD_"); !rval) {
-        spdlog::error("setting environment variables {}", rval.error());
+        term::error("setting environment variables {}", rval.error());
         return 1;
     }
 
@@ -64,11 +65,11 @@ int start(const start_args& args,
     // find the current shell (zsh, bash, etc)
     auto shell = util::current_shell();
     if (!shell) {
-        spdlog::error("unable to determine the current shell because {}",
-                      shell.error());
+        term::error("unable to determine the current shell because {}",
+                    shell.error());
         return 1;
     }
-    spdlog::info("shell found: {}", shell->string());
+    spdlog::info("using shell: {}", shell->string());
 
     commands.push_back("--");
     commands.push_back(shell->string());

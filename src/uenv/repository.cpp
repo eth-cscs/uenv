@@ -39,23 +39,23 @@ using util::unexpected;
 util::expected<std::optional<std::string>, std::string> default_repo_path() {
     std::optional<std::string> path_string;
     if (auto p = std::getenv("UENV_REPO_PATH")) {
-        spdlog::debug(
+        spdlog::trace(
             fmt::format("default_repo_path: found UENV_REPO_PATH={}", p));
         return path_string = p;
     } else {
-        spdlog::debug("default_repo_path: skipping UENV_REPO_PATH");
+        spdlog::trace("default_repo_path: skipping UENV_REPO_PATH");
         if (auto p = std::getenv("SCRATCH")) {
-            spdlog::debug(
+            spdlog::trace(
                 fmt::format("default_repo_path: found SCRATCH={}", p));
             path_string = std::string(p) + "/.uenv-images";
         } else {
-            spdlog::debug("default_repo_path: skipping SCRATCH");
+            spdlog::trace("default_repo_path: skipping SCRATCH");
             if (auto p = std::getenv("HOME")) {
-                spdlog::debug(
+                spdlog::trace(
                     fmt::format("default_repo_path: found HOME={}", p));
                 path_string = std::string(p) + "/.uenv/repo";
             } else {
-                spdlog::debug("default_repo_path: no default location found");
+                spdlog::trace("default_repo_path: no default location found");
             }
         }
     }

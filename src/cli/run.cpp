@@ -15,6 +15,7 @@
 
 #include "help.h"
 #include "run.h"
+#include "terminal.h"
 #include "uenv.h"
 
 namespace uenv {
@@ -43,7 +44,7 @@ int run(const run_args& args, const global_settings& globals) {
                                     args.view_description, globals.repo);
 
     if (!env) {
-        spdlog::error("{}", env.error());
+        term::error("{}", env.error());
         return 1;
     }
 
@@ -51,7 +52,7 @@ int run(const run_args& args, const global_settings& globals) {
     auto env_vars = uenv::getenv(*env);
 
     if (auto rval = uenv::setenv(env_vars, "SQFSMNT_FWD_"); !rval) {
-        spdlog::error("setting environment variables {}", rval.error());
+        term::error("setting environment variables {}", rval.error());
         return 1;
     }
 

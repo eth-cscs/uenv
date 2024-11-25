@@ -123,6 +123,7 @@ unit_src = [
         'test/unit/lex.cpp',
         'test/unit/main.cpp',
         'test/unit/parse.cpp',
+        'test/unit/signal.cpp',
         'test/unit/repository.cpp',
         'test/unit/subprocess.cpp',
 ]

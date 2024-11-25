@@ -20,6 +20,7 @@
 
 #include "help.h"
 #include "pull.h"
+#include "terminal.h"
 
 namespace uenv {
 
@@ -56,13 +57,13 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
     if (const auto parse = parse_uenv_label(args.uenv_description)) {
         label = *parse;
     } else {
-        spdlog::error("invalid search term: {}", parse.error().message());
+        term::error("invalid search term: {}", parse.error().message());
         return 1;
     }
 
     label.system = site::get_system_name(label.system);
     if (!label.name) {
-        spdlog::error(
+        term::error(
             "the uenv description '{}' must specify the name of the uenv",
             args.uenv_description);
         return 1;
@@ -72,27 +73,27 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
 
     auto registry = site::registry_listing(args.nspace);
     if (!registry) {
-        spdlog::error("unable to get a listing of the uenv", registry.error());
+        term::error("unable to get a listing of the uenv", registry.error());
         return 1;
     }
 
     // search db for matching records
     const auto result = registry->query(label);
     if (!result) {
-        spdlog::error("invalid search term: {}", registry.error());
+        term::error("invalid search term: {}", registry.error());
         return 1;
     }
 
     // check that there is one record with a unique sha
     if (result->empty()) {
-        spdlog::error("no uenv found that match '{}'", args.uenv_description);
+        term::error("no uenv found that match '{}'", args.uenv_description);
         return 1;
     } else if (!result->unique_sha()) {
         std::string errmsg =
             fmt::format("more than one uenv found that matches '{}':\n",
                         args.uenv_description);
         errmsg += format_record_set(*result);
-        spdlog::error("{}", errmsg);
+        term::error("{}", errmsg);
         return 1;
     }
 
@@ -103,7 +104,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
     // open the repo
     auto store = uenv::open_repository(*settings.repo, repo_mode::readwrite);
     if (!store) {
-        spdlog::error("unable to open repo: {}", store.error());
+        term::error("unable to open repo: {}", store.error());
         return 1;
     }
 

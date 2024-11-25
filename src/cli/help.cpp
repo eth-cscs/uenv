@@ -1,6 +1,7 @@
 #include <string>
 
 #include <fmt/format.h>
+
 #include <util/color.h>
 
 #include "help.h"
