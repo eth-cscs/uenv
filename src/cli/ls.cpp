@@ -37,9 +37,8 @@ void image_ls_args::add_cli(CLI::App& cli,
 int image_ls(const image_ls_args& args, const global_settings& settings) {
     // get the repo and handle errors if it does not exist
     if (!settings.repo) {
-        term::error(
-            "a repo needs to be provided either using the --repo flag "
-            "or by setting the UENV_REPO_PATH environment variable");
+        term::error("a repo needs to be provided either using the --repo flag "
+                    "or by setting the UENV_REPO_PATH environment variable");
         return 1;
     }
 
