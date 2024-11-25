@@ -14,6 +14,7 @@
 
 #include "help.h"
 #include "inspect.h"
+#include "terminal.h"
 
 namespace uenv {
 
@@ -37,16 +38,15 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
 
     // get the repo and handle errors if it does not exist
     if (!settings.repo) {
-        spdlog::error(
-            "a repo needs to be provided either using the --repo flag "
-            "or by setting the UENV_REPO_PATH environment variable");
+        term::error("a repo needs to be provided either using the --repo flag "
+                    "or by setting the UENV_REPO_PATH environment variable");
         return 1;
     }
 
     // open the repo
     auto store = uenv::open_repository(*settings.repo);
     if (!store) {
-        spdlog::error("unable to open repo: {}", store.error());
+        term::error("unable to open repo: {}", store.error());
         return 1;
     }
 
@@ -55,7 +55,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
     if (const auto parse = parse_uenv_label(args.label)) {
         label = *parse;
     } else {
-        spdlog::error("invalid search term: {}", parse.error().message());
+        term::error("invalid search term: {}", parse.error().message());
         return 1;
     }
 
@@ -66,18 +66,18 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
     // query the repo
     const auto result = store->query(label);
     if (!result) {
-        spdlog::error("invalid search term: {}", store.error());
+        term::error("invalid search term: {}", store.error());
         return 1;
     }
 
     if (result->empty()) {
-        spdlog::error("no matching uenv");
+        term::error("no matching uenv");
         return 0;
     }
 
     if (result->size() > 1) {
-        spdlog::error("more than one uenv matches the search criteria '{}'",
-                      label);
+        term::error("more than one uenv matches the search criteria '{}'",
+                    label);
         fmt::print("\n");
         for (const auto& r : *result) {
             fmt::print("{}  {}/{}:{}\n", r.id, r.name, r.version, r.tag);
@@ -86,7 +86,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         return 1;
     }
 
-    const auto r = result->front();
+    const auto r = *result->begin();
     auto paths = store->uenv_paths(r.sha);
 
     try {
@@ -109,7 +109,8 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         // clang-format on
         fmt::print("{}\n", msg);
     } catch (fmt::format_error& e) {
-        spdlog::error("{}", e.what());
+        spdlog::error("error reading meta data: {}", e.what());
+        term::error("unable to read uenv meta data", e.what());
         return 1;
     }
 

@@ -15,6 +15,7 @@
 
 #include "add_remove.h"
 #include "help.h"
+#include "terminal.h"
 
 namespace uenv {
 
@@ -62,33 +63,33 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     // - the label
     auto label = uenv::parse_uenv_label(args.uenv_description);
     if (!label) {
-        spdlog::error("the label {} is not valid: {}", args.uenv_description,
-                      label.error().description);
+        term::error("the label {} is not valid: {}", args.uenv_description,
+                    label.error().message());
         return 1;
     }
     if (!(label->name && label->version && label->tag)) {
-        spdlog::error("the label {} must provide at a minimum name/version:tag",
-                      args.uenv_description);
+        term::warn("the label {} must provide at a minimum name/version:tag",
+                   args.uenv_description);
         return 1;
     }
     // no automatic cluster/uarch detection yet, enforce them to be set
     if (!(label->system && label->uarch)) {
-        spdlog::error("the label {} must provide the system and uarch as "
-                      "name/version:tag@system%uarch",
-                      args.uenv_description);
+        term::error("the label {} must provide the system and uarch as "
+                    "name/version:tag@system%uarch",
+                    args.uenv_description);
         return 1;
     }
     spdlog::info("image_add: label {}", *label);
 
     auto file = uenv::parse_path(args.squashfs);
     if (!file) {
-        spdlog::error("invalid squashfs file {}: {}", args.squashfs,
-                      file.error().description);
+        term::error("invalid squashfs file {}: {}", args.squashfs,
+                    file.error().message());
         return 1;
     }
     fs::path sqfs = *file;
     if (!fs::is_regular_file(sqfs)) {
-        spdlog::error("invalid squashfs file {} is not a file", args.squashfs);
+        term::error("invalid squashfs: {} is not a file", args.squashfs);
         return 1;
     }
     spdlog::info("image_add: squashfs {}", fs::absolute(sqfs));
@@ -100,15 +101,15 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     {
         auto proc = util::run({"sha256sum", sqfs.string()});
         if (!proc) {
-            spdlog::info("{}", proc.error());
-            spdlog::error("unable to calculate sha256 of squashfs file {}",
-                          args.squashfs);
+            spdlog::error("{}", proc.error());
+            term::error("unable to calculate sha256 of squashfs file {}",
+                        args.squashfs);
             return 1;
         }
         auto success = proc->wait();
         if (success != 0) {
-            spdlog::error("unable to calculate sha256 of squashfs file {}",
-                          args.squashfs);
+            term::error("unable to calculate sha256 of squashfs file {}",
+                        args.squashfs);
             return 1;
         }
 
@@ -122,7 +123,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     // Open the repository
     //
     if (!settings.repo) {
-        spdlog::error(
+        term::error(
             "a repo needs to be provided either using the --repo flag or by "
             "setting the UENV_REPO_PATH environment variable");
         return 1;
@@ -130,7 +131,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     auto store =
         uenv::open_repository(settings.repo.value(), repo_mode::readwrite);
     if (!store) {
-        spdlog::error("unable to open repo: {}", store.error());
+        term::error("unable to open repo: {}", store.error());
         return 1;
     }
 
@@ -144,8 +145,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         existing_label = !results->empty();
 
         if (existing_label) {
-            spdlog::error("image_add: a uenv already exists with the label {}",
-                          *label);
+            term::error("image_add: a uenv already exists with the label {}",
+                        *label);
             return 1;
         }
     }
@@ -164,6 +165,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         if (existing_hash) {
             spdlog::warn("a uenv with the same sha {} is already in the repo",
                          hash);
+            term::warn("a uenv with the same sha {} is already in the repo",
+                       hash);
         }
     }
 
@@ -185,6 +188,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     if (ec) {
         spdlog::error("unable to create path {}: {}", uenv_paths.store.string(),
                       ec.message());
+        term::error("unable to add the uenv");
         return 1;
     }
 
@@ -198,6 +202,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         if (ec) {
             spdlog::error("unable to copy meta data to {}: {}",
                           uenv_paths.meta.string(), ec.message());
+            term::error("unable to add the uenv");
             return 1;
         }
     }
@@ -209,6 +214,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
             spdlog::error("unable to copy squashfs image {} to {}: {}",
                           sqfs.string(), uenv_paths.squashfs.string(),
                           ec.message());
+            term::error("unable to add the uenv");
             return 1;
         }
     } else {
@@ -217,8 +223,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
             spdlog::error("unable to move squashfs image {} to {}: {}",
                           sqfs.string(), uenv_paths.squashfs.string(),
                           ec.message());
-            fmt::println(
-                "{}",
+            term::error(
+                "unable to add the uenv\n{}",
                 help::item{help::block{
                     help::block::admonition::note,
                     fmt::format(
@@ -234,6 +240,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     if (!date.validate()) {
         spdlog::error("the date {} is invalid", date);
+        term::error("unable to add the uenv");
         return 1;
     }
     uenv_record r{
@@ -249,10 +256,11 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     };
     if (auto result = store->add(r); !result) {
         spdlog::error("image_add: {}", result.error());
+        term::error("unable to add the uenv");
         return 1;
     }
-    fmt::println("the uenv {} with sha {} was added to {}", r, hash,
-                 store->path()->string());
+    term::msg("the uenv {} with sha {} was added to {}", r, hash,
+              store->path()->string());
 
     return 0;
 }

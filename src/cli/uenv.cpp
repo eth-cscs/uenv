@@ -9,15 +9,17 @@
 #include <uenv/config.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <util/color.h>
 #include <util/expected.h>
+#include <util/fs.h>
 
 #include "add_remove.h"
-#include "color.h"
 #include "help.h"
 #include "image.h"
 #include "repo.h"
 #include "run.h"
 #include "start.h"
+#include "terminal.h"
 #include "uenv.h"
 
 std::string help_footer();
@@ -57,9 +59,11 @@ int main(int argc, char** argv) {
 
     // color::set_color(!settings.no_color);
 
-    // Warnings and errors are always logged. The verbosity level is increased
-    // with repeated uses of --verbose.
-    spdlog::level::level_enum console_log_level = spdlog::level::warn;
+    // By default there is no logging to the console
+    //   user-friendly logging off errors and warnings is handled using
+    //   term::error and term::warn
+    // The level of logging is increased by adding --verbose
+    spdlog::level::level_enum console_log_level = spdlog::level::off;
     if (settings.verbose == 1) {
         console_log_level = spdlog::level::info;
     } else if (settings.verbose == 2) {
@@ -67,11 +71,19 @@ int main(int argc, char** argv) {
     } else if (settings.verbose >= 3) {
         console_log_level = spdlog::level::trace;
     }
-    uenv::init_log(console_log_level, spdlog::level::trace);
+    // note: syslog uses level::info to capture key events
+    uenv::init_log(console_log_level, spdlog::level::info);
+
+    if (auto bin = util::exe_path()) {
+        spdlog::info("using uenv {}", bin->string());
+    }
+    if (auto oras = util::oras_path()) {
+        spdlog::info("using oras {}", oras->string());
+    }
 
     // print the version and exit if the --version flag was passed
     if (print_version) {
-        fmt::print("{}\n", UENV_VERSION);
+        term::msg("{}\n", UENV_VERSION);
         return 0;
     }
 
@@ -80,7 +92,8 @@ int main(int argc, char** argv) {
         if (const auto p = uenv::default_repo_path()) {
             settings.repo_ = *p;
         } else {
-            spdlog::warn("ignoring the default repo path: {}", p.error());
+            spdlog::warn("ignoring the repo path: {}", p.error());
+            term::warn("ignoring the repo path: {}", p.error());
         }
     }
 
@@ -90,15 +103,14 @@ int main(int argc, char** argv) {
                 uenv::validate_repo_path(*settings.repo_, false, false)) {
             settings.repo = *rpath;
         } else {
-            spdlog::warn("ignoring repo path due to an error, {}",
-                         rpath.error());
+            term::warn("ignoring repo path: {}", rpath.error());
             settings.repo = std::nullopt;
             settings.repo_ = std::nullopt;
         }
     }
 
     if (settings.repo) {
-        spdlog::info("the repo {}", *settings.repo);
+        spdlog::info("using repo {}", *settings.repo);
     }
 
     spdlog::info("{}", settings);
@@ -118,18 +130,20 @@ int main(int argc, char** argv) {
         return uenv::image_remove(image.remove_args, settings);
     case settings.image_find:
         return uenv::image_find(image.find_args, settings);
+    case settings.image_pull:
+        return uenv::image_pull(image.pull_args, settings);
     case settings.repo_create:
         return uenv::repo_create(repo.create_args, settings);
     case settings.repo_status:
         return uenv::repo_status(repo.status_args, settings);
     case settings.unset:
-        fmt::println("uenv version {}", UENV_VERSION);
-        fmt::println("call '{} --help' for help", argv[0]);
+        term::msg("uenv version {}", UENV_VERSION);
+        term::msg("call '{} --help' for help", argv[0]);
         return 0;
     default:
         spdlog::warn("{}", (int)settings.mode);
-        spdlog::error("internal error, missing implementation for mode {}",
-                      settings.mode);
+        term::error("internal error, missing implementation for mode {}",
+                    settings.mode);
         return 1;
     }
 

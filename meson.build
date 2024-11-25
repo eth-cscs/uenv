@@ -9,6 +9,8 @@ project('uenv', ['cpp'],
         meson_version: '>=0.57')
 version = meson.project_version()
 
+oras_version = get_option('oras_version')
+
 uenv_slurm_plugin = get_option('slurm_plugin')
 uenv_cli = get_option('cli')
 
@@ -29,6 +31,10 @@ sqlite3_dep = subproject('sqlite3', default_options: ['werror=false', 'warning_l
 subproject('curl', default_options: ['werror=false', 'warning_level=0'])
 
 curl_dep = dependency('libcurl', required: true)
+barkeep_dep = declare_dependency(
+        include_directories: 'extern/barkeep',
+        compile_args: ['-DBARKEEP_ENABLE_FMT_FORMAT'],
+)
 
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
@@ -39,9 +45,12 @@ lib_src = [
         'src/uenv/lex.cpp',
         'src/uenv/log.cpp',
         'src/uenv/meta.cpp',
+        'src/uenv/oras.cpp',
         'src/uenv/parse.cpp',
+        'src/uenv/print.cpp',
         'src/uenv/repository.cpp',
         'src/uenv/uenv.cpp',
+        'src/util/color.cpp',
         'src/util/curl.cpp',
         'src/util/fs.cpp',
         'src/util/shell.cpp',
@@ -52,7 +61,7 @@ lib_inc = include_directories('src')
 
 lib_dep = declare_dependency(
         sources: lib_src,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep],
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
         include_directories: lib_inc
 )
 
@@ -62,13 +71,12 @@ subdir('src/uenv')
 if uenv_cli
     uenv_src = [
             'src/cli/add_remove.cpp',
-            'src/cli/color.cpp',
             'src/cli/find.cpp',
             'src/cli/help.cpp',
             'src/cli/image.cpp',
             'src/cli/inspect.cpp',
             'src/cli/ls.cpp',
-            'src/cli/print.cpp',
+            'src/cli/pull.cpp',
             'src/cli/repo.cpp',
             'src/cli/run.cpp',
             'src/cli/start.cpp',
@@ -78,9 +86,33 @@ if uenv_cli
 
     cli = executable('uenv',
             sources: uenv_src,
-            dependencies: [uenv_dep, lib_dep, fmt_dep, spdlog_dep, cli11_dep],
-            c_args: ['-DVERSION="@0@"'.format(version)],
+            dependencies: [uenv_dep, lib_dep, fmt_dep, spdlog_dep, cli11_dep, barkeep_dep],
+            c_args: [
+              '-DVERSION="@0@"'.format(version),
+            ],
             install: true)
+
+    arch = 'amd64'
+    if host_machine.cpu_family() == 'aarch64'
+        arch = 'arm64'
+    endif
+    oras_url = 'https://github.com/oras-project/oras/releases/download/v@0@/oras_@0@_linux_@1@.tar.gz'.format(oras_version, arch)
+
+    oras_download = custom_target(
+        'oras-download',
+        output: 'oras.tar.gz',
+        command: ['curl', '-L', oras_url, '-o', '@OUTPUT@'],
+        install: false,
+    )
+
+    oras_extract = custom_target(
+        'oras-extract',
+        input: oras_download,
+        output: 'oras',
+        command: ['tar', 'xf', '@INPUT@', 'oras'],
+        install: true,
+        install_dir: get_option('libexecdir'),
+    )
 endif
 
 unit_src = [
@@ -91,6 +123,7 @@ unit_src = [
         'test/unit/lex.cpp',
         'test/unit/main.cpp',
         'test/unit/parse.cpp',
+        'test/unit/signal.cpp',
         'test/unit/repository.cpp',
         'test/unit/subprocess.cpp',
 ]

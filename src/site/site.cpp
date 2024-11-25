@@ -31,9 +31,9 @@ std::optional<std::string> get_system_name(std::optional<std::string> value) {
 }
 
 util::expected<uenv::repository, std::string>
-get_remote_listing(std::string nspace) {
+registry_listing(const std::string& nspace) {
     using json = nlohmann::json;
-    spdlog::debug("get_remote_listing: https://uenv-list.svc.cscs.ch/list/{}",
+    spdlog::debug("registry_listing: https://uenv-list.svc.cscs.ch/list/{}",
                   nspace);
 
     // perform curl call against middleware end point
@@ -82,7 +82,14 @@ get_remote_listing(std::string nspace) {
         store->add(r);
     }
 
+    spdlog::debug("registry_listing: {} records found in namespace {}",
+                  records.size(), nspace);
+
     return store;
+}
+
+std::string registry_url() {
+    return "jfrog.svc.cscs.ch/uenv";
 }
 
 } // namespace site

@@ -9,12 +9,13 @@
 
 #include <site/site.h>
 #include <uenv/parse.h>
+#include <uenv/print.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
 
 #include "help.h"
 #include "ls.h"
-#include "print.h"
+#include "terminal.h"
 
 namespace uenv {
 
@@ -36,16 +37,15 @@ void image_ls_args::add_cli(CLI::App& cli,
 int image_ls(const image_ls_args& args, const global_settings& settings) {
     // get the repo and handle errors if it does not exist
     if (!settings.repo) {
-        spdlog::error(
-            "a repo needs to be provided either using the --repo flag "
-            "or by setting the UENV_REPO_PATH environment variable");
+        term::error("a repo needs to be provided either using the --repo flag "
+                    "or by setting the UENV_REPO_PATH environment variable");
         return 1;
     }
 
     // open the repo
     auto store = uenv::open_repository(*settings.repo);
     if (!store) {
-        spdlog::error("unable to open repo: {}", store.error());
+        term::error("unable to open repo: {}", store.error());
         return 1;
     }
 
@@ -55,7 +55,7 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
         if (const auto parse = parse_uenv_label(*args.uenv_description)) {
             label = *parse;
         } else {
-            spdlog::error("invalid search term: {}", parse.error().message());
+            term::error("invalid search term: {}", parse.error().message());
             return 1;
         }
     }
@@ -67,11 +67,11 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
     // query the repo
     const auto result = store->query(label);
     if (!result) {
-        spdlog::error("invalid search term: {}", store.error());
+        term::error("invalid search term: {}", store.error());
         return 1;
     }
 
-    print_record_list(*result, args.no_header);
+    print_record_set(*result, args.no_header);
 
     return 0;
 }

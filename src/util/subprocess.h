@@ -44,6 +44,7 @@ class buffered_istream {
     }
 
     std::istream& stream();
+    std::string string();
 
     std::optional<std::string> getline();
 };

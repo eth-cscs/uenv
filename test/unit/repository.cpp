@@ -1,12 +1,8 @@
-#include <filesystem>
-
 #include <catch2/catch_all.hpp>
 #include <fmt/core.h>
 
 #include <uenv/env.h>
 #include <uenv/repository.h>
-
-namespace fs = std::filesystem;
 
 namespace {
 
@@ -40,17 +36,6 @@ std::vector<uenv::uenv_record> duplicate_records = {
     {"balfrin", "zen3",  "netcdf-tools", "2024", "v1", {}, 1024, msha('z'), mid('z')},
 };
 // clang-format on
-
-/*
-auto create_prgenv_repo() {
-    auto repo = uenv::create_repository();
-    for (auto r : prgenvgnu_records) {
-        repo->add(r);
-    }
-
-    return repo;
-}
-*/
 
 auto create_full_repo() {
     auto repo = uenv::create_repository();
@@ -126,21 +111,21 @@ TEST_CASE("search_sha", "[repository]") {
         auto sha = msha('z');
         auto result = *(repo->query({.name = sha.string()}));
         REQUIRE(result.size() == 1u);
-        REQUIRE(result[0].name == "netcdf-tools");
+        REQUIRE(result.begin()->name == "netcdf-tools");
     }
 
     {
         auto sha = mid('z');
         auto result = *(repo->query({.name = sha.string()}));
         REQUIRE(result.size() == 1u);
-        REQUIRE(result[0].name == "netcdf-tools");
+        REQUIRE(result.begin()->name == "netcdf-tools");
     }
 
     {
         auto sha = msha('a');
         auto result = *(repo->query({.name = sha.string()}));
         REQUIRE(result.size() == 2u);
-        REQUIRE(result[0].name == "prgenv-gnu");
-        REQUIRE(result[1].name == "prgenv-gnu");
+        REQUIRE(result.begin()->name == "prgenv-gnu");
+        REQUIRE((result.begin() + 1)->name == "prgenv-gnu");
     }
 }

@@ -12,6 +12,7 @@
 #include <uenv/env.h>
 #include <uenv/meta.h>
 #include <uenv/parse.h>
+#include <uenv/print.h>
 #include <uenv/repository.h>
 #include <util/fs.h>
 #include <util/subprocess.h>
@@ -108,37 +109,24 @@ concretise_env(const std::string& uenv_args,
             if (!result) {
                 return unexpected(fmt::format("{}", store.error()));
             }
-            std::vector<uenv_record> results = *result;
+            const auto results = *result;
 
-            if (results.size() == 0u) {
+            if (results.empty()) {
                 return unexpected(fmt::format("no uenv matches '{}'", *label));
             }
 
             // ensure that all results share a unique sha
-            if (results.size() > 1u) {
-                std::stable_sort(results.begin(), results.end(),
-                                 [](const auto& lhs, const auto& rhs) -> bool {
-                                     return lhs.sha < rhs.sha;
-                                 });
-                auto e =
-                    std::unique(results.begin(), results.end(),
-                                [](const auto& lhs, const auto& rhs) -> bool {
-                                    return lhs.sha == rhs.sha;
-                                });
-                if (std::distance(results.begin(), e) > 1u) {
-                    auto errmsg = fmt::format(
-                        "more than one uenv matches the uenv description "
-                        "'{}':",
-                        desc.label().value());
-                    for (auto r : results) {
-                        errmsg += fmt::format("\n  {}", r);
-                    }
-                    return unexpected(errmsg);
-                }
+            if (!results.unique_sha()) {
+                auto errmsg = fmt::format(
+                    "more than one uenv matches the uenv description "
+                    "'{}':\n",
+                    desc.label().value());
+                errmsg += format_record_set(results);
+                return unexpected(errmsg);
             }
 
             // set sqfs_path
-            const auto& r = results[0];
+            const auto& r = *results.begin();
             sqfs_path = store->uenv_paths(r.sha).squashfs;
         }
         // otherwise an explicit filename was provided, e.g.

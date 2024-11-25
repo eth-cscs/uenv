@@ -10,6 +10,7 @@
 #include <util/expected.h>
 
 #include "repo.h"
+#include "terminal.h"
 #include "uenv.h"
 
 namespace uenv {
@@ -57,13 +58,13 @@ resolve_repo_path(std::optional<std::string> path,
 int repo_create(const repo_create_args& args, const global_settings& settings) {
     auto path = resolve_repo_path(args.path, settings);
     if (!path) {
-        spdlog::error("invalid repository path: {}", path.error());
+        term::error("invalid repository path: {}", path.error());
         return 1;
     }
     spdlog::info("attempting to create uenv repo at {}", *path);
     auto x = create_repository(*path);
     if (!x) {
-        spdlog::error("{}", x.error());
+        term::error("{}", x.error());
         return 1;
     }
     return 0;
@@ -74,7 +75,7 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
 
     auto path = resolve_repo_path(args.path, settings);
     if (!path) {
-        spdlog::error("invalid repository path: {}", path.error());
+        term::error("invalid repository path: {}", path.error());
         return 1;
     }
     auto status = validate_repository(*path);

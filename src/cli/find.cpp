@@ -10,13 +10,14 @@
 
 #include <site/site.h>
 #include <uenv/parse.h>
+#include <uenv/print.h>
 #include <uenv/repository.h>
 #include <util/curl.h>
 #include <util/expected.h>
 
 #include "find.h"
 #include "help.h"
-#include "print.h"
+#include "terminal.h"
 
 namespace uenv {
 
@@ -45,7 +46,7 @@ int image_find([[maybe_unused]] const image_find_args& args,
         if (const auto parse = parse_uenv_label(*args.uenv_description)) {
             label = *parse;
         } else {
-            spdlog::error("invalid search term: {}", parse.error().message());
+            term::error("invalid search term: {}", parse.error().message());
             return 1;
         }
     }
@@ -53,21 +54,21 @@ int image_find([[maybe_unused]] const image_find_args& args,
 
     spdlog::info("image_find: {}::{}", args.nspace, label);
 
-    auto store = site::get_remote_listing(args.nspace);
+    auto store = site::registry_listing(args.nspace);
     if (!store) {
-        spdlog::error("unable to get a listing of the uenv", store.error());
+        term::error("unable to get a listing of the uenv", store.error());
         return 1;
     }
 
     // search db for matching records
     const auto result = store->query(label);
     if (!result) {
-        spdlog::error("invalid search term: {}", store.error());
+        term::error("invalid search term: {}", store.error());
         return 1;
     }
 
     // pass results to print
-    print_record_list(*result, args.no_header);
+    print_record_set(*result, args.no_header);
 
     return 0;
 }
