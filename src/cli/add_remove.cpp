@@ -266,7 +266,120 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
 int image_rm([[maybe_unused]] const image_rm_args& args,
              [[maybe_unused]] const global_settings& settings) {
-    term::msg("image");
+    term::msg("image rm {}", args.uenv_description);
+
+    // open the database
+    auto store =
+        uenv::open_repository(settings.repo.value(), repo_mode::readwrite);
+    if (!store) {
+        term::error("unable to open repo: {}", store.error());
+        return 1;
+    }
+
+    // Step 1: find the record/uenv to remove from the local repository
+    //
+    // if sha is set:
+    //      remove the sha and underlying image
+    // if record is set
+    //      remove the record, but leave the sha/image in place because
+    //      more than one record
+    // if neither is set:
+    //      do nothing
+
+    std::optional<sha256> sha;
+    std::optional<uenv_record> record;
+    auto U = args.uenv_description;
+
+    // check if the CLI argument is a sha256
+    if (is_sha(U, 64)) {
+        spdlog::debug("image_rm: treating {} as a sha256", U);
+        // look it up in the database
+        if (auto r = store->query({.name = U})) {
+            if (!r->empty()) {
+                sha = U;
+            }
+        } else {
+            term::error("internal error");
+            return 1;
+        }
+    }
+    // check if the CLI argument is an id
+    else if (is_sha(U, 16)) {
+        spdlog::debug("image_rm: treating {} as an id", U);
+        // look it up in the database
+        if (auto r = store->query({.name = U})) {
+            if (!r->empty()) {
+                sha = r->begin()->sha;
+            }
+        } else {
+            term::error("internal error");
+            return 1;
+        }
+    }
+    // otherwise treat the CLI argument as a uenv label
+    else {
+        spdlog::debug("image_rm: treating {} as a label", U);
+        auto label = uenv::parse_uenv_label(U);
+        if (!label) {
+            term::error("the label {} is not valid: {}", U,
+                        label.error().message());
+            return 1;
+        }
+        if (!label->fully_qualified()) {
+            term::error("the label {} must provide the system and uarch as "
+                        "name/version:tag@system%uarch",
+                        U);
+            return 1;
+        }
+        spdlog::info("image_rm: label {}", *label);
+
+        if (auto r = store->query(*label)) {
+            if (r->empty()) {
+                term::error("no match");
+                return 1;
+            } else if (r->size() > 1) {
+                term::error("ambiguous");
+                return 1;
+            } else {
+                // check whether there are more than one tag attached to sha
+                if (store->query({.name = r->begin()->sha.string()})->size() >
+                    1) {
+                    record = *r->begin();
+                } else {
+                    sha = r->begin()->sha;
+                }
+            }
+        }
+    }
+
+    // Step 2: perform deletion
+
+    if (!sha && !record) {
+        term::error("no match");
+        return 1;
+    }
+
+    if (sha) {
+        term::msg("removing sha", *sha);
+        store->remove(*sha);
+
+        auto store_path = store->uenv_paths(*sha).store;
+        if (std::filesystem::exists(store_path)) {
+            spdlog::info("image_rm: deleting path {}", store_path.string());
+            std::filesystem::remove_all(store_path);
+        } else {
+            spdlog::warn("image_rm: the path {} does not exist - skipping",
+                         store_path.string());
+        }
+    } else {
+        term::msg("removing record {}", *record);
+        if (auto result = store->remove(*record); !result) {
+            spdlog::error("{}", result.error());
+            term::error("unable to remove the record {}", result.error());
+            return 1;
+        }
+    }
+
     return 0;
 }
 

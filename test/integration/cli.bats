@@ -316,3 +316,59 @@ function teardown() {
     computed_sha=$(sha256sum ${sqfs} | awk '{print $1}')
     [ "$computed_sha" == "$sha" ]
 }
+
+@test "image rm" {
+    # using UENV_REPO_PATH env variable
+    export UENV_REPO_PATH=$(mktemp -d $REPO_ROOT/create-XXXXXX)
+    run uenv repo create $RP
+    assert_success
+
+    # add uenv to a repo for us to try removing
+    # the wombat uenv have the same sha
+    uenv image add wombat/24:rc1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
+    uenv image add wombat/24:v1@arapiles%zen3  $SQFS_LIB/apptool/standalone/tool.squashfs
+    # the bilby images have unique sha
+    uenv image add bilby/24:v1@arapiles%zen3   $SQFS_LIB/apptool/standalone/app42.squashfs
+    uenv image add bilby/24:v2@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs
+
+    # test that removing an uenv that is not in the repo is handled correctly
+    run uenv image rm dingo/24:rc1@arapiles%zen3
+    assert_failure
+    # TODO: test the error message
+
+    # a sha256
+    run uenv image rm aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    assert_failure
+    # TODO: test the error message
+
+    # an id
+    run uenv image rm aaaaaaaaaaaaaaaa
+    assert_failure
+    # TODO: test the error message
+
+    # test that removing a sha with more than one label removes both labels
+    sha=$(uenv image inspect wombat/24:rc1 --format={sha256})
+
+    run uenv image rm $sha
+    assert_success
+
+    run uenv image ls $sha
+    assert_output 'no matching uenv'
+
+    run uenv image ls wombat
+    assert_output 'no matching uenv'
+
+    # remove using a label that is the only label attached to a sha
+    # - should remove the label
+    # - should remove the storage
+    run uenv image rm bilby/24:v1@arapiles%zen3
+    assert_success
+
+    # check that the image was removed
+    run uenv image ls
+    assert_output xxx
+
+    # TODO:
+    # removing a one of multiple labels on the same sha removes the label but leaves the others untouched
+}
+
