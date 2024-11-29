@@ -54,6 +54,7 @@ lib_src = [
         'src/util/curl.cpp',
         'src/util/fs.cpp',
         'src/util/shell.cpp',
+        'src/util/signal.cpp',
         'src/util/strings.cpp',
         'src/util/subprocess.cpp',
 ]

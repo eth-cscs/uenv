@@ -322,11 +322,14 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
         spdlog::debug("image_rm: treating {} as a label", U);
         auto label = uenv::parse_uenv_label(U);
         if (!label) {
+            spdlog::error("the label {} is not valid: {}", U,
+                          label.error().message());
             term::error("the label {} is not valid: {}", U,
                         label.error().message());
             return 1;
         }
         if (!label->partially_qualified()) {
+            spdlog::error("no uenv matches {}", U);
             term::error(
                 "the label {} does not provide at least name/version:tag", U);
             return 1;
@@ -335,12 +338,13 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
 
         if (auto r = store->query(*label)) {
             if (r->empty()) {
+                spdlog::error("no uenv matches {}", U);
                 term::error("no uenv matches {}", U);
                 return 1;
             } else if (r->size() > 1) {
-                term::error("the pattern {} matches more than one uenv:", U);
-                print_record_set(*r, true);
-                term::msg("use a more specific pattern");
+                term::error("the pattern {} matches more than one "
+                            "uenv:\n{}use a more specifc version",
+                            U, format_record_set(*r));
                 return 1;
             } else {
                 // check whether there are more than one tag attached to sha
