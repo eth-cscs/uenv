@@ -11,7 +11,7 @@
 #include <uenv/oras.h>
 #include <uenv/uenv.h>
 #include <util/fs.h>
-#include <util/sigint.h>
+#include <util/signal.h>
 #include <util/subprocess.h>
 
 namespace uenv {
@@ -127,6 +127,8 @@ util::expected<void, int> pull_tag(const std::string& registry,
         return util::unexpected{-1};
     }
 
+    util::set_signal_catcher();
+
     const fs::path& sqfs = destination / "store.squashfs";
 
     std::size_t downloaded_mb{0u};
@@ -142,6 +144,11 @@ util::expected<void, int> pull_tag(const std::string& registry,
         });
     while (!proc->finished()) {
         std::this_thread::sleep_for(500ms);
+        // handle a signacl, usually SIGTERM or SIGINT
+        if (util::signal_raised()) {
+            spdlog::warn("signal raised - interrupting download");
+            throw util::signal_exception(util::last_signal_raised());
+        }
         if (fs::is_regular_file(sqfs)) {
             auto downloaded_bytes = fs::file_size(sqfs);
             downloaded_mb = downloaded_bytes / (1024 * 1024);
