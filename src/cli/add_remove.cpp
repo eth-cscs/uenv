@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 
 #include <uenv/parse.h>
+#include <uenv/print.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
 #include <util/fs.h>
@@ -66,18 +67,12 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                     label.error().message());
         return 1;
     }
-    if (!(label->name && label->version && label->tag)) {
-        term::warn("the label {} must provide at a minimum name/version:tag",
-                   args.uenv_description);
-        return 1;
-    }
-    // no automatic cluster/uarch detection yet, enforce them to be set
-    if (!(label->system && label->uarch)) {
-        term::error("the label {} must provide the system and uarch as "
-                    "name/version:tag@system%uarch",
+    if (!label->partially_qualified()) {
+        term::error("the label {} does not provide at least name/version:tag",
                     args.uenv_description);
         return 1;
     }
+
     spdlog::info("image_add: label {}", *label);
 
     auto file = uenv::parse_path(args.squashfs);
@@ -266,7 +261,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
 int image_rm([[maybe_unused]] const image_rm_args& args,
              [[maybe_unused]] const global_settings& settings) {
-    term::msg("image rm {}", args.uenv_description);
+    spdlog::info("image rm {}", args.uenv_description);
 
     // open the database
     auto store =
@@ -297,6 +292,9 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
         if (auto r = store->query({.name = U})) {
             if (!r->empty()) {
                 sha = U;
+            } else {
+                term::error("no uenv matches {}", U);
+                return 1;
             }
         } else {
             term::error("internal error");
@@ -310,6 +308,9 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
         if (auto r = store->query({.name = U})) {
             if (!r->empty()) {
                 sha = r->begin()->sha;
+            } else {
+                term::error("no uenv matches {}", U);
+                return 1;
             }
         } else {
             term::error("internal error");
@@ -325,20 +326,21 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
                         label.error().message());
             return 1;
         }
-        if (!label->fully_qualified()) {
-            term::error("the label {} must provide the system and uarch as "
-                        "name/version:tag@system%uarch",
-                        U);
+        if (!label->partially_qualified()) {
+            term::error(
+                "the label {} does not provide at least name/version:tag", U);
             return 1;
         }
         spdlog::info("image_rm: label {}", *label);
 
         if (auto r = store->query(*label)) {
             if (r->empty()) {
-                term::error("no match");
+                term::error("no uenv matches {}", U);
                 return 1;
             } else if (r->size() > 1) {
-                term::error("ambiguous");
+                term::error("the pattern {} matches more than one uenv:", U);
+                print_record_set(*r, true);
+                term::msg("use a more specific pattern");
                 return 1;
             } else {
                 // check whether there are more than one tag attached to sha
@@ -354,14 +356,12 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
 
     // Step 2: perform deletion
 
-    if (!sha && !record) {
-        term::error("no match");
-        return 1;
-    }
+    record_set removed;
 
     if (sha) {
-        term::msg("removing sha", *sha);
-        store->remove(*sha);
+        spdlog::info("removing sha {}", *sha);
+
+        removed = *store->remove(*sha);
 
         auto store_path = store->uenv_paths(*sha).store;
         if (std::filesystem::exists(store_path)) {
@@ -371,13 +371,18 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
             spdlog::warn("image_rm: the path {} does not exist - skipping",
                          store_path.string());
         }
+    } else if (record) {
+        spdlog::info("removing record {}", *record);
+
+        removed = *store->remove(*record);
+    }
+
+    if (removed.empty()) {
+        term::msg("no uenv matching {} was found", U);
     } else {
-        term::msg("removing record {}", *record);
-        if (auto result = store->remove(*record); !result) {
-            spdlog::error("{}", result.error());
-            term::error("unable to remove the record {}", result.error());
-            return 1;
-        }
+        term::msg("the following uenv {} removed:",
+                  (removed.size() > 1 ? "were" : "was"));
+        print_record_set(removed, true);
     }
 
     return 0;
@@ -411,6 +416,7 @@ std::string image_rm_footer() {
     std::vector<help::item> items{
         // clang-format off
         help::block{none, "Remove a uenv image from a repository." },
+        help::block{none, "Use this command to remove uenv that have been pulled or added." },
         help::linebreak{},
         help::block{xmpl, "by label"},
         help::block{code,   "uenv image rm prgenv-gnu/24.7:v1"},

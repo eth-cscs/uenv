@@ -344,8 +344,8 @@ struct repository_impl {
     repository::pathset uenv_paths(sha256) const;
 
     util::expected<void, std::string> add(const uenv_record&);
-    util::expected<void, std::string> remove(const uenv_record&);
-    util::expected<void, std::string> remove(const sha256&);
+    util::expected<record_set, std::string> remove(const uenv_record&);
+    util::expected<record_set, std::string> remove(const sha256&);
 
     const bool is_readonly;
 };
@@ -642,7 +642,9 @@ repository_impl::add(const uenv::uenv_record& r) {
     return {};
 }
 
-util::expected<void, std::string> repository_impl::remove(const sha256& sha) {
+util::expected<record_set, std::string>
+repository_impl::remove(const sha256& sha) {
+    auto matches = query({.name = sha.string()});
     std::vector<std::string> statements{
         // begin the transaction
         "PRAGMA foreign_keys = ON", "BEGIN",
@@ -656,32 +658,45 @@ util::expected<void, std::string> repository_impl::remove(const sha256& sha) {
             return unexpected("unable to update database");
         }
     }
-    return {};
+    return *matches;
 }
 
-util::expected<void, std::string>
+util::expected<record_set, std::string>
 repository_impl::remove(const uenv_record& record) {
-    // clang-format off
-    std::vector<std::string> statements{
-        // begin the transaction
-        "BEGIN",
-        "PRAGMA foreign_keys = ON",
-        // delete the image from images
-        fmt::format("DELETE FROM tags WHERE tag = '{}'"
-                    " AND sha256 = '{}'",
-                    record.tag,
-                    record.sha),
-        "COMMIT"
-    };
-    // clang-format on
+    auto matches = query({.name = record.name,
+                          .version = record.version,
+                          .tag = record.tag,
+                          .system = record.system,
+                          .uarch = record.uarch});
 
-    for (auto stmt : statements) {
-        if (auto r = exec_statement(stmt, db); !r) {
-            spdlog::error("repository_impl::remove: {}", r.error());
-            return unexpected("unable to update database");
+    if (!matches->empty()) {
+        // clang-format off
+        std::vector<std::string> statements{
+            // begin the transaction
+            "BEGIN",
+            "PRAGMA foreign_keys = ON",
+            // delete the image from images
+            // clang-format off
+            fmt::format(
+//WHERE sha256 = '{}' AND version_id IN ("
+R"(
+DELETE FROM tags
+WHERE sha256='{}' AND version_id IN (
+    SELECT version_id FROM uenv
+    WHERE system='{}' AND uarch='{}' AND name='{}' AND version='{}')
+)",
+                record.sha, record.system, record.uarch, record.name, record.version),
+            "COMMIT"};
+        // clang-format on
+
+        for (auto stmt : statements) {
+            if (auto r = exec_statement(stmt, db); !r) {
+                spdlog::error("repository_impl::remove: {}", r.error());
+                return unexpected("unable to update database");
+            }
         }
     }
-    return {};
+    return *matches;
 }
 
 util::expected<std::vector<uenv_record>, std::string>
@@ -902,11 +917,12 @@ util::expected<void, std::string> repository::add(const uenv_record& r) {
     return impl_->add(r);
 }
 
-util::expected<void, std::string> repository::remove(const uenv_record& r) {
+util::expected<record_set, std::string>
+repository::remove(const uenv_record& r) {
     return impl_->remove(r);
 }
 
-util::expected<void, std::string> repository::remove(const sha256& r) {
+util::expected<record_set, std::string> repository::remove(const sha256& r) {
     return impl_->remove(r);
 }
 

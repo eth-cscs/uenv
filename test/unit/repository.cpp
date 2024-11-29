@@ -54,9 +54,9 @@ auto create_mini_repo(std::optional<std::filesystem::path> p = {}) {
     auto repo = p ? uenv::create_repository(*p) : uenv::create_repository();
     // clang-format off
     std::vector<uenv::uenv_record> wombat_records = {
-        {"arapiles", "gh200", "wombat", "2024", "rc1", {}, 1024, msha('a'), mid('a')},
-        {"arapiles", "gh200", "wombat", "2024", "v1",  {}, 1024, msha('a'), mid('a')},
-        {"arapiles", "gh200", "wombat", "2024", "v2",  {}, 5024, msha('b'), mid('b')},
+        {"arapiles", "gh200", "wombat", "2024", "v2",  {}, 1024, msha('a'), mid('a')},
+        {"arapiles", "gh200", "dingo",  "2024", "v2",  {}, 1024, msha('a'), mid('a')},
+        {"arapiles", "gh200", "wombat", "2024", "v1",  {}, 5024, msha('b'), mid('b')},
     };
     // clang-format on
     for (auto& r : wombat_records) {
@@ -205,23 +205,26 @@ TEST_CASE("remove sha", "[repository]") {
 }
 
 TEST_CASE("remove label", "[repository]") {
-    auto repo = create_mini_repo();
-    REQUIRE(repo);
+    auto R = create_mini_repo();
+    REQUIRE(R);
+    auto& repo = *R;
 
-    auto num_images = [&repo]() { return repo->query({})->size(); };
+    auto num_images = [&repo]() { return repo.query({})->size(); };
 
-    auto uenv_a = *(repo->query({.name = msha('a').string()}));
-    auto uenv_c = *(repo->query({.name = msha('b').string()}));
+    num_images();
+
+    auto uenv_a = *(repo.query({.name = msha('a').string()}));
+    auto uenv_b = *(repo.query({.name = msha('b').string()}));
 
     REQUIRE(uenv_a.size() == 2u);
-    REQUIRE(uenv_c.size() == 1u);
+    REQUIRE(uenv_b.size() == 1u);
 
-    REQUIRE(repo->remove(*uenv_c.begin()));
+    REQUIRE(repo.remove(*uenv_b.begin()));
     REQUIRE(num_images() == 2);
 
-    REQUIRE(repo->remove(*uenv_a.begin()));
+    REQUIRE(repo.remove(*uenv_a.begin()));
     REQUIRE(num_images() == 1);
 
-    REQUIRE(repo->remove(*(uenv_a.begin() + 1)));
+    REQUIRE(repo.remove(*(uenv_a.begin() + 1)));
     REQUIRE(num_images() == 0);
 }
