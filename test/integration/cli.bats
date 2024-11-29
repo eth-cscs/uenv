@@ -316,3 +316,86 @@ function teardown() {
     computed_sha=$(sha256sum ${sqfs} | awk '{print $1}')
     [ "$computed_sha" == "$sha" ]
 }
+
+@test "image rm" {
+    # using UENV_REPO_PATH env variable
+    export UENV_REPO_PATH=$(mktemp -d $REPO_ROOT/create-XXXXXX)
+    export UENV_REPO_PATH=$REPO_ROOT/xxx
+    run uenv repo create $RP
+    assert_success
+
+    # add uenv to a repo for us to try removing
+    # the wombat uenv have the same sha
+    uenv image add wombat/24:rc1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs > /dev/null
+    uenv image add wombat/24:v1@arapiles%zen3  $SQFS_LIB/apptool/standalone/tool.squashfs > /dev/null
+    # the bilby images have unique sha
+    uenv image add bilby/24:v1@arapiles%zen3   $SQFS_LIB/apptool/standalone/app42.squashfs > /dev/null
+    uenv image add bilby/24:v2@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
+
+    # test that removing an uenv that is not in the repo is handled correctly
+    for pattern in dingo/24:rc1@arapiles%zen3  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaa
+    do
+        run uenv image rm $pattern
+        assert_failure
+        assert_output "error: no uenv matches $pattern"
+    done
+
+    # test that removing a sha with more than one label removes both labels
+    sha=$(uenv image inspect wombat/24:rc1 --format={sha256})
+
+    # assert that the files exist
+    [ -d $UENV_REPO_PATH/images/$sha ]
+
+    run uenv image rm $sha
+    assert_success
+    assert_output --partial "the following uenv were removed"
+    assert_output --partial "wombat/24:rc1"
+    assert_output --partial "wombat/24:v1"
+
+    # verify that the sha and wombat image are no longer in the repo
+    run uenv image ls $sha
+    assert_output 'no matching uenv'
+    run uenv image ls wombat
+    assert_output 'no matching uenv'
+
+    # verify that the file was removed
+    [ ! -d $UENV_REPO_PATH/images/$sha ]
+
+    # remove using a label that is the only label attached to a sha
+    # - should remove the label
+    # - should remove the storage
+    pattern=bilby/24:v1
+    sha=$(uenv image inspect $pattern --format={sha256})
+    [ -d $UENV_REPO_PATH/images/$sha ]
+    run uenv -vv image rm $pattern
+    assert_success
+    # verify that the file was removed
+    [ ! -d $UENV_REPO_PATH/images/$sha ]
+    # check that the uenv was removed from database
+    run uenv image ls $pattern
+    assert_output "no matching uenv"
+
+    # removing a one of multiple labels on the same sha removes the label but leaves the others untouched
+    # step 1: add another image with the same hash as the remaining image
+    run uenv image add wallaby/24:v2@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
+    run uenv image add quokka/24:v2@arapiles%zen3    $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
+
+    pattern=wallaby/24:v2
+    sha=$(uenv image inspect $pattern --format={sha256})
+    [ -d $UENV_REPO_PATH/images/$sha ]
+
+    run uenv -vv image rm $pattern
+    assert_success
+    [ -d $UENV_REPO_PATH/images/$sha ]
+
+    pattern=quokka/24:v2
+    run uenv image rm $pattern
+    assert_success
+    [ -d $UENV_REPO_PATH/images/$sha ]
+
+    pattern=bilby/24:v2
+    run uenv image rm $pattern
+    assert_success
+    [ ! -d $UENV_REPO_PATH/images/$sha ]
+}
+

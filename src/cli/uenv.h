@@ -19,7 +19,7 @@ enum class cli_mode : std::uint32_t {
     image_inspect,
     image_ls,
     image_pull,
-    image_remove,
+    image_rm,
     repo_create,
     repo_status,
     run,
@@ -63,8 +63,8 @@ template <> class fmt::formatter<uenv::cli_mode> {
             return format_to(ctx.out(), "image-ls");
         case image_add:
             return format_to(ctx.out(), "image-add");
-        case image_remove:
-            return format_to(ctx.out(), "image-remove");
+        case image_rm:
+            return format_to(ctx.out(), "image-rm");
         case image_find:
             return format_to(ctx.out(), "image-find");
         case image_pull:

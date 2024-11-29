@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 
 #include <uenv/parse.h>
+#include <uenv/print.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
 #include <util/fs.h>
@@ -20,7 +21,7 @@
 namespace uenv {
 
 std::string image_add_footer();
-std::string image_remove_footer();
+std::string image_rm_footer();
 
 void image_add_args::add_cli(CLI::App& cli,
                              [[maybe_unused]] global_settings& settings) {
@@ -40,17 +41,16 @@ void image_add_args::add_cli(CLI::App& cli,
     add_cli->footer(image_add_footer);
 }
 
-void image_remove_args::add_cli([[maybe_unused]] CLI::App& cli,
-                                [[maybe_unused]] global_settings& settings) {
-    /*
-    auto* remove_cli =
-        cli.add_subcommand("remove", "delete a uenv image from a repository");
-    remove_cli->add_option("uenv", uenv_description, "the uenv to remove.");
-    remove_cli->callback(
-        [&settings]() { settings.mode = uenv::cli_mode::image_remove; });
+void image_rm_args::add_cli([[maybe_unused]] CLI::App& cli,
+                            [[maybe_unused]] global_settings& settings) {
+    auto* rm_cli =
+        cli.add_subcommand("rm", "delete a uenv image from a repository");
+    rm_cli->add_option("label", uenv_description, "the uenv to remove.")
+        ->required();
+    rm_cli->callback(
+        [&settings]() { settings.mode = uenv::cli_mode::image_rm; });
 
-    remove_cli->footer(image_remove_footer);
-    */
+    rm_cli->footer(image_rm_footer);
 }
 
 int image_add(const image_add_args& args, const global_settings& settings) {
@@ -67,18 +67,12 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                     label.error().message());
         return 1;
     }
-    if (!(label->name && label->version && label->tag)) {
-        term::warn("the label {} must provide at a minimum name/version:tag",
-                   args.uenv_description);
-        return 1;
-    }
-    // no automatic cluster/uarch detection yet, enforce them to be set
-    if (!(label->system && label->uarch)) {
-        term::error("the label {} must provide the system and uarch as "
-                    "name/version:tag@system%uarch",
+    if (!label->partially_qualified()) {
+        term::error("the label {} does not provide at least name/version:tag",
                     args.uenv_description);
         return 1;
     }
+
     spdlog::info("image_add: label {}", *label);
 
     auto file = uenv::parse_path(args.squashfs);
@@ -265,8 +259,132 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     return 0;
 }
 
-int image_remove([[maybe_unused]] const image_remove_args& args,
-                 [[maybe_unused]] const global_settings& settings) {
+int image_rm([[maybe_unused]] const image_rm_args& args,
+             [[maybe_unused]] const global_settings& settings) {
+    spdlog::info("image rm {}", args.uenv_description);
+
+    // open the database
+    auto store =
+        uenv::open_repository(settings.repo.value(), repo_mode::readwrite);
+    if (!store) {
+        term::error("unable to open repo: {}", store.error());
+        return 1;
+    }
+
+    // Step 1: find the record/uenv to remove from the local repository
+    //
+    // if sha is set:
+    //      remove the sha and underlying image
+    // if record is set
+    //      remove the record, but leave the sha/image in place because
+    //      more than one record
+    // if neither is set:
+    //      do nothing
+
+    std::optional<sha256> sha;
+    std::optional<uenv_record> record;
+    auto U = args.uenv_description;
+
+    // check if the CLI argument is a sha256
+    if (is_sha(U, 64)) {
+        spdlog::debug("image_rm: treating {} as a sha256", U);
+        // look it up in the database
+        if (auto r = store->query({.name = U})) {
+            if (!r->empty()) {
+                sha = U;
+            } else {
+                term::error("no uenv matches {}", U);
+                return 1;
+            }
+        } else {
+            term::error("internal error");
+            return 1;
+        }
+    }
+    // check if the CLI argument is an id
+    else if (is_sha(U, 16)) {
+        spdlog::debug("image_rm: treating {} as an id", U);
+        // look it up in the database
+        if (auto r = store->query({.name = U})) {
+            if (!r->empty()) {
+                sha = r->begin()->sha;
+            } else {
+                term::error("no uenv matches {}", U);
+                return 1;
+            }
+        } else {
+            term::error("internal error");
+            return 1;
+        }
+    }
+    // otherwise treat the CLI argument as a uenv label
+    else {
+        spdlog::debug("image_rm: treating {} as a label", U);
+        auto label = uenv::parse_uenv_label(U);
+        if (!label) {
+            term::error("the label {} is not valid: {}", U,
+                        label.error().message());
+            return 1;
+        }
+        if (!label->partially_qualified()) {
+            term::error(
+                "the label {} does not provide at least name/version:tag", U);
+            return 1;
+        }
+        spdlog::info("image_rm: label {}", *label);
+
+        if (auto r = store->query(*label)) {
+            if (r->empty()) {
+                term::error("no uenv matches {}", U);
+                return 1;
+            } else if (r->size() > 1) {
+                term::error("the pattern {} matches more than one uenv:", U);
+                print_record_set(*r, true);
+                term::msg("use a more specific pattern");
+                return 1;
+            } else {
+                // check whether there are more than one tag attached to sha
+                if (store->query({.name = r->begin()->sha.string()})->size() >
+                    1) {
+                    record = *r->begin();
+                } else {
+                    sha = r->begin()->sha;
+                }
+            }
+        }
+    }
+
+    // Step 2: perform deletion
+
+    record_set removed;
+
+    if (sha) {
+        spdlog::info("removing sha {}", *sha);
+
+        removed = *store->remove(*sha);
+
+        auto store_path = store->uenv_paths(*sha).store;
+        if (std::filesystem::exists(store_path)) {
+            spdlog::info("image_rm: deleting path {}", store_path.string());
+            std::filesystem::remove_all(store_path);
+        } else {
+            spdlog::warn("image_rm: the path {} does not exist - skipping",
+                         store_path.string());
+        }
+    } else if (record) {
+        spdlog::info("removing record {}", *record);
+
+        removed = *store->remove(*record);
+    }
+
+    if (removed.empty()) {
+        term::msg("no uenv matching {} was found", U);
+    } else {
+        term::msg("the following uenv {} removed:",
+                  (removed.size() > 1 ? "were" : "was"));
+        print_record_set(removed, true);
+    }
+
     return 0;
 }
 
@@ -293,25 +411,22 @@ std::string image_add_footer() {
     return fmt::format("{}", fmt::join(items, "\n"));
 }
 
-std::string image_remove_footer() {
+std::string image_rm_footer() {
     using enum help::block::admonition;
     std::vector<help::item> items{
         // clang-format off
         help::block{none, "Remove a uenv image from a repository." },
+        help::block{none, "Use this command to remove uenv that have been pulled or added." },
         help::linebreak{},
         help::block{xmpl, "by label"},
-        help::block{code,   "uenv image remove prgenv-gnu/24.7:v1"},
-        help::linebreak{},
-        help::block{xmpl, "by label"},
-        help::block{code,   "uenv image remove prgenv-gnu"},
-        help::block{code,   "uenv image remove prgenv-gnu/24.7"},
-        help::block{none, "should this delete all images that match?"},
+        help::block{code,   "uenv image rm prgenv-gnu/24.7:v1"},
+        help::block{code,   "uenv image rm prgenv-gnu/24.7:v1@daint%gh200"},
         help::linebreak{},
         help::block{xmpl, "by sha"},
-        help::block{code,   "uenv image remove abcd1234abcd1234abcd1234abcd1234"},
+        help::block{code,   "uenv image rm abcd1234abcd1234abcd1234abcd1234"},
         help::linebreak{},
         help::block{xmpl, "by id"},
-        help::block{code,   "uenv image remove abcd1234"},
+        help::block{code,   "uenv image rm abcd1234"},
         help::linebreak{},
         // clang-format on
     };

@@ -8,11 +8,6 @@
 
 namespace uenv {
 
-/*
-uenv repo create <repo>
-uenv repo status <repo>
-*/
-
 struct repo_create_args {
     std::optional<std::string> path;
 };

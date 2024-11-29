@@ -23,6 +23,12 @@ struct uenv_label {
     bool only_name() const {
         return name && !version && !tag && !system && !uarch;
     }
+    bool fully_qualified() const {
+        return name && version && tag && system && uarch;
+    }
+    bool partially_qualified() const {
+        return name && version && tag;
+    }
 };
 
 struct uenv_date {
