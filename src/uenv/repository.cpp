@@ -703,7 +703,6 @@ util::expected<std::vector<uenv_record>, std::string>
 repository_impl::query(const uenv_label& label) const {
     std::vector<uenv_record> results;
 
-    std::string query = fmt::format("SELECT * FROM records");
     std::vector<std::string> query_terms;
     if (label.name) {
         query_terms.push_back(fmt::format("name  = '{}'", *label.name));
@@ -720,10 +719,9 @@ repository_impl::query(const uenv_label& label) const {
     if (label.system) {
         query_terms.push_back(fmt::format("system  = '{}'", *label.system));
     }
-
-    if (!query_terms.empty()) {
-        query += fmt::format(" WHERE {}", fmt::join(query_terms, " AND "));
-    }
+    const std::string query = query_terms.empty() ?
+            "SELECT * FROM records":
+            fmt::format("SELECT * FROM records WHERE {}", fmt::join(query_terms, " AND "));
 
     auto s = create_query(query, db);
     if (!s) {
@@ -756,14 +754,18 @@ repository_impl::query(const uenv_label& label) const {
         results.push_back(record_from_query(*s).value());
     }
 
+    spdlog::info("will we checking for id and sha");
     // now check for id and sha search terms
     if (label.only_name()) {
+        query_terms.erase(query_terms.begin());
+        spdlog::info("checking for id and sha");
         // search for an if name could also be an id
         if (is_sha(*label.name, 16)) {
+            query_terms.push_back(fmt::format("id = '{}'", uenv_id(*label.name).string()));
             auto result = create_query(
-                fmt::format("SELECT * FROM records WHERE id = '{}'",
-                            uenv_id(*label.name).string()),
-                db);
+                fmt::format("SELECT * FROM records WHERE {}",
+                    fmt::join(query_terms, " AND ")),
+                    db);
             if (result) {
                 while (result->step()) {
                     results.push_back(record_from_query(*result).value());
@@ -772,10 +774,11 @@ repository_impl::query(const uenv_label& label) const {
         }
         // search for a sha if name could also be a sha256
         else if (is_sha(*label.name, 64)) {
+            query_terms.push_back(fmt::format("sha256 = '{}'", sha256(*label.name).string()));
             auto result = create_query(
-                fmt::format("SELECT * FROM records WHERE sha256 = '{}'",
-                            sha256(*label.name).string()),
-                db);
+                fmt::format("SELECT * FROM records WHERE {}",
+                    fmt::join(query_terms, " AND ")),
+                    db);
             if (result) {
                 while (result->step()) {
                     results.push_back(record_from_query(*result).value());
