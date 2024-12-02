@@ -81,6 +81,7 @@ if uenv_cli
             'src/cli/repo.cpp',
             'src/cli/run.cpp',
             'src/cli/start.cpp',
+            'src/cli/status.cpp',
             'src/cli/uenv.cpp',
     ]
     uenv_dep = [sqlite3_dep]
