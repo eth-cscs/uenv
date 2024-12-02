@@ -24,6 +24,7 @@ enum class cli_mode : std::uint32_t {
     repo_status,
     run,
     start,
+    status,
 };
 
 struct global_settings {
@@ -75,6 +76,8 @@ template <> class fmt::formatter<uenv::cli_mode> {
             return format_to(ctx.out(), "repo-create");
         case repo_status:
             return format_to(ctx.out(), "repo-status");
+        case status:
+            return format_to(ctx.out(), "status");
         }
         return format_to(ctx.out(), "unknown");
     }

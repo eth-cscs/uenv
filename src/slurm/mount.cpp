@@ -57,7 +57,12 @@ util::expected<void, std::string> mount_entry::validate() const {
             fmt::format("the squashfs file '{}' is not a file", sqfs_path));
     }
 
-    // do we have read access to the squashfs file
+    // do we have read access to the squashfs file?
+    //
+    // NOTE: this check is performed on the login node under the user's account.
+    // The mount step is performed with elevated privelages on the compute node.
+    // Skipping this check could possibly allow users to mount images to which
+    // they don't have access.
     const fs::perms sqfs_perm = fs::status(sqfs).permissions();
     auto satisfies = [&sqfs_perm](fs::perms c) {
         return fs::perms::none != (sqfs_perm & c);

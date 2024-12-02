@@ -1,11 +1,13 @@
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <string>
 #include <vector>
 
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
 #include <site/site.h>
@@ -335,6 +337,19 @@ std::unordered_map<std::string, std::string> getenv(const env& environment) {
             env_vars[v.name] = v.value;
         }
     }
+
+    // set UENV_VIEW env variable, used inside the environment by uenv
+    auto view_description = [&environment](const auto& v) {
+        return fmt::format("{}:{}:{}", environment.uenvs.at(v.uenv).mount_path,
+                           v.uenv, v.name);
+    };
+
+    env_vars["UENV_VIEW"] =
+        fmt::format("{}", fmt::join(environment.views |
+                                        std::views::transform(view_description),
+                                    ","));
+
+    // NOTE: UENV_MOUNT_LIST is set by squashfs-mount, not by the uenv CLI.
 
     return env_vars;
 }

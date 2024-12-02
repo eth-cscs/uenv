@@ -19,6 +19,7 @@
 #include "repo.h"
 #include "run.h"
 #include "start.h"
+#include "status.h"
 #include "terminal.h"
 #include "uenv.h"
 
@@ -49,11 +50,13 @@ int main(int argc, char** argv) {
     uenv::run_args run;
     uenv::image_args image;
     uenv::repo_args repo;
+    uenv::status_args stat;
 
     start.add_cli(cli, settings);
     run.add_cli(cli, settings);
     image.add_cli(cli, settings);
     repo.add_cli(cli, settings);
+    stat.add_cli(cli, settings);
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -136,6 +139,8 @@ int main(int argc, char** argv) {
         return uenv::repo_create(repo.create_args, settings);
     case settings.repo_status:
         return uenv::repo_status(repo.status_args, settings);
+    case settings.status:
+        return uenv::status(stat, settings);
     case settings.unset:
         term::msg("uenv version {}", UENV_VERSION);
         term::msg("call '{} --help' for help", argv[0]);
