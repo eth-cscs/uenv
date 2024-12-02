@@ -46,9 +46,10 @@ int status([[maybe_unused]] const status_args& args,
     std::string mount_desc = std::getenv("UENV_MOUNT_LIST");
     std::string view_literal = std::getenv("UENV_VIEW");
 
-    // the UENV_VIEW environment variable is a comma-separated list of
+    // the UENV_VIEW environment variable is a comma-separated list of the form
     //   mount:uenv-name:view-name
-    // concretise_uenv requies a list of 'uenv-name:view-name'.
+    // concretise_uenv requires a comma-separated list of the form
+    //   uenv-name:view-name
     std::string view_string = "";
     for (auto view : util::split(view_literal, ',', true)) {
         auto terms = util::split(view, ':', true);
@@ -105,6 +106,8 @@ std::string status_footer() {
         help::linebreak{},
         help::block{xmpl, "get status:"},
         help::block{code,   "uenv status"},
+        help::linebreak{},
+        help::block{note, "if no uenv is loaded, the message 'there is no no uenv loaded' will be printed"},
         // clang-format on
     };
 

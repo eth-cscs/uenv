@@ -147,7 +147,7 @@ validate_uenv_mount_list(std::string mount_var) {
     for (auto& entry : *mount_list) {
         // NOTE: the validate step is important because it checks both
         // that the paths exist AND that the user has permission
-        // to read the squashfs image. Weakening this check would possible
+        // to read the squashfs image. Weakening this check would possibly
         // let users mount images to which they don't have access.
         if (auto valid = entry.validate(); !valid) {
             return util::unexpected(valid.error());

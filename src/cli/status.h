@@ -11,7 +11,6 @@
 namespace uenv {
 
 struct status_args {
-    // clang-format on
     void add_cli(CLI::App&, global_settings& settings);
 };
 
