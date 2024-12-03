@@ -164,9 +164,6 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
                     "error report to service desk.\n");
                 return 1;
             }
-            else {
-                term::msg("");
-            }
 
             auto tag_result =
                 oras::pull_tag(rego_url, args.nspace, record, paths.store);
@@ -182,22 +179,18 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         }
     }
 
+    // TODO: print message saying "nothing to do"
+
     // add the label to the repo, even if there was no download.
     // download may have been skipped if a squashfs with the same sha has
     // been downloaded, and this download uses a different label.
-    /*
-    if (!label_in_repo) {
-        spdlog::debug("adding label {} to the repo", record);
-        store->add(record);
-    }
-    */
-    for (auto& r: *remote_matches) {
-        bool in_repo = in_repo({.name = r.name,
-                                .version = r.version,
-                                .tag = r.tag,
-                                .system = r.system,
-                                .uarch = r.uarch});
-        if (!in_repo) {
+    for (auto& r : *remote_matches) {
+        bool exists = in_repo({.name = r.name,
+                               .version = r.version,
+                               .tag = r.tag,
+                               .system = r.system,
+                               .uarch = r.uarch});
+        if (!exists) {
             term::msg("updating {}", r);
             store->add(r);
         }
