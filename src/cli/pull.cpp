@@ -88,7 +88,11 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
 
     // check that there is one record with a unique sha
     if (remote_matches->empty()) {
-        term::error("no uenv found that match '{}'", args.uenv_description);
+        using enum help::block::admonition;
+        term::error("no uenv found that matches '{}'\n\n{}",
+                    args.uenv_description,
+                    help::block(info, "try searching for the uenv to pull "
+                                      "first using 'uenv image find'"));
         return 1;
     } else if (!remote_matches->unique_sha()) {
         std::string errmsg =
@@ -177,9 +181,11 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             std::filesystem::remove_all(paths.store);
             raise(e.signal);
         }
+    } else {
+        term::msg("no uenv to pull: the sha\n  {}\nis already in the local "
+                  "repository.",
+                  color::yellow(record.sha.string()));
     }
-
-    // TODO: print message saying "nothing to do"
 
     // add the label to the repo, even if there was no download.
     // download may have been skipped if a squashfs with the same sha has

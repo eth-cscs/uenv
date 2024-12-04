@@ -1,4 +1,6 @@
 // #include <filesystem>
+#include <unistd.h>
+
 #include <string>
 #include <vector>
 
@@ -10,6 +12,7 @@
 
 #include <uenv/oras.h>
 #include <uenv/uenv.h>
+#include <util/color.h>
 #include <util/fs.h>
 #include <util/signal.h>
 #include <util/subprocess.h>
@@ -140,10 +143,12 @@ util::expected<void, int> pull_tag(const std::string& registry,
             .message = fmt::format("pulling {}", uenv.id.string()),
             .speed = 1.,
             .speed_unit = "MB/s",
-            .style = bk::ProgressBarStyle::Rich,
+            .style = color::use_color() ? bk::ProgressBarStyle::Rich
+                                        : bk::ProgressBarStyle::Bars,
+            .no_tty = !isatty(fileno(stdout)),
         });
     while (!proc->finished()) {
-        std::this_thread::sleep_for(500ms);
+        std::this_thread::sleep_for(100ms);
         // handle a signacl, usually SIGTERM or SIGINT
         if (util::signal_raised()) {
             spdlog::warn("signal raised - interrupting download");

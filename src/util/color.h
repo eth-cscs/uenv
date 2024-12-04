@@ -12,8 +12,15 @@
 
 namespace color {
 
+// sets default color on/off by inspecting environment variables and checking
+// for tty.
 void default_color();
+
+// set color output on/off
 void set_color(bool v);
+
+// returns whether color output has been enabled using default_color or
+// set_color
 bool use_color();
 
 MAKE_COLOR(black)
