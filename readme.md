@@ -10,7 +10,7 @@ A rewrite of uenv in C++:
 To take uenv2 for a test drive on alps,
 
 ```
-git clone ...
+git clone git@github.com:eth-cscs/uenv2.git
 
 cd uenv2
 
