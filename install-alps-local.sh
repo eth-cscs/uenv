@@ -2,22 +2,28 @@
 
 set -e
 
-root=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
-build=$root/build-alps
-pyenv=$root/pyenv-alps
-log=$root/log_local
+arch=$(uname -m)
+echo "== architecture: $arch"
 
-echo "== use python to install up meson and ninja"
-python3 -m venv $pyenv > $log
-source $pyenv/bin/activate >> $log
-pip install --upgrade pip >> $log
-pip install meson ninja >> $log
-echo "== configure"
-CC=gcc-12 CXX=g++-12 meson setup --prefix=$HOME/.local $build $root >> $log
+root=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
+build=$root/build-alps-$arch
+pyenv=$root/pyenv-alps-$arch
+install=$HOME/.local/$arch
+
+rm -rf $build
+rm -rf $pyenv
+
+echo "== use python to install meson and ninja in venv: $pyenv"
+python3 -m venv $pyenv
+source $pyenv/bin/activate
+pip install --upgrade pip
+pip install meson ninja
+echo "== configure in $build"
+CC=gcc-12 CXX=g++-12 meson setup --prefix=$install $build $root
 echo "== build"
-meson compile -C$build >> $log
+meson compile -C$build
 echo "== install"
-meson install -C$build --skip-subprojects >> $log
+meson install -C$build --skip-subprojects
 
 echo ""
 echo "== succesfully installed"
@@ -29,5 +35,5 @@ echo "Note:"
 echo "- log out and in again for the changes to take effect"
 echo "- if successful, 'uenv --version' will report version 6"
 echo ""
-echo "export PATH=$HOME/.local/bin"
+echo "export PATH=$install/bin:\$PATH"
 echo "unset -f uenv"

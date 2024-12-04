@@ -11,3 +11,7 @@ subprojects/sqlite-amalgamation-*
 subprojects/nlohmann_json-*
 
 install
+
+build*
+pyenv*
+env*
