@@ -5,6 +5,19 @@ A rewrite of uenv in C++:
 * no longer supports modification of the environment in the calling shell
 * bring the CLI and Slurm plugin under one roof, with a common library
 
+## Alps quickstart
+
+To take uenv2 for a test drive on alps,
+
+```
+git clone ...
+
+cd uenv2
+
+# this script will build uenv2, and install it in $HOME/.local
+./install-alps-local.sh
+```
+
 ## building
 
 The software uses meson wrap to bring its own dependencies, all of which are built as static libraries.

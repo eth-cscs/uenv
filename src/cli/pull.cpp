@@ -80,28 +80,32 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
     }
 
     // search db for matching records
-    const auto result = registry->query(label);
-    if (!result) {
+    const auto remote_matches = registry->query(label);
+    if (!remote_matches) {
         term::error("invalid search term: {}", registry.error());
         return 1;
     }
 
     // check that there is one record with a unique sha
-    if (result->empty()) {
-        term::error("no uenv found that match '{}'", args.uenv_description);
+    if (remote_matches->empty()) {
+        using enum help::block::admonition;
+        term::error("no uenv found that matches '{}'\n\n{}",
+                    args.uenv_description,
+                    help::block(info, "try searching for the uenv to pull "
+                                      "first using 'uenv image find'"));
         return 1;
-    } else if (!result->unique_sha()) {
+    } else if (!remote_matches->unique_sha()) {
         std::string errmsg =
             fmt::format("more than one uenv found that matches '{}':\n",
                         args.uenv_description);
-        errmsg += format_record_set(*result);
+        errmsg += format_record_set(*remote_matches);
         term::error("{}", errmsg);
         return 1;
     }
 
-    const auto record = *(result->begin());
+    // pick a record to use for pulling
+    const auto record = *(remote_matches->begin());
     spdlog::info("pulling {} {}", record.sha, record);
-    fmt::print("pulling {} {}\n", record.id, record);
 
     // open the repo
     auto store = uenv::open_repository(*settings.repo, repo_mode::readwrite);
@@ -147,7 +151,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
 
             auto digests = oras::discover(rego_url, args.nspace, record);
             if (!digests || digests->empty()) {
-                fmt::print(
+                term::error(
                     "unable to pull image - rerun with -vvv flag and send "
                     "error report to service desk.\n");
                 return 1;
@@ -159,7 +163,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             if (auto okay = oras::pull_digest(rego_url, args.nspace, record,
                                               digest, paths.store);
                 !okay) {
-                fmt::print(
+                term::error(
                     "unable to pull image - rerun with -vvv flag and send "
                     "error report to service desk.\n");
                 return 1;
@@ -177,14 +181,25 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             std::filesystem::remove_all(paths.store);
             raise(e.signal);
         }
+    } else {
+        term::msg("no uenv to pull: the sha\n  {}\nis already in the local "
+                  "repository.",
+                  color::yellow(record.sha.string()));
     }
 
     // add the label to the repo, even if there was no download.
     // download may have been skipped if a squashfs with the same sha has
     // been downloaded, and this download uses a different label.
-    if (!label_in_repo) {
-        spdlog::debug("adding label {} to the repo", record);
-        store->add(record);
+    for (auto& r : *remote_matches) {
+        bool exists = in_repo({.name = r.name,
+                               .version = r.version,
+                               .tag = r.tag,
+                               .system = r.system,
+                               .uarch = r.uarch});
+        if (!exists) {
+            term::msg("updating {}", r);
+            store->add(r);
+        }
     }
 
     return 0;

@@ -16,9 +16,10 @@ std::string format_record_set(const record_set& records, bool no_header) {
         return "";
     }
 
-    auto size_string = [](std::size_t size) {
+    auto size_string = [](std::size_t size, unsigned width = 0) {
         auto size_mb = size / (1024 * 1024);
-        return fmt::format(std::locale("en_US.UTF-8"), "{:<{}L}", size_mb, 6);
+        return fmt::format(std::locale("en_US.UTF-8"), "{:>{}L}", size_mb,
+                           width);
     };
     // print the records
     std::size_t w_name = std::string_view("uenv").size();
@@ -52,9 +53,9 @@ std::string format_record_set(const record_set& records, bool no_header) {
     for (auto& r : records) {
         auto name = fmt::format("{}/{}:{}", r.name, r.version, r.tag);
         result +=
-            fmt::format("{:<{}}{:<{}}{:<{}}{:<{}}{:{}}{:s}\n", name, w_name,
+            fmt::format("{:<{}}{:<{}}{:<{}}{:<{}}{:<{}}{:s}\n", name, w_name,
                         r.uarch, w_arch, r.system, w_sys, r.id.string(), w_id,
-                        size_string(r.size_byte), w_size, r.date);
+                        size_string(r.size_byte, 6), w_size, r.date);
     }
 
     return result;

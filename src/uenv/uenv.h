@@ -21,7 +21,7 @@ struct uenv_label {
     std::optional<std::string> system;
     std::optional<std::string> uarch;
     bool only_name() const {
-        return name && !version && !tag && !system && !uarch;
+        return name && !version && !tag;
     }
     bool fully_qualified() const {
         return name && version && tag && system && uarch;

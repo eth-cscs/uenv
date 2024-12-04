@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
 
     // print the version and exit if the --version flag was passed
     if (print_version) {
-        term::msg("{}\n", UENV_VERSION);
+        term::msg("{}", UENV_VERSION);
         return 0;
     }
 

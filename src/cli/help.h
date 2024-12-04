@@ -112,6 +112,19 @@ template <> class fmt::formatter<help::item> {
     }
 };
 
+template <> class fmt::formatter<help::block> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(help::block const& block, FmtContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}", render(block));
+    }
+};
+
 template <> class fmt::formatter<help::lst> {
   public:
     // parse format specification and store it:
