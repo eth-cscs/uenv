@@ -681,11 +681,11 @@ repository_impl::remove(const uenv_record& record) {
 //WHERE sha256 = '{}' AND version_id IN ("
 R"(
 DELETE FROM tags
-WHERE sha256='{}' AND version_id IN (
+WHERE sha256='{}' AND tag='{}' AND version_id IN (
     SELECT version_id FROM uenv
     WHERE system='{}' AND uarch='{}' AND name='{}' AND version='{}')
 )",
-                record.sha, record.system, record.uarch, record.name, record.version),
+                record.sha, record.tag, record.system, record.uarch, record.name, record.version),
             "COMMIT"};
         // clang-format on
 

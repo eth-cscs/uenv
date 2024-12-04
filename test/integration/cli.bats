@@ -2,6 +2,11 @@ function setup() {
     bats_install_path=$(realpath ./install)
     export BATS_LIB_PATH=$bats_install_path/bats-helpers
 
+    # set the cluster name to be arapiles
+    # this is required for tests to work when run on a vCluster
+    # that sets this variable
+    export CLUSTER_NAME=arapiles
+
     bats_load_library bats-support
     bats_load_library bats-assert
     load ./common
@@ -47,7 +52,6 @@ function teardown() {
 
 @test "image ls" {
     export UENV_REPO_PATH=$REPOS/apptool
-    export CLUSTER_NAME=arapiles
 
     run uenv image ls
     assert_success
@@ -230,6 +234,10 @@ function teardown() {
     refute_output --partial "warning"
     refute_output --partial "error"
 
+    run uenv --repo=$RP image ls --no-header
+    assert_success
+    assert_output --partial "wombat/24:v1"
+
     # trying to add the same image should be a failure
     run uenv --repo=$RP image add wombat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
     assert_failure
@@ -378,7 +386,7 @@ function teardown() {
     # removing a one of multiple labels on the same sha removes the label but leaves the others untouched
     # step 1: add another image with the same hash as the remaining image
     run uenv image add wallaby/24:v2@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
-    run uenv image add quokka/24:v2@arapiles%zen3    $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
+    run uenv image add wallaby/24:v3@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
 
     pattern=wallaby/24:v2
     sha=$(uenv image inspect $pattern --format={sha256})
@@ -388,7 +396,7 @@ function teardown() {
     assert_success
     [ -d $UENV_REPO_PATH/images/$sha ]
 
-    pattern=quokka/24:v2
+    pattern=wallaby/24:v3
     run uenv image rm $pattern
     assert_success
     [ -d $UENV_REPO_PATH/images/$sha ]
