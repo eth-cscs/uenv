@@ -107,8 +107,6 @@ expected<std::string, error> upload(std::string url,
                                file)); // Set the file to read from
     spdlog::trace("curl::upload set file {}", file_path.c_str());
 
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_VERBOSE, 5L));
-
     // Set the size of the file (if known)
     curl_off_t file_size = std::filesystem::file_size(file_path);
     CURL_EASY(curl_easy_setopt(h, CURLOPT_INFILESIZE_LARGE, file_size));
