@@ -98,6 +98,9 @@ expected<std::string, error> upload(std::string url,
         return unexpected{
             error{CURLE_FAILED_INIT, "Unable to initialize curl."}};
     }
+    auto _ = defer([h]() { curl_easy_cleanup(h); });
+
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_ERRORBUFFER, errbuf));
     spdlog::trace("curl::upload easy init");
     // Configure curl options
     CURL_EASY(curl_easy_setopt(h, CURLOPT_URL, url.c_str()));
@@ -117,6 +120,8 @@ expected<std::string, error> upload(std::string url,
 
     CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, memory_callback));
     spdlog::trace("curl::upload set memory callback");
+
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_USE_SSL, CURLUSESSL_ALL));
 
     CURL_EASY(curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, 5000L));
     CURL_EASY(curl_easy_setopt(h, CURLOPT_TIMEOUT_MS, 10000L));
@@ -144,7 +149,6 @@ expected<std::string, error> upload(std::string url,
     spdlog::trace("curl::upload http_code: {}", http_code);
 
     // Clean up
-    curl_easy_cleanup(h);
     fclose(file);
 
     // store stdout

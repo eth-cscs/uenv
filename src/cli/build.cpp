@@ -120,7 +120,7 @@ int build(const build_args& args,
     auto res = util::curl::upload(cicd_endpoint, recipe_tar_path);
 
     if (!res) {
-        term::error("uenv build submission failed: {} ", res.error().message);
+        term::error("uenv build submission failed: {}", res.error().message);
         return 1;
     }
 
