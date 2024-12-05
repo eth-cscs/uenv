@@ -32,7 +32,9 @@ void build_args::add_cli(CLI::App& cli,
     build_cli->add_flag("-d,--develop", spack_develop, "Assume spack@develop");
     build_cli->add_option("recipe", uenv_recipe_path, "Path to uenv recipe")
         ->required(true);
-    build_cli->add_option("label", uenv_label, "UENV description")
+    build_cli
+        ->add_option("label", uenv_label,
+                     "UENV description: <name>/<version>@<system>%<uarch>")
         ->required(true);
     build_cli->footer(build_footer);
     build_cli->callback([&settings] { settings.mode = settings.build; });
