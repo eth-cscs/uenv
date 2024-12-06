@@ -5,6 +5,15 @@ A rewrite of uenv in C++:
 * no longer supports modification of the environment in the calling shell
 * bring the CLI and Slurm plugin under one roof, with a common library
 
+Not just a rewrite - new features!
+* `uenv image build $recipe_path arbor/10.1@todi%gh200` - automatically dispatch a build job to build your uenv and deploy it on JFrog.
+* `uenv image add $SCRATCH/myimages/arbor.squashfs arbor/10.1:v2@todi%gh200` add a squashfs file to your local repository and give it a label
+* `uenv image rm prgenv-gnu/24.11:rc4` remove a uenv from your local repository
+* `uenv image find @eiger` find all uenv on eigher
+* `uenv image find @'*'%gh200` show all uenv built for `gh200` on all clusters
+* `uenv start ./store.squashfs --view=develop` now works - uenv can now "peek inside" squashfs images to read meta data
+* and more...
+
 ## Alps quickstart
 
 To take uenv2 for a test drive on alps,
@@ -17,6 +26,8 @@ cd uenv2
 # this script will build uenv2, and install it in $HOME/.local
 ./install-alps-local.sh
 ```
+
+(very rough) documentation is starting to form over here on the [KB proposal](https://bcumming.github.io/kb-poc/build-install/uenv/).
 
 ## building
 
