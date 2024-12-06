@@ -12,7 +12,7 @@ Not just a rewrite - new features!
 * `uenv image find @eiger` find all uenv on eigher
 * `uenv image find @'*'%gh200` show all uenv built for `gh200` on all clusters
 * `uenv start ./store.squashfs --view=develop` now works - uenv can now "peek inside" squashfs images to read meta data
-* **supports with bash, zsh, fish, tcsh** and no more bash wrappers polluting your history.
+* **supports bash, zsh, fish, tcsh**, and no more bash wrappers polluting your history.
 * and more...
 
 ## Alps quickstart
