@@ -14,6 +14,7 @@
 #include <util/fs.h>
 
 #include "add_remove.h"
+#include "build.h"
 #include "help.h"
 #include "image.h"
 #include "repo.h"
@@ -51,12 +52,14 @@ int main(int argc, char** argv) {
     uenv::image_args image;
     uenv::repo_args repo;
     uenv::status_args stat;
+    uenv::build_args build;
 
     start.add_cli(cli, settings);
     run.add_cli(cli, settings);
     image.add_cli(cli, settings);
     repo.add_cli(cli, settings);
     stat.add_cli(cli, settings);
+    build.add_cli(cli, settings);
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -141,6 +144,8 @@ int main(int argc, char** argv) {
         return uenv::repo_status(repo.status_args, settings);
     case settings.status:
         return uenv::status(stat, settings);
+    case settings.build:
+        return uenv::build(build, settings);
     case settings.unset:
         term::msg("uenv version {}", UENV_VERSION);
         term::msg("call '{} --help' for help", argv[0]);
