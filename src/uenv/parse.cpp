@@ -232,6 +232,41 @@ parse_uenv_label(const std::string& in) {
     return result;
 }
 
+util::expected<uenv_nslabel, parse_error>
+parse_uenv_nslabel(const std::string& in) {
+    auto L = lexer(in);
+    std::optional<std::string> nspace;
+
+    // check whether in begins with 'name::'
+    if (is_name_start_tok(L.peek().kind)) {
+        // consume the name tokens
+        auto i = 1u;
+        while (is_name_tok(L.peek(i).kind)) {
+            ++i;
+        }
+        // check for following colons
+        if (L.peek(i).kind == tok::colon && L.peek(i + 1).kind == tok::colon) {
+            // parse the namespace name
+            PARSE(L, name, nspace);
+            // gobble the ::
+            L.next();
+            L.next();
+        }
+    }
+
+    // now parse the label
+    auto label = parse_uenv_label(L);
+    if (!label) {
+        return util::unexpected(label.error());
+    }
+
+    if (const auto t = L.peek(); t.kind != tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+    }
+    return uenv_nslabel{.nspace = nspace, .label = *label};
+}
+
 // parse an individual uenv description
 util::expected<uenv_description, parse_error> parse_uenv_description(lexer& L) {
     const auto k = L.current_kind();
