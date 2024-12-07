@@ -755,11 +755,9 @@ repository_impl::query(const uenv_label& label) const {
         results.push_back(record_from_query(*s).value());
     }
 
-    spdlog::info("will we checking for id and sha");
     // now check for id and sha search terms
     if (label.only_name()) {
         query_terms.erase(query_terms.begin());
-        spdlog::info("checking for id and sha");
         // search for an if name could also be an id
         if (is_sha(*label.name, 16)) {
             query_terms.push_back(

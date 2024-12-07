@@ -30,8 +30,6 @@ void image_find_args::add_cli(CLI::App& cli,
     find_cli->add_option("uenv", uenv_description, "search term");
     find_cli->add_flag("--no-header", no_header,
                        "print only the matching records, with no header.");
-    find_cli->add_option("-n,--namespace", nspace,
-                         "the namespace in which to search (default 'deploy')");
     find_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_find; });
 
@@ -42,19 +40,21 @@ int image_find([[maybe_unused]] const image_find_args& args,
                [[maybe_unused]] const global_settings& settings) {
     // find the search term that was provided by the user
     uenv_label label{};
+    std::string nspace{site::default_namespace()};
     if (args.uenv_description) {
-        if (const auto parse = parse_uenv_label(*args.uenv_description)) {
-            label = *parse;
+        if (const auto parse = parse_uenv_nslabel(*args.uenv_description)) {
+            label = parse->label;
+            if (parse->nspace) {
+                nspace = *parse->nspace;
+            }
         } else {
             term::error("invalid search term: {}", parse.error().message());
             return 1;
         }
     }
-    label.system = site::get_system_name(label.system);
+    spdlog::info("image_find: {}::{}", nspace, label);
 
-    spdlog::info("image_find: {}::{}", args.nspace, label);
-
-    auto store = site::registry_listing(args.nspace);
+    auto store = site::registry_listing(nspace);
     if (!store) {
         term::error("unable to get a listing of the uenv", store.error());
         return 1;
@@ -111,8 +111,13 @@ std::string image_find_footer() {
         help::block{note, "more than one uenv might be listed if there are two uenv that refer",
                           "to the same underlying uenv sha256."},
         help::linebreak{},
-        help::block{xmpl, "search for uenv by id (id is the first 16 characters of the sha256):"},
+        help::block{xmpl, "search for uenv by id (id is the first 16 characters of the sha256)"},
         help::block{code,   "uenv image find 510094ddb3484e30"},
+        help::linebreak{},
+        help::block{xmpl, "search for uenv in the service namespace"},
+        help::block{code,   "uenv image find service::           # all uenv"},
+        help::block{code,   "uenv image find service::prgenv-gnu # match a name"},
+        help::block{code,   "uenv image find service::%gh200     # built for gh200"},
         // clang-format on
     };
 

@@ -30,20 +30,29 @@ std::optional<std::string> get_system_name(std::optional<std::string> value) {
     return std::nullopt;
 }
 
+std::string default_namespace() {
+    return "deploy";
+}
+
 util::expected<uenv::repository, std::string>
 registry_listing(const std::string& nspace) {
     using json = nlohmann::json;
-    spdlog::debug("registry_listing: https://uenv-list.svc.cscs.ch/list/{}",
-                  nspace);
 
     // perform curl call against middleware end point
-    //      https://github.com/eth-cscs/uenv/blob/master/lib/jfrog.py
-    auto raw_records = util::curl::get("https://uenv-list.svc.cscs.ch/list");
+    // example of full url end point call:
+    //   https://uenv-list.svc.cscs.ch/list?namespace=deploy&cluster=todi&arch=gh200&app=prgenv-gnu&version=24.7
+    // we only filter on namespace, and use the database to do more querying
+    // later
+    const auto url =
+        fmt::format("https://uenv-list.svc.cscs.ch/list?namespace={}", nspace);
+    spdlog::debug("registry_listing: {}", url);
+    auto raw_records = util::curl::get(url);
 
     if (!raw_records) {
         int ec = raw_records.error().code;
         spdlog::error("curl error {}: {}", ec, raw_records.error().message);
-        return util::unexpected{"unable to list entries"};
+        return util::unexpected{"unable to reach uenv-list.svc.cscs.ch to get "
+                                "list of available uenv"};
     }
 
     std::vector<uenv::uenv_record> records;
