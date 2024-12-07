@@ -39,8 +39,8 @@ void image_pull_args::add_cli(CLI::App& cli,
     pull_cli->add_flag("--only-meta", only_meta, "only download meta data");
     pull_cli->add_flag("--force", force,
                        "download and overwrite existing images");
-    pull_cli->add_option("-n,--namespace", nspace,
-                         "the namespace in which to search (default 'deploy')");
+    pull_cli->add_flag("--build", build,
+                       "invalid: replaced with 'build::' prefix on uenv label");
     pull_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_pull; });
 
@@ -49,15 +49,25 @@ void image_pull_args::add_cli(CLI::App& cli,
 
 int image_pull([[maybe_unused]] const image_pull_args& args,
                [[maybe_unused]] const global_settings& settings) {
-
     namespace fs = std::filesystem;
 
-    spdlog::info("image pull: {}", args);
+    if (args.build) {
+        term::error(
+            "the --build flag has been removed.\nSpecify the build namespace "
+            "as part of the uenv description, e.g.\n{}",
+            color::yellow(fmt::format("uenv image pull build::{}",
+                                      args.uenv_description)));
+        return 1;
+    }
 
     // pull the search term that was provided by the user
     uenv_label label{};
-    if (const auto parse = parse_uenv_label(args.uenv_description)) {
-        label = *parse;
+    std::string nspace{site::default_namespace()};
+    if (const auto parse = parse_uenv_nslabel(args.uenv_description)) {
+        label = parse->label;
+        if (parse->nspace) {
+            nspace = *parse->nspace;
+        }
     } else {
         term::error("invalid search term: {}", parse.error().message());
         return 1;
@@ -71,9 +81,9 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         return 1;
     }
 
-    spdlog::info("image_pull: {}::{}", args.nspace, label);
+    spdlog::info("image_pull: {}::{}", nspace, label);
 
-    auto registry = site::registry_listing(args.nspace);
+    auto registry = site::registry_listing(nspace);
     if (!registry) {
         term::error("unable to get a listing of the uenv", registry.error());
         return 1;
@@ -149,7 +159,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             auto rego_url = site::registry_url();
             spdlog::debug("registry url: {}", rego_url);
 
-            auto digests = oras::discover(rego_url, args.nspace, record);
+            auto digests = oras::discover(rego_url, nspace, record);
             if (!digests || digests->empty()) {
                 term::error(
                     "unable to pull image - rerun with -vvv flag and send "
@@ -160,8 +170,8 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
 
             const auto digest = *(digests->begin());
 
-            if (auto okay = oras::pull_digest(rego_url, args.nspace, record,
-                                              digest, paths.store);
+            if (auto okay = oras::pull_digest(rego_url, nspace, record, digest,
+                                              paths.store);
                 !okay) {
                 term::error(
                     "unable to pull image - rerun with -vvv flag and send "
@@ -170,7 +180,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             }
 
             auto tag_result =
-                oras::pull_tag(rego_url, args.nspace, record, paths.store);
+                oras::pull_tag(rego_url, nspace, record, paths.store);
             if (!tag_result) {
                 return 1;
             }

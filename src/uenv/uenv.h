@@ -29,6 +29,14 @@ struct uenv_label {
     bool partially_qualified() const {
         return name && version && tag;
     }
+    bool empty() const {
+        return !fully_qualified();
+    }
+};
+
+struct uenv_nslabel {
+    std::optional<std::string> nspace;
+    uenv_label label;
 };
 
 struct uenv_date {

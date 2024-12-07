@@ -16,7 +16,7 @@ struct image_pull_args {
     std::string uenv_description;
     bool only_meta = false;
     bool force = false;
-    std::string nspace = "deploy";
+    bool build = false;
     void add_cli(CLI::App&, global_settings& settings);
 };
 
@@ -35,7 +35,7 @@ template <> class fmt::formatter<uenv::image_pull_args> {
     constexpr auto format(uenv::image_pull_args const& opts,
                           FmtContext& ctx) const {
         return fmt::format_to(
-            ctx.out(), "(image pull {} .only_meta={} .force={} .namespace={})",
-            opts.uenv_description, opts.only_meta, opts.force, opts.nspace);
+            ctx.out(), "(image pull {} .only_meta={} .force={})",
+            opts.uenv_description, opts.only_meta, opts.force);
     }
 };

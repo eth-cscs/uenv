@@ -130,13 +130,71 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(result->uarch == "a100");
         REQUIRE(!result->system);
     }
-    for (auto defectiv_label : {
+    for (auto defective_label : {
              "prgenv-gnu/:v1",
              "prgenv-gnu/wombat:",
+             "prgenv-gnu/:v1",
+             "prgenv-gnu/24:v1@",
+             "prgenv-gnu/24:@",
+             "prgenv-gnu/24:v1@gh200%",
              ".wombat",
          }) {
-        auto L = uenv::lexer(defectiv_label);
+        auto L = uenv::lexer(defective_label);
         REQUIRE(!uenv::parse_uenv_label(L));
+    }
+}
+
+TEST_CASE("parse namespace uenv label", "[parse]") {
+    {
+        auto r = uenv::parse_uenv_nslabel("");
+        REQUIRE(r);
+        REQUIRE(!r->nspace);
+        REQUIRE(r->label.empty());
+    }
+    {
+        auto r = uenv::parse_uenv_nslabel("deploy::");
+        REQUIRE(r);
+        REQUIRE(r->nspace == "deploy");
+        REQUIRE(r->label.empty());
+    }
+    {
+        auto r = uenv::parse_uenv_nslabel("prgenv-gnu/24.7:v1");
+        REQUIRE(r);
+        REQUIRE(!r->nspace);
+        REQUIRE(r->label.name == "prgenv-gnu");
+        REQUIRE(r->label.version == "24.7");
+        REQUIRE(r->label.tag == "v1");
+        REQUIRE(!r->label.uarch);
+        REQUIRE(!r->label.system);
+    }
+    {
+        auto r = uenv::parse_uenv_nslabel("deploy:::v1");
+        REQUIRE(r);
+        REQUIRE(r->nspace == "deploy");
+        REQUIRE(!r->label.name);
+        REQUIRE(!r->label.version);
+        REQUIRE(r->label.tag == "v1");
+        REQUIRE(!r->label.uarch);
+        REQUIRE(!r->label.system);
+    }
+    {
+        auto r = uenv::parse_uenv_nslabel("wombat::@*");
+        REQUIRE(r);
+        REQUIRE(r->nspace == "wombat");
+        REQUIRE(!r->label.name);
+        REQUIRE(!r->label.version);
+        REQUIRE(!r->label.tag);
+        REQUIRE(!r->label.uarch);
+        REQUIRE(r->label.system == "*");
+    }
+    for (auto defective_label : {
+             "build::prgenv-gnu/:v1",
+             "build::prgenv-gnu/wombat:",
+             "build::.wombat",
+             "-build::.wombat",
+             "_build::.wombat",
+         }) {
+        REQUIRE(!uenv::parse_uenv_nslabel(defective_label));
     }
 }
 
