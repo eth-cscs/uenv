@@ -16,6 +16,7 @@ struct image_pull_args {
     std::string uenv_description;
     bool only_meta = false;
     bool force = false;
+    bool build = false;
     void add_cli(CLI::App&, global_settings& settings);
 };
 

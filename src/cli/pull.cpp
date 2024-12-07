@@ -39,6 +39,8 @@ void image_pull_args::add_cli(CLI::App& cli,
     pull_cli->add_flag("--only-meta", only_meta, "only download meta data");
     pull_cli->add_flag("--force", force,
                        "download and overwrite existing images");
+    pull_cli->add_flag("--build", build,
+                       "invalid: replaced with 'build::' prefix on uenv label");
     pull_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_pull; });
 
@@ -47,10 +49,16 @@ void image_pull_args::add_cli(CLI::App& cli,
 
 int image_pull([[maybe_unused]] const image_pull_args& args,
                [[maybe_unused]] const global_settings& settings) {
-
     namespace fs = std::filesystem;
 
-    spdlog::info("image pull: {}", args);
+    if (args.build) {
+        term::error(
+            "the --build flag has been removed.\nSpecify the build namespace "
+            "as part of the uenv description, e.g.\n{}",
+            color::yellow(fmt::format("uenv image pull build::{}",
+                                      args.uenv_description)));
+        return 1;
+    }
 
     // pull the search term that was provided by the user
     uenv_label label{};

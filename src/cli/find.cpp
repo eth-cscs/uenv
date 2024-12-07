@@ -30,6 +30,8 @@ void image_find_args::add_cli(CLI::App& cli,
     find_cli->add_option("uenv", uenv_description, "search term");
     find_cli->add_flag("--no-header", no_header,
                        "print only the matching records, with no header.");
+    find_cli->add_flag("--build", build,
+                       "invalid: replaced with 'build::' prefix on uenv label");
     find_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_find; });
 
@@ -38,6 +40,15 @@ void image_find_args::add_cli(CLI::App& cli,
 
 int image_find([[maybe_unused]] const image_find_args& args,
                [[maybe_unused]] const global_settings& settings) {
+    if (args.build) {
+        std::string descr = args.uenv_description.value_or("");
+        term::error(
+            "the --build flag has been removed.\nSpecify the build namespace "
+            "as part of the uenv description, e.g.\n{}",
+            color::yellow(fmt::format("uenv image find build::{}", descr)));
+        return 1;
+    }
+
     // find the search term that was provided by the user
     uenv_label label{};
     std::string nspace{site::default_namespace()};
