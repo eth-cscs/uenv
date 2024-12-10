@@ -124,7 +124,6 @@ expected<std::string, error> upload(std::string url,
     CURL_EASY(curl_easy_setopt(h, CURLOPT_USE_SSL, CURLUSESSL_ALL));
 
     CURL_EASY(curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, 5000L));
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_TIMEOUT_MS, 10000L));
 
     // some servers do not like requests that are made without a user-agent
     // field, so we provide one
