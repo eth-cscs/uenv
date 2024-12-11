@@ -29,7 +29,7 @@ void image_add_args::add_cli(CLI::App& cli,
         cli.add_subcommand("add", "add a uenv image to a repository");
     add_cli
         ->add_option("label", uenv_description,
-                     "the label, of the form name:version:tag@system#uarch")
+                     "the label, of the form name:version:tag@system%uarch")
         ->required();
     add_cli->add_flag("--move", move,
                       "move the squahfs image instead of copying it.");
