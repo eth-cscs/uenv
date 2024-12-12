@@ -298,6 +298,9 @@ function teardown() {
     export UENV_REPO_PATH=$REPOS/apptool
     export CLUSTER_NAME=arapiles
 
+    run uenv image inspect tool
+    assert_success
+
     run uenv image inspect --format='{name}:{tag}' tool
     assert_success
     assert_output "tool:v1"

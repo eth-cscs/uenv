@@ -92,6 +92,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
     try {
         std::string meta_path =
             std::filesystem::exists(paths.meta) ? paths.meta.string() : "none";
+        spdlog::debug("inspect format string: '{}'", args.format);
         // clang-format off
         auto msg = fmt::format(fmt::runtime(args.format),
                         fmt::arg("name", r.name),
