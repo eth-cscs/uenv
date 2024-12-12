@@ -20,7 +20,7 @@ struct image_inspect_args {
         "version: {version}\n"
         "tag:     {tag}\n"
         "system:  {system}\n"
-        "uarch:   {uarch1}\n"
+        "uarch:   {uarch}\n"
         "id:      {id}\n"
         "sha:     {sha256}\n"
         "date:    {date}";
