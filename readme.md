@@ -20,7 +20,7 @@ Not just a rewrite - new features!
 To take uenv2 for a test drive on alps,
 
 ```
-git clone git@github.com:eth-cscs/uenv2.git
+git clone https://github.com/eth-cscs/uenv2.git
 
 cd uenv2
 
