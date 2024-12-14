@@ -1,6 +1,7 @@
 #pragma once
 // vim: ts=4 sts=4 sw=4 et
 
+#include <option>
 #include <string>
 
 #include <CLI/CLI.hpp>
@@ -14,6 +15,7 @@ namespace uenv {
 
 struct image_pull_args {
     std::string uenv_description;
+    std::optional<std::string> token
     bool only_meta = false;
     bool force = false;
     bool build = false;

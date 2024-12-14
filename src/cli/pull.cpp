@@ -36,6 +36,9 @@ void image_pull_args::add_cli(CLI::App& cli,
         ->add_option("uenv", uenv_description,
                      "the uenv to pull, either name/version:tag, sha256 or id")
         ->required();
+    pull_cli
+        ->add_option("--token", token,
+                     "a path that contains a TOKEN file for accessing restricted uenv")
     pull_cli->add_flag("--only-meta", only_meta, "only download meta data");
     pull_cli->add_flag("--force", force,
                        "download and overwrite existing images");
@@ -95,8 +98,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         term::error("invalid search term: {}", registry.error());
         return 1;
     }
-
-    // check that there is one record with a unique sha
+// check that there is one record with a unique sha
     if (remote_matches->empty()) {
         using enum help::block::admonition;
         term::error("no uenv found that matches '{}'\n\n{}",
@@ -221,6 +223,15 @@ std::string image_pull_footer() {
         // clang-format off
         help::block{none, "Download a uenv from a registry." },
         help::linebreak{},
+        help::linebreak{},
+        help::block{xmpl, "pull a uenv"},
+        help::block{code,   "uenv image pull prgenv-gnu"},
+        help::block{code,   "uenv image pull prgenv-gnu/24.11:v1@todi"},
+        help::linebreak{},
+        help::block{xmpl, "use a token for the registry"},
+        help::block{code,   "uenv image pull --token=/opt/cscs/uenv/tokens/vasp6 vasp/6.4.2:v1"},
+        help::block{note, "this is only required when accessing uenv that require special" },
+        help::block{none, "permission or a license to access." },
         // clang-format on
     };
 
