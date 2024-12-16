@@ -21,6 +21,9 @@ expected<pipe, int> make_pipe() {
 }
 
 expected<subprocess, std::string> run(const std::vector<std::string>& argv) {
+    // WARNING: NEVER add logging of the call and its arguments here.
+    // The arguments may contain sensitive information like passwords, and
+    // we rely on the caller printing redacted logs one level up.
     if (argv.empty()) {
         return unexpected("need at least one argument");
     }

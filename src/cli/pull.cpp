@@ -65,57 +65,12 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         return 1;
     }
 
-    // check whether a token has been provided via --token
-    // if it has been provided:
-    // - check that it exists
-    // - check that the current user has read access
-    std::optional<fs::path> token_path;
-    if (args.token) {
-        fs::path tp{args.token.value()};
-        if (!fs::exists(tp)) {
-            term::error("the token '{}' is not a path or file.", tp.string());
-            return 1;
-        }
-
-        if (fs::is_directory(tp)) {
-            tp = tp / "TOKEN";
-            if (!fs::exists(tp)) {
-                term::error("the token file '{}' does not exist.", tp.string());
-                return 1;
-            }
-        }
-
-        if (util::file_access_level(tp) < util::file_level::readonly) {
-            term::error(
-                "you do not have permission to read the token file '{}'",
-                tp.string());
-            return 1;
-        }
-
-        token_path = tp;
-    } else if (args.username) {
-        term::warn("ignoring the --username flag, which is only required "
-                   "when used with the --token flag.");
-    }
-
-    std::optional<oras::credentials> credentials;
-    if (token_path) {
-        std::ifstream fid(*token_path);
-        std::string token{};
-        if (fid) {
-            std::getline(fid, token);
-        } else {
-            term::error("unable to read a valid token from '{}'",
-                        token_path.value());
-            return 1;
-        }
-        auto username = args.username ? args.username : site::get_username();
-        if (!username) {
-            term::error("provide a username with --username for the --token.");
-            return 1;
-        }
-        credentials = {.username = username.value(), .token = token};
-        spdlog::info("using credentials {}", credentials);
+    std::optional<uenv::oras::credentials> credentials;
+    if (auto c = site::get_credentials(args.username, args.token)) {
+        credentials = *c;
+    } else {
+        term::error("{}", c.error());
+        return 1;
     }
 
     // pull the search term that was provided by the user

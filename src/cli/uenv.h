@@ -15,6 +15,7 @@ namespace uenv {
 enum class cli_mode : std::uint32_t {
     unset,
     image_add,
+    image_copy,
     image_find,
     image_inspect,
     image_ls,
@@ -65,6 +66,8 @@ template <> class fmt::formatter<uenv::cli_mode> {
             return format_to(ctx.out(), "image-ls");
         case image_add:
             return format_to(ctx.out(), "image-add");
+        case image_copy:
+            return format_to(ctx.out(), "image-copy");
         case image_rm:
             return format_to(ctx.out(), "image-rm");
         case image_find:

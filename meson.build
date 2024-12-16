@@ -72,6 +72,7 @@ subdir('src/uenv')
 if uenv_cli
     uenv_src = [
             'src/cli/add_remove.cpp',
+            'src/cli/copy.cpp',
             'src/cli/find.cpp',
             'src/cli/help.cpp',
             'src/cli/image.cpp',

@@ -28,6 +28,31 @@ struct oras_output {
     std::string stderr;
 };
 
+std::vector<std::string>
+redact_arguments(const std::vector<std::string>& args) {
+    std::vector<std::string> redacted_args{};
+    bool redact_next = false;
+    for (auto arg : args) {
+        if (redact_next) {
+            redacted_args.push_back(std::string(arg.size(), 'X'));
+            redact_next = false;
+        } else if (arg.find("password") != std::string::npos) {
+            if (auto eqpos = arg.find("="); eqpos != std::string::npos) {
+                redacted_args.push_back(
+                    std::string(arg.begin(), arg.begin() + eqpos + 1) +
+                    std::string(arg.size() - eqpos, 'X'));
+            } else {
+                redacted_args.push_back(arg);
+                redact_next = true;
+            }
+        } else {
+            redacted_args.push_back(arg);
+        }
+    }
+
+    return redacted_args;
+}
+
 oras_output run_oras(std::vector<std::string> args) {
     auto oras = util::oras_path();
     if (!oras) {
@@ -36,7 +61,7 @@ oras_output run_oras(std::vector<std::string> args) {
     }
 
     args.insert(args.begin(), oras->string());
-    spdlog::trace("run_oras: {}", fmt::join(args, " "));
+    spdlog::trace("run_oras: {}", fmt::join(redact_arguments(args), " "));
     auto proc = util::run(args);
 
     auto result = proc->wait();
@@ -137,8 +162,8 @@ util::expected<void, int> pull_tag(const std::string& registry,
                     uenv.uarch, uenv.name, uenv.version, uenv.tag);
 
     spdlog::debug("oras::pull_tag: {}", address);
-    std::vector<std::string> args{"pull", "--output", destination.string(),
-                                  address};
+    std::vector<std::string> args{"pull",     "--concurrency",      "10",
+                                  "--output", destination.string(), address};
     if (token) {
         args.push_back("--password");
         args.push_back(token->token);
@@ -186,6 +211,38 @@ util::expected<void, int> pull_tag(const std::string& registry,
     if (proc->rvalue()) {
         spdlog::error("unable to pull tag with oras: {}", proc->err.string());
         return util::unexpected{proc->rvalue()};
+    }
+
+    return {};
+}
+
+util::expected<void, int>
+copy(const std::string& registry, const std::string& src_nspace,
+     const uenv_record& src_uenv, const std::string& dst_nspace,
+     const uenv_record& dst_uenv, const std::optional<credentials> token) {
+
+    auto address = [&registry](auto& nspace, auto& record) -> std::string {
+        return fmt::format("{}/{}/{}/{}/{}/{}:{}", registry, nspace,
+                           record.system, record.uarch, record.name,
+                           record.version, record.tag);
+    };
+    const auto src_url = address(src_nspace, src_uenv);
+    const auto dst_url = address(dst_nspace, dst_uenv);
+
+    std::vector<std::string> args = {"cp",          "--concurrency", "10",
+                                     "--recursive", src_url,         dst_url};
+    if (token) {
+        args.push_back(fmt::format("--from-password={}", token->token));
+        args.push_back(fmt::format("--from-username={}", token->username));
+        args.push_back(fmt::format("--to-password={}", token->token));
+        args.push_back(fmt::format("--to-username={}", token->username));
+    }
+    // fmt::println("oras {}", fmt::join(args, " "));
+    auto result = run_oras(args);
+
+    if (result.rcode) {
+        spdlog::error("oras cp {}: {}", result.rcode, result.stderr);
+        return util::unexpected{result.rcode};
     }
 
     return {};

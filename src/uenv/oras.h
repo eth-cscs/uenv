@@ -34,6 +34,12 @@ pull_tag(const std::string& registry, const std::string& nspace,
          const uenv_record& uenv, const std::filesystem::path& destination,
          const std::optional<credentials> token = std::nullopt);
 
+util::expected<void, int>
+copy(const std::string& registry, const std::string& src_nspace,
+     const uenv_record& src_uenv, const std::string& dst_nspace,
+     const uenv_record& dst_uenv,
+     const std::optional<credentials> token = std::nullopt);
+
 } // namespace oras
 } // namespace uenv
 

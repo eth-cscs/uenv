@@ -79,6 +79,8 @@ struct repository {
     util::expected<record_set, std::string>
     query(const uenv_label& label) const;
 
+    bool contains(const uenv_record&) const;
+
     util::expected<void, std::string> add(const uenv_record&);
     util::expected<record_set, std::string> remove(const uenv_record&);
     util::expected<record_set, std::string> remove(const sha256&);
