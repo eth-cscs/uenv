@@ -23,7 +23,7 @@ It requires a destination path where the RPM build will occur, and should be run
 
 ## macros.meson
 
-The spec file `slurm-uenv-mount.spec` uses macros like `%meson_setup`, which parameterise
+The spec file `uenv.spec` uses macros like `%meson_setup`, which parameterise
 calls to meson. Macros for meson are not usually available, so we provide a definition of
 the macros in `macros.meson`. They have been modified from the ones provided in the
 following RPM:

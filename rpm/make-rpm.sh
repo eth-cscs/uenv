@@ -86,30 +86,30 @@ mkdir -p "${dstdir}"
 echo SLURM_UENV_MOUNT_VERSION=$SLURM_UENV_MOUNT_VERSION
 echo _scriptdir=$_scriptdir
 echo _projectdir=$_projectdir
-tarball=slurm-uenv-mount-"${SLURM_UENV_MOUNT_VERSION}".tar.gz
+tarball=uenv-"${SLURM_UENV_MOUNT_VERSION}".tar.gz
 
 (
   cd "${dstdir}"
 
   mkdir -p BUILD BUILDROOT RPMS SOURCES SPECS SRPMS
 
-  source_prefix="slurm-uenv-mount-${SLURM_UENV_MOUNT_VERSION}"
+  source_prefix="uenv-${SLURM_UENV_MOUNT_VERSION}"
 
   (
     cd "${_projectdir}"
     git archive --format=tar.gz --output="${dstdir}/SOURCES/${tarball}" HEAD
   )
 
-  cp "${_scriptdir}/slurm-uenv-mount.spec" SPECS/
-  sed -i "s|UENVMNT_VERSION|${SLURM_UENV_MOUNT_VERSION}|g" SPECS/slurm-uenv-mount.spec
-  sed -i "s|RPM_SLURM_VERSION|${RPM_SLURM_VERSION}|g" SPECS/slurm-uenv-mount.spec
+  cp "${_scriptdir}/uenv.spec" SPECS/
+  sed -i "s|UENVMNT_VERSION|${SLURM_UENV_MOUNT_VERSION}|g" SPECS/uenv.spec
+  sed -i "s|RPM_SLURM_VERSION|${RPM_SLURM_VERSION}|g" SPECS/uenv.spec
 
   # create src rpm
-  rpmbuild -bs --define "_topdir ." SPECS/slurm-uenv-mount.spec
+  rpmbuild -bs --define "_topdir ." SPECS/uenv.spec
 
   if [ "${skip_bin}" -eq "0" ]; then
     # create binary rpm
     rpmbuild -vv --nodeps --define "_topdir $(pwd)" \
-             --rebuild SRPMS/slurm-uenv-mount-*.src.rpm
+             --rebuild SRPMS/uenv-*.src.rpm
   fi
 )
