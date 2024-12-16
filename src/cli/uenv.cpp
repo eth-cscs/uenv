@@ -30,8 +30,8 @@ int main(int argc, char** argv) {
     uenv::global_settings settings;
     bool print_version = false;
 
-    // enable/disable color depending on NOCOLOR env. var
-    // and tty terminal status.
+    // enable/disable color depending on NOCOLOR env. var and tty terminal
+    // status.
     color::default_color();
 
     CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
@@ -63,10 +63,8 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(cli, argc, argv);
 
-    // color::set_color(!settings.no_color);
-
     // By default there is no logging to the console
-    //   user-friendly logging off errors and warnings is handled using
+    //   user-friendly logging of errors and warnings is handled using
     //   term::error and term::warn
     // The level of logging is increased by adding --verbose
     spdlog::level::level_enum console_log_level = spdlog::level::off;

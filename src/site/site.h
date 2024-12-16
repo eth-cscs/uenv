@@ -12,6 +12,8 @@ namespace site {
 // on CSCS systems this is derived from the CLUSTER_NAME environment variable
 std::optional<std::string> get_system_name(std::optional<std::string>);
 
+std::optional<std::string> get_username();
+
 // default namespace for image deployment
 std::string default_namespace();
 

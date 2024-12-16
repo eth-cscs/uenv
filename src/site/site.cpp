@@ -1,3 +1,5 @@
+#include <unistd.h>
+
 #include <optional>
 #include <string>
 
@@ -12,6 +14,13 @@
 #include "site.h"
 
 namespace site {
+
+std::optional<std::string> get_username() {
+    if (const auto name = getlogin()) {
+        return std::string{name};
+    }
+    return std::nullopt;
+}
 
 std::optional<std::string> get_system_name(std::optional<std::string> value) {
     if (value) {

@@ -20,7 +20,7 @@
 namespace uenv {
 namespace oras {
 
-// namespace fs = std::filesystem;
+using opt_creds = std::optional<credentials>;
 
 struct oras_output {
     int rcode = -1;
@@ -60,13 +60,20 @@ run_oras_async(std::vector<std::string> args) {
 
 util::expected<std::vector<std::string>, std::string>
 discover(const std::string& registry, const std::string& nspace,
-         const uenv_record& uenv) {
+         const uenv_record& uenv, const opt_creds token) {
     auto address =
         fmt::format("{}/{}/{}/{}/{}/{}:{}", registry, nspace, uenv.system,
                     uenv.uarch, uenv.name, uenv.version, uenv.tag);
 
-    auto result = run_oras({"discover", "--format", "json", "--artifact-type",
-                            "uenv/meta", address});
+    std::vector<std::string> args = {"discover",        "--format",  "json",
+                                     "--artifact-type", "uenv/meta", address};
+    if (token) {
+        args.push_back("--password");
+        args.push_back(token->token);
+        args.push_back("--username");
+        args.push_back(token->username);
+    }
+    auto result = run_oras(args);
 
     if (result.rcode) {
         spdlog::error("oras discover {}: {}", result.rcode, result.stderr);
@@ -91,14 +98,22 @@ discover(const std::string& registry, const std::string& nspace,
 util::expected<void, int>
 pull_digest(const std::string& registry, const std::string& nspace,
             const uenv_record& uenv, const std::string& digest,
-            const std::filesystem::path& destination) {
+            const std::filesystem::path& destination, const opt_creds token) {
     auto address =
         fmt::format("{}/{}/{}/{}/{}/{}@{}", registry, nspace, uenv.system,
                     uenv.uarch, uenv.name, uenv.version, digest);
 
     spdlog::debug("oras::pull_digest: {}", address);
 
-    auto proc = run_oras({"pull", "--output", destination.string(), address});
+    std::vector<std::string> args{"pull", "--output", destination.string(),
+                                  address};
+    if (token) {
+        args.push_back("--password");
+        args.push_back(token->token);
+        args.push_back("--username");
+        args.push_back(token->username);
+    }
+    auto proc = run_oras(args);
 
     if (proc.rcode) {
         spdlog::error("unable to pull digest with oras: {}", proc.stderr);
@@ -111,7 +126,8 @@ pull_digest(const std::string& registry, const std::string& nspace,
 util::expected<void, int> pull_tag(const std::string& registry,
                                    const std::string& nspace,
                                    const uenv_record& uenv,
-                                   const std::filesystem::path& destination) {
+                                   const std::filesystem::path& destination,
+                                   const opt_creds token) {
     using namespace std::chrono_literals;
     namespace fs = std::filesystem;
     namespace bk = barkeep;
@@ -121,9 +137,15 @@ util::expected<void, int> pull_tag(const std::string& registry,
                     uenv.uarch, uenv.name, uenv.version, uenv.tag);
 
     spdlog::debug("oras::pull_tag: {}", address);
-
-    auto proc =
-        run_oras_async({"pull", "--output", destination.string(), address});
+    std::vector<std::string> args{"pull", "--output", destination.string(),
+                                  address};
+    if (token) {
+        args.push_back("--password");
+        args.push_back(token->token);
+        args.push_back("--username");
+        args.push_back(token->username);
+    }
+    auto proc = run_oras_async(args);
 
     if (!proc) {
         spdlog::error("unable to pull tag with oras: {}", proc.error());

@@ -36,6 +36,11 @@ void image_pull_args::add_cli(CLI::App& cli,
         ->add_option("uenv", uenv_description,
                      "the uenv to pull, either name/version:tag, sha256 or id")
         ->required();
+    pull_cli->add_option(
+        "--token", token,
+        "a path that contains a TOKEN file for accessing restricted uenv");
+    pull_cli->add_option("--username", username,
+                         "user name for accessing restricted uenv.");
     pull_cli->add_flag("--only-meta", only_meta, "only download meta data");
     pull_cli->add_flag("--force", force,
                        "download and overwrite existing images");
@@ -58,6 +63,59 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             color::yellow(fmt::format("uenv image pull build::{}",
                                       args.uenv_description)));
         return 1;
+    }
+
+    // check whether a token has been provided via --token
+    // if it has been provided:
+    // - check that it exists
+    // - check that the current user has read access
+    std::optional<fs::path> token_path;
+    if (args.token) {
+        fs::path tp{args.token.value()};
+        if (!fs::exists(tp)) {
+            term::error("the token '{}' is not a path or file.", tp.string());
+            return 1;
+        }
+
+        if (fs::is_directory(tp)) {
+            tp = tp / "TOKEN";
+            if (!fs::exists(tp)) {
+                term::error("the token file '{}' does not exist.", tp.string());
+                return 1;
+            }
+        }
+
+        if (util::file_access_level(tp) < util::file_level::readonly) {
+            term::error(
+                "you do not have permission to read the token file '{}'",
+                tp.string());
+            return 1;
+        }
+
+        token_path = tp;
+    } else if (args.username) {
+        term::warn("ignoring the --username flag, which is only required "
+                   "when used with the --token flag.");
+    }
+
+    std::optional<oras::credentials> credentials;
+    if (token_path) {
+        std::ifstream fid(*token_path);
+        std::string token{};
+        if (fid) {
+            std::getline(fid, token);
+        } else {
+            term::error("unable to read a valid token from '{}'",
+                        token_path.value());
+            return 1;
+        }
+        auto username = args.username ? args.username : site::get_username();
+        if (!username) {
+            term::error("provide a username with --username for the --token.");
+            return 1;
+        }
+        credentials = {.username = username.value(), .token = token};
+        spdlog::info("using credentials {}", credentials);
     }
 
     // pull the search term that was provided by the user
@@ -95,7 +153,6 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         term::error("invalid search term: {}", registry.error());
         return 1;
     }
-
     // check that there is one record with a unique sha
     if (remote_matches->empty()) {
         using enum help::block::admonition;
@@ -159,7 +216,8 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             auto rego_url = site::registry_url();
             spdlog::debug("registry url: {}", rego_url);
 
-            auto digests = oras::discover(rego_url, nspace, record);
+            auto digests =
+                oras::discover(rego_url, nspace, record, credentials);
             if (!digests || digests->empty()) {
                 term::error(
                     "unable to pull image - rerun with -vvv flag and send "
@@ -171,7 +229,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             const auto digest = *(digests->begin());
 
             if (auto okay = oras::pull_digest(rego_url, nspace, record, digest,
-                                              paths.store);
+                                              paths.store, credentials);
                 !okay) {
                 term::error(
                     "unable to pull image - rerun with -vvv flag and send "
@@ -179,8 +237,8 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
                 return 1;
             }
 
-            auto tag_result =
-                oras::pull_tag(rego_url, nspace, record, paths.store);
+            auto tag_result = oras::pull_tag(rego_url, nspace, record,
+                                             paths.store, credentials);
             if (!tag_result) {
                 return 1;
             }
@@ -221,6 +279,15 @@ std::string image_pull_footer() {
         // clang-format off
         help::block{none, "Download a uenv from a registry." },
         help::linebreak{},
+        help::linebreak{},
+        help::block{xmpl, "pull a uenv"},
+        help::block{code,   "uenv image pull prgenv-gnu"},
+        help::block{code,   "uenv image pull prgenv-gnu/24.11:v1@todi"},
+        help::linebreak{},
+        help::block{xmpl, "use a token for the registry"},
+        help::block{code,   "uenv image pull --token=/opt/cscs/uenv/tokens/vasp6 vasp/6.4.2:v1"},
+        help::block{note, "this is only required when accessing uenv that require special" },
+        help::block{none, "permission or a license to access." },
         // clang-format on
     };
 

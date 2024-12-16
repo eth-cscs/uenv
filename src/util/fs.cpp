@@ -8,6 +8,7 @@
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
 #include "expected.h"
@@ -195,6 +196,40 @@ std::optional<std::filesystem::path> oras_path() {
 
     // maybe this could be extended to search PATH
     return std::nullopt;
+}
+
+file_level file_access_level(const std::filesystem::path& path) {
+    namespace fs = std::filesystem;
+
+    using enum file_level;
+    std::error_code ec;
+    auto status = fs::status(path, ec);
+
+    if (ec) {
+        spdlog::error("file_access_level {} error '{}'", path, ec.message());
+        return none;
+    }
+
+    auto p = status.permissions();
+
+    // check if the path is readable by the user, group, or others
+    file_level lvl = none;
+    constexpr auto pnone = std::filesystem::perms::none;
+    if ((p & fs::perms::owner_read) != pnone ||
+        (p & fs::perms::group_read) != pnone ||
+        (p & fs::perms::others_read) != pnone) {
+        spdlog::trace("file_access_level {} can be read", path, ec.message());
+        lvl = readonly;
+    }
+    // check if the path is writable by the user, group, or others
+    if ((p & fs::perms::owner_write) != pnone ||
+        (p & fs::perms::group_write) != pnone ||
+        (p & fs::perms::others_write) != pnone) {
+        spdlog::trace("file_access_level {} can be written", path,
+                      ec.message());
+        lvl = readwrite;
+    }
+    return lvl;
 }
 
 } // namespace util

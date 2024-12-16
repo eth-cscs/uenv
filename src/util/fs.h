@@ -51,4 +51,10 @@ std::optional<std::filesystem::path> exe_path();
 // returns empty if it can't be found
 std::optional<std::filesystem::path> oras_path();
 
+// for determining the level of access to a file or directory
+// if there is an error, or the file does not exist `none` is
+// returned.
+enum class file_level { none = 0, readonly = 1, readwrite = 2 };
+file_level file_access_level(const std::filesystem::path& path);
+
 } // namespace util
