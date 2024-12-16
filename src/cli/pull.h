@@ -1,7 +1,7 @@
 #pragma once
 // vim: ts=4 sts=4 sw=4 et
 
-#include <option>
+#include <optional>
 #include <string>
 
 #include <CLI/CLI.hpp>
@@ -15,7 +15,8 @@ namespace uenv {
 
 struct image_pull_args {
     std::string uenv_description;
-    std::optional<std::string> token
+    std::optional<std::string> token;
+    std::optional<std::string> username;
     bool only_meta = false;
     bool force = false;
     bool build = false;
@@ -37,7 +38,7 @@ template <> class fmt::formatter<uenv::image_pull_args> {
     constexpr auto format(uenv::image_pull_args const& opts,
                           FmtContext& ctx) const {
         return fmt::format_to(
-            ctx.out(), "(image pull {} .only_meta={} .force={})",
-            opts.uenv_description, opts.only_meta, opts.force);
+            ctx.out(), "(image pull {} .only_meta={} .force={} .token={})",
+            opts.uenv_description, opts.only_meta, opts.force, opts.token);
     }
 };
