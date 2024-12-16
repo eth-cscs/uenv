@@ -201,7 +201,7 @@ util::expected<uenv_label, parse_error> parse_uenv_label(lexer& L) {
         if (L.current_kind() == tok::at) {
             L.next();
             if (L.current_kind() == tok::star) {
-                result.system = "*";
+                result.system = std::string("*");
                 L.next();
             } else {
                 PARSE(L, name, result.system);
