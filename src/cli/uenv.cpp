@@ -15,6 +15,7 @@
 
 #include "add_remove.h"
 #include "build.h"
+#include "delete.h"
 #include "help.h"
 #include "image.h"
 #include "repo.h"
@@ -130,6 +131,8 @@ int main(int argc, char** argv) {
         return uenv::image_add(image.add_args, settings);
     case settings.image_copy:
         return uenv::image_copy(image.copy_args, settings);
+    case settings.image_delete:
+        return uenv::image_delete(image.delete_args, settings);
     case settings.image_inspect:
         return uenv::image_inspect(image.inspect_args, settings);
     case settings.image_rm:
