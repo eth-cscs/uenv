@@ -20,7 +20,7 @@
 	--mandir=%{_mandir} \\\
 	--infodir=%{_infodir} \\\
 	--localedir=%{_datadir}/locale \\\
-	-Dcli=false \\\
+	-Dcli=true \\\
 	-Dslurm_plugin=true \\\
 	%{nil}
 
