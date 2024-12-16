@@ -344,6 +344,8 @@ struct repository_impl {
     query(const uenv_label&) const;
     repository::pathset uenv_paths(sha256) const;
 
+    bool contains(const uenv_record&) const;
+
     util::expected<void, std::string> add(const uenv_record&);
     util::expected<record_set, std::string> remove(const uenv_record&);
     util::expected<record_set, std::string> remove(const sha256&);
@@ -625,6 +627,15 @@ repository_impl::remove(const sha256& sha) {
     return *matches;
 }
 
+bool repository_impl::contains(const uenv_record& record) const {
+    auto matches = query({.name = record.name,
+                          .version = record.version,
+                          .tag = record.tag,
+                          .system = record.system,
+                          .uarch = record.uarch});
+    return !matches->empty();
+}
+
 util::expected<record_set, std::string>
 repository_impl::remove(const uenv_record& record) {
     auto matches = query({.name = record.name,
@@ -904,6 +915,10 @@ bool repository::is_readonly() const {
 
 repository::pathset repository::uenv_paths(sha256 sha) const {
     return impl_->uenv_paths(sha);
+}
+
+bool repository::contains(const uenv_record& r) const {
+    return impl_->contains(r);
 }
 
 } // namespace uenv

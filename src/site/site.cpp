@@ -6,10 +6,12 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/curl.h>
 #include <util/expected.h>
+#include <util/fs.h>
 
 #include "site.h"
 
@@ -107,7 +109,58 @@ registry_listing(const std::string& nspace) {
 }
 
 std::string registry_url() {
+    if (auto url = std::getenv("UENV_REGISTRY_URL")) {
+        spdlog::debug("registry url from UENV_REGISTRY '{}'", url);
+        return url;
+    }
     return "jfrog.svc.cscs.ch/uenv";
+}
+
+util::expected<std::optional<uenv::oras::credentials>, std::string>
+get_credentials(std::optional<std::string> username,
+                std::optional<std::string> token) {
+    namespace fs = std::filesystem;
+    namespace oras = uenv::oras;
+
+    if (!token) {
+        return std::nullopt;
+    }
+
+    fs::path token_path{token.value()};
+    if (!fs::exists(token_path)) {
+        return util::unexpected{fmt::format(
+            "the token '{}' is not a path or file.", token_path.string())};
+    }
+
+    if (fs::is_directory(token_path)) {
+        token_path = token_path / "TOKEN";
+        if (!fs::exists(token_path)) {
+            return util::unexpected{fmt::format(
+                "the token file '{}' does not exist.", token_path.string())};
+        }
+    }
+
+    if (util::file_access_level(token_path) < util::file_level::readonly) {
+        return util::unexpected{fmt::format(
+            "you do not have permission to read the token file '{}'",
+            token_path.string())};
+    }
+
+    std::string token_string{};
+    if (std::ifstream fid{token_path}) {
+        std::getline(fid, token_string);
+    } else {
+        return util::unexpected{fmt::format("unable to read a token from '{}'",
+                                            token_path.string())};
+    }
+
+    auto uname = username ? username : site::get_username();
+    if (!uname) {
+        return util::unexpected{
+            "provide a username with --username for the --token."};
+    }
+
+    return oras::credentials{.username = uname.value(), .token = token_string};
 }
 
 } // namespace site

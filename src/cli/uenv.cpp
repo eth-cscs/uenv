@@ -128,6 +128,8 @@ int main(int argc, char** argv) {
         return uenv::image_ls(image.ls_args, settings);
     case settings.image_add:
         return uenv::image_add(image.add_args, settings);
+    case settings.image_copy:
+        return uenv::image_copy(image.copy_args, settings);
     case settings.image_inspect:
         return uenv::image_inspect(image.inspect_args, settings);
     case settings.image_rm:

@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 
+#include <uenv/oras.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
 
@@ -21,5 +22,9 @@ util::expected<uenv::repository, std::string>
 registry_listing(const std::string& nspace);
 
 std::string registry_url();
+
+util::expected<std::optional<uenv::oras::credentials>, std::string>
+get_credentials(std::optional<std::string> username,
+                std::optional<std::string> token);
 
 } // namespace site
