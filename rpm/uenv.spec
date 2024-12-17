@@ -1,17 +1,17 @@
-Name:           slurm-uenv-mount
+Name:           uenv
 Version:        UENVMNT_VERSION
 Release:        RPM_SLURM_VERSION
-Summary:        SLURM spank plugin to mount squashfs images.
+Summary:        UENV cli and Slurm spank plugin.
 Prefix:         /usr
 
 License:        BSD3
-URL:            https://github.com/eth-cscs/slurm-uenv-mount
+URL:            https://github.com/eth-cscs/uenv2
 Source0:        %{name}-%{version}.tar.gz
 
 %define _build_id_links none
 
 %description
-A SLURM spank plugin to mount squashfs images.
+UENV cli and Slurm spank plugin.
 
 %prep
 %autosetup -c
@@ -31,4 +31,6 @@ echo "$REQ" > "$CNF"
 
 %files
 %license LICENSE
-%{_libdir}/lib%{name}.so
+%{_libdir}/libslurm-uenv-mount.so
+%{_bindir}/uenv
+/usr/libexec/oras
