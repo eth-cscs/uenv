@@ -36,7 +36,6 @@ expected<std::string, error> get(std::string url) {
     char errbuf[CURL_ERROR_SIZE];
     errbuf[0] = 0;
 
-    // auto h = curl::make_handle();
     auto h = curl_easy_init();
     if (!h) {
         return unexpected{
@@ -138,12 +137,11 @@ expected<std::string, error> upload(std::string url,
 
     CURL_EASY(curl_easy_setopt(h, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1));
 
-    // Store HTTP status code
-    long http_code = 0;
-
     // Perform the request
     CURL_EASY(curl_easy_perform(h));
+
     // Get the HTTP response code
+    long http_code = 0;
     CURL_EASY(curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &http_code));
     spdlog::trace("curl::upload http_code: {}", http_code);
 
@@ -153,11 +151,78 @@ expected<std::string, error> upload(std::string url,
     // store stdout
     std::string curl_stdout{result.data(), result.data() + result.size()};
 
-    if (http_code != 200) {
-        return unexpected{error{CURLE_OK, curl_stdout}};
+    if (http_code >= 400) {
+        return unexpected{error{CURLE_HTTP_RETURNED_ERROR, fmt::format("{}", http_code)}};
     }
 
     return curl_stdout;
+}
+
+expected<void, error> del(std::string url,
+                                 std::string username,
+                                 std::string token) {
+    char errbuf[CURL_ERROR_SIZE];
+    errbuf[0] = 0;
+
+    auto h = curl_easy_init();
+    if (!h) {
+        return unexpected{
+            error{CURLE_FAILED_INIT, "unable to initialise curl"}};
+    }
+    auto _ = defer([h]() { curl_easy_cleanup(h); });
+
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_ERRORBUFFER, errbuf));
+
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_URL, url.c_str()));
+    spdlog::trace("curl::get set url {}", url);
+
+    // some servers do not like requests that are made without a user-agent
+    // field, so we provide one
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_USERAGENT, "libcurl-agent/1.0"));
+    spdlog::trace("curl::get set user agent");
+
+    // Specify the HTTP method as DELETE
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_CUSTOMREQUEST, "DELETE"));
+
+    // Set the username and password for basic authentication
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_USERNAME, username.c_str()));
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_PASSWORD, token.c_str()));
+    spdlog::trace("curl::get set credentials");
+
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, 1000L));
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_TIMEOUT_MS, 10000L));
+    spdlog::trace("curl::get set timeout");
+
+    CURL_EASY(curl_easy_perform(h));
+
+    // Get the HTTP response code
+    long http_code = 0;
+    CURL_EASY(curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &http_code));
+    spdlog::trace("curl::upload http_code: {}", http_code);
+
+    // send all data to this function
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, memory_callback));
+    spdlog::trace("curl::get set memory callback");
+
+    // we pass our 'chunk' struct to the callback function
+    std::vector<char> result;
+    result.reserve(10000);
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEDATA, (void*)&result));
+    spdlog::trace("curl::get set memory target");
+
+    // store stdout
+    std::string curl_stdout{result.data(), result.data() + result.size()};
+
+    if (http_code >= 400) {
+        return unexpected{error{CURLE_HTTP_RETURNED_ERROR, fmt::format("{}", http_code)}};
+    }
+
+    spdlog::info("curl -X DELETE -u {}:{} {}",
+                  username, std::string(token.size(), 'X'), url);
+
+    spdlog::trace("curl::get successfully deleted {}", url);
+
+    return {};
 }
 
 } // namespace curl
