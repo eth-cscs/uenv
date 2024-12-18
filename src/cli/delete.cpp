@@ -111,17 +111,17 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     spdlog::debug("registry url: {}", rego_url);
     for (auto& record : *matches) {
         // TODO: create a second pure JFrog API URL (now with added artifictory)
-        auto url = fmt::format("https://jfrog.svc.cscs.ch/artifactory/uenv/{}/{}/{}/{}/{}/{}", nspace,
-                               record.system, record.uarch, record.name,
-                               record.version, record.tag);
+        auto url = fmt::format(
+            "https://jfrog.svc.cscs.ch/artifactory/uenvs/{}/{}/{}/{}/{}/{}",
+            nspace, record.system, record.uarch, record.name, record.version,
+            record.tag);
 
-        // clang-format off
-        //term::msg("curl -X DELETE -u {}:{} {}", credentials.username, credentials.token, url);
-        if (auto result = util::curl::del(url, credentials.username, credentials.token); !result) {
-            term::error("error using curl to delete uenv: {}", result.error().message);
+        if (auto result =
+                util::curl::del(url, credentials.username, credentials.token);
+            !result) {
+            term::error("unable to delete uenv: {}", result.error().message);
             return 1;
         }
-        // clang-format on
 
         term::msg("delete {}", url);
     }

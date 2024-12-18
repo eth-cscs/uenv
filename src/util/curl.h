@@ -22,8 +22,7 @@ expected<std::string, error> get(std::string url);
 expected<std::string, error> upload(std::string url,
                                     std::filesystem::path file_name);
 
-expected<void, error> del(std::string url,
-                          std::string username,
+expected<void, error> del(std::string url, std::string username,
                           std::string password);
 
 } // namespace curl

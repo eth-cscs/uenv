@@ -68,8 +68,9 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         return 1;
     }
     if (!label->fully_qualified()) {
-        term::error("the label {} must provide at name/version:tag@system%uarch",
-                    args.uenv_description);
+        term::error(
+            "the label {} must provide at name/version:tag@system%uarch",
+            args.uenv_description);
         return 1;
     }
 
