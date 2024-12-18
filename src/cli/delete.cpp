@@ -112,7 +112,7 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     for (auto& record : *matches) {
         // TODO: create a second pure JFrog API URL (now with added artifictory)
         auto url = fmt::format(
-            "https://jfrog.svc.cscs.ch/artifactory/uenvs/{}/{}/{}/{}/{}/{}",
+            "https://jfrog.svc.cscs.ch/artifactory/uenv/{}/{}/{}/{}/{}/{}",
             nspace, record.system, record.uarch, record.name, record.version,
             record.tag);
 
