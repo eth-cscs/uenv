@@ -10,6 +10,9 @@ function setup() {
     export SQFS_LIB=$(realpath ../scratch/sqfs)
 
     unset UENV_MOUNT_LIST
+
+    # TODO: this should be more flexible
+    export PATH="$(realpath ../../build):$PATH"
 }
 
 function teardown() {
@@ -163,6 +166,20 @@ srun --uenv=tool findmnt /user-tools
 # override, /user-environment must not be mounted
 srun --uenv=tool bash -c '! findmnt /user-environment'
 EOF
+}
+
+@test "uenv start in sbatch should fail" {
+    export UENV_REPO_PATH=$REPOS/apptool
+    # check that images mounted via sbatch --uenv are overriden when `--uenv` flag is given to srun
+    run run_sbatch <<EOF
+#!/bin/bash
+
+set -e
+
+uenv start app/42.0
+EOF
+    [ "${status}" -eq "1" ]
+    assert_output --partial "'uenv start' must be run in an interactive shell"
 }
 
 @test "sbatch UENV_MOUNT_LIST with no --uenv" {

@@ -16,6 +16,7 @@ void start_help();
 
 struct start_args {
     std::string uenv_description;
+    bool ignore_tty = false;
     std::optional<std::string> view_description;
     void add_cli(CLI::App&, global_settings& settings);
 };
