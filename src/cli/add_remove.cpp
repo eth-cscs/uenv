@@ -67,9 +67,10 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                     label.error().message());
         return 1;
     }
-    if (!label->partially_qualified()) {
-        term::error("the label {} does not provide at least name/version:tag",
-                    args.uenv_description);
+    if (!label->fully_qualified()) {
+        term::error(
+            "the label {} must provide at name/version:tag@system%uarch",
+            args.uenv_description);
         return 1;
     }
 

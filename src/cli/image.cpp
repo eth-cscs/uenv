@@ -14,6 +14,7 @@
 
 #include "add_remove.h"
 #include "copy.h"
+#include "delete.h"
 #include "help.h"
 #include "image.h"
 #include "inspect.h"
@@ -33,6 +34,9 @@ void image_args::add_cli(CLI::App& cli,
 
     // add the `uenv image copy` command
     copy_args.add_cli(*image_cli, settings);
+
+    // add the `uenv image delete` command
+    delete_args.add_cli(*image_cli, settings);
 
     // add the `uenv image add` command
     add_args.add_cli(*image_cli, settings);

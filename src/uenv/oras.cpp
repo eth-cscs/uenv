@@ -196,7 +196,7 @@ util::expected<void, int> pull_tag(const std::string& registry,
         });
     while (!proc->finished()) {
         std::this_thread::sleep_for(100ms);
-        // handle a signacl, usually SIGTERM or SIGINT
+        // handle a signal, usually SIGTERM or SIGINT
         if (util::signal_raised()) {
             spdlog::warn("signal raised - interrupting download");
             throw util::signal_exception(util::last_signal_raised());
@@ -237,7 +237,6 @@ copy(const std::string& registry, const std::string& src_nspace,
         args.push_back(fmt::format("--to-password={}", token->token));
         args.push_back(fmt::format("--to-username={}", token->username));
     }
-    // fmt::println("oras {}", fmt::join(args, " "));
     auto result = run_oras(args);
 
     if (result.rcode) {
