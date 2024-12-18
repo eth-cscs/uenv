@@ -15,6 +15,11 @@ Not just a rewrite - new features!
 * **supports bash, zsh, fish, tcsh**, and no more bash wrappers polluting your history.
 * and more...
 
+Some old features are gone:
+* `uenv view` and `uenv modules` have been removed - the tool can no longer modify the environment of the calling shell
+    * all views must be loaded with the `--view` flag on `uenv run` and `uenv start`
+    * or using the `--view` flag of `srun` and `sbatch`.
+
 ## Alps quickstart
 
 To take uenv2 for a test drive on alps,
@@ -57,7 +62,7 @@ ninja
 
 ## testing
 
-There is no integration testing yet.
+**NOTE**: the tests require setup stages that are not straightforward to set up on Alps. A PR that fixes these issues is coming soon.
 
 The C++ library has unit tests, that are built by default as the `unit` executable in the build path:
 
