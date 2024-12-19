@@ -24,14 +24,16 @@ jobs:
       - name: Update apt repositories for ccache
         run: sudo apt update
       - name: Install dependencies
-        run: sudo apt-get install util-linux libmount-dev slurm-wlm libslurm-dev slurmd slurmctld slurm-client
-      - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ccache-linux-${{ matrix.buildtype }}-${{ matrix.sanitizer }}
+        run: sudo apt-get install util-linux libmount-dev libslurm-dev
+      #  run: sudo apt-get install util-linux libmount-dev slurm-wlm libslurm-dev slurmd slurmctld slurm-client
+      # disable for now, because the cache has never actually worked
+      # ironically, this means that it slows down the build
+      #- name: Set up ccache
+      #    uses: hendrikmuhs/ccache-action@v1.2
+      #  with:
+      #    key: ccache-linux-${{ matrix.buildtype }}-${{ matrix.sanitizer }}
       - name: Install compiler and build tools
         run: sudo apt install --no-install-recommends --yes g++-12 ninja-build
-        #run: sudo apt install --no-install-recommends --yes g++-12 meson ninja-build
       - name: install meson
         run: |
           wget https://github.com/mesonbuild/meson/releases/download/1.6.1/meson-1.6.1.tar.gz && \
@@ -40,7 +42,8 @@ jobs:
           mv meson/meson.py meson/meson
       - name: Configure
         run: |
-            CXX="ccache g++-12" PATH=$(pwd)/meson:$PATH meson setup \
+            CC="gcc-12" CXX="g++-12" ./meson/meson setup \
+            #CXX="ccache g++-12" PATH=$(pwd)/meson:$PATH meson setup \
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
               -Dtests=enabled \
@@ -53,5 +56,6 @@ jobs:
         run: ./meson/meson test -Cbuild --verbose unit
       - name: prepare cli
         run: sudo mkdir /user-tools /user-environment
-      - name: test cli
-        run: ./meson/meson test -Cbuild --verbose cli
+      # SKIP: we need to install squashfs-mount, and verify that it works first
+      #- name: test cli
+        #  run: ./meson/meson test -Cbuild --verbose cli
