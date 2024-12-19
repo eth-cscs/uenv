@@ -37,7 +37,8 @@ jobs:
           mv meson-1.6.1 meson && \
           mv meson/meson.py meson/meson
       - name: Configure
-        run: CXX="ccache g++-12" ./meson/meson setup \
+        run: |
+            CXX="ccache g++-12" PATH=$(pwd)/meson:$PATH meson setup \
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
               -Dtests=enabled \
