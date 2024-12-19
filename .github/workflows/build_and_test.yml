@@ -34,14 +34,15 @@ jobs:
             CXX="ccache g++-12" meson setup \
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
+              -Dtests=enabled \
               --warnlevel 3 \
               --werror \
               build .
       - name: Build
-        run: meson -C build compile
+        run: meson compile -Cbuild
       - name: test unit
         run: |
-          meson -C build test unit
+          meson test -Cbuild --verbose unit
       - name: test cli
         run: |
-          meson -C build test cli
+          meson test -Cbuild --verbose cli
