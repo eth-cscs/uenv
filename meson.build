@@ -6,7 +6,7 @@ project('uenv', ['cpp'],
           'warning_level=3',
         ],
         version: files('VERSION'),
-        meson_version: '>=1.5')
+        meson_version: '>=1.3')
 version = meson.project_version()
 
 oras_version = get_option('oras_version')
