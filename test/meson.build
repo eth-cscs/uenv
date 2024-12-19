@@ -24,15 +24,6 @@ test_generated_data = custom_target (
     install: false,
 )
 
-test_env_data = custom_target (
-    'test-env-data',
-    # non existant target because I don't have all day to finesse meson
-    output: 'env-data-dummy',
-    command: ['cp', '-R', meson.current_source_dir() + '/data/env-files', test_data_install_path],
-    build_by_default: true,
-    install: false,
-)
-
 fs = import('fs')
 fs.copyfile('integration/cli.bats', 'cli.bats')
 fs.copyfile('integration/common.bash', 'common.bash')

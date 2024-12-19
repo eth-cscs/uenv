@@ -11,3 +11,5 @@ fi
 source $DIR/setup_repos.bash
 
 setup_repos $install_path
+
+cp -R $DIR/../data/env-files $install_path/

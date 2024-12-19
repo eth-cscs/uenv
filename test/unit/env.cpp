@@ -11,6 +11,6 @@ TEST_CASE("load_meta", "[env]") {
     if (!exe) {
         SKIP("unable to find path of unit executable");
     }
-    REQUIRE(uenv::load_meta(exe->parent_path() /
-                            "data/env-files/cp2k-2024.2-v1.json"));
+    auto meta_path = exe->parent_path() / "data/env-files/cp2k-2024.2-v1.json";
+    REQUIRE(uenv::load_meta(meta_path));
 }
