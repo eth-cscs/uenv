@@ -12,18 +12,13 @@ install=$HOME/.local/$arch
 
 rm -rf $build
 rm -rf $pyenv
-
-echo "== use python to install meson and ninja in venv: $pyenv"
-python3 -m venv $pyenv
-source $pyenv/bin/activate
-pip install --upgrade pip
-pip install meson ninja
 echo "== configure in $build"
-CC=gcc-12 CXX=g++-12 meson setup --prefix=$install $build $root
+alias e="uenv run prgenv-gnu/24.11:v1 --view=defulat --"
+CC=gcc-12 CXX=g++-12 e meson setup --prefix=$install $build $root
 echo "== build"
-meson compile -C$build
+e meson compile -C$build
 echo "== install"
-meson install -C$build --skip-subprojects
+e meson install -C$build --skip-subprojects
 
 echo ""
 echo "== succesfully installed"
