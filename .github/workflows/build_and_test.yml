@@ -43,7 +43,6 @@ jobs:
       - name: Configure
         run: |
             CC="gcc-12" CXX="g++-12" ./meson/meson setup \
-            #CXX="ccache g++-12" PATH=$(pwd)/meson:$PATH meson setup \
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
               -Dtests=enabled \
