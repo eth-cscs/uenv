@@ -40,6 +40,13 @@ jobs:
           tar -xzf meson-1.6.1.tar.gz && \
           mv meson-1.6.1 meson && \
           mv meson/meson.py meson/meson
+      - name: install squashfs-mount
+        run: |
+          wget https://github.com/eth-cscs/squashfs-mount/archive/refs/tags/v1.1.0.tar.gz
+          tar -xzf v1.1.0.tar.gz
+          ./meson/meson setup build-sqfs squashfs-mount-1.1.0
+          ./meson/meson compile -C build-sqfs
+          sudo ./meson/meson install -C build-sqfs
       - name: Configure
         run: |
             CC="gcc-12" CXX="g++-12" ./meson/meson setup \
@@ -53,8 +60,7 @@ jobs:
         run: ./meson/meson compile -Cbuild
       - name: test unit
         run: ./meson/meson test -Cbuild --verbose unit
-      - name: prepare cli
-        run: sudo mkdir /user-tools /user-environment
-      # SKIP: we need to install squashfs-mount, and verify that it works first
-      #- name: test cli
-        #  run: ./meson/meson test -Cbuild --verbose cli
+      - name: test cli
+        run: |
+          sudo mkdir /user-tools /user-environment
+          ./meson/meson test -Cbuild --verbose cli
