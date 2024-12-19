@@ -49,13 +49,16 @@ On your laptop these requirements can be met using your package manager of choic
 On an Alps vCluster, we want to use the system compiler "as is" without using a uenv or modules. The `g++` requirement is met by the `g++-12` compiler, that is installed on the vClusters as part of the boot image. The easiest way to set up meson and ninja is to pip install them to create an isolated build environment.
 
 On Alps the version of Python3 is ancient, so it can't support the required meson version.
-The 
+The `prgenv-gnu/24.11` uenv provides all of the tools required.
 
 ```
 alias e="uenv run prgenv-gnu/24.11:v1 --view=default --"
 CXX=g++-12 e meson setup -Dtests=enabled build
 e meson compile -Cbuild
 ```
+
+* use the system version of gcc-12 in order to create a statically linked binary that can run outside the uenv
+* the integraton tests can't be run through the alias (or in the uenv), because it isn't possible to use `uenv run` or `uenv start` inside a uenv.
 
 ## testing
 
