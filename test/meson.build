@@ -16,10 +16,19 @@ bats = custom_target(
 )
 
 test_data_install_path = meson.current_build_dir() + '/data'
-test_data = custom_target (
-    'test-data',
+test_generated_data = custom_target (
+    'test-generated-data',
     output: 'data',
     command: [setup_path + '/setup', test_data_install_path],
+    build_by_default: true,
+    install: false,
+)
+
+test_env_data = custom_target (
+    'test-env-data',
+    # non existant target because I don't have all day to finesse meson
+    output: 'env-data-dummy',
+    command: ['cp', '-R', meson.current_source_dir() + '/data/env-files', test_data_install_path],
     build_by_default: true,
     install: false,
 )

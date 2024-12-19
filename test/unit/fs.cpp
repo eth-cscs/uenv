@@ -16,9 +16,17 @@ TEST_CASE("make_temp_dir", "[fs]") {
 }
 
 TEST_CASE("unsquashfs", "[fs]") {
-    std::string sqfs = "./test/data/sqfs/apptool/standalone/app43.squashfs";
+    auto exe = util::exe_path();
+
+    if (!exe) {
+        SKIP("unable to determine the path of the unit executable");
+    }
+    auto sqfs =
+        exe->parent_path() / "data/sqfs/apptool/standalone/app43.squashfs";
+    if (!fs::is_regular_file(sqfs)) {
+        SKIP("unable to find the squashfs file for testing");
+    }
     {
-        REQUIRE(fs::is_regular_file(sqfs));
         auto meta = util::unsquashfs_tmp(sqfs, "meta");
         REQUIRE(meta);
         REQUIRE(fs::is_directory(*meta));

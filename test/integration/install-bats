@@ -17,6 +17,7 @@ mkdir -p $install_path
 
 curl -L https://github.com/bats-core/bats-core/archive/refs/tags/v1.9.0.tar.gz 2> /dev/null | tar xz
 mv bats-core-1.9.0 $install_path/bats-core
+rm -rf $install_path/../bats
 ln -s $install_path/bats-core/bin/bats $install_path/../bats
 
 git clone --depth 1 --quiet https://github.com/bats-core/bats-assert.git  $install_path/bats-helpers/bats-assert
