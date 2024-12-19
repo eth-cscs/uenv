@@ -1,26 +1,25 @@
 #!/bin/bash
 
-install_path=$(realpath ./install)
+# check that exactly one argument is passed
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 <install_path>"
+  exit 1
+fi
+
+# Set the argument as install_path
+install_path=$(realpath $1)
 
 # clean up old installation
 rm -rf $install_path
-rm -rf ./bats
+rm -rf $install_path/../bats
 
-echo "installation path: $install_path"
 mkdir -p $install_path
 
 curl -L https://github.com/bats-core/bats-core/archive/refs/tags/v1.9.0.tar.gz 2> /dev/null | tar xz
 mv bats-core-1.9.0 $install_path/bats-core
-ln -s $install_path/bats-core/bin/bats ./bats
-
-echo "installed bats-core: $install_path/bats-core"
+rm -rf $install_path/../bats
+ln -s $install_path/bats-core/bin/bats $install_path/../bats
 
 git clone --depth 1 --quiet https://github.com/bats-core/bats-assert.git  $install_path/bats-helpers/bats-assert
-echo "installed bats-assert: $install_path/bats-assert"
-
 git clone --depth 1 --quiet https://github.com/bats-core/bats-support.git $install_path/bats-helpers/bats-support
-echo "installed bats-support: $install_path/bats-support"
 
-export BATS_LIB_PATH=$install_path/bats-helpers
-
-echo BATS_LIB_PATH=$BATS_LIB_PATH

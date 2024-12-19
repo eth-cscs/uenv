@@ -1,32 +1,23 @@
 function setup() {
-    bats_install_path=$(realpath ./install)
-    export BATS_LIB_PATH=$bats_install_path/bats-helpers
-
     # set the cluster name to be arapiles
     # this is required for tests to work when run on a vCluster
     # that sets this variable
     export CLUSTER_NAME=arapiles
 
+    #echo "BATS_LIB_PATH $BATS_LIB_PATH" 1>&3
     bats_load_library bats-support
     bats_load_library bats-assert
     load ./common
 
-    export REPOS=$(realpath ../scratch/repos)
-    export SQFS_LIB=$(realpath ../scratch/sqfs)
-
-    export SRC_PATH=$(realpath ../../)
-
-    export PATH="$(realpath ../../build):$PATH"
+    # TODO: set the BUILD_PATH from a template for out of tree builds
+    export PATH="$BUILD_PATH:$PATH"
 
     unset UENV_MOUNT_LIST
 
     # set up location for creation of working repos
-    export REPO_ROOT=/tmp/uenv-repo
-    rm -rf $REPO_ROOT
-    mkdir -p $REPO_ROOT
-
-    # make a scratch space in the same file system as the repo root
-    mkdir -p $REPO_ROOT/scratch
+    export TMP=$DATA/scratch
+    rm -rf $TMP
+    mkdir -p $TMP
 
     # remove the bash function uenv, if an older version of uenv is installed on
     # the system
@@ -34,8 +25,7 @@ function setup() {
 }
 
 function teardown() {
-    export REPO_ROOT=/tmp/uenv-repo
-    #rm -rf $REPO_ROOT
+    :
 }
 
 @test "noargs" {
@@ -159,7 +149,7 @@ function teardown() {
 
 @test "repo create" {
     # using UENV_REPO_PATH env variable
-    RP=$(mktemp -d $REPO_ROOT/create-XXXXXX)
+    RP=$(mktemp -d $TMP/create-XXXXXX)
     run uenv repo create $RP
     assert_success
     assert [ -d  $RP ]
@@ -177,7 +167,7 @@ function teardown() {
     assert_line --partial "unable to create repository"
 
     # try to create a uenv in a read-only path
-    RP=$REPO_ROOT/ro
+    RP=$TMP/ro
     mkdir --mode=-w $RP
     # run with logging to check for detailed "Permission denied" message
     run uenv -v repo create $RP/test
@@ -223,7 +213,7 @@ function teardown() {
 
 @test "image add" {
     # using UENV_REPO_PATH env variable
-    RP=$(mktemp -d $REPO_ROOT/create-XXXXXX)
+    RP=$(mktemp -d $TMP/create-XXXXXX)
     run uenv repo create $RP
     assert_success
 
@@ -271,8 +261,8 @@ function teardown() {
 
     # test that moving an image into place works
     # we have to move the image from the same file system as the repo
-    # so we use a copy in REPO_ROOT/scratch
-    sqfs_file=$REPO_ROOT/scratch/app43.squashfs
+    # so we use a copy in TMP/scratch
+    sqfs_file=$TMP/app43.squashfs
     cp $SQFS_LIB/apptool/standalone/app43.squashfs $sqfs_file
     [ -f  $sqfs_file ]
     run uenv --repo=$RP image add --move quokka/24:v1@arapiles%zen3 $sqfs_file
@@ -330,9 +320,8 @@ function teardown() {
 
 @test "image rm" {
     # using UENV_REPO_PATH env variable
-    export UENV_REPO_PATH=$(mktemp -d $REPO_ROOT/create-XXXXXX)
-    export UENV_REPO_PATH=$REPO_ROOT/xxx
-    run uenv repo create $RP
+    export UENV_REPO_PATH=$(mktemp -d $TMP/create-XXXXXX)
+    run uenv repo create $UENV_REPO_PATH
     assert_success
 
     # add uenv to a repo for us to try removing
