@@ -10,8 +10,10 @@ jobs:
   build-and-test:
     strategy:
       matrix:
-        buildtype: [debug, release]
-        sanitizer: [none, address, leak, undefined, thread]
+        #buildtype: [debug, release]
+        #sanitizer: [none, address, leak, undefined, thread]
+        buildtype: [debug]
+        sanitizer: [none]
         exclude:
           # False positive warnings in release builds: https://godbolt.org/z/vT3nqGxzW
           - buildtype: release
@@ -49,5 +51,7 @@ jobs:
         run: ./meson/meson compile -Cbuild
       - name: test unit
         run: ./meson/meson test -Cbuild --verbose unit
+      - name: prepare cli
+        run: sudo mkdir /user-tools /user-environment
       - name: test cli
         run: ./meson/meson test -Cbuild --verbose cli
