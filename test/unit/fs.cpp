@@ -16,7 +16,7 @@ TEST_CASE("make_temp_dir", "[fs]") {
 }
 
 TEST_CASE("unsquashfs", "[fs]") {
-    std::string sqfs = "../test/scratch/sqfs/apptool/standalone/app43.squashfs";
+    std::string sqfs = "./test/data/sqfs/apptool/standalone/app43.squashfs";
     {
         REQUIRE(fs::is_regular_file(sqfs));
         auto meta = util::unsquashfs_tmp(sqfs, "meta");

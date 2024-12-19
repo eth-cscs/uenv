@@ -38,11 +38,10 @@ jobs:
               --werror \
               build .
       - name: Build
-        run: ninja -C build
-      - name: Setup Test
-        run: cd test/setup && ./setup
-      - name: Test
+        run: meson -C build compile
+      - name: test unit
         run: |
-          export ASAN_OPTIONS=fast_unwind_on_malloc=0:strict_string_checks=1:detect_leaks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
-          export UBSAN_OPTIONS=print_stacktrace=1
-          cd build && ./unit
+          meson -C build test unit
+      - name: test cli
+        run: |
+          meson -C build test cli

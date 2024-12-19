@@ -2,7 +2,12 @@
 
 DIR=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
 
+if [ "$#" -eq 0 ]; then
+  install_path="$DIR/../scratch"
+else
+  install_path="$(realpath $1)"
+fi
+
 source $DIR/setup_repos.bash
 
-echo "setup_repos $DIR/../scratch"
-setup_repos $DIR/../scratch
+setup_repos $install_path
