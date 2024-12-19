@@ -37,8 +37,8 @@ jobs:
           mv meson-1.6.1 meson && \
           mv meson/meson.py meson/meson
       - name: Configure
-        run: |
-            CXX="ccache g++-12" PATH=$(pwd)/meson:$PATH meson setup \
+        run: CXX="ccache g++-12" PATH=$(pwd)/meson:$PATH \
+              meson setup \
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
               -Dtests=enabled \
@@ -46,10 +46,8 @@ jobs:
               --werror \
               build .
       - name: Build
-        run: meson compile -Cbuild
+        run: ./meson/meson compile -Cbuild
       - name: test unit
-        run: |
-          meson test -Cbuild --verbose unit
+        run: ./meson/meson test -Cbuild --verbose unit
       - name: test cli
-        run: |
-          meson test -Cbuild --verbose cli
+        run: ./meson/meson test -Cbuild --verbose cli
