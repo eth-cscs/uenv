@@ -10,10 +10,8 @@ jobs:
   build-and-test:
     strategy:
       matrix:
-        #buildtype: [debug, release]
-        #sanitizer: [none, address, leak, undefined, thread]
-        buildtype: [debug]
-        sanitizer: [none]
+        buildtype: [debug, release]
+        sanitizer: [none, address, leak, undefined, thread]
         exclude:
           # False positive warnings in release builds: https://godbolt.org/z/vT3nqGxzW
           - buildtype: release
