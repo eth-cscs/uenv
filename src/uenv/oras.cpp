@@ -1,6 +1,6 @@
-// #include <filesystem>
 #include <unistd.h>
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -22,10 +22,51 @@ namespace oras {
 
 using opt_creds = std::optional<credentials>;
 
+// stores the "result" of calling the oras cli tool as an external process.
 struct oras_output {
-    int rcode = -1;
+    // return code of the oras call
+    int returncode = -1;
+
+    // the full captured stdout output
     std::string stdout;
+
+    // the full captured stderr output
     std::string stderr;
+};
+
+constexpr auto generic_error_message =
+    "unknown error - rerun with the -vvv flag and send an error report to the "
+    "CSCS service desk.";
+
+error generic_error(std::string err) {
+    return {-1, std::move(err), generic_error_message};
+}
+
+// Convert oras_output to a uenv::oras::error.
+// oras returns 1 for all errors (from what we observe - there is no
+// documentation).
+// Hence, parse stderr & stdout for hints about what went wrong to generate the
+// user-friendly message
+error create_error(const oras_output& result) {
+    if (result.returncode == 0) {
+        return {0, {}, {}};
+    }
+    std::string message = generic_error_message;
+
+    auto contains = [](std::string_view string,
+                       std::string_view contents) -> bool {
+        return string.find(contents) != std::string_view::npos;
+    };
+    std::string_view err = result.stderr;
+    if (contains(err, "403") && contains(err, "Forbidden")) {
+        return {
+            403, result.stderr,
+            "Invalid credentials were provided, or you may not have permission "
+            "to perform the requested action.\nTry using the --token flag if "
+            "you are trying to access restricted software.\nCSCS staff can "
+            "configure oras to use their credentials."};
+    }
+    return {result.returncode, result.stderr, std::move(message)};
 };
 
 std::vector<std::string>
@@ -57,7 +98,7 @@ oras_output run_oras(std::vector<std::string> args) {
     auto oras = util::oras_path();
     if (!oras) {
         spdlog::error("no oras executable found");
-        return {.rcode = -1};
+        return {.returncode = -1};
     }
 
     args.insert(args.begin(), oras->string());
@@ -66,7 +107,7 @@ oras_output run_oras(std::vector<std::string> args) {
 
     auto result = proc->wait();
 
-    return {.rcode = result,
+    return {.returncode = result,
             .stdout = proc->out.string(),
             .stderr = proc->err.string()};
 }
@@ -83,7 +124,7 @@ run_oras_async(std::vector<std::string> args) {
     return util::run(args);
 }
 
-util::expected<std::vector<std::string>, std::string>
+util::expected<std::vector<std::string>, error>
 discover(const std::string& registry, const std::string& nspace,
          const uenv_record& uenv, const opt_creds token) {
     auto address =
@@ -100,9 +141,10 @@ discover(const std::string& registry, const std::string& nspace,
     }
     auto result = run_oras(args);
 
-    if (result.rcode) {
-        spdlog::error("oras discover {}: {}", result.rcode, result.stderr);
-        return util::unexpected{result.stderr};
+    if (result.returncode) {
+        spdlog::error("oras discover returncode={} stderr='{}'",
+                      result.returncode, result.stderr);
+        return util::unexpected{create_error(result)};
     }
 
     std::vector<std::string> manifests;
@@ -114,13 +156,13 @@ discover(const std::string& registry, const std::string& nspace,
         }
     } catch (std::exception& e) {
         spdlog::error("unable to parse oras discover json: {}", e.what());
-        return util::unexpected(fmt::format("", e.what()));
+        return util::unexpected(generic_error(e.what()));
     }
 
     return manifests;
 }
 
-util::expected<void, int>
+util::expected<void, error>
 pull_digest(const std::string& registry, const std::string& nspace,
             const uenv_record& uenv, const std::string& digest,
             const std::filesystem::path& destination, const opt_creds token) {
@@ -140,19 +182,19 @@ pull_digest(const std::string& registry, const std::string& nspace,
     }
     auto proc = run_oras(args);
 
-    if (proc.rcode) {
+    if (proc.returncode) {
         spdlog::error("unable to pull digest with oras: {}", proc.stderr);
-        return util::unexpected{proc.rcode};
+        return util::unexpected{create_error(proc)};
     }
 
     return {};
 }
 
-util::expected<void, int> pull_tag(const std::string& registry,
-                                   const std::string& nspace,
-                                   const uenv_record& uenv,
-                                   const std::filesystem::path& destination,
-                                   const opt_creds token) {
+util::expected<void, error> pull_tag(const std::string& registry,
+                                     const std::string& nspace,
+                                     const uenv_record& uenv,
+                                     const std::filesystem::path& destination,
+                                     const opt_creds token) {
     using namespace std::chrono_literals;
     namespace fs = std::filesystem;
     namespace bk = barkeep;
@@ -174,10 +216,8 @@ util::expected<void, int> pull_tag(const std::string& registry,
 
     if (!proc) {
         spdlog::error("unable to pull tag with oras: {}", proc.error());
-        return util::unexpected{-1};
+        return util::unexpected{generic_error(proc.error())};
     }
-
-    util::set_signal_catcher();
 
     const fs::path& sqfs = destination / "store.squashfs";
 
@@ -194,11 +234,14 @@ util::expected<void, int> pull_tag(const std::string& registry,
                                         : bk::ProgressBarStyle::Bars,
             .no_tty = !isatty(fileno(stdout)),
         });
+
+    util::set_signal_catcher();
     while (!proc->finished()) {
         std::this_thread::sleep_for(100ms);
         // handle a signal, usually SIGTERM or SIGINT
         if (util::signal_raised()) {
-            spdlog::warn("signal raised - interrupting download");
+            spdlog::error("signal raised - interrupting download");
+            proc->kill();
             throw util::signal_exception(util::last_signal_raised());
         }
         if (fs::is_regular_file(sqfs)) {
@@ -210,13 +253,15 @@ util::expected<void, int> pull_tag(const std::string& registry,
 
     if (proc->rvalue()) {
         spdlog::error("unable to pull tag with oras: {}", proc->err.string());
-        return util::unexpected{proc->rvalue()};
+        return util::unexpected{create_error({.returncode = proc->rvalue(),
+                                              .stdout = proc->out.string(),
+                                              .stderr = proc->err.string()})};
     }
 
     return {};
 }
 
-util::expected<void, int>
+util::expected<void, error>
 copy(const std::string& registry, const std::string& src_nspace,
      const uenv_record& src_uenv, const std::string& dst_nspace,
      const uenv_record& dst_uenv, const std::optional<credentials> token) {
@@ -239,9 +284,9 @@ copy(const std::string& registry, const std::string& src_nspace,
     }
     auto result = run_oras(args);
 
-    if (result.rcode) {
-        spdlog::error("oras cp {}: {}", result.rcode, result.stderr);
-        return util::unexpected{result.rcode};
+    if (result.returncode) {
+        spdlog::error("oras cp {}: {}", result.returncode, result.stderr);
+        return util::unexpected{create_error(result)};
     }
 
     return {};

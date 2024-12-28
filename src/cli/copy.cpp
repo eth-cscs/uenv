@@ -171,7 +171,7 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
             oras::copy(rego_url, src_label.nspace.value(), src_record,
                        dst_label.nspace.value(), dst_record, credentials);
         !result) {
-        term::error("unable to copy uenv - rerun with -vvv and file a bug");
+        term::error("unable to copy uenv.\n{}", result.error().message);
         return 1;
     }
 

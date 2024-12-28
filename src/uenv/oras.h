@@ -16,25 +16,42 @@ struct credentials {
     std::string token;
 };
 
+struct error {
+    error(std::string_view msg) : message(msg) {
+    }
+    error(int code, std::string_view err, std::string_view msg)
+        : returncode(code), stderr(err), message(msg) {
+    }
+    error() = default;
+
+    int returncode = 0;
+    std::string stderr = {};
+    std::string message = {};
+
+    operator bool() const {
+        return returncode == 0;
+    };
+};
+
 bool pull(std::string rego, std::string nspace);
 
-util::expected<std::vector<std::string>, std::string>
+util::expected<std::vector<std::string>, error>
 discover(const std::string& registry, const std::string& nspace,
          const uenv_record& uenv,
          const std::optional<credentials> token = std::nullopt);
 
-util::expected<void, int>
+util::expected<void, error>
 pull_digest(const std::string& registry, const std::string& nspace,
             const uenv_record& uenv, const std::string& digest,
             const std::filesystem::path& destination,
             const std::optional<credentials> token = std::nullopt);
 
-util::expected<void, int>
+util::expected<void, error>
 pull_tag(const std::string& registry, const std::string& nspace,
          const uenv_record& uenv, const std::filesystem::path& destination,
          const std::optional<credentials> token = std::nullopt);
 
-util::expected<void, int>
+util::expected<void, error>
 copy(const std::string& registry, const std::string& src_nspace,
      const uenv_record& src_uenv, const std::string& dst_nspace,
      const uenv_record& dst_uenv,
