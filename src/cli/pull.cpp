@@ -174,9 +174,8 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             auto digests =
                 oras::discover(rego_url, nspace, record, credentials);
             if (!digests || digests->empty()) {
-                term::error(
-                    "unable to pull image - rerun with -vvv flag and send "
-                    "error report to service desk.\n");
+                term::error("unable to pull uenv.\n{}",
+                            digests.error().message);
                 return 1;
             }
             spdlog::debug("manifests: {}", fmt::join(*digests, ", "));
@@ -186,22 +185,24 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             if (auto okay = oras::pull_digest(rego_url, nspace, record, digest,
                                               paths.store, credentials);
                 !okay) {
-                term::error(
-                    "unable to pull image - rerun with -vvv flag and send "
-                    "error report to service desk.\n");
+                term::error("unable to pull uenv.\n{}", okay.error().message);
                 return 1;
             }
 
             auto tag_result = oras::pull_tag(rego_url, nspace, record,
                                              paths.store, credentials);
             if (!tag_result) {
+                term::error("unable to pull uenv.\n{}",
+                            tag_result.error().message);
                 return 1;
             }
         } catch (util::signal_exception& e) {
+            spdlog::info("cleaning up after interrupted download");
             spdlog::debug("removing record {}", record);
             store->remove(record.sha);
             spdlog::debug("deleting path {}", paths.store);
             std::filesystem::remove_all(paths.store);
+            // reraise the signal
             raise(e.signal);
         }
     } else {
