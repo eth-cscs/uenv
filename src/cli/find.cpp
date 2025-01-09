@@ -63,6 +63,7 @@ int image_find([[maybe_unused]] const image_find_args& args,
             return 1;
         }
     }
+    label.system = site::get_system_name(label.system);
     spdlog::info("image_find: {}::{}", nspace, label);
 
     auto store = site::registry_listing(nspace);

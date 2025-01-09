@@ -1,5 +1,6 @@
 .cache
 *.sw[onpq]
+compile_commands.json
 
 subprojects/Catch2-*
 subprojects/CLI11-*
