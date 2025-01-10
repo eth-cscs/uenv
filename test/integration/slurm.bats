@@ -1,18 +1,27 @@
 function setup() {
-    bats_install_path=$(realpath ./install)
-    export BATS_LIB_PATH=$bats_install_path/bats-helpers
+    # set the cluster name to be arapiles
+    # this is required for tests to work when run on a vCluster
+    # that sets this variable
+    export CLUSTER_NAME=arapiles
 
     bats_load_library bats-support
     bats_load_library bats-assert
     load ./common
 
-    export REPOS=$(realpath ../scratch/repos)
-    export SQFS_LIB=$(realpath ../scratch/sqfs)
+    unset UENV_MOUNT_LIST
+
+    export PATH="$BUILD_PATH:$PATH"
 
     unset UENV_MOUNT_LIST
 
-    # TODO: this should be more flexible
-    export PATH="$(realpath ../../build):$PATH"
+    # set up location for creation of working repos
+    export TMP=$DATA/scratch
+    rm -rf $TMP
+    mkdir -p $TMP
+
+    # remove the bash function uenv, if an older version of uenv is installed on
+    # the system
+    unset -f uenv
 }
 
 function teardown() {

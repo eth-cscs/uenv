@@ -211,6 +211,27 @@ function teardown() {
     assert_output "hello tool"
 }
 
+@test "start" {
+    export UENV_REPO_PATH=$REPOS/apptool
+    export CLUSTER_NAME=arapiles
+
+    #
+    # check that run looks up images in the repo and mounts at the correct location
+    #
+    run uenv start tool <<EOF
+echo 'hello world'
+exit
+EOF
+    assert_failure
+    assert_output --partial "must be run in an interactive shell"
+
+    run uenv start --ignore-tty tool <<EOF
+echo 'hello world'
+exit
+EOF
+    assert_success
+}
+
 @test "image add" {
     # using UENV_REPO_PATH env variable
     RP=$(mktemp -d $TMP/create-XXXXXX)
