@@ -215,6 +215,10 @@ function teardown() {
     export UENV_REPO_PATH=$REPOS/apptool
     export CLUSTER_NAME=arapiles
 
+    # set UENV_BATS_SKIP_START to skip the start tests.
+    # used when running tests in a no-tty env (e.g. in GitHub action runner).
+    [[ ! -z "$UENV_BATS_SKIP_START" ]] && skip
+
     #
     # check that run looks up images in the repo and mounts at the correct location
     #

@@ -61,4 +61,4 @@ jobs:
       - name: test cli
         run: |
           sudo mkdir /user-tools /user-environment
-          ./meson/meson test -Cbuild --verbose cli
+          UENV_BATS_SKIP_START=on ./meson/meson test -Cbuild --verbose cli
