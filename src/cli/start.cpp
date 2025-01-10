@@ -52,9 +52,7 @@ std::optional<std::string> detect_non_interactive() {
     if (std::getenv("BASH_EXECUTION_STRING")) {
         return "BASH_EXECUTION_STRING is set";
     }
-    if (!std::getenv("PS1")) {
-        return "PS1 is not set";
-    }
+    // don't check PS1 - PS1 is not exported by tools like oh-my-posh in zsh
     return std::nullopt;
 }
 
@@ -82,8 +80,6 @@ If your intention is to initialize an environment (like module load), uenv start
 will not work, because it starts a new interactive shell.)",
                       reason.value(), "uenv run --help"));
         return 1;
-    } else {
-        fmt::println("uenv start worked!");
     }
 
     const auto env = concretise_env(args.uenv_description,
