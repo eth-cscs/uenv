@@ -26,6 +26,7 @@ test_generated_data = custom_target (
 
 fs = import('fs')
 fs.copyfile('integration/cli.bats', 'cli.bats')
+fs.copyfile('integration/slurm.bats', 'slurm.bats')
 fs.copyfile('integration/common.bash', 'common.bash')
 
 suite_input = integration_path + '/setup_suite.bash.in'
