@@ -14,11 +14,11 @@ rm -rf $build
 rm -rf $pyenv
 echo "== configure in $build"
 
-CC=gcc-12 CXX=g++-12 uenv run prgenv-gnu/24.11:v1 --view=default -- meson setup --prefix=$install $build $root
+CC=gcc-12 CXX=g++-12 uenv run --view=default prgenv-gnu/24.11:v1 -- meson setup --prefix=$install $build $root
 echo "== build"
-uenv run prgenv-gnu/24.11:v1 --view=default -- meson compile -C$build
+uenv run --view=default prgenv-gnu/24.11:v1  -- meson compile -C$build
 echo "== install"
-uenv run prgenv-gnu/24.11:v1 --view=default -- meson install -C$build --skip-subprojects
+uenv run --view=default prgenv-gnu/24.11:v1 -- meson install -C$build --skip-subprojects
 
 echo ""
 echo "== succesfully installed"
