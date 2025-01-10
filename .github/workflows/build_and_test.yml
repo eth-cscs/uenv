@@ -22,27 +22,43 @@ jobs:
       - name: Update apt repositories for ccache
         run: sudo apt update
       - name: Install dependencies
-        run: sudo apt-get install util-linux libmount-dev slurm-wlm libslurm-dev slurmd slurmctld slurm-client
-      - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ccache-linux-${{ matrix.buildtype }}-${{ matrix.sanitizer }}
-      - name: Setup compiler and build tools
-        run: sudo apt install --no-install-recommends --yes g++-12 meson ninja-build
+        run: sudo apt-get install util-linux libmount-dev libslurm-dev
+      #  run: sudo apt-get install util-linux libmount-dev slurm-wlm libslurm-dev slurmd slurmctld slurm-client
+      # disable for now, because the cache has never actually worked
+      # ironically, this means that it slows down the build
+      #- name: Set up ccache
+      #    uses: hendrikmuhs/ccache-action@v1.2
+      #  with:
+      #    key: ccache-linux-${{ matrix.buildtype }}-${{ matrix.sanitizer }}
+      - name: Install compiler and build tools
+        run: sudo apt install --no-install-recommends --yes g++-12 ninja-build
+      - name: install meson
+        run: |
+          wget https://github.com/mesonbuild/meson/releases/download/1.6.1/meson-1.6.1.tar.gz && \
+          tar -xzf meson-1.6.1.tar.gz && \
+          mv meson-1.6.1 meson && \
+          mv meson/meson.py meson/meson
+      - name: install squashfs-mount
+        run: |
+          wget https://github.com/eth-cscs/squashfs-mount/archive/refs/tags/v1.1.0.tar.gz
+          tar -xzf v1.1.0.tar.gz
+          ./meson/meson setup build-sqfs squashfs-mount-1.1.0
+          ./meson/meson compile -C build-sqfs
+          sudo ./meson/meson install -C build-sqfs
       - name: Configure
         run: |
-            CXX="ccache g++-12" meson setup \
+            CC="gcc-12" CXX="g++-12" ./meson/meson setup \
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
+              -Dtests=enabled \
               --warnlevel 3 \
               --werror \
               build .
       - name: Build
-        run: ninja -C build
-      - name: Setup Test
-        run: cd test/setup && ./setup
-      - name: Test
+        run: ./meson/meson compile -Cbuild
+      - name: test unit
+        run: ./meson/meson test -Cbuild --verbose unit
+      - name: test cli
         run: |
-          export ASAN_OPTIONS=fast_unwind_on_malloc=0:strict_string_checks=1:detect_leaks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
-          export UBSAN_OPTIONS=print_stacktrace=1
-          cd build && ./unit
+          sudo mkdir /user-tools /user-environment
+          ./meson/meson test -Cbuild --verbose cli

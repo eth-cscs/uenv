@@ -6,7 +6,7 @@ project('uenv', ['cpp'],
           'warning_level=3',
         ],
         version: files('VERSION'),
-        meson_version: '>=0.57')
+        meson_version: '>=1.3')
 version = meson.project_version()
 
 oras_version = get_option('oras_version')
@@ -22,13 +22,13 @@ add_global_arguments('-Wno-missing-field-initializers', language : 'cpp')
 
 # use meson wrap to provide the dependencies, because the 'default_library=static' option
 # will be propogated to each dependency, for a statically linked executable.
-catch_dep = subproject('catch2', default_options: ['werror=false', 'warning_level=0']).get_variable('catch2_with_main_dep')
+catch_dep = subproject('catch2', default_options: ['werror=false', 'warning_level=0', 'tests=false']).get_variable('catch2_with_main_dep')
 cli11_dep = subproject('cli11', default_options: ['werror=false', 'warning_level=0']).get_variable('CLI11_dep')
 fmt_dep   = subproject('fmt', default_options: ['werror=false', 'warning_level=0']).get_variable('fmt_dep')
 json_dep = subproject('nlohmann_json', default_options: ['werror=false', 'warning_level=0']).get_variable('nlohmann_json_dep')
 spdlog_dep   = subproject('spdlog', default_options: ['werror=false', 'warning_level=0','std_format=disabled','external_fmt=enabled']).get_variable('spdlog_dep')
 sqlite3_dep = subproject('sqlite3', default_options: ['werror=false', 'warning_level=0']).get_variable('sqlite3_dep')
-subproject('curl', default_options: ['werror=false', 'warning_level=0'])
+subproject('curl', default_options: ['werror=false', 'warning_level=0', 'tests=disabled', 'unittests=disabled', 'tool=disabled'])
 
 curl_dep = dependency('libcurl', required: true)
 barkeep_dep = declare_dependency(
@@ -106,7 +106,7 @@ if uenv_cli
     oras_download = custom_target(
         'oras-download',
         output: 'oras.tar.gz',
-        command: ['curl', '-L', oras_url, '-o', '@OUTPUT@'],
+        command: ['wget', '--quiet', oras_url, '-O', '@OUTPUT@'],
         install: false,
     )
 
@@ -120,25 +120,11 @@ if uenv_cli
     )
 endif
 
-unit_src = [
-        'test/unit/dates.cpp',
-        'test/unit/env.cpp',
-        'test/unit/envvars.cpp',
-        'test/unit/fs.cpp',
-        'test/unit/lex.cpp',
-        'test/unit/main.cpp',
-        'test/unit/parse.cpp',
-        'test/unit/signal.cpp',
-        'test/unit/repository.cpp',
-        'test/unit/subprocess.cpp',
-]
-
-unit = executable('unit',
-        sources: unit_src,
-        dependencies: [catch_dep, lib_dep],
-        build_by_default: true,
-        install: false)
-
 if uenv_slurm_plugin
     subdir('src/slurm')
 endif
+
+if get_option('tests').enabled()
+    subdir('test')
+endif
+

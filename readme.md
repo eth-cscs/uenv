@@ -40,35 +40,61 @@ cd uenv2
 The software uses meson wrap to bring its own dependencies, all of which are built as static libraries.
 
 To build you only need
-* meson
+* meson >= 1.5
 * ninja
-* g++ that supports C++17 (including the `std::filesystem` library implementation
+* g++ that supports C++20 (we test g++12 regularly)
 
 On your laptop these requirements can be met using your package manager of choice.
 
 On an Alps vCluster, we want to use the system compiler "as is" without using a uenv or modules. The `g++` requirement is met by the `g++-12` compiler, that is installed on the vClusters as part of the boot image. The easiest way to set up meson and ninja is to pip install them to create an isolated build environment.
 
-```
-python3 -m venv ./.env
-source .env/bin/activate
-pip install ninja meson
+On Alps the version of Python3 is ancient, so it can't support the required meson version.
+The `prgenv-gnu/24.11` uenv provides all of the tools required.
 
-mkdir build
-cd build
-CC=gcc-12 CXX=g++-12 meson setup ..
-
-ninja
 ```
+alias e="uenv run prgenv-gnu/24.11:v1 --view=default --"
+CXX=g++-12 e meson setup -Dtests=enabled build
+e meson compile -Cbuild
+```
+
+* use the system version of gcc-12 in order to create a statically linked binary that can run outside the uenv
+* the integraton tests can't be run through the alias (or in the uenv), because it isn't possible to use `uenv run` or `uenv start` inside a uenv.
 
 ## testing
 
-**NOTE**: the tests require setup stages that are not straightforward to set up on Alps. A PR that fixes these issues is coming soon.
+There are three sets of tests:
 
-The C++ library has unit tests, that are built by default as the `unit` executable in the build path:
+* `unit`: unit tests for the C++ library components (Catch2)
+* `cli`: tests for the CLI interface (bats)
+* `slurm`: tests for the Slurm plugin (bats)
 
-```bash
-> ./unit
-Randomness seeded to: 478418581
-===============================================================================
-All tests passed (137 assertions in 16 test cases)
+To build tests, use the `-Dtests=enabled` flag to meson
+
 ```
+meson setup -Dtests=enabled
+```
+
+The tests are installed in the `test` sub-directory of the build path:
+```
+cd build/test
+
+# run the unit tests
+./unit
+
+# run the cli tests
+./bats cli.bats
+```
+
+The tests can also be run using meson:
+```
+# run all the tests
+meson test
+
+# or run test suites separately
+meson test cli
+meson test unit
+```
+
+**NOTE**: the slurm integration tests require configuring Slurm to use the plugin, which requires root permissions.
+For this reason, they can't be tested on Alps vClusters.
+
