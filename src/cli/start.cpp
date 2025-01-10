@@ -1,4 +1,5 @@
 // vim: ts=4 sts=4 sw=4 et
+#include <unistd.h>
 
 #include <string>
 
@@ -31,14 +32,60 @@ void start_args::add_cli(CLI::App& cli,
         ->add_option("uenv", uenv_description,
                      "comma separated list of uenv to mount")
         ->required();
+    start_cli->add_flag("--ignore-tty", ignore_tty,
+                        "don't check for non-interactive shells");
     start_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::start; });
     start_cli->footer(start_footer);
 }
 
+// check whether running in a tty session.
+// uenv start doesn't make sense when not tty - it is designed for running
+// an interactive session.
+std::optional<std::string> detect_non_interactive() {
+    if (!isatty(fileno(stdout))) {
+        return "stdout is redirected";
+    }
+    if (!isatty(fileno(stdin))) {
+        return "stdin is redirected";
+    }
+    if (std::getenv("BASH_EXECUTION_STRING")) {
+        return "BASH_EXECUTION_STRING is set";
+    }
+    if (!std::getenv("PS1")) {
+        return "PS1 is not set";
+    }
+    return std::nullopt;
+}
+
 int start(const start_args& args,
           [[maybe_unused]] const global_settings& globals) {
     spdlog::info("start with options {}", args);
+
+    if (auto reason = detect_non_interactive(); !args.ignore_tty && reason) {
+        term::error(
+            "{}", fmt::format(
+                      R"('uenv start' must be run in an interactive shell ({}).
+
+Use the flag --ignore-tty to skip this check.
+
+This error will occur if uenv start is called within contexts like the following:
+
+- inside .bashrc
+- in a slurm batch script
+- in a bash script
+
+If your intention is to execute a command in a uenv, use run.
+See '{}' for more information
+
+If your intention is to initialize an environment (like module load), uenv start
+will not work, because it starts a new interactive shell.)",
+                      reason.value(), "uenv run --help"));
+        return 1;
+    } else {
+        fmt::println("uenv start worked!");
+    }
+
     const auto env = concretise_env(args.uenv_description,
                                     args.view_description, globals.repo);
 
