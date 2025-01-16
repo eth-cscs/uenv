@@ -205,10 +205,6 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             // reraise the signal
             raise(e.signal);
         }
-    } else {
-        term::msg("no uenv to pull: the sha\n  {}\nis already in the local "
-                  "repository.",
-                  color::yellow(record.sha.string()));
     }
 
     // add the label to the repo, even if there was no download.
