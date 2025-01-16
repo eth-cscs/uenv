@@ -205,6 +205,8 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             // reraise the signal
             raise(e.signal);
         }
+    } else {
+      term::msg("id={} already exists in the repository, skipping pull. Updating database.", record.id.string());
     }
 
     // add the label to the repo, even if there was no download.
