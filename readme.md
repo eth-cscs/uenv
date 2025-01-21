@@ -7,7 +7,7 @@ A rewrite of uenv in C++:
 
 Not just a rewrite - new features!
 * `uenv image build $recipe_path arbor/10.1@todi%gh200` - automatically dispatch a build job to build your uenv and deploy it on JFrog.
-* `uenv image add $SCRATCH/myimages/arbor.squashfs arbor/10.1:v2@todi%gh200` add a squashfs file to your local repository and give it a label
+* `uenv image add arbor/10.1:v2@todi%gh200 $SCRATCH/myimages/arbor.squashfs` add a squashfs file to your local repository and give it a label
 * `uenv image rm prgenv-gnu/24.11:rc4` remove a uenv from your local repository
 * `uenv image find @eiger` find all uenv on eigher
 * `uenv image find @'*'%gh200` show all uenv built for `gh200` on all clusters
