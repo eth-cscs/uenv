@@ -234,6 +234,24 @@ echo 'hello world'
 exit
 EOF
     assert_success
+
+    #
+    # check that attempting to call 'uenv run' in an already running session produces
+    # a user-friendly error message.
+    #
+    run uenv start --ignore-tty tool <<EOF
+uenv run tool -- echo "hi"
+exit
+EOF
+    assert_failure
+    assert_output --partial "a uenv session is already running"
+
+    run uenv start --ignore-tty tool <<EOF
+uenv start --ignore-tty tool
+exit
+EOF
+    assert_failure
+    assert_output --partial "a uenv session is already running"
 }
 
 @test "image add" {

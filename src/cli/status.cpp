@@ -38,7 +38,7 @@ int status([[maybe_unused]] const status_args& args,
            [[maybe_unused]] const global_settings& settings) {
     spdlog::info("uenv status");
 
-    if (!(std::getenv("UENV_MOUNT_LIST") && std::getenv("UENV_VIEW"))) {
+    if (!in_uenv_session()) {
         term::msg("there is no uenv loaded");
         return 0;
     }
