@@ -272,7 +272,8 @@ util::expected<uenv_description, parse_error> parse_uenv_description(lexer& L) {
     const auto k = L.current_kind();
 
     // try to parse a path
-    if (k == tok::slash) {
+    // if (k == tok::slash) {
+    if (is_path_start_tok(k)) {
         std::string path;
         PARSE(L, path, path);
         if (L.current_kind() == tok::colon) {
