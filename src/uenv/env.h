@@ -29,4 +29,7 @@ util::expected<int, std::string>
 setenv(const std::unordered_map<std::string, std::string>& variables,
        const std::string& prefix);
 
+// returns true iff in a running uenv session
+bool in_uenv_session();
+
 } // namespace uenv

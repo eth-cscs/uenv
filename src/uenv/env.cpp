@@ -23,6 +23,11 @@ namespace uenv {
 
 using util::unexpected;
 
+// returns true iff in a running uenv session
+bool in_uenv_session() {
+    return std::getenv("UENV_MOUNT_LIST") && std::getenv("UENV_VIEW");
+}
+
 struct meta_info {
     std::optional<std::filesystem::path> path;
     std::optional<std::filesystem::path> env;

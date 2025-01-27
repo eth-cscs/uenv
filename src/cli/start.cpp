@@ -60,6 +60,15 @@ int start(const start_args& args,
           [[maybe_unused]] const global_settings& globals) {
     spdlog::info("start with options {}", args);
 
+    // error if a uenv is already mounted
+    if (in_uenv_session()) {
+        term::error("{}",
+                    R"(a uenv session is already running.
+It is not possible to call 'uenv start' or 'uenv run' inside a uenv session.
+You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)");
+        return 1;
+    }
+
     if (auto reason = detect_non_interactive(); !args.ignore_tty && reason) {
         term::error(
             "{}", fmt::format(
