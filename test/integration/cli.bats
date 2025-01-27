@@ -209,6 +209,15 @@ function teardown() {
     run uenv run --view=tool $SQFS_LIB/apptool/standalone/tool.squashfs -- tool
     assert_success
     assert_output "hello tool"
+
+    #
+    # check that relative paths can be used for squashfs images
+    #
+
+    relativepath=./$(realpath -s --relative-to=$PWD $SQFS_LIB/apptool/standalone/tool.squashfs)
+    run uenv run --view=tool $relativepath -- tool
+    assert_success
+    assert_output "hello tool"
 }
 
 @test "start" {
