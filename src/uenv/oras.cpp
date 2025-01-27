@@ -66,6 +66,18 @@ error create_error(const oras_output& result) {
             "you are trying to access restricted software.\nCSCS staff can "
             "configure oras to use their credentials."};
     }
+    if (contains(err, "Token failed verification: parse") &&
+        contains(err, "Error response from registry")) {
+        return {
+            403, result.stderr,
+            "The token failed parsing. It may be invalid, the wrong token,\n"
+            "or need to be regenerated."};
+    }
+    if (contains(err, "Wrong username was used") &&
+        contains(err, "Error response from registry")) {
+        return {403, result.stderr,
+                "Invalid username was provided. Check the --username flag."};
+    }
     return {result.returncode, result.stderr, std::move(message)};
 };
 
