@@ -55,7 +55,7 @@ void create_completion_rec(CLI::App *cli) {
     //auto options_str = map<CLI::Option, std::string>(options, [] (CLI::Option *option) -> std::string {return option->get_name();});
     std::vector<std::string> options_str;
     options_str.reserve(options.size());
-    std::transform(options.begin(), options.end(), std::back_inserter(options_str), [] (auto *option) {return option->get_name();});
+    std::transform(options.begin(), options.end(), std::back_inserter(options_str), [] (auto *option) {return (option->nonpositional()) ? option->get_name() : "";});
     std::vector<std::string> subcommands_str;
     subcommands_str.reserve(options.size());
     std::transform(subcommands.begin(), subcommands.end(), std::back_inserter(subcommands_str), [] (auto *subcommand) {return subcommand->get_name();});
