@@ -27,14 +27,6 @@
 
 std::string help_footer();
 
-//template <typename T, typename U, typename Func>
-//std::vector<U> map(const std::vector<T>& input, Func func) {
-//    std::vector<U> output;
-//    output.reserve(input.size()); // Optimize allocation
-//    std::transform(input.begin(), input.end(), std::back_inserter(output), func);
-//    return output;
-//}
-
 //void normalize_bash_function_name(std::string &str) {
 //    std::replace(str.begin(), str.end(), '-', '_');
 //}
@@ -52,22 +44,35 @@ void create_completion_rec(CLI::App *cli) {
     auto options = cli->get_options();
     auto subcommands = cli->get_subcommands({});
 
-    //auto options_str = map<CLI::Option, std::string>(options, [] (CLI::Option *option) -> std::string {return option->get_name();});
-    std::vector<std::string> options_str;
-    options_str.reserve(options.size());
-    std::transform(options.begin(), options.end(), std::back_inserter(options_str), [] (auto *option) {return (option->nonpositional()) ? option->get_name() : "";});
+    std::vector<CLI::Option*> options_positional;
+    options_positional.reserve(options.size());
+    std::vector<CLI::Option*> options_non_positional;
+    options_non_positional.reserve(options.size());
+    auto is_positional = [](CLI::Option* option) {return option->get_positional();};
+    auto is_non_positional = [](CLI::Option* option) {return option->nonpositional();};
+    std::copy_if(options.begin(), options.end(), std::back_inserter(options_positional), is_positional);
+    std::copy_if(options.begin(), options.end(), std::back_inserter(options_non_positional), is_non_positional);
+
+    std::vector<std::string> options_non_positional_str;
+    options_non_positional_str.reserve(options_non_positional.size());
+    auto get_option_name = [](CLI::Option* option) {return option->get_name();};
+    std::transform(options_non_positional.begin(), options_non_positional.end(), std::back_inserter(options_non_positional_str), get_option_name);
+
     std::vector<std::string> subcommands_str;
     subcommands_str.reserve(options.size());
-    std::transform(subcommands.begin(), subcommands.end(), std::back_inserter(subcommands_str), [] (auto *subcommand) {return subcommand->get_name();});
+    auto get_subcommand_name = [](CLI::App* subcommand) {return subcommand->get_name();};
+    std::transform(subcommands.begin(), subcommands.end(), std::back_inserter(subcommands_str), get_subcommand_name);
 
     std::vector<std::string> complete_str;
-    complete_str.reserve(options_str.size() + subcommands_str.size());
-    complete_str.insert(complete_str.end(), options_str.begin(), options_str.end());
+    complete_str.reserve(options_non_positional_str.size() + subcommands_str.size());
+    complete_str.insert(complete_str.end(), options_non_positional_str.begin(), options_non_positional_str.end());
     complete_str.insert(complete_str.end(), subcommands_str.begin(), subcommands_str.end());
 
+    //TODO convert to functional
     std::string completions = "";
     for (auto s: complete_str)
         completions += s + " ";
+    //std::string completions = std::accumulate(complete_str.begin(), complete_str.end(), "", [](std::string X, std::string Y) {return X + Y + " ";});
 
     
     std::cout << func_name << "()" << std::endl;
