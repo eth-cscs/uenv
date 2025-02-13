@@ -9,6 +9,7 @@ root=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
 build=$root/build-alps-$arch
 pyenv=$root/pyenv-alps-$arch
 install=$HOME/.local/$arch
+uenv_version=$(cat VERSION)
 
 rm -rf $build
 rm -rf $pyenv
@@ -28,7 +29,7 @@ echo "add the following to your ~/.bashrc (or equivalent for .zshrc):"
 echo ""
 echo "Note:"
 echo "- log out and in again for the changes to take effect"
-echo "- if successful, 'uenv --version' will report version 6"
+echo "- if successful, 'uenv --version' will report version ${uenv_version}"
 echo ""
 echo "export PATH=$install/bin:\$PATH"
 echo "unset -f uenv"
