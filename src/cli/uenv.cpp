@@ -27,9 +27,101 @@
 
 std::string help_footer();
 
+//template <typename T, typename U, typename Func>
+//std::vector<U> map(const std::vector<T>& input, Func func) {
+//    std::vector<U> output;
+//    output.reserve(input.size()); // Optimize allocation
+//    std::transform(input.begin(), input.end(), std::back_inserter(output), func);
+//    return output;
+//}
+
+//void normalize_bash_function_name(std::string &str) {
+//    std::replace(str.begin(), str.end(), '-', '_');
+//}
+
+std::string get_prefix(CLI::App *cli) {
+    if (cli == nullptr)
+        return "";
+
+    CLI::App *parent = cli->get_parent();
+    return get_prefix(parent) + "_" + cli->get_name();
+}
+
+void create_completion_rec(CLI::App *cli) {
+    std::string func_name = get_prefix(cli);
+    auto options = cli->get_options();
+    auto subcommands = cli->get_subcommands({});
+
+    //auto options_str = map<CLI::Option, std::string>(options, [] (CLI::Option *option) -> std::string {return option->get_name();});
+    std::vector<std::string> options_str;
+    options_str.reserve(options.size());
+    std::transform(options.begin(), options.end(), std::back_inserter(options_str), [] (auto *option) {return option->get_name();});
+    std::vector<std::string> subcommands_str;
+    subcommands_str.reserve(options.size());
+    std::transform(subcommands.begin(), subcommands.end(), std::back_inserter(subcommands_str), [] (auto *subcommand) {return subcommand->get_name();});
+
+    std::vector<std::string> complete_str;
+    complete_str.reserve(options_str.size() + subcommands_str.size());
+    complete_str.insert(complete_str.end(), options_str.begin(), options_str.end());
+    complete_str.insert(complete_str.end(), subcommands_str.begin(), subcommands_str.end());
+
+    std::string completions = "";
+    for (auto s: complete_str)
+        completions += s + " ";
+
+    
+    std::cout << func_name << "()" << std::endl;
+    std::cout << "{" << std::endl;
+    std::cout << "    UENV_OPTS=\"" << completions << "\"" << std::endl;
+    std::cout << "}" << std::endl;
+    std::cout << std::endl;
+
+    //std::cout << "app: " << cli->get_name() << std::endl;
+    //std::cout << "prefix: " << get_prefix(cli) << std::endl;
+    ////for (auto s: complete_str)
+    ////    std::cout << "p: " << get_prefix(cli) << ": " << s << std::endl;
+    //std::cout << "p: " << get_prefix(cli) << ": " << completions << std::endl;
+    //std::cout << "options " << cli->get_name() << ":" << std::endl;
+    //for(auto *option : options)
+    //    std::cout << "Option: " << option->get_name() << '\n';
+    //std::cout << "subcommands " << cli->get_name() << ":" << std::endl;
+    for(auto *subcom : subcommands) {
+    //    std::cout << "Subcommand: " << subcom->get_name() << '\n';
+
+        create_completion_rec(subcom);
+
+    //    std::cout << "Subcommand: " << subcom->get_name() << " end" << '\n';
+    }
+}
+
+void create_completion(CLI::App *cli) {
+    create_completion_rec(cli);
+
+    std::cout << std::endl;
+    std::cout << "_uenv_completions()" << std::endl;
+    std::cout << "{" << std::endl;
+    std::cout << "    local cur prefix func_name UENV_OPTS" << std::endl;
+    std::cout << "    cur=\"${COMP_WORDS[COMP_CWORD]}\"" << std::endl;
+    std::cout << "    prefix=\"_${COMP_WORDS[*]:0:COMP_CWORD}\"" << std::endl;
+    std::cout << "    func_name=\"${prefix// /_}\"" << std::endl;
+    std::cout << "    func_name=\"${func_name//-/_}\"" << std::endl;
+    std::cout <<  std::endl;
+    std::cout << "    UENV_OPTS=\"\"" << std::endl;
+    std::cout << "    if typeset -f $func_name >/dev/null" << std::endl;
+    std::cout << "    then" << std::endl;
+    std::cout << "        $func_name" << std::endl;
+    std::cout << "    fi" << std::endl;
+    std::cout <<  std::endl;
+    std::cout << "    COMPREPLY=($(compgen -W \"${UENV_OPTS}\" -- \"${cur}\"))" << std::endl;
+    std::cout << "}" << std::endl;
+    std::cout << std::endl;
+    std::cout << "complete -F _uenv_completions uenv" << std::endl;
+}
+
 int main(int argc, char** argv) {
     uenv::global_settings settings;
     bool print_version = false;
+    bool generate_completion = false;
 
     // enable/disable color depending on NOCOLOR env. var and tty terminal
     // status.
@@ -45,6 +137,7 @@ int main(int argc, char** argv) {
         "enable color output");
     cli.add_flag("--repo", settings.repo_, "the uenv repository");
     cli.add_flag("--version", print_version, "print version");
+    cli.add_flag("--generate-completion", generate_completion, "generate bash completion script");
 
     cli.footer(help_footer);
 
@@ -89,6 +182,12 @@ int main(int argc, char** argv) {
     // print the version and exit if the --version flag was passed
     if (print_version) {
         term::msg("{}", UENV_VERSION);
+        return 0;
+    }
+
+    // generate bash completion script and exit if the --generate-completion flag was passed
+    if (generate_completion) {
+        create_completion(&cli);
         return 0;
     }
 
