@@ -68,6 +68,12 @@ void create_completion_rec(CLI::App *cli) {
     complete_str.insert(complete_str.end(), options_non_positional_str.begin(), options_non_positional_str.end());
     complete_str.insert(complete_str.end(), subcommands_str.begin(), subcommands_str.end());
 
+    //TODO generic for all special args
+    //TODO optimize the functions (reuse if possible)
+    auto has_name = [](CLI::Option* option, std::string name) {return option->get_name() == name;};
+    auto has_uenv = [has_name](CLI::Option* option) {return has_name(option, "uenv");};
+    bool special_uenv = std::any_of(options_positional.begin(), options_positional.end(), has_uenv);
+
     //TODO convert to functional
     std::string completions = "";
     for (auto s: complete_str)
@@ -78,6 +84,18 @@ void create_completion_rec(CLI::App *cli) {
     std::cout << func_name << "()" << std::endl;
     std::cout << "{" << std::endl;
     std::cout << "    UENV_OPTS=\"" << completions << "\"" << std::endl;
+    //TODO generic for all special args
+    if (special_uenv) {
+        std::string special_func_name = "_uenv_special_uenv";
+        std::string special_opts_name = "UENV_SPECIAL_OPTS_UENV";
+
+        std::cout << std::endl;
+        std::cout << "    if typeset -f " << special_func_name << " >/dev/null" << std::endl;
+        std::cout << "    then" << std::endl;
+        std::cout << "        " << special_func_name << std::endl;
+        std::cout << "        UENV_OPTS+=\" ${" << special_opts_name << "}\"" << std::endl;
+        std::cout << "    fi" << std::endl;
+    }
     std::cout << "}" << std::endl;
     std::cout << std::endl;
 
@@ -102,6 +120,11 @@ void create_completion_rec(CLI::App *cli) {
 void create_completion(CLI::App *cli) {
     create_completion_rec(cli);
 
+    std::cout << std::endl;
+    std::cout << "_uenv_special_uenv()" << std::endl;
+    std::cout << "{" << std::endl;
+    std::cout << "    UENV_SPECIAL_OPTS_UENV=$(uenv image ls --no-header | awk '{print $1}')" << std::endl;
+    std::cout << "}" << std::endl;
     std::cout << std::endl;
     std::cout << "_uenv_completions()" << std::endl;
     std::cout << "{" << std::endl;
