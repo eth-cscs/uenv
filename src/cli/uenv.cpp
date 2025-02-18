@@ -47,7 +47,8 @@ int main(int argc, char** argv) {
         "enable color output");
     cli.add_flag("--repo", settings.repo_, "the uenv repository");
     cli.add_flag("--version", print_version, "print version");
-    cli.add_flag("--generate-completion", generate_completion, "generate bash completion script");
+    cli.add_flag("--generate-completion", generate_completion,
+                 "generate bash completion script");
 
     cli.footer(help_footer);
 
@@ -95,7 +96,8 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // generate bash completion script and exit if the --generate-completion flag was passed
+    // generate bash completion script and exit if the --generate-completion
+    // flag was passed
     if (generate_completion) {
         util::completion::create_completion(&cli);
         return 0;
