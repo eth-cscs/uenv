@@ -61,23 +61,26 @@ void create_completion_rec(CLI::App *cli) {
     //std::string completions = std::accumulate(complete_str.begin(), complete_str.end(), "", [](std::string X, std::string Y) {return X + Y + " ";});
 
 
-    fmt::print("{}()\n", func_name);
-    fmt::print("{{\n");
-    fmt::print("    UENV_OPTS=\"{}\"\n", completions);
+    fmt::print(R"({func_name}()
+{{
+    UENV_OPTS="{completions}"
+)", fmt::arg("func_name", func_name),
+    fmt::arg("completions", completions));
     //TODO generic for all special args
     if (special_uenv) {
         std::string special_func_name = "_uenv_special_uenv";
         std::string special_opts_name = "UENV_SPECIAL_OPTS_UENV";
 
-        fmt::print("\n");
-        fmt::print("    if typeset -f {} >/dev/null\n", special_func_name);
-        fmt::print("    then\n");
-        fmt::print("        {}\n", special_func_name);
-        fmt::print("        UENV_OPTS+=\" ${{{}}}\"\n", special_opts_name);
-        fmt::print("    fi\n");
+        fmt::print(R"(
+    if typeset -f {special_func_name} >/dev/null
+    then
+        {special_func_name}
+        UENV_OPTS+=" ${{{special_opts_name}}}"
+    fi
+)", fmt::arg("special_func_name", special_func_name),
+    fmt::arg("special_opts_name", special_opts_name));
     }
-    fmt::print("}}\n");
-    fmt::print("\n");
+    fmt::print("}}\n\n");
 
     for(auto *subcom : subcommands)
         create_completion_rec(subcom);
@@ -86,44 +89,45 @@ void create_completion_rec(CLI::App *cli) {
 void create_completion(CLI::App *cli) {
     create_completion_rec(cli);
 
-    fmt::print("\n");
-    fmt::print("_uenv_special_uenv()\n");
-    fmt::print("{{\n");
-    fmt::print("    UENV_SPECIAL_OPTS_UENV=$(uenv image ls --no-header | awk '{{print $1}}')\n");
-    fmt::print("}}\n");
-    fmt::print("\n");
-    fmt::print("_uenv_completions()\n");
-    fmt::print("{{\n");
-    fmt::print("    local cur prefix func_name UENV_OPTS\n");
-    fmt::print("\n");
-    fmt::print("    local -a COMP_WORDS_NO_FLAGS\n");
-    fmt::print("    local index=0\n");
-    fmt::print("    while [[ \"$index\" -lt \"$COMP_CWORD\" ]]\n");
-    fmt::print("    do\n");
-    fmt::print("        if [[ \"${{COMP_WORDS[$index]}}\" == [a-z]* ]]\n");
-    fmt::print("        then\n");
-    fmt::print("            COMP_WORDS_NO_FLAGS+=(\"${{COMP_WORDS[$index]}}\")\n");
-    fmt::print("        fi\n");
-    fmt::print("        let index++\n");
-    fmt::print("    done\n");
-    fmt::print("    COMP_WORDS_NO_FLAGS+=(\"${{COMP_WORDS[$COMP_CWORD]}}\")\n");
-    fmt::print("    local COMP_CWORD_NO_FLAGS=$((${{#COMP_WORDS_NO_FLAGS[@]}} - 1))\n");
-    fmt::print("\n");
-    fmt::print("    cur=\"${{COMP_WORDS_NO_FLAGS[COMP_CWORD_NO_FLAGS]}}\"\n");
-    fmt::print("    prefix=\"_${{COMP_WORDS_NO_FLAGS[*]:0:COMP_CWORD_NO_FLAGS}}\"\n");
-    fmt::print("    func_name=\"${{prefix// /_}}\"\n");
-    fmt::print("    func_name=\"${{func_name//-/_}}\"\n");
-    fmt::print("\n");
-    fmt::print("    UENV_OPTS=\"\"\n");
-    fmt::print("    if typeset -f $func_name >/dev/null\n");
-    fmt::print("    then\n");
-    fmt::print("        $func_name\n");
-    fmt::print("    fi\n");
-    fmt::print("\n");
-    fmt::print("    COMPREPLY=($(compgen -W \"${{UENV_OPTS}}\" -- \"${{cur}}\"))\n");
-    fmt::print("}}\n");
-    fmt::print("\n");
-    fmt::print("complete -F _uenv_completions uenv\n");
+    fmt::print(R"(
+_uenv_special_uenv()
+{{
+    UENV_SPECIAL_OPTS_UENV=$(uenv image ls --no-header | awk '{{print $1}}')
+}}
+
+_uenv_completions()
+{{
+    local cur prefix func_name UENV_OPTS
+
+    local -a COMP_WORDS_NO_FLAGS
+    local index=0
+    while [[ "$index" -lt "$COMP_CWORD" ]]
+    do
+        if [[ "${{COMP_WORDS[$index]}}" == [a-z]* ]]
+        then
+            COMP_WORDS_NO_FLAGS+=("${{COMP_WORDS[$index]}}")
+        fi
+        let index++
+    done
+    COMP_WORDS_NO_FLAGS+=("${{COMP_WORDS[$COMP_CWORD]}}")
+    local COMP_CWORD_NO_FLAGS=$((${{#COMP_WORDS_NO_FLAGS[@]}} - 1))
+
+    cur="${{COMP_WORDS_NO_FLAGS[COMP_CWORD_NO_FLAGS]}}"
+    prefix="_${{COMP_WORDS_NO_FLAGS[*]:0:COMP_CWORD_NO_FLAGS}}"
+    func_name="${{prefix// /_}}"
+    func_name="${{func_name//-/_}}"
+
+    UENV_OPTS=""
+    if typeset -f $func_name >/dev/null
+    then
+        $func_name
+    fi
+
+    COMPREPLY=($(compgen -W "${{UENV_OPTS}}" -- "${{cur}}"))
+}}
+
+complete -F _uenv_completions uenv
+)");
 }
 
 } // namespace completion
