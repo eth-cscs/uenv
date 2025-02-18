@@ -247,8 +247,10 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
 
     // check whether SLURM_UENV or SLURM_UENV_VIEW has been set
     // the arguments passed via --uenv and --view take precedence
-    std::optional<std::string> uenv_description = getenv_wrapper(sp, "SLURM_UENV");
-    std::optional<std::string> view_description = getenv_wrapper(sp, "SLURM_UENV_VIEW");
+    std::optional<std::string> uenv_description =
+        getenv_wrapper(sp, "SLURM_UENV");
+    std::optional<std::string> view_description =
+        getenv_wrapper(sp, "SLURM_UENV_VIEW");
     args.uenv_description =
         args.uenv_description ? args.uenv_description : uenv_description;
     args.view_description =
