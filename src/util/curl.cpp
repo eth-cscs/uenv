@@ -169,7 +169,8 @@ expected<std::string, error> upload(std::string url,
     if (http_code >= 400) {
         return unexpected{
             error{CURLE_HTTP_RETURNED_ERROR,
-                  fmt::format("{}: {}", http_code, http_message(http_code))}};
+                  fmt::format("{}: {} \n {}", http_code,
+                              http_message(http_code), curl_stdout)}};
     }
 
     return curl_stdout;
