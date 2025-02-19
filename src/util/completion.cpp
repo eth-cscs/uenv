@@ -11,7 +11,8 @@ namespace completion {
 //     std::replace(str.begin(), str.end(), '-', '_');
 // }
 
-// std::vector<CLI::Option *> filter(std::vector<CLI::Option *> in, bool (*f)(CLI::Option *)) {
+// std::vector<CLI::Option *> filter(std::vector<CLI::Option *> in, bool
+// (*f)(CLI::Option *)) {
 //     std::vector<const CLI::Option*> out;
 //     out.reserve(in.size());
 //     std::copy_if(in.begin(), in.end(),
@@ -19,30 +20,25 @@ namespace completion {
 //     return out;
 // }
 
-template<typename Ts, typename Td>
+template <typename Ts, typename Td>
 std::vector<Td> map(std::vector<Ts> in, Td (*f)(Ts)) {
     std::vector<std::string> out;
     out.reserve(in.size());
-    std::transform(in.begin(), in.end(),
-                   std::back_inserter(out),
-                   f);
+    std::transform(in.begin(), in.end(), std::back_inserter(out), f);
     return out;
 }
 
-template<typename Ts, typename Td>
+template <typename Ts, typename Td>
 Td reduce(std::vector<Ts> in, Td (*f)(Td, Ts), Td init) {
     return std::accumulate(in.begin(), in.end(), init, f);
 }
 
-template<typename T>
-T reduce(std::vector<T> in, T (*f)(T, T), T init) {
+template <typename T> T reduce(std::vector<T> in, T (*f)(T, T), T init) {
     return reduce<T, T>(in, f, init);
 }
 
-template<typename T, typename F>
-bool is_in(std::vector<T> vec, F&& f) {
-    return std::any_of(vec.begin(),
-                       vec.end(), f);
+template <typename T, typename F> bool is_in(std::vector<T> vec, F&& f) {
+    return std::any_of(vec.begin(), vec.end(), f);
 }
 
 std::string get_prefix(CLI::App* cli) {
@@ -55,7 +51,7 @@ std::string get_prefix(CLI::App* cli) {
 
 void create_completion_rec(CLI::App* cli) {
     std::string func_name = get_prefix(cli);
-    //auto options = cli->get_options();
+    // auto options = cli->get_options();
     auto subcommands = cli->get_subcommands({});
 
     auto is_positional = [](CLI::Option* option) {
@@ -64,8 +60,10 @@ void create_completion_rec(CLI::App* cli) {
     auto is_non_positional = [](CLI::Option* option) {
         return option->nonpositional();
     };
-    std::vector<CLI::Option*> options_positional = cli->get_options(is_positional);
-    std::vector<CLI::Option*> options_non_positional = cli->get_options(is_non_positional);
+    std::vector<CLI::Option*> options_positional =
+        cli->get_options(is_positional);
+    std::vector<CLI::Option*> options_non_positional =
+        cli->get_options(is_non_positional);
 
     auto get_option_name = [](CLI::Option* option) {
         return option->get_name();
@@ -77,7 +75,8 @@ void create_completion_rec(CLI::App* cli) {
     auto concatenate_option_names = [](std::string str, CLI::Option* option) {
         return str + " " + option->get_name();
     };
-    auto concatenate_subcommand_names = [](std::string str, CLI::App* subcommand) {
+    auto concatenate_subcommand_names = [](std::string str,
+                                           CLI::App* subcommand) {
         return str + " " + subcommand->get_name();
     };
 
@@ -88,8 +87,11 @@ void create_completion_rec(CLI::App* cli) {
     };
     bool special_uenv = is_in<CLI::Option*>(options_positional, has_uenv);
 
-    std::string completions = reduce<CLI::Option*, std::string>(options_non_positional, concatenate_option_names, "")
-                            + reduce<CLI::App*, std::string>(subcommands, concatenate_subcommand_names, "");
+    std::string completions =
+        reduce<CLI::Option*, std::string>(options_non_positional,
+                                          concatenate_option_names, "") +
+        reduce<CLI::App*, std::string>(subcommands,
+                                       concatenate_subcommand_names, "");
 
     fmt::print(R"({func_name}()
 {{
