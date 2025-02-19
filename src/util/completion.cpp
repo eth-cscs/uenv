@@ -11,6 +11,40 @@ namespace completion {
 //     std::replace(str.begin(), str.end(), '-', '_');
 // }
 
+// std::vector<CLI::Option *> filter(std::vector<CLI::Option *> in, bool (*f)(CLI::Option *)) {
+//     std::vector<const CLI::Option*> out;
+//     out.reserve(in.size());
+//     std::copy_if(in.begin(), in.end(),
+//                  std::back_inserter(out), f);
+//     return out;
+// }
+
+template<typename Ts, typename Td>
+std::vector<Td> map(std::vector<Ts> in, Td (*f)(Ts)) {
+    std::vector<std::string> out;
+    out.reserve(in.size());
+    std::transform(in.begin(), in.end(),
+                   std::back_inserter(out),
+                   f);
+    return out;
+}
+
+template<typename Ts, typename Td>
+Td reduce(std::vector<Ts> in, Td (*f)(Td, Ts), Td init) {
+    return std::accumulate(in.begin(), in.end(), init, f);
+}
+
+template<typename T>
+T reduce(std::vector<T> in, T (*f)(T, T), T init) {
+    return reduce<T, T>(in, f, init);
+}
+
+template<typename T, typename F>
+bool is_in(std::vector<T> vec, F&& f) {
+    return std::any_of(vec.begin(),
+                       vec.end(), f);
+}
+
 std::string get_prefix(CLI::App* cli) {
     if (cli == nullptr)
         return "";
@@ -21,67 +55,41 @@ std::string get_prefix(CLI::App* cli) {
 
 void create_completion_rec(CLI::App* cli) {
     std::string func_name = get_prefix(cli);
-    auto options = cli->get_options();
+    //auto options = cli->get_options();
     auto subcommands = cli->get_subcommands({});
 
-    std::vector<CLI::Option*> options_positional;
-    options_positional.reserve(options.size());
-    std::vector<CLI::Option*> options_non_positional;
-    options_non_positional.reserve(options.size());
     auto is_positional = [](CLI::Option* option) {
         return option->get_positional();
     };
     auto is_non_positional = [](CLI::Option* option) {
         return option->nonpositional();
     };
-    std::copy_if(options.begin(), options.end(),
-                 std::back_inserter(options_positional), is_positional);
-    std::copy_if(options.begin(), options.end(),
-                 std::back_inserter(options_non_positional), is_non_positional);
+    std::vector<CLI::Option*> options_positional = cli->get_options(is_positional);
+    std::vector<CLI::Option*> options_non_positional = cli->get_options(is_non_positional);
 
-    std::vector<std::string> options_non_positional_str;
-    options_non_positional_str.reserve(options_non_positional.size());
     auto get_option_name = [](CLI::Option* option) {
         return option->get_name();
     };
-    std::transform(options_non_positional.begin(), options_non_positional.end(),
-                   std::back_inserter(options_non_positional_str),
-                   get_option_name);
+    // auto get_subcommand_name = [](CLI::App* subcommand) {
+    //     return subcommand->get_name();
+    // };
 
-    std::vector<std::string> subcommands_str;
-    subcommands_str.reserve(options.size());
-    auto get_subcommand_name = [](CLI::App* subcommand) {
-        return subcommand->get_name();
+    auto concatenate_option_names = [](std::string str, CLI::Option* option) {
+        return str + " " + option->get_name();
     };
-    std::transform(subcommands.begin(), subcommands.end(),
-                   std::back_inserter(subcommands_str), get_subcommand_name);
-
-    std::vector<std::string> complete_str;
-    complete_str.reserve(options_non_positional_str.size() +
-                         subcommands_str.size());
-    complete_str.insert(complete_str.end(), options_non_positional_str.begin(),
-                        options_non_positional_str.end());
-    complete_str.insert(complete_str.end(), subcommands_str.begin(),
-                        subcommands_str.end());
+    auto concatenate_subcommand_names = [](std::string str, CLI::App* subcommand) {
+        return str + " " + subcommand->get_name();
+    };
 
     // TODO generic for all special args
     // TODO optimize the functions (reuse if possible)
-    auto has_name = [](CLI::Option* option, std::string name) {
-        return option->get_name() == name;
+    auto has_uenv = [get_option_name](CLI::Option* option) {
+        return get_option_name(option) == "uenv";
     };
-    auto has_uenv = [has_name](CLI::Option* option) {
-        return has_name(option, "uenv");
-    };
-    bool special_uenv = std::any_of(options_positional.begin(),
-                                    options_positional.end(), has_uenv);
+    bool special_uenv = is_in<CLI::Option*>(options_positional, has_uenv);
 
-    // TODO convert to functional
-    std::string completions = "";
-    for (auto s : complete_str)
-        completions += s + " ";
-    // std::string completions = std::accumulate(complete_str.begin(),
-    // complete_str.end(), "", [](std::string X, std::string Y) {return X + Y +
-    // " ";});
+    std::string completions = reduce<CLI::Option*, std::string>(options_non_positional, concatenate_option_names, "")
+                            + reduce<CLI::App*, std::string>(subcommands, concatenate_subcommand_names, "");
 
     fmt::print(R"({func_name}()
 {{
