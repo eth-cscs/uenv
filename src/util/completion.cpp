@@ -1,5 +1,6 @@
 #include <CLI/CLI.hpp>
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 
 #include <util/completion.h>
 
@@ -49,35 +50,18 @@ std::string get_prefix(CLI::App* cli) {
     return get_prefix(parent) + "_" + cli->get_name();
 }
 
-void create_completion_rec(CLI::App* cli) {
-    std::string func_name = get_prefix(cli);
-    // auto options = cli->get_options();
-    auto subcommands = cli->get_subcommands({});
-
-    auto is_positional = [](CLI::Option* option) {
-        return option->get_positional();
-    };
-    auto is_non_positional = [](CLI::Option* option) {
-        return option->nonpositional();
-    };
-    std::vector<CLI::Option*> options_positional =
-        cli->get_options(is_positional);
-    std::vector<CLI::Option*> options_non_positional =
-        cli->get_options(is_non_positional);
+std::string create_completion_rec(CLI::App* cli) {
+    const auto subcommands = cli->get_subcommands({});
+    const auto options_positional = cli->get_options(
+        [](CLI::Option* option) {return option->get_positional();});
+    const auto options_non_positional = cli->get_options(
+        [](CLI::Option* option) {return option->nonpositional();});
 
     auto get_option_name = [](CLI::Option* option) {
         return option->get_name();
     };
-    // auto get_subcommand_name = [](CLI::App* subcommand) {
-    //     return subcommand->get_name();
-    // };
-
-    auto concatenate_option_names = [](std::string str, CLI::Option* option) {
-        return str + " " + option->get_name();
-    };
-    auto concatenate_subcommand_names = [](std::string str,
-                                           CLI::App* subcommand) {
-        return str + " " + subcommand->get_name();
+    auto get_subcommand_name = [](CLI::App* subcommand) {
+        return subcommand->get_name();
     };
 
     // TODO generic for all special args
@@ -87,24 +71,24 @@ void create_completion_rec(CLI::App* cli) {
     };
     bool special_uenv = is_in<CLI::Option*>(options_positional, has_uenv);
 
-    std::string completions =
-        reduce<CLI::Option*, std::string>(options_non_positional,
-                                          concatenate_option_names, "") +
-        reduce<CLI::App*, std::string>(subcommands,
-                                       concatenate_subcommand_names, "");
+    // TODO RJ do it smarter: ranges?
+    std::vector<std::string> completions = map<CLI::Option*, std::string>(
+        options_non_positional, get_option_name);
+    std::vector<std::string> tmp = map<CLI::App*, std::string>(subcommands, get_subcommand_name);
+    completions.insert(completions.end(), tmp.begin(), tmp.end());
 
-    fmt::print(R"({func_name}()
+    std::vector<std::string> func_command_str = {};
+    func_command_str.push_back(fmt::format(R"({}()
 {{
-    UENV_OPTS="{completions}"
+    UENV_OPTS="{}"
 )",
-               fmt::arg("func_name", func_name),
-               fmt::arg("completions", completions));
+               get_prefix(cli), fmt::join(completions, " ")));
     // TODO generic for all special args
     if (special_uenv) {
         std::string special_func_name = "_uenv_special_uenv";
         std::string special_opts_name = "UENV_SPECIAL_OPTS_UENV";
 
-        fmt::print(R"(
+        func_command_str.push_back(fmt::format(R"(
     if typeset -f {special_func_name} >/dev/null
     then
         {special_func_name}
@@ -112,44 +96,46 @@ void create_completion_rec(CLI::App* cli) {
     fi
 )",
                    fmt::arg("special_func_name", special_func_name),
-                   fmt::arg("special_opts_name", special_opts_name));
+                   fmt::arg("special_opts_name", special_opts_name)));
     }
-    fmt::print("}}\n\n");
+    func_command_str.push_back(fmt::format("}}\n\n"));
 
-    for (auto* subcom : subcommands)
-        create_completion_rec(subcom);
+    std::vector<std::string> func_subcommands_str = map<CLI::App*, std::string>(
+        subcommands, create_completion_rec);
+
+    return fmt::format("{}{}", fmt::join(func_command_str, ""), fmt::join(func_subcommands_str, ""));
 }
 
-void create_completion(CLI::App* cli) {
-    create_completion_rec(cli);
+std::string create_completion(CLI::App* cli) {
+    std::string prefix_functions = create_completion_rec(cli);
 
-    fmt::print(R"(
+    std::string main_functions = R"(
 _uenv_special_uenv()
-{{
-    UENV_SPECIAL_OPTS_UENV=$(uenv image ls --no-header | awk '{{print $1}}')
-}}
+{
+    UENV_SPECIAL_OPTS_UENV=$(uenv image ls --no-header | awk '{print $1}')
+}
 
 _uenv_completions()
-{{
+{
     local cur prefix func_name UENV_OPTS
 
     local -a COMP_WORDS_NO_FLAGS
     local index=0
     while [[ "$index" -lt "$COMP_CWORD" ]]
     do
-        if [[ "${{COMP_WORDS[$index]}}" == [a-z]* ]]
+        if [[ "${COMP_WORDS[$index]}" == [a-z]* ]]
         then
-            COMP_WORDS_NO_FLAGS+=("${{COMP_WORDS[$index]}}")
+            COMP_WORDS_NO_FLAGS+=("${COMP_WORDS[$index]}")
         fi
         let index++
     done
-    COMP_WORDS_NO_FLAGS+=("${{COMP_WORDS[$COMP_CWORD]}}")
-    local COMP_CWORD_NO_FLAGS=$((${{#COMP_WORDS_NO_FLAGS[@]}} - 1))
+    COMP_WORDS_NO_FLAGS+=("${COMP_WORDS[$COMP_CWORD]}")
+    local COMP_CWORD_NO_FLAGS=$((${#COMP_WORDS_NO_FLAGS[@]} - 1))
 
-    cur="${{COMP_WORDS_NO_FLAGS[COMP_CWORD_NO_FLAGS]}}"
-    prefix="_${{COMP_WORDS_NO_FLAGS[*]:0:COMP_CWORD_NO_FLAGS}}"
-    func_name="${{prefix// /_}}"
-    func_name="${{func_name//-/_}}"
+    cur="${COMP_WORDS_NO_FLAGS[COMP_CWORD_NO_FLAGS]}"
+    prefix="_${COMP_WORDS_NO_FLAGS[*]:0:COMP_CWORD_NO_FLAGS}"
+    func_name="${prefix// /_}"
+    func_name="${func_name//-/_}"
 
     UENV_OPTS=""
     if typeset -f $func_name >/dev/null
@@ -157,11 +143,13 @@ _uenv_completions()
         $func_name
     fi
 
-    COMPREPLY=($(compgen -W "${{UENV_OPTS}}" -- "${{cur}}"))
-}}
+    COMPREPLY=($(compgen -W "${UENV_OPTS}" -- "${cur}"))
+}
 
 complete -F _uenv_completions uenv
-)");
+)";
+
+    return fmt::format("{}{}", prefix_functions, main_functions);
 }
 
 } // namespace completion
