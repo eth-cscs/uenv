@@ -18,7 +18,7 @@ std::string get_prefix(CLI::App* cli) {
     return get_prefix(parent) + "_" + cli->get_name();
 }
 
-std::string create_completion_rec(CLI::App* cli) {
+std::string traverse_subcommand_tree(CLI::App* cli) {
     const auto subcommands = cli->get_subcommands({});
     const auto options_non_positional = cli->get_options(
         [](CLI::Option* option) {return option->nonpositional();});
@@ -43,13 +43,13 @@ std::string create_completion_rec(CLI::App* cli) {
 )",
                get_prefix(cli), fmt::join(completions, " ")));
 
-    auto func_subcommands_str = std::views::transform(subcommands, create_completion_rec);
+    auto func_subcommands_str = std::views::transform(subcommands, traverse_subcommand_tree);
 
     return fmt::format("{}{}", fmt::join(func_command_str, ""), fmt::join(func_subcommands_str, ""));
 }
 
 std::string create_completion(CLI::App* cli) {
-    std::string prefix_functions = create_completion_rec(cli);
+    std::string prefix_functions = traverse_subcommand_tree(cli);
 
     std::string main_functions = R"(
 _uenv_completions()
