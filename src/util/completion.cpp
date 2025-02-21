@@ -1,46 +1,14 @@
 #include <CLI/CLI.hpp>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <ranges>
+#include <range/v3/all.hpp>
 
 #include <util/completion.h>
 
 namespace util {
 
 namespace completion {
-
-// void normalize_bash_function_name(std::string &str) {
-//     std::replace(str.begin(), str.end(), '-', '_');
-// }
-
-// std::vector<CLI::Option *> filter(std::vector<CLI::Option *> in, bool
-// (*f)(CLI::Option *)) {
-//     std::vector<const CLI::Option*> out;
-//     out.reserve(in.size());
-//     std::copy_if(in.begin(), in.end(),
-//                  std::back_inserter(out), f);
-//     return out;
-// }
-
-template <typename Ts, typename Td>
-std::vector<Td> map(std::vector<Ts> in, Td (*f)(Ts)) {
-    std::vector<std::string> out;
-    out.reserve(in.size());
-    std::transform(in.begin(), in.end(), std::back_inserter(out), f);
-    return out;
-}
-
-template <typename Ts, typename Td>
-Td reduce(std::vector<Ts> in, Td (*f)(Td, Ts), Td init) {
-    return std::accumulate(in.begin(), in.end(), init, f);
-}
-
-template <typename T> T reduce(std::vector<T> in, T (*f)(T, T), T init) {
-    return reduce<T, T>(in, f, init);
-}
-
-template <typename T, typename F> bool is_in(std::vector<T> vec, F&& f) {
-    return std::any_of(vec.begin(), vec.end(), f);
-}
 
 std::string get_prefix(CLI::App* cli) {
     if (cli == nullptr)
@@ -62,11 +30,9 @@ std::string create_completion_rec(CLI::App* cli) {
         return subcommand->get_name();
     };
 
-    // TODO RJ do it smarter: ranges?
-    std::vector<std::string> completions = map<CLI::Option*, std::string>(
-        options_non_positional, get_option_name);
-    std::vector<std::string> tmp = map<CLI::App*, std::string>(subcommands, get_subcommand_name);
-    completions.insert(completions.end(), tmp.begin(), tmp.end());
+    auto tmp1 = std::views::transform(options_non_positional, get_option_name);
+    auto tmp2 = std::views::transform(subcommands, get_subcommand_name);
+    auto completions = ranges::view::concat(tmp1, tmp2);
 
     std::vector<std::string> func_command_str = {};
     func_command_str.push_back(fmt::format(R"({}()
@@ -77,8 +43,7 @@ std::string create_completion_rec(CLI::App* cli) {
 )",
                get_prefix(cli), fmt::join(completions, " ")));
 
-    std::vector<std::string> func_subcommands_str = map<CLI::App*, std::string>(
-        subcommands, create_completion_rec);
+    auto func_subcommands_str = std::views::transform(subcommands, create_completion_rec);
 
     return fmt::format("{}{}", fmt::join(func_command_str, ""), fmt::join(func_subcommands_str, ""));
 }

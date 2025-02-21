@@ -1,0 +1,13 @@
+[wrap-file]
+directory = range-v3-0.12.0
+source_url = https://github.com/ericniebler/range-v3/archive/0.12.0.tar.gz
+source_filename = range-v3-0.12.0.tar.gz
+source_hash = 015adb2300a98edfceaf0725beec3337f542af4915cec4d0b89fa0886f4ba9cb
+patch_filename = range-v3_0.12.0-2_patch.zip
+patch_url = https://wrapdb.mesonbuild.com/v2/range-v3_0.12.0-2/get_patch
+patch_hash = 0d0b2959701d42bb8c509eb770276de67e44b60ffba9af9cd66dad855700ec63
+source_fallback_url = https://github.com/mesonbuild/wrapdb/releases/download/range-v3_0.12.0-2/range-v3-0.12.0.tar.gz
+wrapdb_version = 0.12.0-2
+
+[provide]
+range-v3 = range_dep

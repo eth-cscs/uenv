@@ -7,6 +7,7 @@ subprojects/CLI11-*
 subprojects/curl-*
 subprojects/fmt-*
 subprojects/packagecache
+subprojects/range-v3-*
 subprojects/spdlog-*
 subprojects/sqlite-amalgamation-*
 subprojects/nlohmann_json-*

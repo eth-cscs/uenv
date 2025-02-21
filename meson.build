@@ -26,6 +26,7 @@ catch_dep = subproject('catch2', default_options: ['werror=false', 'warning_leve
 cli11_dep = subproject('cli11', default_options: ['werror=false', 'warning_level=0']).get_variable('CLI11_dep')
 fmt_dep   = subproject('fmt', default_options: ['werror=false', 'warning_level=0']).get_variable('fmt_dep')
 json_dep = subproject('nlohmann_json', default_options: ['werror=false', 'warning_level=0']).get_variable('nlohmann_json_dep')
+range_dep   = subproject('range-v3', default_options: ['werror=false', 'warning_level=0']).get_variable('range_dep')
 spdlog_dep   = subproject('spdlog', default_options: ['werror=false', 'warning_level=0','std_format=disabled','external_fmt=enabled']).get_variable('spdlog_dep')
 sqlite3_dep = subproject('sqlite3', default_options: ['werror=false', 'warning_level=0']).get_variable('sqlite3_dep')
 subproject('curl', default_options: ['werror=false', 'warning_level=0', 'tests=disabled', 'unittests=disabled', 'tool=disabled'])
@@ -62,7 +63,7 @@ lib_inc = include_directories('src')
 
 lib_dep = declare_dependency(
         sources: lib_src,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, range_dep, spdlog_dep, json_dep, barkeep_dep],
         include_directories: lib_inc
 )
 
@@ -92,7 +93,7 @@ if uenv_cli
 
     cli = executable('uenv',
             sources: uenv_src,
-            dependencies: [uenv_dep, lib_dep, fmt_dep, spdlog_dep, cli11_dep, barkeep_dep],
+            dependencies: [uenv_dep, lib_dep, fmt_dep, range_dep, spdlog_dep, cli11_dep, barkeep_dep],
             c_args: [
               '-DVERSION="@0@"'.format(version),
             ],
