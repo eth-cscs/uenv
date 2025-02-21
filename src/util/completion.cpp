@@ -52,8 +52,6 @@ std::string get_prefix(CLI::App* cli) {
 
 std::string create_completion_rec(CLI::App* cli) {
     const auto subcommands = cli->get_subcommands({});
-    const auto options_positional = cli->get_options(
-        [](CLI::Option* option) {return option->get_positional();});
     const auto options_non_positional = cli->get_options(
         [](CLI::Option* option) {return option->nonpositional();});
 
@@ -63,13 +61,6 @@ std::string create_completion_rec(CLI::App* cli) {
     auto get_subcommand_name = [](CLI::App* subcommand) {
         return subcommand->get_name();
     };
-
-    // TODO generic for all special args
-    // TODO optimize the functions (reuse if possible)
-    auto has_uenv = [get_option_name](CLI::Option* option) {
-        return get_option_name(option) == "uenv";
-    };
-    bool special_uenv = is_in<CLI::Option*>(options_positional, has_uenv);
 
     // TODO RJ do it smarter: ranges?
     std::vector<std::string> completions = map<CLI::Option*, std::string>(
@@ -81,24 +72,10 @@ std::string create_completion_rec(CLI::App* cli) {
     func_command_str.push_back(fmt::format(R"({}()
 {{
     UENV_OPTS="{}"
+}}
+
 )",
                get_prefix(cli), fmt::join(completions, " ")));
-    // TODO generic for all special args
-    if (special_uenv) {
-        std::string special_func_name = "_uenv_special_uenv";
-        std::string special_opts_name = "UENV_SPECIAL_OPTS_UENV";
-
-        func_command_str.push_back(fmt::format(R"(
-    if typeset -f {special_func_name} >/dev/null
-    then
-        {special_func_name}
-        UENV_OPTS+=" ${{{special_opts_name}}}"
-    fi
-)",
-                   fmt::arg("special_func_name", special_func_name),
-                   fmt::arg("special_opts_name", special_opts_name)));
-    }
-    func_command_str.push_back(fmt::format("}}\n\n"));
 
     std::vector<std::string> func_subcommands_str = map<CLI::App*, std::string>(
         subcommands, create_completion_rec);
@@ -110,11 +87,6 @@ std::string create_completion(CLI::App* cli) {
     std::string prefix_functions = create_completion_rec(cli);
 
     std::string main_functions = R"(
-_uenv_special_uenv()
-{
-    UENV_SPECIAL_OPTS_UENV=$(uenv image ls --no-header | awk '{print $1}')
-}
-
 _uenv_completions()
 {
     local cur prefix func_name UENV_OPTS
