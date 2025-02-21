@@ -1,8 +1,8 @@
 #include <CLI/CLI.hpp>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
-#include <ranges>
 #include <range/v3/all.hpp>
+#include <ranges>
 
 #include <util/completion.h>
 
@@ -21,7 +21,7 @@ std::string get_prefix(CLI::App* cli) {
 std::string traverse_subcommand_tree(CLI::App* cli) {
     const auto subcommands = cli->get_subcommands({});
     const auto options_non_positional = cli->get_options(
-        [](CLI::Option* option) {return option->nonpositional();});
+        [](CLI::Option* option) { return option->nonpositional(); });
 
     auto get_option_name = [](CLI::Option* option) {
         return option->get_name();
@@ -41,11 +41,14 @@ std::string traverse_subcommand_tree(CLI::App* cli) {
 }}
 
 )",
-               get_prefix(cli), fmt::join(completions, " ")));
+                                           get_prefix(cli),
+                                           fmt::join(completions, " ")));
 
-    auto func_subcommands_str = std::views::transform(subcommands, traverse_subcommand_tree);
+    auto func_subcommands_str =
+        std::views::transform(subcommands, traverse_subcommand_tree);
 
-    return fmt::format("{}{}", fmt::join(func_command_str, ""), fmt::join(func_subcommands_str, ""));
+    return fmt::format("{}{}", fmt::join(func_command_str, ""),
+                       fmt::join(func_subcommands_str, ""));
 }
 
 std::string create_completion(CLI::App* cli) {
