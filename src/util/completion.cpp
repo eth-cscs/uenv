@@ -10,6 +10,8 @@ namespace util {
 
 namespace completion {
 
+// Get list of subcommands separated by "_"
+// Used as a function name in generated bash completion script
 std::string get_prefix(CLI::App* cli) {
     if (cli == nullptr)
         return "";
@@ -18,6 +20,8 @@ std::string get_prefix(CLI::App* cli) {
     return get_prefix(parent) + "_" + cli->get_name();
 }
 
+// Recursively traverse tree of subcommands created by CLI11
+// Creates list of completions for every subcommand
 std::string traverse_subcommand_tree(CLI::App* cli) {
     const auto subcommands = cli->get_subcommands({});
     const auto options_non_positional = cli->get_options(
@@ -51,6 +55,7 @@ std::string traverse_subcommand_tree(CLI::App* cli) {
                        fmt::join(func_subcommands_str, ""));
 }
 
+// Starting point function that generates bash completion script
 std::string create_completion(CLI::App* cli) {
     std::string prefix_functions = traverse_subcommand_tree(cli);
 
