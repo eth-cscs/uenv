@@ -41,16 +41,14 @@ function teardown() {
 }
 
 @test "image ls" {
-    export UENV_REPO_PATH=$REPOS/apptool
-
-    run uenv image ls
+    run uenv --repo=$REPOS/apptool image ls
     assert_success
     assert_line --index 0 --regexp "^uenv\s+arch\s+system\s+id"
     assert_output --regexp "app/42.0:v1\s+zen3\s+arapiles"
     assert_output --regexp "app/43.0:v1\s+zen3\s+arapiles"
     assert_output --regexp "tool/17.3.2:v1\s+zen3\s+arapiles"
 
-    run uenv image ls --no-header
+    run uenv --repo=$REPOS/apptool image ls --no-header
     assert_success
     refute_line --regexp "^uenv\s+arch\s+system\s+id"
     assert_line --regexp "app/42.0:v1\s+zen3\s+arapiles"
@@ -58,7 +56,7 @@ function teardown() {
     assert_line --regexp "tool/17.3.2:v1\s+zen3\s+arapiles"
 
     # test a label of the form "@system" with no name
-    run uenv image ls --no-header @$CLUSTER_NAME
+    run uenv --repo=$REPOS/apptool image ls --no-header @$CLUSTER_NAME
     assert_success
     refute_line --regexp "^uenv\s+arch\s+system\s+id"
     assert_line --regexp "app/42.0:v1\s+zen3\s+arapiles"
@@ -67,42 +65,39 @@ function teardown() {
 
     # test a label of the form "@'*'" with no name
     # this matches all clusters (overriding the default)
-    run uenv image ls --no-header @'*'
+    run uenv --repo=$REPOS/apptool image ls --no-header @'*'
     assert_success
     refute_line --regexp "^uenv\s+arch\s+system\s+id"
     assert_line --regexp "app/42.0:v1\s+zen3\s+arapiles"
     assert_line --regexp "app/43.0:v1\s+zen3\s+arapiles"
     assert_line --regexp "tool/17.3.2:v1\s+zen3\s+arapiles"
 
-    run uenv image ls --no-header app
+    run uenv --repo=$REPOS/apptool image ls --no-header app
     assert_success
     assert_line --partial "app/42.0:v1"
     assert_line --partial "app/43.0:v1"
     refute_line --partial "tool/17.3.2:v1"
 
-    run uenv image ls --no-header app/43.0
+    run uenv --repo=$REPOS/apptool image ls --no-header app/43.0
     assert_success
     refute_line --partial "app/42.0:v1"
     assert_line --partial "app/43.0:v1"
     refute_line --partial "tool/17.3.2:v1"
 
-    run uenv image ls --no-header tool
+    run uenv --repo=$REPOS/apptool image ls --no-header tool
     assert_success
     refute_line --partial "app/42.0:v1"
     refute_line --partial "app/43.0:v1"
     assert_line --partial "tool/17.3.2:v1"
 
-    run uenv image ls wombat
+    run uenv --repo=$REPOS/apptool image ls wombat
     assert_success
     assert_output "no matching uenv"
 
     # empty output if --no-header is used and there are no matches
-    run uenv image ls wombat --no-header
+    run uenv --repo=$REPOS/apptool image ls wombat --no-header
     assert_success
     assert_output ""
-
-    # unset the UENV_REPO_PATH variable and use the --repo flag instead
-    unset UENV_REPO_PATH
 
     run uenv --repo=/wombat image ls --no-header
     assert_failure
@@ -121,11 +116,6 @@ function teardown() {
     #
     # check the different methods for providing the repo location
     #
-
-    # using UENV_REPO_PATH env variable
-    UENV_REPO_PATH=$RP run uenv repo status
-    assert_success
-    assert_line --index 0 "the repository at $RP is read-write"
 
     # using --repo flag to uenv
     run uenv --repo=$RP repo status
@@ -177,28 +167,27 @@ function teardown() {
 }
 
 @test "run" {
-    export UENV_REPO_PATH=$REPOS/apptool
     export CLUSTER_NAME=arapiles
 
     #
     # check that run looks up images in the repo and mounts at the correct location
     #
-    run uenv run tool -- ls /user-tools
+    run uenv --repo=$REPOS/apptool run tool -- ls /user-tools
     assert_success
     assert_output --regexp "meta"
 
-    run uenv run app/42.0:v1 -- ls /user-environment
+    run uenv --repo=$REPOS/apptool run app/42.0:v1 -- ls /user-environment
     assert_success
     assert_output --regexp "meta"
 
     #
     # check --view and @system
     #
-    run uenv run --view=tool tool@$CLUSTER_NAME -- tool
+    run uenv --repo=$REPOS/apptool run --view=tool tool@$CLUSTER_NAME -- tool
     assert_success
     assert_output "hello tool"
 
-    run uenv run --view=app app/42.0:v1 -- app
+    run uenv --repo=$REPOS/apptool run --view=app app/42.0:v1 -- app
     assert_success
     assert_output "hello app"
 
@@ -206,7 +195,7 @@ function teardown() {
     # check --view works when reading meta data from inside a standalone sqfs file
     #
 
-    run uenv run --view=tool $SQFS_LIB/apptool/standalone/tool.squashfs -- tool
+    run uenv --repo=$REPOS/apptool run --view=tool $SQFS_LIB/apptool/standalone/tool.squashfs -- tool
     assert_success
     assert_output "hello tool"
 
@@ -215,13 +204,13 @@ function teardown() {
     #
 
     relativepath=./$(realpath -s --relative-to=$PWD $SQFS_LIB/apptool/standalone/tool.squashfs)
-    run uenv run --view=tool $relativepath -- tool
+    run uenv --repo=$REPOS/apptool run --view=tool $relativepath -- tool
     assert_success
     assert_output "hello tool"
 }
 
 @test "start" {
-    export UENV_REPO_PATH=$REPOS/apptool
+    UENV_REPO_PATH=$REPOS/apptool
     export CLUSTER_NAME=arapiles
 
     # set UENV_BATS_SKIP_START to skip the start tests.
@@ -231,14 +220,14 @@ function teardown() {
     #
     # check that run looks up images in the repo and mounts at the correct location
     #
-    run uenv start tool <<EOF
+    run uenv --repo=$REPOS/apptool start tool <<EOF
 echo 'hello world'
 exit
 EOF
     assert_failure
     assert_output --partial "must be run in an interactive shell"
 
-    run uenv start --ignore-tty tool <<EOF
+    run uenv --repo=$REPOS/apptool start --ignore-tty tool <<EOF
 echo 'hello world'
 exit
 EOF
@@ -248,14 +237,14 @@ EOF
     # check that attempting to call 'uenv run' in an already running session produces
     # a user-friendly error message.
     #
-    run uenv start --ignore-tty tool <<EOF
+    run uenv --repo=$REPOS/apptool start --ignore-tty tool <<EOF
 uenv run tool -- echo "hi"
 exit
 EOF
     assert_failure
     assert_output --partial "a uenv session is already running"
 
-    run uenv start --ignore-tty tool <<EOF
+    run uenv --repo=$REPOS/apptool start --ignore-tty tool <<EOF
 uenv start --ignore-tty tool
 exit
 EOF
@@ -340,26 +329,26 @@ EOF
     export UENV_REPO_PATH=$REPOS/apptool
     export CLUSTER_NAME=arapiles
 
-    run uenv image inspect tool
+    run uenv --repo=$REPOS/apptool image inspect tool
     assert_success
 
-    run uenv image inspect --format='{name}:{tag}' tool
+    run uenv --repo=$REPOS/apptool image inspect --format='{name}:{tag}' tool
     assert_success
     assert_output "tool:v1"
 
     # check a format string that contains no fields
-    run uenv image inspect --format='hello world' tool
+    run uenv --repo=$REPOS/apptool image inspect --format='hello world' tool
     assert_success
     assert_output "hello world"
 
-    run uenv image inspect --format='{sha256}' tool
+    run uenv --repo=$REPOS/apptool image inspect --format='{sha256}' tool
     assert_success
-    run uenv image inspect --format='{sqfs}' tool
+    run uenv --repo=$REPOS/apptool image inspect --format='{sqfs}' tool
     assert_success
 
     # get the sha and path of the tool squashfs image
-    sha=$(uenv image inspect --format='{sha256}' tool)
-    sqfs=$(uenv image inspect --format='{sqfs}' tool)
+    sha=$(uenv --repo=$REPOS/apptool image inspect --format='{sha256}' tool)
+    sqfs=$(uenv --repo=$REPOS/apptool image inspect --format='{sqfs}' tool)
 
     # check that the squashfs file exists
     [ -f $sqfs ]
@@ -371,43 +360,42 @@ EOF
 }
 
 @test "image rm" {
-    # using UENV_REPO_PATH env variable
     export UENV_REPO_PATH=$(mktemp -d $TMP/create-XXXXXX)
-    run uenv repo create $UENV_REPO_PATH
+    run uenv --repo=$UENV_REPO_PATH repo create $UENV_REPO_PATH
     assert_success
 
     # add uenv to a repo for us to try removing
     # the wombat uenv have the same sha
-    uenv image add wombat/24:rc1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs > /dev/null
-    uenv image add wombat/24:v1@arapiles%zen3  $SQFS_LIB/apptool/standalone/tool.squashfs > /dev/null
+    uenv --repo=$UENV_REPO_PATH image add wombat/24:rc1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs > /dev/null
+    uenv --repo=$UENV_REPO_PATH image add wombat/24:v1@arapiles%zen3  $SQFS_LIB/apptool/standalone/tool.squashfs > /dev/null
     # the bilby images have unique sha
-    uenv image add bilby/24:v1@arapiles%zen3   $SQFS_LIB/apptool/standalone/app42.squashfs > /dev/null
-    uenv image add bilby/24:v2@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
+    uenv --repo=$UENV_REPO_PATH image add bilby/24:v1@arapiles%zen3   $SQFS_LIB/apptool/standalone/app42.squashfs > /dev/null
+    uenv --repo=$UENV_REPO_PATH image add bilby/24:v2@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
 
     # test that removing an uenv that is not in the repo is handled correctly
     for pattern in dingo/24:rc1@arapiles%zen3  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaa
     do
-        run uenv image rm $pattern
+        run uenv --repo=$UENV_REPO_PATH image rm $pattern
         assert_failure
         assert_output "error: no uenv matches $pattern"
     done
 
     # test that removing a sha with more than one label removes both labels
-    sha=$(uenv image inspect wombat/24:rc1 --format={sha256})
+    sha=$(uenv --repo=$UENV_REPO_PATH image inspect wombat/24:rc1 --format={sha256})
 
     # assert that the files exist
     [ -d $UENV_REPO_PATH/images/$sha ]
 
-    run uenv image rm $sha
+    run uenv --repo=$UENV_REPO_PATH image rm $sha
     assert_success
     assert_output --partial "the following uenv were removed"
     assert_output --partial "wombat/24:rc1"
     assert_output --partial "wombat/24:v1"
 
     # verify that the sha and wombat image are no longer in the repo
-    run uenv image ls $sha
+    run uenv --repo=$UENV_REPO_PATH image ls $sha
     assert_output 'no matching uenv'
-    run uenv image ls wombat
+    run uenv --repo=$UENV_REPO_PATH image ls wombat
     assert_output 'no matching uenv'
 
     # verify that the file was removed
@@ -417,36 +405,36 @@ EOF
     # - should remove the label
     # - should remove the storage
     pattern=bilby/24:v1
-    sha=$(uenv image inspect $pattern --format={sha256})
+    sha=$(uenv --repo=$UENV_REPO_PATH image inspect $pattern --format={sha256})
     [ -d $UENV_REPO_PATH/images/$sha ]
-    run uenv -vv image rm $pattern
+    run uenv --repo=$UENV_REPO_PATH -vv image rm $pattern
     assert_success
     # verify that the file was removed
     [ ! -d $UENV_REPO_PATH/images/$sha ]
     # check that the uenv was removed from database
-    run uenv image ls $pattern
+    run uenv --repo=$UENV_REPO_PATH image ls $pattern
     assert_output "no matching uenv"
 
     # removing a one of multiple labels on the same sha removes the label but leaves the others untouched
     # step 1: add another image with the same hash as the remaining image
-    run uenv image add wallaby/24:v2@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
-    run uenv image add wallaby/24:v3@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
+    run uenv --repo=$UENV_REPO_PATH image add wallaby/24:v2@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
+    run uenv --repo=$UENV_REPO_PATH image add wallaby/24:v3@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
 
     pattern=wallaby/24:v2
-    sha=$(uenv image inspect $pattern --format={sha256})
+    sha=$(uenv --repo=$UENV_REPO_PATH image inspect $pattern --format={sha256})
     [ -d $UENV_REPO_PATH/images/$sha ]
 
-    run uenv -vv image rm $pattern
+    run uenv --repo=$UENV_REPO_PATH -vv image rm $pattern
     assert_success
     [ -d $UENV_REPO_PATH/images/$sha ]
 
     pattern=wallaby/24:v3
-    run uenv image rm $pattern
+    run uenv --repo=$UENV_REPO_PATH image rm $pattern
     assert_success
     [ -d $UENV_REPO_PATH/images/$sha ]
 
     pattern=bilby/24:v2
-    run uenv image rm $pattern
+    run uenv --repo=$UENV_REPO_PATH image rm $pattern
     assert_success
     [ ! -d $UENV_REPO_PATH/images/$sha ]
 }

@@ -276,11 +276,9 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // UENV_REPO_PATH environment variable, before using default in SCRATCH or
     // HOME.
     if (!args.repo_description) {
-        if (const auto r = uenv::default_repo_path()) {
-            args.repo_description = *r;
-        } else {
-            slurm_error("unable to find a valid repo path: %s",
-                        r.error().c_str());
+        args.repo_description = uenv::default_repo_path();
+        if (!args.repo_description) {
+            slurm_error("unable to find a valid repo path");
             return -ESPANK_ERROR;
         }
     }
@@ -289,17 +287,13 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // - it is a valid path description
     // - it is an absolute path
     // - it exists
-    std::optional<std::filesystem::path> repo_path;
-    if (args.repo_description) {
-        const auto r =
-            uenv::validate_repo_path(*args.repo_description, false, false);
-        if (!r) {
-            slurm_error("unable to find a valid repo path: %s",
-                        r.error().c_str());
-            return -ESPANK_ERROR;
-        }
-        repo_path = *r;
+    const auto r =
+        uenv::validate_repo_path(*args.repo_description, false, false);
+    if (!r) {
+        slurm_error("unable to find a valid repo path: %s", r.error().c_str());
+        return -ESPANK_ERROR;
     }
+    std::optional<std::filesystem::path> repo_path = *r;
 
     const auto env = uenv::concretise_env(*args.uenv_description,
                                           args.view_description, repo_path);

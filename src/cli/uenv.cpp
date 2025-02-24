@@ -94,12 +94,7 @@ int main(int argc, char** argv) {
 
     // if a repo was not provided as a flag, look at environment variables
     if (!settings.repo_) {
-        if (const auto p = uenv::default_repo_path()) {
-            settings.repo_ = *p;
-        } else {
-            spdlog::warn("ignoring the repo path: {}", p.error());
-            term::warn("ignoring the repo path: {}", p.error());
-        }
+        settings.repo_ = uenv::default_repo_path();
     }
 
     // post-process settings after the CLI arguments have been parsed

@@ -37,33 +37,17 @@ using util::unexpected;
 /// - the path string was not valid
 ///
 /// returns error if it a path is set, but it is invalid
-util::expected<std::optional<std::string>, std::string> default_repo_path() {
+std::optional<std::string> default_repo_path() {
     std::optional<std::string> path_string;
-    if (auto p = std::getenv("UENV_REPO_PATH")) {
-        spdlog::trace(
-            fmt::format("default_repo_path: found UENV_REPO_PATH={}", p));
-        return path_string = p;
+    if (auto p = std::getenv("SCRATCH")) {
+        spdlog::trace(fmt::format("default_repo_path: found SCRATCH={}", p));
+        path_string = std::string(p) + "/.uenv-images";
     } else {
-        spdlog::trace("default_repo_path: skipping UENV_REPO_PATH");
-        if (auto p = std::getenv("SCRATCH")) {
-            spdlog::trace(
-                fmt::format("default_repo_path: found SCRATCH={}", p));
-            path_string = std::string(p) + "/.uenv-images";
+        if (auto p = std::getenv("HOME")) {
+            spdlog::trace(fmt::format("default_repo_path: found HOME={}", p));
+            path_string = std::string(p) + "/.uenv/repo";
         } else {
-            spdlog::trace("default_repo_path: skipping SCRATCH");
-            if (auto p = std::getenv("HOME")) {
-                spdlog::trace(
-                    fmt::format("default_repo_path: found HOME={}", p));
-                path_string = std::string(p) + "/.uenv/repo";
-            } else {
-                spdlog::trace("default_repo_path: no default location found");
-            }
-        }
-    }
-    if (path_string) {
-        if (auto result = parse_path(*path_string); !result) {
-            return unexpected(fmt::format("invalid repository path {}",
-                                          result.error().message()));
+            spdlog::trace("default_repo_path: no default location found");
         }
     }
     return path_string;
