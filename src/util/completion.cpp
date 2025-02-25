@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
-#include <range/v3/all.hpp>
 #include <ranges>
 
 #include <util/completion.h>
@@ -59,14 +58,14 @@ void completion_list::traverse_subcommand_tree(CLI::App* cli) {
 
     auto tmp1 = std::views::transform(options_non_positional, get_option_name);
     auto tmp2 = std::views::transform(subcommands, get_subcommand_name);
-    auto completions = ranges::view::concat(tmp1, tmp2);
+    std::vector<std::string> completions;
+    std::ranges::copy(tmp1, std::back_inserter(completions));
+    std::ranges::copy(tmp2, std::back_inserter(completions));
 
-    std::vector<std::string> command_vec;
-    std::ranges::copy(get_command(cli), std::back_inserter(command_vec));
-    std::vector<std::string> completions_vec;
-    std::ranges::copy(completions, std::back_inserter(completions_vec));
+    std::vector<std::string> command;
+    std::ranges::copy(get_command(cli), std::back_inserter(command));
 
-    completion_items.push_back({command_vec, completions_vec});
+    completion_items.push_back({command, completions});
 
     for (auto subcommand : subcommands)
         traverse_subcommand_tree(subcommand);
