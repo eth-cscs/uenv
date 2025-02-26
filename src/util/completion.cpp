@@ -29,7 +29,7 @@ std::vector<std::string> get_command(CLI::App* cli) {
 
 // Recursively traverse tree of subcommands created by CLI11
 // Creates list of completions for every subcommand
-void traverse_subcommand_tree(completion_list &cl, CLI::App* cli) {
+void traverse_subcommand_tree(completion_list& cl, CLI::App* cli) {
     if (cli == nullptr)
         return;
 
@@ -81,8 +81,7 @@ std::string bash_completion(CLI::App* cli) {
                            fmt::join(item.command, "_"),
                            fmt::join(item.completions, " "));
     };
-    auto prefix_functions =
-        std::views::transform(cl, gen_bash_function);
+    auto prefix_functions = std::views::transform(cl, gen_bash_function);
 
     std::string main_functions = R"(
 _uenv_completions()
