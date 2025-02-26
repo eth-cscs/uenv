@@ -14,9 +14,7 @@ struct completion_item {
     std::vector<std::string> command, completions;
 };
 
-struct completion_list {
-    std::vector<completion_item> completion_items;
-};
+typedef std::vector<completion_item> completion_list;
 
 // Construct command: list of subcommands extracted from CLI11
 std::vector<std::string> get_command(CLI::App* cli) {
@@ -55,7 +53,7 @@ void traverse_subcommand_tree(completion_list &cl, CLI::App* cli) {
     std::vector<std::string> command;
     std::ranges::copy(get_command(cli), std::back_inserter(command));
 
-    cl.completion_items.push_back({command, completions});
+    cl.push_back({command, completions});
 
     for (auto subcommand : subcommands)
         traverse_subcommand_tree(cl, subcommand);
@@ -81,7 +79,7 @@ std::string bash_completion(completion_list cl) {
                            fmt::join(item.completions, " "));
     };
     auto prefix_functions =
-        std::views::transform(cl.completion_items, gen_bash_function);
+        std::views::transform(cl, gen_bash_function);
 
     std::string main_functions = R"(
 _uenv_completions()
