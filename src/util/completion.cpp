@@ -14,14 +14,8 @@ struct completion_item {
     std::vector<std::string> command, completions;
 };
 
-class completion_list {
-  public:
-    completion_list(CLI::App* cli);
-    std::string bash_completion();
-
-  private:
+struct completion_list {
     std::vector<completion_item> completion_items;
-    void traverse_subcommand_tree(CLI::App* cli);
 };
 
 // Construct command: list of subcommands extracted from CLI11
@@ -35,13 +29,9 @@ std::vector<std::string> get_command(CLI::App* cli) {
     return command;
 }
 
-completion_list::completion_list(CLI::App* cli) {
-    traverse_subcommand_tree(cli);
-}
-
 // Recursively traverse tree of subcommands created by CLI11
 // Creates list of completions for every subcommand
-void completion_list::traverse_subcommand_tree(CLI::App* cli) {
+void traverse_subcommand_tree(completion_list &cl, CLI::App* cli) {
     if (cli == nullptr)
         return;
 
@@ -65,15 +55,21 @@ void completion_list::traverse_subcommand_tree(CLI::App* cli) {
     std::vector<std::string> command;
     std::ranges::copy(get_command(cli), std::back_inserter(command));
 
-    completion_items.push_back({command, completions});
+    cl.completion_items.push_back({command, completions});
 
     for (auto subcommand : subcommands)
-        traverse_subcommand_tree(subcommand);
+        traverse_subcommand_tree(cl, subcommand);
+}
+
+completion_list create_completion_list(CLI::App* cli) {
+    completion_list cl;
+    traverse_subcommand_tree(cl, cli);
+    return cl;
 }
 
 // Generates bash completion script from the list of subcommands and
 // corresponding completions
-std::string completion_list::bash_completion() {
+std::string bash_completion(completion_list cl) {
     auto gen_bash_function = [](completion_item item) {
         return fmt::format(R"(_{}()
 {{
@@ -85,7 +81,7 @@ std::string completion_list::bash_completion() {
                            fmt::join(item.completions, " "));
     };
     auto prefix_functions =
-        std::views::transform(completion_items, gen_bash_function);
+        std::views::transform(cl.completion_items, gen_bash_function);
 
     std::string main_functions = R"(
 _uenv_completions()
@@ -127,7 +123,7 @@ complete -F _uenv_completions uenv
 
 // Starting point function that generates bash completion script
 std::string create_completion(CLI::App* cli) {
-    return fmt::format("{}", completion_list(cli).bash_completion());
+    return fmt::format("{}", bash_completion(create_completion_list(cli)));
 }
 
 } // namespace completion
