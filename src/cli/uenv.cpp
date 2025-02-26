@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
     // generate bash completion script and exit if the --generate-completion
     // flag was passed
     if (generate_completion) {
-        fmt::print("{}", util::completion::create_completion(&cli));
+        fmt::print("{}", util::completion::bash_completion(&cli));
         return 0;
     }
 

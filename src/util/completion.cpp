@@ -65,9 +65,12 @@ completion_list create_completion_list(CLI::App* cli) {
     return cl;
 }
 
-// Generates bash completion script from the list of subcommands and
-// corresponding completions
-std::string bash_completion(completion_list cl) {
+// Starting point function that generates bash completion script
+// First creates a list of subcommands and corresponding completions
+// Then generates bash completion script from this list
+std::string bash_completion(CLI::App* cli) {
+    completion_list cl = create_completion_list(cli);
+
     auto gen_bash_function = [](completion_item item) {
         return fmt::format(R"(_{}()
 {{
@@ -117,11 +120,6 @@ complete -F _uenv_completions uenv
 )";
 
     return fmt::format("{}{}", fmt::join(prefix_functions, ""), main_functions);
-}
-
-// Starting point function that generates bash completion script
-std::string create_completion(CLI::App* cli) {
-    return fmt::format("{}", bash_completion(create_completion_list(cli)));
 }
 
 } // namespace completion

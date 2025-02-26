@@ -5,7 +5,7 @@
 namespace util {
 namespace completion {
 
-std::string create_completion(CLI::App* cli);
+std::string bash_completion(CLI::App* cli);
 
 } // namespace completion
 } // namespace util
