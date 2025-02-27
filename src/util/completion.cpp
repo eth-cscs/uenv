@@ -11,7 +11,8 @@ namespace util {
 namespace completion {
 
 struct completion_item {
-    std::vector<std::string> command, completions;
+    std::vector<std::string> command;
+    std::vector<std::string> completions;
 };
 
 typedef std::vector<completion_item> completion_list;
@@ -19,7 +20,7 @@ typedef std::vector<completion_item> completion_list;
 // Construct command: list of subcommands extracted from CLI11
 std::vector<std::string> get_command(CLI::App* cli) {
     if (cli == nullptr) {
-        return std::vector<std::string>();
+        return {};
     }
 
     auto command = get_command(cli->get_parent());
@@ -30,8 +31,9 @@ std::vector<std::string> get_command(CLI::App* cli) {
 // Recursively traverse tree of subcommands created by CLI11
 // Creates list of completions for every subcommand
 void traverse_subcommand_tree(completion_list& cl, CLI::App* cli) {
-    if (cli == nullptr)
+    if (cli == nullptr) {
         return;
+    }
 
     const auto subcommands = cli->get_subcommands({});
     const auto options_non_positional = cli->get_options(
