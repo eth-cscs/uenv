@@ -110,7 +110,6 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     const auto rego_url = site::registry_url();
     spdlog::debug("registry url: {}", rego_url);
     for (auto& record : *matches) {
-        // TODO: create a second pure JFrog API URL (now with added artifictory)
         auto url = fmt::format(
             "https://jfrog.svc.cscs.ch/artifactory/uenv/{}/{}/{}/{}/{}/{}",
             nspace, record.system, record.uarch, record.name, record.version,

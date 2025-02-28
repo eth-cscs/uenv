@@ -135,7 +135,11 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     bool existing_label = false;
     {
         auto results = store->query(*label);
-        // TODO check error on results
+        if (!results) {
+            term::error(
+                "image_add: internal error search repository for {}\n  {}",
+                *label, results.error());
+        }
         existing_label = !results->empty();
 
         if (existing_label) {
@@ -153,7 +157,11 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     {
         uenv_label hash_label{hash};
         auto results = store->query(hash_label);
-        // TODO check error on results
+        if (!results) {
+            term::error(
+                "image_add: internal error search repository for {}\n  {}",
+                *label, results.error());
+        }
         existing_hash = !results->empty();
 
         if (existing_hash) {

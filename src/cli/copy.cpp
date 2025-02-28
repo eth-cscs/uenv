@@ -164,7 +164,6 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
         term::error("the destination already exists and will be overwritten");
     }
 
-    // TODO: call oras to perform the copy
     const auto rego_url = site::registry_url();
     spdlog::debug("registry url: {}", rego_url);
     if (auto result =
