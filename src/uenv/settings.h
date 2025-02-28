@@ -27,6 +27,8 @@ struct config_line {
 util::expected<config_base, std::string>
 read_config_file(const std::filesystem::path& path);
 
+util::expected<config_base, std::string> load_user_config();
+
 // get the default configuration
 config_base default_config();
 

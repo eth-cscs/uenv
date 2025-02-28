@@ -96,8 +96,14 @@ int main(int argc, char** argv) {
 
     // set the configuration according to defaults, clie options and config
     // files.
-    const auto tc = uenv::merge(cli_config, uenv::default_config());
-    if (auto merged_config = uenv::generate_configuration(tc)) {
+    uenv::config_base user_config;
+    if (auto x = uenv::load_user_config()) {
+        user_config = *x;
+    }
+    const auto default_config = uenv::default_config();
+    const auto full_config =
+        uenv::merge(cli_config, uenv::merge(user_config, default_config));
+    if (auto merged_config = uenv::generate_configuration(full_config)) {
         settings.config = merged_config.value();
     } else {
         term::error("an invalid configuration was provided: {}",

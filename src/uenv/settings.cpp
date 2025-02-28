@@ -11,6 +11,19 @@
 
 namespace uenv {
 
+const std::string config_file_default =
+    R"(
+# uenv configuration file
+# lines starting with '#' are comments
+
+# set the path to the local uenv repository
+#repo = /users/bobsmith/uenv
+
+# by default uenv will choose whether to use color based on your environment.
+#color=true
+#color=false
+)";
+
 // merge two config_base items
 // if both have the same field set, choose the lhs value
 config_base merge(const config_base& lhs, const config_base& rhs) {
@@ -58,8 +71,49 @@ generate_configuration(const config_base& base) {
 }
 
 util::expected<config_base, std::string> load_user_config() {
-    // if XDG_CONFIG_HOME
-    return {};
+    namespace fs = std::filesystem;
+
+    auto home_env = ::getenv("HOME");
+    auto xdg_env = ::getenv("XDG_CONFIG_HOME");
+    // return an empty config if no configuration path can be determined
+    if (!home_env && !xdg_env) {
+        spdlog::warn("unable to find default configuration location, neither "
+                     "HOME nor XDG_CONFIG_HOME are defined.");
+        return config_base{};
+    }
+    const auto config_path =
+        xdg_env ? (fs::path(xdg_env) / "uenv") : (fs::path(home_env) / "uenv");
+    const auto config_file = config_path / "config";
+
+    auto create_config_file = [](const auto& path) {
+        auto fid = std::ofstream(path);
+        fid << config_file_default << std::endl;
+    };
+    if (!fs::exists(config_path)) {
+        spdlog::info("creating configuration path {}", config_path);
+        std::error_code ec;
+        fs::create_directories(config_path, ec);
+        if (ec) {
+            spdlog::error("unable to create config path: {}", ec.message());
+            return config_base{};
+        }
+        spdlog::info("creating configuration file {}", config_file);
+        create_config_file(config_file);
+        return config_base{};
+    } else if (!fs::exists(config_file)) {
+        spdlog::info("creating configuration file {}", config_file);
+        create_config_file(config_file);
+        return config_base{};
+    }
+
+    auto result = read_config_file(config_file);
+
+    if (!result) {
+        return util::unexpected{fmt::format(
+            "error opening '{}': {}", config_file.string(), result.error())};
+    }
+
+    return *result;
 }
 
 util::expected<config_base, std::string>
