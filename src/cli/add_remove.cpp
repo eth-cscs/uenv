@@ -117,14 +117,13 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     // Open the repository
     //
-    if (!settings.repo) {
-        term::error(
-            "a repo needs to be provided either using the --repo flag or by "
-            "setting the UENV_REPO_PATH environment variable");
+    if (!settings.config.repo) {
+        term::error("a repo needs to be provided either using the --repo flag "
+                    "in the config file");
         return 1;
     }
-    auto store =
-        uenv::open_repository(settings.repo.value(), repo_mode::readwrite);
+    auto store = uenv::open_repository(settings.config.repo.value(),
+                                       repo_mode::readwrite);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;
@@ -264,9 +263,14 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
              [[maybe_unused]] const global_settings& settings) {
     spdlog::info("image rm {}", args.uenv_description);
 
-    // open the database
-    auto store =
-        uenv::open_repository(settings.repo.value(), repo_mode::readwrite);
+    // open the repo
+    if (!settings.config.repo) {
+        term::error("a repo needs to be provided either using the --repo flag "
+                    "in the config file");
+        return 1;
+    }
+    auto store = uenv::open_repository(settings.config.repo.value(),
+                                       repo_mode::readwrite);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;

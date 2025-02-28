@@ -8,6 +8,7 @@
 
 #include <uenv/lex.h>
 #include <uenv/mount.h>
+#include <uenv/settings.h>
 #include <uenv/uenv.h>
 #include <uenv/view.h>
 
@@ -42,10 +43,6 @@ struct parse_error {
     std::string message() const;
 };
 
-// apply to strings before parsing them.
-// - strips white space from beginning and end of input
-std::string strip(std::string_view input);
-
 util::expected<std::vector<view_description>, parse_error>
 parse_view_args(const std::string& arg);
 
@@ -67,5 +64,8 @@ parse_uenv_nslabel(const std::string& in);
 
 util::expected<uenv_registry_entry, parse_error>
 parse_registry_entry(const std::string& in);
+
+util::expected<config_line, parse_error>
+parse_config_line(const std::string& arg);
 
 } // namespace uenv

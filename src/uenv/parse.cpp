@@ -4,11 +4,13 @@
 #include <vector>
 
 #include <util/expected.h>
+#include <util/strings.h>
 
 #include <uenv/env.h>
 #include <uenv/lex.h>
 #include <uenv/log.h>
 #include <uenv/parse.h>
+#include <uenv/settings.h>
 
 namespace uenv {
 
@@ -46,21 +48,6 @@ parse_string(lexer& L, std::string_view type, Test&& test) {
     }
 
     return result;
-}
-
-// strip all tabs, newlines, cariage returns, etc from an input string.
-std::string strip(std::string_view input) {
-    if (input.empty()) {
-        return {};
-    }
-    auto b = std::find_if_not(input.begin(), input.end(), std::iswspace);
-    if (b == input.end()) {
-        return {};
-    }
-    auto e = input.end();
-    while (std::iswspace(*--e))
-        ;
-    return {b, e + 1};
 }
 
 // tokens that can appear in names
@@ -336,7 +323,7 @@ util::expected<std::vector<view_description>, parse_error>
 parse_view_args(const std::string& arg) {
     spdlog::trace("parsing view args {}", arg);
 
-    const std::string sanitised = strip(arg);
+    const std::string sanitised = util::strip(arg);
     auto L = lexer(sanitised);
     std::vector<view_description> views;
 
@@ -370,7 +357,7 @@ util::expected<std::vector<uenv_description>, parse_error>
 parse_uenv_args(const std::string& arg) {
     spdlog::trace("parsing uenv args {}", arg);
 
-    const std::string sanitised = strip(arg);
+    const std::string sanitised = util::strip(arg);
     auto L = lexer(sanitised);
     std::vector<uenv_description> uenvs;
 
@@ -401,7 +388,7 @@ parse_uenv_args(const std::string& arg) {
 
 util::expected<std::vector<mount_entry>, parse_error>
 parse_mount_list(const std::string& arg) {
-    const std::string sanitised = strip(arg);
+    const std::string sanitised = util::strip(arg);
     auto L = lexer(sanitised);
     std::vector<mount_entry> mounts;
 
@@ -433,7 +420,7 @@ parse_mount_list(const std::string& arg) {
 
 util::expected<uenv_registry_entry, parse_error>
 parse_registry_entry(const std::string& in) {
-    const std::string sanitised = strip(in);
+    const std::string sanitised = util::strip(in);
     auto L = lexer(sanitised);
 
     spdlog::trace("parsing uenv registry entry {}", in);
@@ -491,7 +478,7 @@ unexpected_symbol:
 // 2023.07.16 21:13:06
 // 2023.07.16T21:13:06
 util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg) {
-    const std::string sanitised = strip(arg);
+    const std::string sanitised = util::strip(arg);
     auto L = lexer(sanitised);
     uenv_date date;
 
@@ -553,6 +540,67 @@ unexpected_symbol:
     auto t = L.peek();
     return util::unexpected(parse_error{
         L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+}
+
+// tokens that can appear in configuration keys
+bool is_key_tok(tok t) {
+    return t == tok::symbol || t == tok::dash || t == tok::integer;
+};
+
+// tokens that can be the first token in a key
+// don't allow leading dashes or integers
+bool is_key_start_tok(tok t) {
+    return t == tok::symbol;
+};
+
+util::expected<std::string, parse_error> parse_key(lexer& L) {
+    if (!is_key_start_tok(L.current_kind())) {
+        const auto t = L.peek();
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("found unexpected '{}'", t.spelling), t});
+    }
+    return parse_string(L, "key", is_key_tok);
+}
+
+util::expected<config_line, parse_error>
+parse_config_line(const std::string& arg) {
+    const auto line = util::strip(arg);
+    spdlog::trace("parsing config line '{}'", arg);
+    auto L = lexer(line);
+
+    auto skip_whitespace = [&L]() {
+        while (L.peek().kind == tok::whitespace) {
+            L.next();
+        }
+    };
+
+    config_line result;
+
+    // empty lines or lines that start with '#' are skipped
+    if (line.empty() || line[0] == '#') {
+        return {};
+    }
+
+    // parse the key
+    PARSE(L, key, result.key);
+
+    skip_whitespace();
+
+    // check for '='
+    if (L.peek().kind != tok::equals) {
+        auto t = L.peek();
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("expected '=', found '{}'", t.spelling),
+            t});
+    }
+    // consume '='
+    L.next();
+
+    skip_whitespace();
+
+    result.value = line.substr(L.peek().loc);
+
+    return result;
 }
 
 } // namespace uenv

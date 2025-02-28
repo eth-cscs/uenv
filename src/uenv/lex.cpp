@@ -116,6 +116,14 @@ class lexer_impl {
                 character_token(tok::slash);
                 ++stream_;
                 return;
+            case '=':
+                character_token(tok::equals);
+                ++stream_;
+                return;
+            case '#':
+                character_token(tok::hash);
+                ++stream_;
+                return;
             case '@':
                 character_token(tok::at);
                 ++stream_;

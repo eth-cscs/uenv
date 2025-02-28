@@ -54,7 +54,9 @@ unit_src = [
         'unit/main.cpp',
         'unit/parse.cpp',
         'unit/signal.cpp',
+        'unit/strings.cpp',
         'unit/repository.cpp',
+        'unit/settings.cpp',
         'unit/subprocess.cpp',
 ]
 

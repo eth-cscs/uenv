@@ -13,12 +13,14 @@ enum class tok {
     integer,    // unsigned integer
     comma,      // comma ','
     colon,      // colon ':'
-    symbol,     // string, e.g. prgenv-gnu
+    symbol,     // string, e.g. prgenv
     dash,       // comma ','
     dot,        // comma ','
     whitespace, // spaces, tabs, etc. Contiguous white space characters are
                 // joined together.
     bang,       // exclamation mark '!'
+    hash,       // hash '#'
+    equals,     // equal sign '='
     star,       // '*'
     percent,    // percentage symbol '%'
     end,        // end of input
@@ -88,6 +90,10 @@ template <> class fmt::formatter<uenv::tok> {
             return fmt::format_to(ctx.out(), "dash");
         case uenv::tok::whitespace:
             return fmt::format_to(ctx.out(), "whitespace");
+        case uenv::tok::hash:
+            return fmt::format_to(ctx.out(), "hash");
+        case uenv::tok::equals:
+            return fmt::format_to(ctx.out(), "equals");
         case uenv::tok::at:
             return fmt::format_to(ctx.out(), "at");
         case uenv::tok::bang:

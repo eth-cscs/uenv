@@ -2,12 +2,10 @@
 #pragma once
 
 #include <cstdint>
-#include <filesystem>
-#include <optional>
-#include <string>
 
 #include <fmt/core.h>
 
+#include <uenv/settings.h>
 #include <util/expected.h>
 
 namespace uenv {
@@ -39,9 +37,11 @@ struct global_settings {
     // repo_ is the unverified string description of the repo path that is
     // either read from an environment variable or as a --repo CLI argument. the
     // value should be validated using uenv::validate_repo_path before use.
+    /*
     std::optional<std::string> repo_;
-
     std::optional<std::filesystem::path> repo;
+    */
+    configuration config;
 };
 
 } // namespace uenv

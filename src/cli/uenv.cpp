@@ -9,6 +9,7 @@
 #include <uenv/config.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <uenv/settings.h>
 #include <util/color.h>
 #include <util/expected.h>
 #include <util/fs.h>
@@ -28,6 +29,7 @@
 std::string help_footer();
 
 int main(int argc, char** argv) {
+    uenv::config_base cli_config;
     uenv::global_settings settings;
     bool print_version = false;
 
@@ -38,12 +40,12 @@ int main(int argc, char** argv) {
     CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
     cli.add_flag_callback(
-        "--no-color", []() -> void { color::set_color(false); },
+        "--no-color", [&cli_config]() -> void { cli_config.color = false; },
         "disable color output");
     cli.add_flag_callback(
-        "--color", []() -> void { color::set_color(true); },
+        "--color", [&cli_config]() -> void { cli_config.color = true; },
         "enable color output");
-    cli.add_flag("--repo", settings.repo_, "the uenv repository");
+    cli.add_flag("--repo", cli_config.repo, "the uenv repository");
     cli.add_flag("--version", print_version, "print version");
 
     cli.footer(help_footer);
@@ -92,26 +94,21 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // if a repo was not provided as a flag, look at environment variables
-    if (!settings.repo_) {
-        settings.repo_ = uenv::default_repo_path();
+    // set the configuration according to defaults, clie options and config
+    // files.
+    const auto tc = uenv::merge(cli_config, uenv::default_config());
+    if (auto merged_config = uenv::generate_configuration(tc)) {
+        settings.config = merged_config.value();
+    } else {
+        term::error("an invalid configuration was provided: {}",
+                    merged_config.error());
+    }
+    if (!settings.config.repo) {
+        term::warn("there is no valid repo - use the --repo flag or edit the "
+                   "configuration to set a repo path");
     }
 
-    // post-process settings after the CLI arguments have been parsed
-    if (settings.repo_) {
-        if (const auto rpath =
-                uenv::validate_repo_path(*settings.repo_, false, false)) {
-            settings.repo = *rpath;
-        } else {
-            term::warn("ignoring repo path: {}", rpath.error());
-            settings.repo = std::nullopt;
-            settings.repo_ = std::nullopt;
-        }
-    }
-
-    if (settings.repo) {
-        spdlog::info("using repo {}", *settings.repo);
-    }
+    color::set_color(settings.config.color);
 
     spdlog::info("{}", settings);
 

@@ -35,15 +35,15 @@ void image_ls_args::add_cli(CLI::App& cli,
 }
 
 int image_ls(const image_ls_args& args, const global_settings& settings) {
-    // get the repo and handle errors if it does not exist
-    if (!settings.repo) {
+    // require that a valid repo has been provided
+    if (!settings.config.repo) {
         term::error("a repo needs to be provided either using the --repo flag "
-                    "or by setting the UENV_REPO_PATH environment variable");
+                    "in the config file");
         return 1;
     }
 
     // open the repo
-    auto store = uenv::open_repository(*settings.repo);
+    auto store = uenv::open_repository(settings.config.repo.value());
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;

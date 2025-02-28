@@ -129,8 +129,15 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
     const auto record = *(remote_matches->begin());
     spdlog::info("pulling {} {}", record.sha, record);
 
+    // require that a valid repo has been provided
+    if (!settings.config.repo) {
+        term::error("a repo needs to be provided either using the --repo flag "
+                    "in the config file");
+        return 1;
+    }
     // open the repo
-    auto store = uenv::open_repository(*settings.repo, repo_mode::readwrite);
+    auto store = uenv::open_repository(settings.config.repo.value(),
+                                       repo_mode::readwrite);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;

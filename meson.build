@@ -49,6 +49,7 @@ lib_src = [
         'src/uenv/parse.cpp',
         'src/uenv/print.cpp',
         'src/uenv/repository.cpp',
+        'src/uenv/settings.cpp',
         'src/uenv/uenv.cpp',
         'src/util/color.cpp',
         'src/util/curl.cpp',

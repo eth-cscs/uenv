@@ -1,4 +1,5 @@
 #include <catch2/catch_all.hpp>
+#include <fmt/format.h>
 
 #include <uenv/env.h>
 #include <uenv/lex.h>
@@ -14,22 +15,6 @@ util::expected<uenv_description, parse_error> parse_uenv_description(lexer&);
 util::expected<view_description, parse_error> parse_view_description(lexer& L);
 util::expected<mount_entry, parse_error> parse_mount_entry(lexer& L);
 } // namespace uenv
-
-TEST_CASE("sanitise inputs", "[parse]") {
-    REQUIRE(uenv::strip("wombat") == "wombat");
-    REQUIRE(uenv::strip("wombat soup") == "wombat soup");
-    REQUIRE(uenv::strip("wombat-soup") == "wombat-soup");
-    REQUIRE(uenv::strip("wombat \nsoup") == "wombat \nsoup");
-    REQUIRE(uenv::strip("") == "");
-    REQUIRE(uenv::strip(" ") == "");
-    REQUIRE(uenv::strip(" x") == "x");
-    REQUIRE(uenv::strip("x ") == "x");
-    REQUIRE(uenv::strip(" x ") == "x");
-    REQUIRE(uenv::strip(" \n\f  ") == "");
-    REQUIRE(uenv::strip(" wombat") == "wombat");
-    REQUIRE(uenv::strip("wombat \n") == "wombat");
-    REQUIRE(uenv::strip("\t\f\vwombat \n") == "wombat");
-}
 
 TEST_CASE("parse names", "[parse]") {
     for (const auto& in : {"default", "prgenv-gnu", "a", "x.y", "x_y", "_"}) {
@@ -441,6 +426,48 @@ TEST_CASE("date", "[parse]") {
     {
         auto in = "2024-1a-3";
         auto result = uenv::parse_uenv_date(in);
+        REQUIRE(!result);
+    }
+}
+
+TEST_CASE("config_line", "[parse]") {
+    for (auto in : {"", " ", "  ", " \t ", "# comment", "    # comment ##"}) {
+        auto result = uenv::parse_config_line(in);
+        // successful parse
+        REQUIRE(result);
+        // parsed result should evaluate to false (empty line)
+        REQUIRE(!(*result));
+    }
+    for (auto in : {"a=b", " a=b ", "a = b", "a = b    \t"}) {
+        auto result = uenv::parse_config_line(in);
+        // successful parse
+        REQUIRE(result);
+        REQUIRE(result->key == "a");
+        REQUIRE(result->value == "b");
+    }
+    for (auto in : {"wombats=", "wombats = "}) {
+        auto result = uenv::parse_config_line(in);
+        REQUIRE(result);
+        REQUIRE(result->key == "wombats");
+        REQUIRE(result->value.empty());
+    }
+    {
+        auto result = uenv::parse_config_line("wombats = 42.3 kilos ");
+        REQUIRE(result);
+        REQUIRE(result->key == "wombats");
+        REQUIRE(result->value == "42.3 kilos");
+    }
+    for (auto valid_key : {"w", "wombat", "x2", "x_2", "xx_yy", "use-color",
+                           "_hidden", "hidden_", "_"}) {
+        auto result =
+            uenv::parse_config_line(fmt::format("{}=value", valid_key));
+        REQUIRE(result);
+        REQUIRE(result->key == valid_key);
+        REQUIRE(result->value == "value");
+    }
+    for (auto invalid_key : {"2x", "-x", "4"}) {
+        auto result =
+            uenv::parse_config_line(fmt::format("{}=value", invalid_key));
         REQUIRE(!result);
     }
 }

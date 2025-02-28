@@ -12,9 +12,9 @@
 
 namespace color {
 
-// sets default color on/off by inspecting environment variables and checking
-// for tty.
-void default_color();
+// returns automatic color selection by inspecting environment variables and
+// checking for tty.
+bool default_color();
 
 // set color output on/off
 void set_color(bool v);

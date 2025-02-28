@@ -13,7 +13,7 @@ TEST_CASE("error characters", "[lex]") {
 }
 
 TEST_CASE("punctuation", "[lex]") {
-    uenv::lexer L(":,:/@!*!");
+    uenv::lexer L(":,:/@!*!#=");
     REQUIRE(L.next() == uenv::token{0, uenv::tok::colon, ":"});
     REQUIRE(L.next() == uenv::token{1, uenv::tok::comma, ","});
     REQUIRE(L.next() == uenv::token{2, uenv::tok::colon, ":"});
@@ -22,9 +22,11 @@ TEST_CASE("punctuation", "[lex]") {
     REQUIRE(L.next() == uenv::token{5, uenv::tok::bang, "!"});
     REQUIRE(L.next() == uenv::token{6, uenv::tok::star, "*"});
     REQUIRE(L.next() == uenv::token{7, uenv::tok::bang, "!"});
+    REQUIRE(L.next() == uenv::token{8, uenv::tok::hash, "#"});
+    REQUIRE(L.next() == uenv::token{9, uenv::tok::equals, "="});
     // pop the end token twice to check that it does not run off the end
-    REQUIRE(L.next() == uenv::token{8, uenv::tok::end, ""});
-    REQUIRE(L.next() == uenv::token{8, uenv::tok::end, ""});
+    REQUIRE(L.next() == uenv::token{10, uenv::tok::end, ""});
+    REQUIRE(L.next() == uenv::token{10, uenv::tok::end, ""});
 }
 
 TEST_CASE("number", "[lex]") {

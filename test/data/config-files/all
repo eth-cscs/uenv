@@ -1,0 +1,7 @@
+# this file sets all values
+repo = /path/to/config
+color=false  
+# note that we leave some stray whitespace at the end of the line above,
+# and on the line below
+   
+    # randomly indented comment
