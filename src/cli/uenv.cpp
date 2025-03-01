@@ -10,12 +10,12 @@
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/color.h>
-#include <util/completion.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
 #include "add_remove.h"
 #include "build.h"
+#include "completion.h"
 #include "delete.h"
 #include "help.h"
 #include "image.h"
@@ -31,7 +31,6 @@ std::string help_footer();
 int main(int argc, char** argv) {
     uenv::global_settings settings;
     bool print_version = false;
-    bool generate_completion = false;
 
     // enable/disable color depending on NOCOLOR env. var and tty terminal
     // status.
@@ -47,8 +46,6 @@ int main(int argc, char** argv) {
         "enable color output");
     cli.add_flag("--repo", settings.repo_, "the uenv repository");
     cli.add_flag("--version", print_version, "print version");
-    cli.add_flag("--generate-completion", generate_completion,
-                 "generate bash completion script");
 
     cli.footer(help_footer);
 
@@ -58,6 +55,7 @@ int main(int argc, char** argv) {
     uenv::repo_args repo;
     uenv::status_args stat;
     uenv::build_args build;
+    uenv::completion_args completion;
 
     start.add_cli(cli, settings);
     run.add_cli(cli, settings);
@@ -65,6 +63,7 @@ int main(int argc, char** argv) {
     repo.add_cli(cli, settings);
     stat.add_cli(cli, settings);
     build.add_cli(cli, settings);
+    completion.add_cli(cli, settings);
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -93,13 +92,6 @@ int main(int argc, char** argv) {
     // print the version and exit if the --version flag was passed
     if (print_version) {
         term::msg("{}", UENV_VERSION);
-        return 0;
-    }
-
-    // generate bash completion script and exit if the --generate-completion
-    // flag was passed
-    if (generate_completion) {
-        fmt::print("{}", util::completion::bash_completion(&cli));
         return 0;
     }
 
@@ -160,6 +152,8 @@ int main(int argc, char** argv) {
         return uenv::status(stat, settings);
     case settings.build:
         return uenv::build(build, settings);
+    case settings.completion:
+        return uenv::completion(completion, settings);
     case settings.unset:
         term::msg("uenv version {}", UENV_VERSION);
         term::msg("call '{} --help' for help", argv[0]);

@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 
+#include <CLI/CLI.hpp>
 #include <fmt/core.h>
 
 #include <util/expected.h>
@@ -27,7 +28,8 @@ enum class cli_mode : std::uint32_t {
     run,
     start,
     status,
-    build
+    build,
+    completion
 };
 
 struct global_settings {
@@ -35,6 +37,7 @@ struct global_settings {
 
     int verbose = 0;
     cli_mode mode = unset;
+    CLI::App* cli;
 
     // repo_ is the unverified string description of the repo path that is
     // either read from an environment variable or as a --repo CLI argument. the
@@ -87,6 +90,8 @@ template <> class fmt::formatter<uenv::cli_mode> {
             return format_to(ctx.out(), "status");
         case build:
             return format_to(ctx.out(), "build");
+        case completion:
+            return format_to(ctx.out(), "completion");
         }
         return format_to(ctx.out(), "unknown");
     }
