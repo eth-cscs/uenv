@@ -37,7 +37,6 @@ struct global_settings {
 
     int verbose = 0;
     cli_mode mode = unset;
-    CLI::App* cli;
 
     // repo_ is the unverified string description of the repo path that is
     // either read from an environment variable or as a --repo CLI argument. the

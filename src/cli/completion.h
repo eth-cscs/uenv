@@ -18,10 +18,12 @@ void completion_help();
 
 struct completion_args {
     std::string shell_description;
+    CLI::App* cli;
+    completion_args(CLI::App* cli);
     void add_cli(CLI::App&, global_settings& settings);
 };
 
-int completion(const completion_args& args, const global_settings& settings);
+int completion(const completion_args& args);
 
 } // namespace uenv
 

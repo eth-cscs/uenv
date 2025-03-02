@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
     uenv::repo_args repo;
     uenv::status_args stat;
     uenv::build_args build;
-    uenv::completion_args completion;
+    uenv::completion_args completion(&cli);
 
     start.add_cli(cli, settings);
     run.add_cli(cli, settings);
@@ -153,7 +153,7 @@ int main(int argc, char** argv) {
     case settings.build:
         return uenv::build(build, settings);
     case settings.completion:
-        return uenv::completion(completion, settings);
+        return uenv::completion(completion);
     case settings.unset:
         term::msg("uenv version {}", UENV_VERSION);
         term::msg("call '{} --help' for help", argv[0]);
