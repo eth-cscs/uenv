@@ -114,7 +114,54 @@ int main(int argc, char** argv) {
                    "configuration to set a repo path");
     }
 
+    //
+    // perform actions based on the configuration
+    //
+    // toggle whether to use color output
+    spdlog::info("color output is {}",
+                 (settings.config.color ? "enabled" : "disabled"));
     color::set_color(settings.config.color);
+
+    // validate the user repository - attempt to create if it does not exist
+    if (settings.config.repo) {
+        using enum uenv::repo_state;
+        const auto initial_state =
+            uenv::validate_repository(settings.config.repo.value());
+        switch (initial_state) {
+        // repo exists and is read only
+        case invalid:
+            spdlog::warn("unable to create repository: {} is invalid",
+                         settings.config.repo.value());
+            break;
+        // repo exists and is read only
+        case readonly:
+            spdlog::warn("the repo {} exists, but is read only, some "
+                         "operations like image pull are disabled.",
+                         settings.config.repo.value());
+        // repo exists and is writable
+        case readwrite:
+            break;
+        // repo does not exist - attempt to create
+        // ignore any error - later attempts to use the repo can handle the
+        // error
+        default:
+            spdlog::info("the repo {} does not exist - creating",
+                         settings.config.repo.value());
+            if (auto result =
+                    uenv::create_repository(settings.config.repo.value());
+                !result) {
+                spdlog::warn("the repo {} was not created: {}",
+                             settings.config.repo.value(), result.error());
+            }
+            break;
+        }
+    }
+
+    // util::expected<repository, std::string>
+    // create_repository(const fs::path& repo_path) {
+    // using enum repo_state;
+
+    // auto abs_repo_path = fs::absolute(repo_path);
 
     spdlog::info("{}", settings);
 
