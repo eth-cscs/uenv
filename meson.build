@@ -120,6 +120,15 @@ if uenv_cli
         install: true,
         install_dir: get_option('libexecdir'),
     )
+
+    bash_completion = custom_target(
+        'bash-completion',
+        output: 'uenv-bash-completion.sh',
+        command: ['env', 'PATH='+meson.current_build_dir()+':$PATH', cli.name(), 'completion', 'bash'],
+        install: true,
+        capture: true,
+        install_dir: get_option('prefix'),
+    )
 endif
 
 if uenv_slurm_plugin
