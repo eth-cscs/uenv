@@ -130,4 +130,3 @@ if get_option('tests').enabled()
     subdir('test')
 endif
 
-meson.add_install_script('generate-completion.sh')
