@@ -1,84 +1,84 @@
 #include <catch2/catch_all.hpp>
 #include <fmt/core.h>
 
-#include <uenv/lex.h>
+#include <util/lex.h>
 
 TEST_CASE("error characters", "[lex]") {
     for (auto in : {"\\", "~", "'", "\""}) {
-        uenv::lexer L(in);
+        lex::lexer L(in);
         auto t = L.peek();
-        REQUIRE(t.kind == uenv::tok::error);
+        REQUIRE(t.kind == lex::tok::error);
         REQUIRE(t.loc == 0u);
     }
 }
 
 TEST_CASE("punctuation", "[lex]") {
-    uenv::lexer L(":,:/@!*!#=");
-    REQUIRE(L.next() == uenv::token{0, uenv::tok::colon, ":"});
-    REQUIRE(L.next() == uenv::token{1, uenv::tok::comma, ","});
-    REQUIRE(L.next() == uenv::token{2, uenv::tok::colon, ":"});
-    REQUIRE(L.next() == uenv::token{3, uenv::tok::slash, "/"});
-    REQUIRE(L.next() == uenv::token{4, uenv::tok::at, "@"});
-    REQUIRE(L.next() == uenv::token{5, uenv::tok::bang, "!"});
-    REQUIRE(L.next() == uenv::token{6, uenv::tok::star, "*"});
-    REQUIRE(L.next() == uenv::token{7, uenv::tok::bang, "!"});
-    REQUIRE(L.next() == uenv::token{8, uenv::tok::hash, "#"});
-    REQUIRE(L.next() == uenv::token{9, uenv::tok::equals, "="});
+    lex::lexer L(":,:/@!*!#=");
+    REQUIRE(L.next() == lex::token{0, lex::tok::colon, ":"});
+    REQUIRE(L.next() == lex::token{1, lex::tok::comma, ","});
+    REQUIRE(L.next() == lex::token{2, lex::tok::colon, ":"});
+    REQUIRE(L.next() == lex::token{3, lex::tok::slash, "/"});
+    REQUIRE(L.next() == lex::token{4, lex::tok::at, "@"});
+    REQUIRE(L.next() == lex::token{5, lex::tok::bang, "!"});
+    REQUIRE(L.next() == lex::token{6, lex::tok::star, "*"});
+    REQUIRE(L.next() == lex::token{7, lex::tok::bang, "!"});
+    REQUIRE(L.next() == lex::token{8, lex::tok::hash, "#"});
+    REQUIRE(L.next() == lex::token{9, lex::tok::equals, "="});
     // pop the end token twice to check that it does not run off the end
-    REQUIRE(L.next() == uenv::token{10, uenv::tok::end, ""});
-    REQUIRE(L.next() == uenv::token{10, uenv::tok::end, ""});
+    REQUIRE(L.next() == lex::token{10, lex::tok::end, ""});
+    REQUIRE(L.next() == lex::token{10, lex::tok::end, ""});
 }
 
 TEST_CASE("number", "[lex]") {
-    uenv::lexer L("42 42wombat42 42");
-    REQUIRE(L.next() == uenv::token{0, uenv::tok::integer, "42"});
-    REQUIRE(L.next() == uenv::token{2, uenv::tok::whitespace, " "});
-    REQUIRE(L.next() == uenv::token{3, uenv::tok::integer, "42"});
-    REQUIRE(L.next() == uenv::token{5, uenv::tok::symbol, "wombat"});
-    REQUIRE(L.next() == uenv::token{11, uenv::tok::integer, "42"});
-    REQUIRE(L.next() == uenv::token{13, uenv::tok::whitespace, " "});
-    REQUIRE(L.next() == uenv::token{14, uenv::tok::integer, "42"});
+    lex::lexer L("42 42wombat42 42");
+    REQUIRE(L.next() == lex::token{0, lex::tok::integer, "42"});
+    REQUIRE(L.next() == lex::token{2, lex::tok::whitespace, " "});
+    REQUIRE(L.next() == lex::token{3, lex::tok::integer, "42"});
+    REQUIRE(L.next() == lex::token{5, lex::tok::symbol, "wombat"});
+    REQUIRE(L.next() == lex::token{11, lex::tok::integer, "42"});
+    REQUIRE(L.next() == lex::token{13, lex::tok::whitespace, " "});
+    REQUIRE(L.next() == lex::token{14, lex::tok::integer, "42"});
     //  pop the end token twice to check that it does not run off the end
-    REQUIRE(L.next() == uenv::token{16, uenv::tok::end, ""});
-    REQUIRE(L.next() == uenv::token{16, uenv::tok::end, ""});
+    REQUIRE(L.next() == lex::token{16, lex::tok::end, ""});
+    REQUIRE(L.next() == lex::token{16, lex::tok::end, ""});
 }
 
 TEST_CASE("peek", "[lex]") {
-    uenv::lexer L(":apple");
-    REQUIRE(L.peek() == uenv::token{0, uenv::tok::colon, ":"});
-    REQUIRE(L.peek(1) == uenv::token{1, uenv::tok::symbol, "apple"});
-    REQUIRE(L.peek(2) == uenv::token{6, uenv::tok::end, ""});
-    REQUIRE(L.peek(3) == uenv::token{6, uenv::tok::end, ""});
+    lex::lexer L(":apple");
+    REQUIRE(L.peek() == lex::token{0, lex::tok::colon, ":"});
+    REQUIRE(L.peek(1) == lex::token{1, lex::tok::symbol, "apple"});
+    REQUIRE(L.peek(2) == lex::token{6, lex::tok::end, ""});
+    REQUIRE(L.peek(3) == lex::token{6, lex::tok::end, ""});
 
-    REQUIRE(L.next() == uenv::token{0, uenv::tok::colon, ":"});
-    REQUIRE(L.next() == uenv::token{1, uenv::tok::symbol, "apple"});
-    REQUIRE(L.next() == uenv::token{6, uenv::tok::end, ""});
+    REQUIRE(L.next() == lex::token{0, lex::tok::colon, ":"});
+    REQUIRE(L.next() == lex::token{1, lex::tok::symbol, "apple"});
+    REQUIRE(L.next() == lex::token{6, lex::tok::end, ""});
 }
 
 TEST_CASE("whitespace", "[lex]") {
-    uenv::lexer L("wombat  soup \n\v");
-    REQUIRE(L.next() == uenv::token{0, uenv::tok::symbol, "wombat"});
-    REQUIRE(L.next() == uenv::token{6, uenv::tok::whitespace, "  "});
-    REQUIRE(L.next() == uenv::token{8, uenv::tok::symbol, "soup"});
-    REQUIRE(L.next() == uenv::token{12, uenv::tok::whitespace, " \n\v"});
+    lex::lexer L("wombat  soup \n\v");
+    REQUIRE(L.next() == lex::token{0, lex::tok::symbol, "wombat"});
+    REQUIRE(L.next() == lex::token{6, lex::tok::whitespace, "  "});
+    REQUIRE(L.next() == lex::token{8, lex::tok::symbol, "soup"});
+    REQUIRE(L.next() == lex::token{12, lex::tok::whitespace, " \n\v"});
 }
 
 TEST_CASE("empty input", "[lex]") {
-    uenv::lexer L("");
-    REQUIRE(L.peek() == uenv::token{0, uenv::tok::end, ""});
-    REQUIRE(L.peek(1036) == uenv::token{0, uenv::tok::end, ""});
-    REQUIRE(L.next() == uenv::token{0, uenv::tok::end, ""});
-    REQUIRE(L.next() == uenv::token{0, uenv::tok::end, ""});
+    lex::lexer L("");
+    REQUIRE(L.peek() == lex::token{0, lex::tok::end, ""});
+    REQUIRE(L.peek(1036) == lex::token{0, lex::tok::end, ""});
+    REQUIRE(L.next() == lex::token{0, lex::tok::end, ""});
+    REQUIRE(L.next() == lex::token{0, lex::tok::end, ""});
 }
 
 TEST_CASE("lex", "[lex]") {
     for (const auto& in : {"prgenv-gnu/ 24.7 :tag,wombat/v2023:lat est",
                            "/opt/images/uenv-x.squashfs,prgenv-gnu"}) {
-        uenv::lexer L(in);
-        while (L.current_kind() != uenv::tok::end &&
-               L.current_kind() != uenv::tok::error) {
+        lex::lexer L(in);
+        while (L.current_kind() != lex::tok::end &&
+               L.current_kind() != lex::tok::error) {
             L.next();
         }
-        REQUIRE(L.current_kind() == uenv::tok::end);
+        REQUIRE(L.current_kind() == lex::tok::end);
     }
 }

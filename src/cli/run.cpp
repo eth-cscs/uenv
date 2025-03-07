@@ -58,13 +58,8 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         return 1;
     }
 
-    // generate the environment variables to set
-    auto env_vars = uenv::getenv(*env);
-
-    if (auto rval = uenv::setenv(env_vars, "SQFSMNT_FWD_"); !rval) {
-        term::error("setting environment variables {}", rval.error());
-        return 1;
-    }
+    auto runtime_environment =
+        generate_environment(*env, globals.calling_environment, "SQFSMNT_FWD_");
 
     // generate the mount list
     std::vector<std::string> commands = {"squashfs-mount"};
@@ -76,7 +71,8 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
     commands.push_back("--");
     commands.insert(commands.end(), args.commands.begin(), args.commands.end());
 
-    return util::exec(commands);
+    // return util::exec(commands);
+    return util::exec(commands, runtime_environment.c_env());
 }
 
 std::string run_footer() {

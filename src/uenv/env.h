@@ -1,9 +1,11 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include <util/environment.h>
 #include <util/expected.h>
 
 #include <uenv/uenv.h>
@@ -23,11 +25,12 @@ concretise_env(const std::string& uenv_args,
                std::optional<std::string> view_args,
                std::optional<std::filesystem::path> repo_arg);
 
-std::unordered_map<std::string, std::string> getenv(const env&);
+environment::variables
+generate_environment(const env&, const environment::variables&,
+                     std::optional<std::string> = std::nullopt);
 
-util::expected<int, std::string>
-setenv(const std::unordered_map<std::string, std::string>& variables,
-       const std::string& prefix);
+environment::variables
+generate_slurm_environment(const env&, const environment::variables&);
 
 // returns true iff in a running uenv session
 bool in_uenv_session();

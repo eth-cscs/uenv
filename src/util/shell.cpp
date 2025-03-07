@@ -35,7 +35,7 @@ util::expected<std::filesystem::path, std::string> current_shell() {
     return can_path;
 }
 
-int exec(const std::vector<std::string>& args) {
+int exec(const std::vector<std::string>& args, char* const envp[]) {
     std::vector<char*> argv;
 
     // clean up temporary files before calling execve, because the descructor
@@ -50,7 +50,12 @@ int exec(const std::vector<std::string>& args) {
     argv.push_back(nullptr);
 
     spdlog::info("exec: {}", fmt::join(args, " "));
-    int r = execvp(argv[0], argv.data());
+    int r;
+    if (envp == nullptr) {
+        r = execvp(argv[0], argv.data());
+    } else {
+        r = execvpe(argv[0], argv.data(), envp);
+    }
     // } // end unsafe
 
     spdlog::error("unable to launch a new shell");

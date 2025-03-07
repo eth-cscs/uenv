@@ -315,50 +315,6 @@ concretise_env(const std::string& uenv_args,
     return env{uenvs, views};
 }
 
-std::unordered_map<std::string, std::string> getenv(const env& environment) {
-    // accumulator for the environment variables that will be set.
-    // (key, value) -> (environment variable name, value)
-    std::unordered_map<std::string, std::string> env_vars;
-
-    // returns the value of an environment variable.
-    // if the variable has been recorded in env_vars, that value is returned
-    // else the cstdlib getenv function is called to get the currently set
-    // value returns nullptr if the variable is not set anywhere
-    auto ge = [&env_vars](const std::string& name) -> const char* {
-        if (env_vars.count(name)) {
-            return env_vars[name].c_str();
-        }
-        return ::getenv(name.c_str());
-    };
-
-    // iterate over each view in order, and set the environment variables
-    // that each view configures. the variables are not set directly,
-    // instead they are accumulated in env_vars.
-    for (auto& view : environment.views) {
-        auto result = environment.uenvs.at(view.uenv)
-                          .views.at(view.name)
-                          .environment.get_values(ge);
-        for (const auto& v : result) {
-            env_vars[v.name] = v.value;
-        }
-    }
-
-    // set UENV_VIEW env variable, used inside the environment by uenv
-    auto view_description = [&environment](const auto& v) {
-        return fmt::format("{}:{}:{}", environment.uenvs.at(v.uenv).mount_path,
-                           v.uenv, v.name);
-    };
-
-    env_vars["UENV_VIEW"] =
-        fmt::format("{}", fmt::join(environment.views |
-                                        std::views::transform(view_description),
-                                    ","));
-
-    // NOTE: UENV_MOUNT_LIST is set by squashfs-mount, not by the uenv CLI.
-
-    return env_vars;
-}
-
 // list of environment variables that are ignored in setuid applications
 // the full list is defined here:
 //      https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/generic/unsecvars.h
@@ -397,30 +353,86 @@ std::set<std::string_view> unsecure_envvars__{
     "TMPDIR",
 };
 
-util::expected<int, std::string>
-setenv(const std::unordered_map<std::string, std::string>& variables,
-       const std::string& prefix) {
-    for (auto var : variables) {
-        // prepend prefix to unsecure environment variables
-        std::string fwd_name = unsecure_envvars__.contains(var.first)
-                                   ? prefix + var.first
-                                   : var.first;
-        spdlog::trace("forwarding environment variable {} as {}", fwd_name,
-                      var.second);
-        if (auto rcode = ::setenv(fwd_name.c_str(), var.second.c_str(), true)) {
-            switch (rcode) {
-            case EINVAL:
-                return unexpected(
-                    fmt::format("invalid variable name {}", fwd_name));
-            case ENOMEM:
-                return unexpected("out of memory");
-            default:
-                return unexpected(
-                    fmt::format("unknown error setting {}", fwd_name));
+environment::variables
+generate_environment(const env& environment, environment::variables const& base,
+                     std::optional<std::string> secure_prefix) {
+    auto vars = base;
+
+    for (auto& view : environment.views) {
+        const auto result =
+            environment.uenvs.at(view.uenv)
+                .views.at(view.name)
+                .environment.get_values([&vars](const std::string& name) {
+                    return vars.get(name);
+                });
+        for (const auto& v : result) {
+            vars.set(v.name, v.value);
+        }
+    }
+
+    // set UENV_VIEW env variable, used inside the environment by uenv
+    auto view_description = [&environment](const auto& v) {
+        return fmt::format("{}:{}:{}", environment.uenvs.at(v.uenv).mount_path,
+                           v.uenv, v.name);
+    };
+
+    vars.set(
+        "UENV_VIEW",
+        fmt::format("{}", fmt::join(environment.views |
+                                        std::views::transform(view_description),
+                                    ",")));
+
+    std::vector<scalar> secure_vars;
+    if (secure_prefix) {
+        for (const auto& e : vars.vars()) {
+            if (unsecure_envvars__.contains(e.first)) {
+                secure_vars.push_back(
+                    {secure_prefix.value() + e.first, e.second});
             }
         }
     }
-    return 0;
+    for (const auto& var : secure_vars) {
+        vars.set(var.name, var.value);
+    }
+    return vars;
+}
+
+environment::variables
+generate_slurm_environment(const env& environment,
+                           environment::variables const& base) {
+    environment::variables vars{};
+
+    for (auto& view : environment.views) {
+        const auto result = environment.uenvs.at(view.uenv)
+                                .views.at(view.name)
+                                .environment.get_values(
+                                    [&base, &vars](const std::string& name) {
+                                        // use previosuly set value if available
+                                        if (auto value = vars.get(name)) {
+                                            return value;
+                                        }
+                                        // otherwise use the value from the base
+                                        // environment
+                                        return base.get(name);
+                                    });
+        for (const auto& v : result) {
+            vars.set(v.name, v.value);
+        }
+    }
+
+    // set UENV_VIEW env variable, used inside the environment by uenv
+    auto view_description = [&environment](const auto& v) {
+        return fmt::format("{}:{}:{}", environment.uenvs.at(v.uenv).mount_path,
+                           v.uenv, v.name);
+    };
+
+    vars.set(
+        "UENV_VIEW",
+        fmt::format("{}", fmt::join(environment.views |
+                                        std::views::transform(view_description),
+                                    ",")));
+
+    return vars;
 }
 
 bool operator==(const uenv_record& lhs, const uenv_record& rhs) {

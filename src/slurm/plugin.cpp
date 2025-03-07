@@ -1,6 +1,7 @@
 #include <charconv>
 #include <cstdlib>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -303,13 +304,10 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         return -ESPANK_ERROR;
     }
 
-    // generate the environment variables to set
-    auto env_vars = uenv::getenv(*env);
-
-    if (auto rval = uenv::setenv(env_vars, ""); !rval) {
-        slurm_error("setting environment variables: %s", rval.error().c_str());
-        return -ESPANK_ERROR;
-    }
+    // set the environment variables
+    const auto calling_environment = environment::variables(environ);
+    auto runtime_environment =
+        generate_slurm_environment(*env, calling_environment);
 
     // set additional environment variables that are required to communicate
     // with the remote plugin.
@@ -321,22 +319,11 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         uenv_mount_list.push_back(
             fmt::format("{}:{}", u.sqfs_path.string(), u.mount_path.string()));
     }
-    uenv_vars["UENV_MOUNT_LIST"] =
-        fmt::format("{}", fmt::join(uenv_mount_list, ","));
-    if (!env->views.empty()) {
-        std::vector<std::string> view_list;
-        for (auto& v : env->views) {
-            auto& u = env->uenvs.at(v.uenv);
-            view_list.push_back(
-                fmt::format("{}:{}:{}", u.mount_path.string(), v.uenv, v.name));
-        }
-        uenv_vars["UENV_VIEW"] = fmt::format("{}", fmt::join(view_list, ","));
-    }
+    runtime_environment.set("UENV_MOUNT_LIST",
+                            fmt::format("{}", fmt::join(uenv_mount_list, ",")));
 
-    if (auto rval = uenv::setenv(uenv_vars, ""); !rval) {
-        slurm_error("setting uenv environment variables %s",
-                    rval.error().c_str());
-        return -ESPANK_ERROR;
+    for (auto& var : runtime_environment.vars()) {
+        ::setenv(var.first.c_str(), var.second.c_str(), 1);
     }
 
     return ESPANK_SUCCESS;

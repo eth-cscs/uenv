@@ -1,4 +1,5 @@
 // vim: ts=4 sts=4 sw=4 et
+#include <unistd.h>
 
 #include <CLI/CLI.hpp>
 #include <fmt/core.h>
@@ -11,6 +12,7 @@
 #include <uenv/repository.h>
 #include <uenv/settings.h>
 #include <util/color.h>
+#include <util/environment.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
@@ -27,6 +29,9 @@
 #include "uenv.h"
 
 std::string help_footer();
+
+uenv::global_settings::global_settings() : calling_environment(environ) {
+}
 
 int main(int argc, char** argv) {
     uenv::config_base cli_config;

@@ -1,11 +1,9 @@
 #include <cctype>
 #include <string_view>
 
-#include <fmt/core.h>
-
 #include "lex.h"
 
-namespace uenv {
+namespace lex {
 
 bool operator==(const token& lhs, const token& rhs) {
     return lhs.loc == rhs.loc && lhs.kind == rhs.kind &&
@@ -243,4 +241,4 @@ std::string lexer::string() const {
 
 lexer::~lexer() = default;
 
-} // namespace uenv
+} // namespace lex

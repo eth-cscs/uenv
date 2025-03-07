@@ -361,7 +361,7 @@ EOF
 
 @test "image rm" {
     export UENV_REPO_PATH=$(mktemp -d $TMP/create-XXXXXX)
-    run uenv --repo=$UENV_REPO_PATH repo create $UENV_REPO_PATH
+    run uenv repo create $UENV_REPO_PATH
     assert_success
 
     # add uenv to a repo for us to try removing

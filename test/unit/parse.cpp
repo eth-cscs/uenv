@@ -2,23 +2,25 @@
 #include <fmt/format.h>
 
 #include <uenv/env.h>
-#include <uenv/lex.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
+#include <util/lex.h>
 
 // forward declare private parsers
 namespace uenv {
-util::expected<std::string, parse_error> parse_name(lexer&);
-util::expected<std::string, parse_error> parse_path(lexer&);
-util::expected<uenv_label, parse_error> parse_uenv_label(lexer&);
-util::expected<uenv_description, parse_error> parse_uenv_description(lexer&);
-util::expected<view_description, parse_error> parse_view_description(lexer& L);
-util::expected<mount_entry, parse_error> parse_mount_entry(lexer& L);
+util::expected<std::string, parse_error> parse_name(lex::lexer&);
+util::expected<std::string, parse_error> parse_path(lex::lexer&);
+util::expected<uenv_label, parse_error> parse_uenv_label(lex::lexer&);
+util::expected<uenv_description, parse_error>
+parse_uenv_description(lex::lexer&);
+util::expected<view_description, parse_error>
+parse_view_description(lex::lexer& L);
+util::expected<mount_entry, parse_error> parse_mount_entry(lex::lexer& L);
 } // namespace uenv
 
 TEST_CASE("parse names", "[parse]") {
     for (const auto& in : {"default", "prgenv-gnu", "a", "x.y", "x_y", "_"}) {
-        auto L = uenv::lexer(in);
+        auto L = lex::lexer(in);
         auto result = uenv::parse_name(L);
         REQUIRE(result);
         REQUIRE(*result == in);
@@ -30,7 +32,7 @@ TEST_CASE("parse path", "[parse]") {
          {"./etc", "/etc", "/etc.", "/etc/usr/file.txt", "/etc-car/hole_s/_.",
           ".", "./.ssh/config", ".bashrc", ".2", "./2-w_00",
           "/tmp/uenv-repo/create-6urQBN"}) {
-        auto L = uenv::lexer(in);
+        auto L = lex::lexer(in);
         auto result = uenv::parse_path(L);
         REQUIRE(result);
         REQUIRE(*result == in);
@@ -39,7 +41,7 @@ TEST_CASE("parse path", "[parse]") {
 
 TEST_CASE("parse uenv label", "[parse]") {
     {
-        auto L = uenv::lexer("prgenv-gnu");
+        auto L = lex::lexer("prgenv-gnu");
         auto result = uenv::parse_uenv_label(L);
         REQUIRE(result);
         REQUIRE(result->name == "prgenv-gnu");
@@ -49,7 +51,7 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(!result->system);
     }
     {
-        auto L = uenv::lexer("prgenv-gnu/24.7");
+        auto L = lex::lexer("prgenv-gnu/24.7");
         auto result = uenv::parse_uenv_label(L);
         REQUIRE(result);
         REQUIRE(result->name == "prgenv-gnu");
@@ -59,7 +61,7 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(!result->system);
     }
     {
-        auto L = uenv::lexer("prgenv-gnu/24.7:v1");
+        auto L = lex::lexer("prgenv-gnu/24.7:v1");
         auto result = uenv::parse_uenv_label(L);
         REQUIRE(result);
         REQUIRE(result->name == "prgenv-gnu");
@@ -69,7 +71,7 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(!result->system);
     }
     {
-        auto L = uenv::lexer("prgenv-gnu:v1");
+        auto L = lex::lexer("prgenv-gnu:v1");
         auto result = uenv::parse_uenv_label(L);
         REQUIRE(result);
         REQUIRE(result->name == "prgenv-gnu");
@@ -79,7 +81,7 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(!result->system);
     }
     {
-        auto L = uenv::lexer("prgenv-gnu/24.7:v1@santis%a100");
+        auto L = lex::lexer("prgenv-gnu/24.7:v1@santis%a100");
         auto result = uenv::parse_uenv_label(L);
         REQUIRE(result);
         REQUIRE(result->name == "prgenv-gnu");
@@ -89,14 +91,14 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(result->system == "santis");
     }
     {
-        auto L = uenv::lexer("prgenv-gnu%a100");
+        auto L = lex::lexer("prgenv-gnu%a100");
         auto result = uenv::parse_uenv_label(L);
         REQUIRE(result);
         REQUIRE(result->name == "prgenv-gnu");
         REQUIRE(result->uarch == "a100");
     }
     {
-        auto L = uenv::lexer("prgenv-gnu/24.7:v1%a100@santis");
+        auto L = lex::lexer("prgenv-gnu/24.7:v1%a100@santis");
         auto result = uenv::parse_uenv_label(L);
         REQUIRE(result);
         REQUIRE(result->name == "prgenv-gnu");
@@ -106,7 +108,7 @@ TEST_CASE("parse uenv label", "[parse]") {
         REQUIRE(result->system == "santis");
     }
     {
-        auto L = uenv::lexer("prgenv-gnu/24.7:v1%a100");
+        auto L = lex::lexer("prgenv-gnu/24.7:v1%a100");
         auto result = uenv::parse_uenv_label(L);
         REQUIRE(result);
         REQUIRE(result->name == "prgenv-gnu");
@@ -124,7 +126,7 @@ TEST_CASE("parse uenv label", "[parse]") {
              "prgenv-gnu/24:v1@gh200%",
              ".wombat",
          }) {
-        auto L = uenv::lexer(defective_label);
+        auto L = lex::lexer(defective_label);
         REQUIRE(!uenv::parse_uenv_label(L));
     }
 }

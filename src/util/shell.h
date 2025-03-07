@@ -12,6 +12,6 @@ namespace util {
 util::expected<std::filesystem::path, std::string> current_shell();
 
 /// execve
-int exec(const std::vector<std::string>& argv);
+int exec(const std::vector<std::string>& argv, char* const envp[] = nullptr);
 
 } // namespace util

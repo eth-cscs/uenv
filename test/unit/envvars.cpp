@@ -3,6 +3,7 @@
 #include <vector>
 
 #include <uenv/envvars.h>
+#include <util/environment.h>
 
 TEST_CASE("prefix_path update", "[envvars]") {
     uenv::prefix_path_update pr_empty{uenv::update_kind::prepend, {}};
@@ -93,10 +94,8 @@ TEST_CASE("envvarset get final values", "[envvars]") {
     ev.update_prefix_path("C", {uenv::update_kind::append, {"c", "d"}});
 
     {
-        auto getenv =
-            []([[maybe_unused]] const std::string& name) -> const char* {
-            return nullptr;
-        };
+        auto getenv = []([[maybe_unused]] const std::string& name)
+            -> std::optional<std::string> { return std::nullopt; };
         REQUIRE_THAT(ev.get_values(getenv),
                      Catch::Matchers::UnorderedEquals(
                          std::vector<uenv::scalar>{{"ABODE", "tent"},
@@ -108,14 +107,15 @@ TEST_CASE("envvarset get final values", "[envvars]") {
     }
 
     {
-        auto getenv = [](const std::string& name) -> const char* {
+        auto getenv =
+            [](const std::string& name) -> std::optional<std::string> {
             if (name == "A")
                 return "hello";
             if (name == "B")
                 return "c:d";
             if (name == "C")
                 return "a:b:b:a:c:a";
-            return nullptr;
+            return std::nullopt;
         };
         REQUIRE_THAT(ev.get_values(getenv),
                      Catch::Matchers::UnorderedEquals(
@@ -128,5 +128,120 @@ TEST_CASE("envvarset get final values", "[envvars]") {
     }
 }
 
-// std::vector<std::string>
-// simplify_prefix_path_list(const std::vector<std::string> &in);
+/*
+ * test the environment variable handler below here
+ */
+namespace environment {
+bool validate_name(std::string_view name, bool strict = true);
+}
+
+TEST_CASE("validate envvar names", "[environment]") {
+    REQUIRE(environment::validate_name("wombat", true));
+    REQUIRE(environment::validate_name("_", true));
+    REQUIRE(environment::validate_name("__", true));
+    REQUIRE(environment::validate_name("_WOMBAT", true));
+    REQUIRE(environment::validate_name("a", true));
+    REQUIRE(environment::validate_name("A", true));
+    REQUIRE(environment::validate_name("ab", true));
+    REQUIRE(environment::validate_name("AB", true));
+    REQUIRE(environment::validate_name("PATH", true));
+    REQUIRE(environment::validate_name("CUDA_HOME", true));
+    REQUIRE(environment::validate_name("P1", true));
+    REQUIRE(environment::validate_name("_1", true));
+    REQUIRE(environment::validate_name("a123_4", true));
+
+    REQUIRE(!environment::validate_name("a-b", true));
+    REQUIRE(!environment::validate_name("b?", true));
+    REQUIRE(!environment::validate_name("-", true));
+    REQUIRE(!environment::validate_name("!", true));
+    REQUIRE(!environment::validate_name("wombat soup", true));
+}
+
+TEST_CASE("variables::clear", "[environment]") {
+    {
+        environment::variables E{};
+        auto initial_vars = E.c_env();
+        // assume that the calling environment has at least one environment
+        // variabls
+        REQUIRE(initial_vars != nullptr);
+        REQUIRE(initial_vars[0] == nullptr);
+        E.clear();
+        auto final_vars = E.c_env();
+        REQUIRE(final_vars != nullptr);
+        REQUIRE(final_vars[0] == nullptr);
+    }
+    {
+        environment::variables E{environ};
+        auto initial_vars = E.c_env();
+        // assume that the calling environment has at least one environment
+        // variabls
+        REQUIRE(initial_vars != nullptr);
+        REQUIRE(initial_vars[0] != nullptr);
+        E.clear();
+        auto final_vars = E.c_env();
+        REQUIRE(final_vars != nullptr);
+        REQUIRE(final_vars[0] == nullptr);
+    }
+}
+
+TEST_CASE("variables::set-get-unset", "[environment]") {
+    auto n_env = [](char** env) -> unsigned {
+        if (env == nullptr) {
+            return 0u;
+        }
+        unsigned count = 0;
+        while (*env) {
+            ++env;
+            ++count;
+        }
+        return count;
+    };
+
+    environment::variables E{};
+
+    {
+        auto vars = E.c_env();
+        REQUIRE(n_env(vars) == 0u);
+    }
+
+    E.set("hello", "world");
+    REQUIRE(E.get("hello"));
+    REQUIRE(E.get("hello").value() == "world");
+    {
+
+        auto vars = E.c_env();
+        REQUIRE(n_env(vars) == 1u);
+        REQUIRE(vars[0] == std::string("hello=world"));
+    }
+    E.set("hello", "there");
+    REQUIRE(E.get("hello"));
+    REQUIRE(E.get("hello").value() == "there");
+    {
+
+        auto vars = E.c_env();
+        REQUIRE(n_env(vars) == 1u);
+        REQUIRE(vars[0] == std::string("hello=there"));
+    }
+    E.set("another", "variable");
+    REQUIRE(E.get("another"));
+    REQUIRE(E.get("another").value() == "variable");
+    REQUIRE(n_env(E.c_env()) == 2u);
+    E.set("and", "another");
+    REQUIRE(n_env(E.c_env()) == 3u);
+    E.set("and", "overwrite");
+    REQUIRE(n_env(E.c_env()) == 3u);
+    // an illegal environment variable name will be ignored (a warning log
+    // message is generated)
+    E.set("and it was always thus", "antechinus");
+    REQUIRE(n_env(E.c_env()) == 3u);
+    REQUIRE(!E.get("and it was always thus"));
+
+    REQUIRE(!E.get("A_VALID_NAME"));
+    REQUIRE(!E.get("_"));
+
+    // set a variable, then check that unset removes the variable
+    E.set("wombat", "soup");
+    REQUIRE(E.get("wombat").value() == "soup");
+    E.unset("wombat");
+    REQUIRE(!E.get("wombat"));
+}

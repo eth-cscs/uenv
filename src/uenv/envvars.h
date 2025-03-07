@@ -28,7 +28,7 @@ struct prefix_path_update {
 };
 
 struct prefix_path {
-    prefix_path(std::string name) : name_(std::move(name)){};
+    prefix_path(std::string name) : name_(std::move(name)) {};
     prefix_path() = delete;
 
     void update(prefix_path_update u);
@@ -49,8 +49,8 @@ struct prefix_path {
 struct envvarset {
     bool update_scalar(const std::string& name, const std::string& value);
     bool update_prefix_path(const std::string& name, prefix_path_update update);
-    std::vector<scalar>
-    get_values(std::function<const char*(const std::string&)> f) const;
+    std::vector<scalar> get_values(
+        std::function<std::optional<std::string>(const std::string&)> f) const;
 
     const std::unordered_map<std::string, scalar>& scalars() const {
         return scalars_;

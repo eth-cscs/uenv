@@ -59,7 +59,8 @@ bool envvarset::update_prefix_path(const std::string& name,
 }
 
 std::vector<scalar> envvarset::get_values(
-    std::function<const char*(const std::string&)> getenv) const {
+    std::function<std::optional<std::string>(const std::string&)> getenv)
+    const {
     std::vector<scalar> vars;
     vars.reserve(scalars_.size() + prefix_paths_.size());
 
@@ -69,7 +70,7 @@ std::vector<scalar> envvarset::get_values(
 
     for (auto& v : prefix_paths_) {
         if (auto current = getenv(v.first)) {
-            vars.push_back({v.first, v.second.get(current)});
+            vars.push_back({v.first, v.second.get(*current)});
         } else {
             vars.push_back({v.first, v.second.get()});
         }
