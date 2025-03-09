@@ -1,28 +1,27 @@
-#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <vector>
-
-#include <unistd.h>
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
+#include <util/environment.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
 namespace util {
 
 /// returns the path of the shell currently being used
-util::expected<std::filesystem::path, std::string> current_shell() {
-    auto env_shell = std::getenv("SHELL");
+util::expected<std::filesystem::path, std::string>
+current_shell(const environment::variables& envvars) {
+    auto env_shell = envvars.get("SHELL");
 
-    if (env_shell == nullptr) {
+    if (!env_shell) {
         return util::unexpected("SHELL environment variable is not set");
     }
 
-    const auto raw_path = std::filesystem::path(env_shell);
+    const auto raw_path = std::filesystem::path(*env_shell);
     std::error_code ec;
     const auto can_path = std::filesystem::canonical(raw_path, ec);
 

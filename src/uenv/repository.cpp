@@ -8,6 +8,7 @@
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <uenv/uenv.h>
+#include <util/environment.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
@@ -37,15 +38,16 @@ using util::unexpected;
 /// - the path string was not valid
 ///
 /// returns error if it a path is set, but it is invalid
-std::optional<std::string> default_repo_path() {
+std::optional<std::string>
+default_repo_path(const environment::variables& env) {
     std::optional<std::string> path_string;
-    if (auto p = std::getenv("SCRATCH")) {
+    if (auto p = env.get("SCRATCH")) {
         spdlog::trace(fmt::format("default_repo_path: found SCRATCH={}", p));
-        path_string = std::string(p) + "/.uenv-images";
+        path_string = std::string(p.value()) + "/.uenv-images";
     } else {
-        if (auto p = std::getenv("HOME")) {
+        if (auto p = env.get("HOME")) {
             spdlog::trace(fmt::format("default_repo_path: found HOME={}", p));
-            path_string = std::string(p) + "/.uenv/repo";
+            path_string = std::string(p.value()) + "/.uenv/repo";
         } else {
             spdlog::trace("default_repo_path: no default location found");
         }

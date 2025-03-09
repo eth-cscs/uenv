@@ -62,7 +62,8 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
 
     // set label->system to the current cluster name if it has not
     // already been set.
-    label.system = site::get_system_name(label.system);
+    label.system =
+        site::get_system_name(label.system, settings.calling_environment);
 
     // query the repo
     const auto result = store->query(label);

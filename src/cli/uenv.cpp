@@ -38,10 +38,6 @@ int main(int argc, char** argv) {
     uenv::global_settings settings;
     bool print_version = false;
 
-    // enable/disable color depending on NOCOLOR env. var and tty terminal
-    // status.
-    color::default_color();
-
     CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
     cli.add_flag_callback(
@@ -99,13 +95,14 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // set the configuration according to defaults, clie options and config
+    // set the configuration according to defaults, cli options and config
     // files.
     uenv::config_base user_config;
-    if (auto x = uenv::load_user_config()) {
+    if (auto x = uenv::load_user_config(settings.calling_environment)) {
         user_config = *x;
     }
-    const auto default_config = uenv::default_config();
+    const auto default_config =
+        uenv::default_config(settings.calling_environment);
     const auto full_config =
         uenv::merge(cli_config, uenv::merge(user_config, default_config));
     if (auto merged_config = uenv::generate_configuration(full_config)) {

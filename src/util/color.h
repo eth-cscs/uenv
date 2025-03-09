@@ -2,6 +2,8 @@
 
 #include <fmt/color.h>
 
+#include <util/environment.h>
+
 #define MAKE_COLOR(color)                                                      \
     static auto color() {                                                      \
         return fmt::emphasis::bold | fg(fmt::terminal_color::color);           \
@@ -14,7 +16,7 @@ namespace color {
 
 // returns automatic color selection by inspecting environment variables and
 // checking for tty.
-bool default_color();
+bool default_color(const environment::variables&);
 
 // set color output on/off
 void set_color(bool v);

@@ -42,7 +42,7 @@ int run(const run_args& args, const global_settings& globals) {
     spdlog::info("run with options {}", args);
 
     // error if a uenv is already mounted
-    if (in_uenv_session()) {
+    if (in_uenv_session(globals.calling_environment)) {
         term::error("{}",
                     R"(a uenv session is already running.
 It is not possible to call 'uenv start' or 'uenv run' inside a uenv session.
@@ -50,8 +50,9 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         return 1;
     }
 
-    const auto env = concretise_env(args.uenv_description,
-                                    args.view_description, globals.config.repo);
+    const auto env =
+        concretise_env(args.uenv_description, args.view_description,
+                       globals.config.repo, globals.calling_environment);
 
     if (!env) {
         term::error("{}", env.error());

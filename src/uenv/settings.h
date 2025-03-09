@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 
+#include <util/environment.h>
 #include <util/expected.h>
 
 namespace uenv {
@@ -27,10 +28,13 @@ struct config_line {
 util::expected<config_base, std::string>
 read_config_file(const std::filesystem::path& path);
 
-util::expected<config_base, std::string> load_user_config();
+// read configuration from the user configuration file
+// the location of the config file is determined using XDG_CONFIG_HOME or HOME
+util::expected<config_base, std::string>
+load_user_config(const environment::variables&);
 
 // get the default configuration
-config_base default_config();
+config_base default_config(const environment::variables& calling_env);
 
 config_base merge(const config_base& lhs, const config_base& rhs);
 

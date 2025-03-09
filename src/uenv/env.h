@@ -23,7 +23,8 @@ struct env {
 util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
                std::optional<std::string> view_args,
-               std::optional<std::filesystem::path> repo_arg);
+               std::optional<std::filesystem::path> repo_arg,
+               const environment::variables& calling_env);
 
 environment::variables
 generate_environment(const env&, const environment::variables&,
@@ -33,6 +34,6 @@ environment::variables
 generate_slurm_environment(const env&, const environment::variables&);
 
 // returns true iff in a running uenv session
-bool in_uenv_session();
+bool in_uenv_session(const environment::variables&);
 
 } // namespace uenv

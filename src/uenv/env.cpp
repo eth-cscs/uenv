@@ -24,8 +24,8 @@ namespace uenv {
 using util::unexpected;
 
 // returns true iff in a running uenv session
-bool in_uenv_session() {
-    return std::getenv("UENV_MOUNT_LIST") && std::getenv("UENV_VIEW");
+bool in_uenv_session(const environment::variables& e) {
+    return e.get("UENV_MOUNT_LIST") && e.get("UENV_VIEW");
 }
 
 struct meta_info {
@@ -65,7 +65,8 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
 util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
                std::optional<std::string> view_args,
-               std::optional<std::filesystem::path> repo_arg) {
+               std::optional<std::filesystem::path> repo_arg,
+               const environment::variables& calling_env) {
     namespace fs = std::filesystem;
 
     // parse the uenv description that was provided as a command line
@@ -109,7 +110,7 @@ concretise_env(const std::string& uenv_args,
 
             // set label->system to the current cluster name if it has not
             // already been set.
-            label->system = site::get_system_name(label->system);
+            label->system = site::get_system_name(label->system, calling_env);
 
             // search for label in the repo
             const auto result = store->query(*label);

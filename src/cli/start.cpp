@@ -42,14 +42,15 @@ void start_args::add_cli(CLI::App& cli,
 // check whether running in a tty session.
 // uenv start doesn't make sense when not tty - it is designed for running
 // an interactive session.
-std::optional<std::string> detect_non_interactive() {
+std::optional<std::string>
+detect_non_interactive(const environment::variables& envvars) {
     if (!isatty(fileno(stdout))) {
         return "stdout is redirected";
     }
     if (!isatty(fileno(stdin))) {
         return "stdin is redirected";
     }
-    if (std::getenv("BASH_EXECUTION_STRING")) {
+    if (envvars.get("BASH_EXECUTION_STRING")) {
         return "BASH_EXECUTION_STRING is set";
     }
     // don't check PS1 - PS1 is not exported by tools like oh-my-posh in zsh
@@ -61,7 +62,7 @@ int start(const start_args& args,
     spdlog::info("start with options {}", args);
 
     // error if a uenv is already mounted
-    if (in_uenv_session()) {
+    if (in_uenv_session(globals.calling_environment)) {
         term::error("{}",
                     R"(a uenv session is already running.
 It is not possible to call 'uenv start' or 'uenv run' inside a uenv session.
@@ -69,7 +70,8 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         return 1;
     }
 
-    if (auto reason = detect_non_interactive(); !args.ignore_tty && reason) {
+    if (auto reason = detect_non_interactive(globals.calling_environment);
+        !args.ignore_tty && reason) {
         term::error(
             "{}", fmt::format(
                       R"('uenv start' must be run in an interactive shell ({}).
@@ -77,7 +79,7 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
 Use the flag --ignore-tty to skip this check.
 
 This error will occur if uenv start is called within contexts like the following:
-
+ passing
 - inside .bashrc
 - in a slurm batch script
 - in a bash script
@@ -91,8 +93,9 @@ will not work, because it starts a new interactive shell.)",
         return 1;
     }
 
-    const auto env = concretise_env(args.uenv_description,
-                                    args.view_description, globals.config.repo);
+    const auto env =
+        concretise_env(args.uenv_description, args.view_description,
+                       globals.config.repo, globals.calling_environment);
 
     if (!env) {
         term::error("{}", env.error());
@@ -110,7 +113,7 @@ will not work, because it starts a new interactive shell.)",
     }
 
     // find the current shell (zsh, bash, etc)
-    auto shell = util::current_shell();
+    auto shell = util::current_shell(globals.calling_environment);
     if (!shell) {
         term::error("unable to determine the current shell because {}",
                     shell.error());

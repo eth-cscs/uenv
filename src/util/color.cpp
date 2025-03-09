@@ -3,7 +3,8 @@
 
 #include <fmt/format.h>
 
-#include "color.h"
+#include <util/color.h>
+#include <util/environment.h>
 
 namespace color {
 
@@ -11,9 +12,9 @@ namespace impl {
 bool use = true;
 }
 
-bool default_color() {
+bool default_color(const environment::variables& calling_env) {
     // disable color if NO_COLOR env. variable is set
-    if (std::getenv("NO_COLOR")) {
+    if (calling_env.get("NO_COLOR")) {
         return false;
     }
 

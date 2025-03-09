@@ -7,6 +7,7 @@
 #include <uenv/repository.h>
 #include <uenv/settings.h>
 #include <util/color.h>
+#include <util/environment.h>
 #include <util/strings.h>
 
 namespace uenv {
@@ -37,10 +38,10 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
     };
 }
 
-config_base default_config() {
+config_base default_config(const environment::variables& env) {
     return {
-        .repo = default_repo_path(),
-        .color = color::default_color(),
+        .repo = default_repo_path(env),
+        .color = color::default_color(env),
     };
 }
 
@@ -70,19 +71,20 @@ generate_configuration(const config_base& base) {
     return config;
 }
 
-util::expected<config_base, std::string> load_user_config() {
+util::expected<config_base, std::string>
+load_user_config(const environment::variables& calling_env) {
     namespace fs = std::filesystem;
 
-    auto home_env = ::getenv("HOME");
-    auto xdg_env = ::getenv("XDG_CONFIG_HOME");
+    auto home_env = calling_env.get("HOME");
+    auto xdg_env = calling_env.get("XDG_CONFIG_HOME");
     // return an empty config if no configuration path can be determined
     if (!home_env && !xdg_env) {
         spdlog::warn("unable to find default configuration location, neither "
                      "HOME nor XDG_CONFIG_HOME are defined.");
         return config_base{};
     }
-    const auto config_path =
-        xdg_env ? (fs::path(xdg_env) / "uenv") : (fs::path(home_env) / "uenv");
+    const auto config_path = xdg_env ? (fs::path(xdg_env.value()) / "uenv")
+                                     : (fs::path(home_env.value()) / "uenv");
     const auto config_file = config_path / "config";
 
     auto create_config_file = [](const auto& path) {
