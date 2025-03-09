@@ -13,6 +13,5 @@ subprojects/nlohmann_json-*
 
 install
 
-build*
-pyenv*
-env*
+build
+pyenv
