@@ -123,7 +123,8 @@ if uenv_cli
 
     bash_completion = custom_target(
         'bash-completion',
-        output: 'uenv',
+        input: cli,
+        output: cli.name()+'.sh',
         command: ['env', 'PATH='+meson.current_build_dir()+':$PATH', cli.name(), 'completion', 'bash'],
         install: true,
         capture: true,
