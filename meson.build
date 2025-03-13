@@ -120,16 +120,6 @@ if uenv_cli
         install: true,
         install_dir: get_option('libexecdir'),
     )
-
-    bash_completion = custom_target(
-        'bash-completion',
-        input: cli,
-        output: cli.name()+'.sh',
-        command: ['env', 'PATH='+meson.current_build_dir()+':$PATH', cli.name(), 'completion', 'bash'],
-        install: true,
-        capture: true,
-        install_dir: get_option('datadir')+'/bash-completion/completions',
-    )
 endif
 
 if uenv_slurm_plugin
@@ -140,3 +130,4 @@ if get_option('tests').enabled()
     subdir('test')
 endif
 
+subdir('completion')
