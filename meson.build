@@ -120,6 +120,8 @@ if uenv_cli
         install: true,
         install_dir: get_option('libexecdir'),
     )
+
+    subdir('completion')
 endif
 
 if uenv_slurm_plugin
@@ -129,5 +131,3 @@ endif
 if get_option('tests').enabled()
     subdir('test')
 endif
-
-subdir('completion')
