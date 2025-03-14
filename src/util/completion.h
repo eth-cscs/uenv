@@ -1,3 +1,5 @@
+// vim: ts=4 sts=4 sw=4 et
+
 #pragma once
 
 #include <CLI/CLI.hpp>

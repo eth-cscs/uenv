@@ -1,3 +1,5 @@
+// vim: ts=4 sts=4 sw=4 et
+
 #include <CLI/CLI.hpp>
 #include <algorithm>
 #include <fmt/core.h>
