@@ -7,8 +7,11 @@
 
 static struct unit_init_log {
     unit_init_log() {
-        // use warn as the default log level
-        auto log_level = spdlog::level::warn;
+        // disable all logging so that tests that check erroneuous inputs don't
+        // spam error and warning messages
+        // The following will turn on warning and error logs:
+        // export UENV_LOG_LEVEL=0
+        auto log_level = spdlog::level::off;
         bool invalid_env = false;
 
         // check the environment variable UENV_LOG_LEVEL
@@ -19,7 +22,9 @@ static struct unit_init_log {
                 log_level_str, log_level_str + std::strlen(log_level_str), lvl);
 
             if (ec == std::errc()) {
-                if (lvl == 1) {
+                if (lvl == 0) {
+                    log_level = spdlog::level::warn;
+                } else if (lvl == 1) {
                     log_level = spdlog::level::info;
                 } else if (lvl == 2) {
                     log_level = spdlog::level::debug;

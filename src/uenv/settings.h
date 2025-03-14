@@ -24,10 +24,6 @@ struct config_line {
     }
 };
 
-// read configuration from a file
-util::expected<config_base, std::string>
-read_config_file(const std::filesystem::path& path);
-
 // read configuration from the user configuration file
 // the location of the config file is determined using XDG_CONFIG_HOME or HOME
 util::expected<config_base, std::string>

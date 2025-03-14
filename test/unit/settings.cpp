@@ -7,6 +7,11 @@
 #include <util/fs.h>
 
 // namespace fs = std::filesystem;
+namespace uenv::impl {
+util::expected<config_base, std::string>
+read_config_file(const std::filesystem::path& path,
+                 const environment::variables&);
+}
 
 TEST_CASE("read config files", "[settings]") {
     auto exe = util::exe_path();
@@ -16,13 +21,13 @@ TEST_CASE("read config files", "[settings]") {
     auto config_root = exe->parent_path() / "data/config-files";
 
     {
-        auto result = uenv::read_config_file(config_root / "empty");
+        auto result = uenv::impl::read_config_file(config_root / "empty", {});
         REQUIRE(result);
         REQUIRE(!result->repo);
         REQUIRE(!result->color);
     }
     {
-        auto result = uenv::read_config_file(config_root / "all");
+        auto result = uenv::impl::read_config_file(config_root / "all", {});
         REQUIRE(result);
         REQUIRE(result->repo);
         REQUIRE(result->repo.value() == "/path/to/config");
@@ -30,21 +35,35 @@ TEST_CASE("read config files", "[settings]") {
         REQUIRE(result->color.value() == false);
     }
     {
-        auto result = uenv::read_config_file(config_root / "set-repo");
+        auto result =
+            uenv::impl::read_config_file(config_root / "set-repo", {});
         REQUIRE(result);
         REQUIRE(result->repo);
         REQUIRE(result->repo.value() == "/path/to/config");
         REQUIRE(!result->color);
     }
     {
-        auto result = uenv::read_config_file(config_root / "set-color-true");
+        environment::variables env{};
+        env.set("HOME", "/users/wombat");
+        auto result =
+            uenv::impl::read_config_file(config_root / "set-repo-envvar", env);
+        REQUIRE(result);
+        REQUIRE(result->repo);
+        REQUIRE(result->repo.value() == "/users/wombat/.uenv");
+        REQUIRE(!result->color);
+    }
+
+    {
+        auto result =
+            uenv::impl::read_config_file(config_root / "set-color-true", {});
         REQUIRE(result);
         REQUIRE(!result->repo);
         REQUIRE(result->color);
         REQUIRE(result->color.value() == true);
     }
     {
-        auto result = uenv::read_config_file(config_root / "set-color-false");
+        auto result =
+            uenv::impl::read_config_file(config_root / "set-color-false", {});
         REQUIRE(result);
         REQUIRE(!result->repo);
         REQUIRE(result->color);
@@ -52,7 +71,7 @@ TEST_CASE("read config files", "[settings]") {
     }
 
     for (auto fname : {"invalid-key", "invalid-line1", "invalid-line2"}) {
-        auto result = uenv::read_config_file(config_root / fname);
+        auto result = uenv::impl::read_config_file(config_root / fname, {});
         REQUIRE(!result);
     }
 }

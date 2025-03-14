@@ -9,9 +9,21 @@
 
 namespace uenv {
 
+//
+// scalar implementation
+//
+
 bool operator==(const scalar& lhs, const scalar& rhs) {
     return lhs.name == rhs.name && lhs.value == rhs.value;
 }
+
+void scalar::expand_env_variables(const environment::variables& env) {
+    value = env.expand(value, environment::expand_delim::view);
+}
+
+//
+// prefix_path implementation
+//
 
 void prefix_path_update::apply(std::vector<std::string>& in) {
     if (op == update_kind::set) {
@@ -34,6 +46,18 @@ std::string prefix_path::get(const std::string& initial_value) const {
     }
     return util::join(":", simplify_prefix_path_list(value));
 }
+
+void prefix_path::expand_env_variables(const environment::variables& env) {
+    for (auto& u : updates_) {
+        for (auto v : u.values) {
+            v = env.expand(v, environment::expand_delim::view);
+        }
+    }
+}
+
+//
+// envvarset implementation
+//
 
 bool envvarset::update_scalar(const std::string& name,
                               const std::string& value) {
@@ -79,6 +103,16 @@ std::vector<scalar> envvarset::get_values(
     return vars;
 }
 
+// expand any environment variables of the form "${VAR}"
+void envvarset::expand_env_variables(const environment::variables& env) {
+    for (auto& var : scalars_) {
+        var.second.expand_env_variables(env);
+    }
+    for (auto& var : prefix_paths_) {
+        var.second.expand_env_variables(env);
+    }
+}
+
 // remove duplicate paths, keeping the paths in the order that they are first
 // encountered.
 // effectively implements std::unique for an unsorted vector of
@@ -91,8 +125,11 @@ simplify_prefix_path_list(const std::vector<std::string>& in) {
     out.reserve(in.size());
 
     for (auto& p : in) {
+        // drop all empty paths, which occur when there are two ::, e.g.
+        // PATH=/usr/bin::/opt/cuda/bin
         if (p.size() == 0)
             continue;
+        // if the path has not already been seen, add it to the output
         if (!s.count(p)) {
             out.push_back(p);
             s.insert(p);

@@ -71,6 +71,13 @@ generate_configuration(const config_base& base) {
     return config;
 }
 
+// forward declare implementation
+namespace impl {
+util::expected<config_base, std::string>
+read_config_file(const std::filesystem::path& path,
+                 const environment::variables& calling_env);
+}
+
 util::expected<config_base, std::string>
 load_user_config(const environment::variables& calling_env) {
     namespace fs = std::filesystem;
@@ -108,7 +115,7 @@ load_user_config(const environment::variables& calling_env) {
         return config_base{};
     }
 
-    auto result = read_config_file(config_file);
+    auto result = impl::read_config_file(config_file, calling_env);
 
     if (!result) {
         return util::unexpected{fmt::format(
@@ -118,8 +125,10 @@ load_user_config(const environment::variables& calling_env) {
     return *result;
 }
 
+namespace impl {
 util::expected<config_base, std::string>
-read_config_file(const std::filesystem::path& path) {
+read_config_file(const std::filesystem::path& path,
+                 const environment::variables& calling_env) {
     namespace fs = std::filesystem;
 
     if (!fs::exists(path) || !std::filesystem::is_regular_file(path)) {
@@ -162,7 +171,8 @@ read_config_file(const std::filesystem::path& path) {
     config_base config;
     for (auto [key, value] : settings) {
         if (key == "repo") {
-            config.repo = value;
+            config.repo =
+                calling_env.expand(value, environment::expand_delim::curly);
         } else if (key == "color") {
             if (value == "true") {
                 config.color = true;
@@ -182,5 +192,6 @@ read_config_file(const std::filesystem::path& path) {
 
     return config;
 }
+} // namespace impl
 
 } // namespace uenv

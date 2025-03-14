@@ -6,6 +6,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <util/environment.h>
+
 #include <fmt/core.h>
 #include <fmt/std.h>
 
@@ -14,6 +16,9 @@ namespace uenv {
 struct scalar {
     std::string name;
     std::string value;
+
+    // expand any environment variables of the form "${VAR}"
+    void expand_env_variables(const environment::variables& env);
 };
 
 bool operator==(const scalar& lhs, const scalar& rhs);
@@ -41,6 +46,9 @@ struct prefix_path {
         return updates_;
     }
 
+    // expand any environment variables of the form "${VAR}"
+    void expand_env_variables(const environment::variables& env);
+
   private:
     std::string name_;
     std::vector<prefix_path_update> updates_;
@@ -58,6 +66,9 @@ struct envvarset {
     const std::unordered_map<std::string, prefix_path>& prefix_paths() const {
         return prefix_paths_;
     };
+
+    // expand any environment variables of the form "${VAR}"
+    void expand_env_variables(const environment::variables& env);
 
   private:
     std::unordered_map<std::string, scalar> scalars_;

@@ -1,0 +1,2 @@
+# test whether environment variable substitution works
+repo = ${HOME}/.uenv

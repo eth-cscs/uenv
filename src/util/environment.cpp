@@ -137,7 +137,7 @@ void variables::clear() {
     variables_.clear();
 }
 
-void c_env_cleanup(char** env) {
+void c_env_free(char** env) {
     if (env == nullptr) {
         return;
     }
@@ -148,5 +148,167 @@ void c_env_cleanup(char** env) {
     }
     free(env);
 }
+
+namespace impl {
+std::string expand(std::string_view in, expand_delim mode,
+                   const variables& vars);
+}
+
+std::string variables::expand(std::string_view src, expand_delim mode) const {
+    const auto expanded = impl::expand(src, mode, *this);
+    spdlog::trace("environment::variables::expand '{}' -> '{}'", src, expanded);
+    return expanded;
+}
+
+namespace impl {
+
+struct parser {
+    using iterator = std::string_view::const_iterator;
+
+    iterator b;
+    iterator e;
+    iterator current;
+    expand_delim mode;
+
+    parser() = delete;
+    parser(const std::string_view str, expand_delim mode = expand_delim::curly)
+        : b(std::begin(str)), e(std::end(str)), current(std::begin(str)),
+          mode(mode) {
+    }
+    parser(const parser& other) = delete;
+    // parser(const parser& other) = default;
+
+    // process from the current string up to the next delimiter or end of
+    // string, whichever is first.
+    // return the text from the current position up to where we advanced.
+    auto to_delim() {
+        auto start = current;
+        while (current != e && !start_delim()) {
+            ++current;
+        }
+        return std::string_view{start, current};
+    }
+
+    std::optional<std::string_view> parse_name() {
+        // eat the ${ or ${@
+        current += (mode == expand_delim::curly) ? 2 : 3;
+
+        // start is the first character of the name
+        auto start = current;
+        // advance until we hit the closing } or @}
+        while (current != e && !end_delim()) {
+            ++current;
+        }
+
+        // ignore the name if we ran off the end of the input without hitting
+        // the closing delimiter
+        if (end_delim()) {
+            std::string_view result{start, current};
+            // eat the } or @}
+            current += (mode == expand_delim::curly) ? 1 : 2;
+            return result;
+        }
+
+        // ran off the end of the input
+        return std::nullopt;
+    }
+
+    // returns true if the delimiter that marks the start of an environment
+    // variable expansion starts at the current position.
+    // expansion is indicated by "${" or "${@" for simple and view modes
+    // respectively.
+    bool start_delim() const {
+        if (*current == '$') {
+            switch (mode) {
+            case expand_delim::curly:
+                if (peek() == '{') {
+                    return true;
+                }
+                break;
+            case expand_delim::view:
+                if (peek() == '{' && peek(2) == '@') {
+                    return true;
+                }
+                break;
+            }
+        }
+        return false;
+    }
+
+    // returns true if the delimiter that marks the end of an environment
+    // variable expansion starts at the current position.
+    // expansion is indicated by "}" or "@}" for simple and view modes
+    // respectively.
+    bool end_delim() const {
+        switch (mode) {
+        case expand_delim::curly:
+            if (*current == '}') {
+                return true;
+            }
+            break;
+        case expand_delim::view:
+            if (*current == '@' && peek() == '}') {
+                return true;
+            }
+            break;
+        }
+        return false;
+    }
+
+    char peek(unsigned n = 1) const {
+        auto i = current;
+        while (i != e && n) {
+            ++i;
+            --n;
+        }
+        // return "end of string" if peek ran off the end of the string
+        return i == e ? 0 : *i;
+    }
+
+    operator bool() const {
+        return current != e;
+    }
+};
+
+std::string expand(std::string_view in, expand_delim mode,
+                   const variables& vars) {
+    std::string result;
+    result.reserve(in.size());
+
+    auto P = parser{in, mode};
+
+    while (P) {
+        auto s = P.to_delim();
+        result.insert(result.end(), s.begin(), s.end());
+        if (P) {
+            if (auto name = P.parse_name()) {
+                // use strict name checking - don't use strange env.
+                // var. names in substitutions
+                if (!validate_name(*name, true)) {
+                    spdlog::warn("environment::variables::expand: skipping "
+                                 "invalid env var name {}",
+                                 *name);
+                } else {
+                    if (auto value = vars.get(*name)) {
+                        result += *value;
+                    } else {
+                        spdlog::warn("environment::variables::expand: env. "
+                                     "variable {} does not exist",
+                                     *name);
+                    }
+                }
+            } else {
+                spdlog::error(
+                    "environment::variables::expand: unexpected end of "
+                    "string while looking for matching '}}': '{}'",
+                    in);
+            }
+        }
+    }
+
+    return result;
+}
+
+} // namespace impl
 
 } // namespace environment

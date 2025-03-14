@@ -82,6 +82,26 @@ TEST_CASE("envvarset validate", "[envvars]") {
     REQUIRE(ev.update_scalar("apple", ""));
 }
 
+// check environment variable substitution
+TEST_CASE("envvarset expand", "[envvars]") {
+    environment::variables vars;
+    vars.set("SCRATCH", "/scratch/cscs/wombat");
+    vars.set("CLUSTER_NAME", "daint");
+
+    uenv::envvarset env;
+    env.update_scalar("JULIA_HOME", "${@SCRATCH@}/julia-up/${@CLUSTER_NAME@}");
+    env.expand_env_variables(vars);
+
+    auto getenv = [](const std::string&) -> std::optional<std::string> {
+        return std::nullopt;
+    };
+
+    auto values = env.get_values(getenv);
+    REQUIRE(values.size() == 1u);
+    REQUIRE(values[0].name == "JULIA_HOME");
+    REQUIRE(values[0].value == "/scratch/cscs/wombat/julia-up/daint");
+}
+
 // check that final envvarset variables are correctly generated
 TEST_CASE("envvarset get final values", "[envvars]") {
     uenv::envvarset ev;
@@ -244,4 +264,84 @@ TEST_CASE("variables::set-get-unset", "[environment]") {
     REQUIRE(E.get("wombat").value() == "soup");
     E.unset("wombat");
     REQUIRE(!E.get("wombat"));
+}
+
+TEST_CASE("variables::expand-curly", "[environment]") {
+    environment::variables V{};
+    auto mode = environment::expand_delim::curly;
+
+    V.set("USER", "wombat");
+
+    REQUIRE(V.expand("", mode) == "");
+    REQUIRE(V.expand("_", mode) == "_");
+    REQUIRE(V.expand("hello", mode) == "hello");
+    REQUIRE(V.expand("{} aa", mode) == "{} aa");
+    REQUIRE(V.expand("$$", mode) == "$$");
+    REQUIRE(V.expand("$UNSET", mode) == "$UNSET");
+    REQUIRE(V.expand("$", mode) == "$");
+    REQUIRE(V.expand("a-$", mode) == "a-$");
+    REQUIRE(V.expand("${USER}", mode) == "wombat");
+    REQUIRE(V.expand("${USER}s", mode) == "wombats");
+    REQUIRE(V.expand("${USER}-soup", mode) == "wombat-soup");
+    REQUIRE(V.expand("${USER}${USER}", mode) == "wombatwombat");
+    REQUIRE(V.expand("hello ${USER}", mode) == "hello wombat");
+
+    V.set("greeting", "hello");
+    REQUIRE(V.expand("${greeting} world", mode) == "hello world");
+    REQUIRE(V.expand("I say \"${greeting}\"", mode) == "I say \"hello\"");
+
+    // this is treated as an error by bash
+    // we simply "do nothing", and log an error
+    //   > bash -c 'echo ${PATH'
+    //   bash: -c: line 1: unexpected EOF while looking for matching `}'
+    REQUIRE(V.expand("${USER", mode) == "");
+
+    REQUIRE(V.expand("${USER NAME}", mode) == "");
+    REQUIRE(V.expand("${$happy}-there", mode) == "-there");
+
+    V.set("CUDA_HOME", "/opt/cuda");
+    REQUIRE(V.expand("/usr/lib:${CUDA_HOME}/lib:${CUDA_HOME}/lib64", mode) ==
+            "/usr/lib:/opt/cuda/lib:/opt/cuda/lib64");
+}
+
+TEST_CASE("variables::expand-view", "[environment]") {
+    environment::variables V{};
+    auto mode = environment::expand_delim::view;
+
+    V.set("USER", "wombat");
+
+    REQUIRE(V.expand("", mode) == "");
+    REQUIRE(V.expand("_", mode) == "_");
+    REQUIRE(V.expand("hello", mode) == "hello");
+    REQUIRE(V.expand("{} aa", mode) == "{} aa");
+    REQUIRE(V.expand("$$", mode) == "$$");
+    REQUIRE(V.expand("$UNSET", mode) == "$UNSET");
+    REQUIRE(V.expand("$", mode) == "$");
+    REQUIRE(V.expand("a-$", mode) == "a-$");
+    REQUIRE(V.expand("${USER}", mode) == "${USER}");
+    REQUIRE(V.expand("${@USER@}", mode) == "wombat");
+    REQUIRE(V.expand("${@USER@}s", mode) == "wombats");
+    REQUIRE(V.expand("${@USER@}-soup", mode) == "wombat-soup");
+    REQUIRE(V.expand("${@USER@}${@USER@}", mode) == "wombatwombat");
+    REQUIRE(V.expand("hello ${@USER@}", mode) == "hello wombat");
+    REQUIRE(V.expand("hello ${@USER@} and welcome", mode) ==
+            "hello wombat and welcome");
+
+    V.set("greeting", "hello");
+    REQUIRE(V.expand("${@greeting@} world", mode) == "hello world");
+    REQUIRE(V.expand("I say \"${@greeting@}\"", mode) == "I say \"hello\"");
+
+    // this is treated as an error by bash
+    // we simply "do nothing", and log an error
+    //   > bash -c 'echo ${PATH'
+    //   bash: -c: line 1: unexpected EOF while looking for matching `}'
+    REQUIRE(V.expand("${@USER", mode) == "");
+    REQUIRE(V.expand("${@USER}", mode) == "");
+
+    REQUIRE(V.expand("${@USER NAME@}", mode) == "");
+    REQUIRE(V.expand("${@$happy@}-there", mode) == "-there");
+
+    V.set("CUDA_HOME", "/opt/cuda");
+    REQUIRE(V.expand("/usr/lib:${@CUDA_HOME@}/lib:${@CUDA_HOME@}/lib64",
+                     mode) == "/usr/lib:/opt/cuda/lib:/opt/cuda/lib64");
 }
