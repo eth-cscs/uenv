@@ -121,7 +121,7 @@ if uenv_cli
         install_dir: get_option('libexecdir'),
     )
 
-    subdir('completion')
+    meson.add_install_script('./meson/install-bash-completion.sh')
 endif
 
 if uenv_slurm_plugin
