@@ -15,7 +15,6 @@
 #include <util/shell.h>
 
 #include "completion.h"
-#include "help.h"
 #include "terminal.h"
 #include "uenv.h"
 
@@ -41,7 +40,7 @@ int completion(const completion_args& args) {
     spdlog::info("completion with options {}", args);
 
     if (args.shell_description == "bash") {
-        fmt::print("{}", util::completion::bash_completion(args.cli));
+        fmt::print("{}", util::completion::bash_completion(args.cli, "uenv"));
         return 0;
     }
 

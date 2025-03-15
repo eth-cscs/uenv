@@ -1,7 +1,4 @@
-// vim: ts=4 sts=4 sw=4 et
-
 #include <CLI/CLI.hpp>
-#include <algorithm>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <ranges>
@@ -19,61 +16,44 @@ struct completion_item {
 
 typedef std::vector<completion_item> completion_list;
 
-// Construct command: list of subcommands extracted from CLI11
-std::vector<std::string> get_command(CLI::App* cli) {
-    if (cli == nullptr) {
-        return {};
-    }
-
-    auto command = get_command(cli->get_parent());
-    command.push_back(cli->get_name());
-    return command;
-}
-
 // Recursively traverse tree of subcommands created by CLI11
 // Creates list of completions for every subcommand
-void traverse_subcommand_tree(completion_list& cl, CLI::App* cli) {
+void traverse_subcommand_tree(completion_list& cl, CLI::App* cli,
+                              std::vector<std::string> command) {
     if (cli == nullptr) {
         return;
     }
 
     const auto subcommands = cli->get_subcommands({});
-    const auto options_non_positional = cli->get_options(
-        [](CLI::Option* option) { return option->nonpositional(); });
 
-    auto get_option_name = [](CLI::Option* option) {
-        return option->get_name();
-    };
-    auto get_subcommand_name = [](CLI::App* subcommand) {
-        return subcommand->get_name();
-    };
-
-    auto tmp1 = std::views::transform(options_non_positional, get_option_name);
-    auto tmp2 = std::views::transform(subcommands, get_subcommand_name);
     std::vector<std::string> completions;
-    std::ranges::copy(tmp1, std::back_inserter(completions));
-    std::ranges::copy(tmp2, std::back_inserter(completions));
-
-    std::vector<std::string> command;
-    std::ranges::copy(get_command(cli), std::back_inserter(command));
+    for (const auto& cmd : subcommands) {
+        completions.push_back(cmd->get_name());
+    }
+    for (const auto& option :
+         cli->get_options([](auto* o) { return o->nonpositional(); })) {
+        completions.push_back(option->get_name());
+    }
 
     cl.push_back({command, completions});
 
-    for (auto subcommand : subcommands)
-        traverse_subcommand_tree(cl, subcommand);
+    for (auto subcommand : subcommands) {
+        command.push_back(subcommand->get_name());
+        traverse_subcommand_tree(cl, subcommand, command);
+    }
 }
 
-completion_list create_completion_list(CLI::App* cli) {
+completion_list create_completion_list(CLI::App* cli, const std::string& name) {
     completion_list cl;
-    traverse_subcommand_tree(cl, cli);
+    traverse_subcommand_tree(cl, cli, {name});
     return cl;
 }
 
 // Starting point function that generates bash completion script
 // First creates a list of subcommands and corresponding completions
 // Then generates bash completion script from this list
-std::string bash_completion(CLI::App* cli) {
-    completion_list cl = create_completion_list(cli);
+std::string bash_completion(CLI::App* cli, const std::string& name) {
+    completion_list cl = create_completion_list(cli, name);
 
     auto gen_bash_function = [](completion_item item) {
         return fmt::format(R"(_{}()
@@ -85,7 +65,6 @@ std::string bash_completion(CLI::App* cli) {
                            fmt::join(item.command, "_"),
                            fmt::join(item.completions, " "));
     };
-    auto prefix_functions = std::views::transform(cl, gen_bash_function);
 
     std::string main_functions = R"(
 _uenv_completions()
@@ -122,7 +101,9 @@ _uenv_completions()
 complete -F _uenv_completions uenv
 )";
 
-    return fmt::format("{}{}", fmt::join(prefix_functions, ""), main_functions);
+    return fmt::format(
+        "{}{}", fmt::join(std::views::transform(cl, gen_bash_function), ""),
+        main_functions);
 }
 
 } // namespace completion

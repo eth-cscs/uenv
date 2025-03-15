@@ -1,8 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
-#include <optional>
 #include <string>
-#include <vector>
 
 #include <CLI/CLI.hpp>
 #include <fmt/core.h>

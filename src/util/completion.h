@@ -1,13 +1,13 @@
-// vim: ts=4 sts=4 sw=4 et
-
 #pragma once
+
+#include <string>
 
 #include <CLI/CLI.hpp>
 
 namespace util {
 namespace completion {
 
-std::string bash_completion(CLI::App* cli);
+std::string bash_completion(CLI::App* cli, const std::string& name);
 
 } // namespace completion
 } // namespace util
