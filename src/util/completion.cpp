@@ -19,7 +19,7 @@ typedef std::vector<completion_item> completion_list;
 // Recursively traverse tree of subcommands created by CLI11
 // Creates list of completions for every subcommand
 void traverse_subcommand_tree(completion_list& cl, CLI::App* cli,
-                              std::vector<std::string> command) {
+                              const std::vector<std::string>& stack) {
     if (cli == nullptr) {
         return;
     }
@@ -35,11 +35,12 @@ void traverse_subcommand_tree(completion_list& cl, CLI::App* cli,
         completions.push_back(option->get_name());
     }
 
-    cl.push_back({command, completions});
+    cl.push_back({stack, completions});
 
-    for (auto subcommand : subcommands) {
-        command.push_back(subcommand->get_name());
-        traverse_subcommand_tree(cl, subcommand, command);
+    for (auto& cmd : subcommands) {
+        auto cmd_stack = stack;
+        cmd_stack.push_back(cmd->get_name());
+        traverse_subcommand_tree(cl, cmd, cmd_stack);
     }
 }
 
