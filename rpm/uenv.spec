@@ -34,3 +34,4 @@ echo "$REQ" > "$CNF"
 %{_libdir}/libslurm-uenv-mount.so
 %{_bindir}/uenv
 /usr/libexec/oras
+/usr/share/bash-completion/completions/uenv

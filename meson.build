@@ -88,6 +88,8 @@ if uenv_cli
             'src/cli/status.cpp',
             'src/cli/uenv.cpp',
             'src/cli/build.cpp',
+            'src/cli/completion.cpp',
+            'src/util/completion.cpp',
     ]
     uenv_dep = [sqlite3_dep]
 
@@ -120,6 +122,8 @@ if uenv_cli
         install: true,
         install_dir: get_option('libexecdir'),
     )
+
+    meson.add_install_script('./meson-scripts/install-bash-completion.sh')
 endif
 
 if uenv_slurm_plugin
@@ -129,4 +133,3 @@ endif
 if get_option('tests').enabled()
     subdir('test')
 endif
-

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 
+#include <CLI/CLI.hpp>
 #include <fmt/core.h>
 
 #include <uenv/settings.h>
@@ -26,7 +27,8 @@ enum class cli_mode : std::uint32_t {
     run,
     start,
     status,
-    build
+    build,
+    completion
 };
 
 struct global_settings {
@@ -89,6 +91,8 @@ template <> class fmt::formatter<uenv::cli_mode> {
             return format_to(ctx.out(), "status");
         case build:
             return format_to(ctx.out(), "build");
+        case completion:
+            return format_to(ctx.out(), "completion");
         }
         return format_to(ctx.out(), "unknown");
     }
