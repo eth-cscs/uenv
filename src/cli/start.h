@@ -4,9 +4,6 @@
 #include <string>
 
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
-
-#include <uenv/env.h>
 
 #include "uenv.h"
 
@@ -24,6 +21,8 @@ struct start_args {
 int start(const start_args& args, const global_settings& settings);
 
 } // namespace uenv
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<uenv::start_args> {
   public:

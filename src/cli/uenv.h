@@ -4,10 +4,9 @@
 #include <cstdint>
 
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
 
 #include <uenv/settings.h>
-#include <util/environment.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 
 namespace uenv {
@@ -35,7 +34,7 @@ struct global_settings {
     global_settings();
 
     // the environment variables that were set when the application is started.
-    const environment::variables calling_environment;
+    const envvars::state calling_environment;
 
     // the verbosity level: used to set spdlog level
     int verbose = 0;
@@ -49,6 +48,8 @@ struct global_settings {
 };
 
 } // namespace uenv
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<uenv::cli_mode> {
   public:

@@ -2,20 +2,14 @@
 
 #include <exception>
 
-#include <fmt/format.h>
-
 namespace util {
 
 class signal_exception : public std::exception {
   public:
     const int signal;
     const std::string msg;
-    signal_exception(int signal)
-        : signal(signal), msg(fmt::format("signal {} raised", signal)) {
-    }
-    const char* what() const throw() {
-        return msg.c_str();
-    }
+    signal_exception(int signal);
+    const char* what() const throw();
 };
 
 void set_signal_catcher();

@@ -1,5 +1,6 @@
 #include <unistd.h>
 
+#include <fstream>
 #include <optional>
 #include <string>
 
@@ -10,7 +11,7 @@
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/curl.h>
-#include <util/environment.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
@@ -27,7 +28,7 @@ std::optional<std::string> get_username() {
 
 std::optional<std::string>
 get_system_name(const std::optional<std::string> value,
-                const environment::variables& calling_env) {
+                const envvars::state& calling_env) {
     if (value) {
         if (value == "*") {
             return std::nullopt;

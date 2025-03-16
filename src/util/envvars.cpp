@@ -2,15 +2,17 @@
 
 #include <cctype>
 
+#include <set>
 #include <string>
 #include <string_view>
 
-#include <fmt/format.h>
+#include <fmt/core.h>
 #include <spdlog/spdlog.h>
 
-#include "environment.h"
+#include <util/envvars.h>
+#include <util/strings.h>
 
-namespace environment {
+namespace envvars {
 
 // Environment variable names can contain any character from the portable
 // character set:
@@ -46,7 +48,7 @@ bool validate_name(std::string_view name, bool strict = true) {
     return true;
 }
 
-variables::variables(char* environ[]) {
+state::state(char* environ[]) {
     if (environ == nullptr) {
         return;
     }
@@ -62,10 +64,9 @@ variables::variables(char* environ[]) {
             //   https://pubs.opengroup.org/onlinepubs/000095399/basedefs/xbd_chap08.html
             if (validate_name(name, false)) {
                 variables_[name] = value;
-                spdlog::trace("environment::variables init {}='{}'", name,
-                              value);
+                spdlog::trace("envvars::state init {}='{}'", name, value);
             } else {
-                spdlog::warn("environment::variables skipping the invalid "
+                spdlog::warn("envvars::state skipping the invalid "
                              "environment variable name '{}'",
                              name);
             }
@@ -73,53 +74,52 @@ variables::variables(char* environ[]) {
     }
 }
 
-void variables::set(const std::string_view name, std::string_view value) {
+void state::set(const std::string_view name, std::string_view value) {
     if (validate_name(name)) {
         variables_[std::string(name)] = value;
     } else {
-        spdlog::warn("environment::variables::set skipping the invalid "
+        spdlog::warn("envvars::state::set skipping the invalid "
                      "environment variable name '{}'",
                      name);
     }
 }
 
-std::optional<std::string> variables::get(std::string_view name) const {
+std::optional<std::string> state::get(std::string_view name) const {
     if (validate_name(name)) {
         auto it = variables_.find(std::string(name));
         if (it != variables_.end()) {
             return it->second;
         }
     } else {
-        spdlog::warn("environment::variables::get invalid environment variable "
+        spdlog::warn("envvars::state::get invalid environment variable "
                      "name '{}'",
                      name);
     }
     return std::nullopt;
 }
 
-void variables::unset(std::string_view name) {
+void state::unset(std::string_view name) {
     if (validate_name(name)) {
         variables_.erase(std::string(name));
     } else {
-        spdlog::warn(
-            "environment::variables::unset invalid environment variable "
-            "name '{}'",
-            name);
+        spdlog::warn("envvars::state::unset invalid environment variable "
+                     "name '{}'",
+                     name);
     }
 }
 
-const std::unordered_map<std::string, std::string> variables::vars() const {
+const std::unordered_map<std::string, std::string> state::variables() const {
     return variables_;
 }
 
-char** variables::c_env() const {
+char** state::c_env() const {
     const auto n = variables_.size();
     char** ev = reinterpret_cast<char**>(malloc((n + 1) * sizeof(char*)));
-    spdlog::info("environment::variables::c_env using {} bytes",
+    spdlog::info("envvars::state::c_env using {} bytes",
                  (n + 1) * sizeof(char*));
     ev[n] = nullptr;
     unsigned i = 0;
-    spdlog::info("environment::variables::c_env outputing {} variables", n);
+    spdlog::info("envvars::state::c_env outputing {} variables", n);
     for (auto& p : variables_) {
         // generate a string: name=value
         // length is len(name)+len(value)+2 ('=' and '\0')
@@ -133,7 +133,7 @@ char** variables::c_env() const {
     return ev;
 }
 
-void variables::clear() {
+void state::clear() {
     variables_.clear();
 }
 
@@ -150,13 +150,12 @@ void c_env_free(char** env) {
 }
 
 namespace impl {
-std::string expand(std::string_view in, expand_delim mode,
-                   const variables& vars);
+std::string expand(std::string_view in, expand_delim mode, const state& vars);
 }
 
-std::string variables::expand(std::string_view src, expand_delim mode) const {
+std::string state::expand(std::string_view src, expand_delim mode) const {
     const auto expanded = impl::expand(src, mode, *this);
-    spdlog::trace("environment::variables::expand '{}' -> '{}'", src, expanded);
+    spdlog::trace("envvars::state::expand '{}' -> '{}'", src, expanded);
     return expanded;
 }
 
@@ -270,8 +269,7 @@ struct parser {
     }
 };
 
-std::string expand(std::string_view in, expand_delim mode,
-                   const variables& vars) {
+std::string expand(std::string_view in, expand_delim mode, const state& vars) {
     std::string result;
     result.reserve(in.size());
 
@@ -285,23 +283,22 @@ std::string expand(std::string_view in, expand_delim mode,
                 // use strict name checking - don't use strange env.
                 // var. names in substitutions
                 if (!validate_name(*name, true)) {
-                    spdlog::warn("environment::variables::expand: skipping "
+                    spdlog::warn("envvars::state::expand: skipping "
                                  "invalid env var name {}",
                                  *name);
                 } else {
                     if (auto value = vars.get(*name)) {
                         result += *value;
                     } else {
-                        spdlog::warn("environment::variables::expand: env. "
+                        spdlog::warn("envvars::state::expand: env. "
                                      "variable {} does not exist",
                                      *name);
                     }
                 }
             } else {
-                spdlog::error(
-                    "environment::variables::expand: unexpected end of "
-                    "string while looking for matching '}}': '{}'",
-                    in);
+                spdlog::error("envvars::state::expand: unexpected end of "
+                              "string while looking for matching '}}': '{}'",
+                              in);
             }
         }
     }
@@ -311,4 +308,149 @@ std::string expand(std::string_view in, expand_delim mode,
 
 } // namespace impl
 
-} // namespace environment
+//
+// scalar implementation
+//
+
+bool operator==(const scalar& lhs, const scalar& rhs) {
+    return lhs.name == rhs.name && lhs.value == rhs.value;
+}
+
+void scalar::expand_env_variables(const envvars::state& env) {
+    value = env.expand(value, envvars::expand_delim::view);
+}
+
+//
+// prefix_path implementation
+//
+
+void prefix_path_update::apply(std::vector<std::string>& in, bool& set) {
+    if (op == update_kind::set) {
+        in = values;
+        set = true;
+    } else if (op == update_kind::append) {
+        in.insert(in.end(), values.begin(), values.end());
+        set = true;
+    } else if (op == update_kind::prepend) {
+        in.insert(in.begin(), values.begin(), values.end());
+        set = true;
+    } else {
+        in.clear();
+        set = false;
+    }
+}
+
+void prefix_path::update(prefix_path_update u) {
+    updates_.push_back(std::move(u));
+}
+
+std::optional<std::string>
+prefix_path::get(const std::string& initial_value) const {
+    auto value = util::split(initial_value, ':', true);
+    bool is_set = true;
+    for (auto u : updates_) {
+        u.apply(value, is_set);
+    }
+    // if the variable has been unset:
+    if (!is_set) {
+        return std::nullopt;
+    }
+    return util::join(":", simplify_prefix_path_list(value));
+}
+
+void prefix_path::expand_env_variables(const envvars::state& env) {
+    for (auto& u : updates_) {
+        for (auto v : u.values) {
+            v = env.expand(v, envvars::expand_delim::view);
+        }
+    }
+}
+
+//
+// patch implementation
+//
+
+bool patch::update_scalar(const std::string& name, const std::string& value) {
+    bool conflict = false;
+    if (prefix_paths_.count(name)) {
+        prefix_paths_.erase(name);
+        conflict = true;
+    }
+    scalars_[name] = {name, value};
+    return conflict;
+}
+
+bool patch::update_prefix_path(const std::string& name,
+                               prefix_path_update update) {
+    bool conflict = false;
+    if (scalars_.count(name)) {
+        scalars_.erase(name);
+        conflict = true;
+    }
+    prefix_paths_.try_emplace(name, prefix_path{name});
+    prefix_paths_.at(name).update(update);
+    return conflict;
+}
+
+std::vector<scalar> patch::get_values(
+    std::function<std::optional<std::string>(const std::string&)> getenv)
+    const {
+    std::vector<scalar> vars;
+    vars.reserve(scalars_.size() + prefix_paths_.size());
+
+    for (auto& v : scalars_) {
+        vars.push_back(v.second);
+    }
+
+    for (auto& v : prefix_paths_) {
+        if (auto current = getenv(v.first)) {
+            if (auto value = v.second.get(*current)) {
+                vars.push_back({v.first, *value});
+            }
+        } else {
+            if (auto value = v.second.get()) {
+                vars.push_back({v.first, *value});
+            }
+        }
+    }
+
+    return vars;
+}
+
+// expand any environment variables of the form "${VAR}"
+void patch::expand_env_variables(const envvars::state& env) {
+    for (auto& var : scalars_) {
+        var.second.expand_env_variables(env);
+    }
+    for (auto& var : prefix_paths_) {
+        var.second.expand_env_variables(env);
+    }
+}
+
+// remove duplicate paths, keeping the paths in the order that they are first
+// encountered.
+// effectively implements std::unique for an unsorted vector of
+// strings, maintaining partial ordering.
+std::vector<std::string>
+simplify_prefix_path_list(const std::vector<std::string>& in) {
+    std::set<std::string> s;
+    std::vector<std::string> out;
+
+    out.reserve(in.size());
+
+    for (auto& p : in) {
+        // drop all empty paths, which occur when there are two ::, e.g.
+        // PATH=/usr/bin::/opt/cuda/bin
+        if (p.size() == 0)
+            continue;
+        // if the path has not already been seen, add it to the output
+        if (!s.count(p)) {
+            out.push_back(p);
+            s.insert(p);
+        }
+    }
+
+    return out;
+}
+
+} // namespace envvars

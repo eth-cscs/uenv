@@ -4,9 +4,6 @@
 #include <string>
 
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
-
-#include <uenv/env.h>
 
 #include "uenv.h"
 
@@ -21,6 +18,8 @@ struct image_ls_args {
 int image_ls(const image_ls_args& args, const global_settings& settings);
 
 } // namespace uenv
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<uenv::image_ls_args> {
   public:

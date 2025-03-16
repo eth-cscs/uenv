@@ -1,9 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 #pragma once
 
-#include <CLI/CLI.hpp>
-#include <fmt/core.h>
-
 #include "add_remove.h"
 #include "copy.h"
 #include "delete.h"

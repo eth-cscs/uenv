@@ -1,12 +1,9 @@
 #pragma once
-// vim: ts=4 sts=4 sw=4 et
 
 #include <string>
 
 #include <CLI/CLI.hpp>
 #include <fmt/core.h>
-
-#include <uenv/env.h>
 
 #include "uenv.h"
 
@@ -46,6 +43,8 @@ template <> class fmt::formatter<uenv::image_add_args> {
                               opts.uenv_description);
     }
 };
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<uenv::image_rm_args> {
   public:

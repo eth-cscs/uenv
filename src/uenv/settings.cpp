@@ -1,13 +1,16 @@
 #include <filesystem>
+#include <fstream>
 #include <optional>
 
+#include <fmt/format.h>
+#include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <uenv/settings.h>
 #include <util/color.h>
-#include <util/environment.h>
+#include <util/envvars.h>
 #include <util/strings.h>
 
 namespace uenv {
@@ -38,7 +41,7 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
     };
 }
 
-config_base default_config(const environment::variables& env) {
+config_base default_config(const envvars::state& env) {
     return {
         .repo = default_repo_path(env),
         .color = color::default_color(env),
@@ -75,11 +78,11 @@ generate_configuration(const config_base& base) {
 namespace impl {
 util::expected<config_base, std::string>
 read_config_file(const std::filesystem::path& path,
-                 const environment::variables& calling_env);
+                 const envvars::state& calling_env);
 }
 
 util::expected<config_base, std::string>
-load_user_config(const environment::variables& calling_env) {
+load_user_config(const envvars::state& calling_env) {
     namespace fs = std::filesystem;
 
     auto home_env = calling_env.get("HOME");
@@ -128,7 +131,7 @@ load_user_config(const environment::variables& calling_env) {
 namespace impl {
 util::expected<config_base, std::string>
 read_config_file(const std::filesystem::path& path,
-                 const environment::variables& calling_env) {
+                 const envvars::state& calling_env) {
     namespace fs = std::filesystem;
 
     if (!fs::exists(path) || !std::filesystem::is_regular_file(path)) {
@@ -172,7 +175,7 @@ read_config_file(const std::filesystem::path& path,
     for (auto [key, value] : settings) {
         if (key == "repo") {
             config.repo =
-                calling_env.expand(value, environment::expand_delim::curly);
+                calling_env.expand(value, envvars::expand_delim::curly);
         } else if (key == "color") {
             if (value == "true") {
                 config.color = true;

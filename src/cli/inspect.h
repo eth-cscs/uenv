@@ -4,9 +4,6 @@
 #include <string>
 
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
-
-#include <uenv/env.h>
 
 #include "uenv.h"
 
@@ -32,6 +29,8 @@ int image_inspect(const image_inspect_args& args,
                   const global_settings& settings);
 
 } // namespace uenv
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<uenv::image_inspect_args> {
   public:

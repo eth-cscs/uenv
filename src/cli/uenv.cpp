@@ -3,6 +3,7 @@
 
 #include <CLI/CLI.hpp>
 #include <fmt/core.h>
+#include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
 #include <uenv/log.h>
@@ -12,7 +13,7 @@
 #include <uenv/repository.h>
 #include <uenv/settings.h>
 #include <util/color.h>
-#include <util/environment.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
 

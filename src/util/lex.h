@@ -3,8 +3,6 @@
 #include <memory>
 #include <string_view>
 
-#include <fmt/core.h>
-
 namespace lex {
 
 enum class tok {
@@ -61,6 +59,8 @@ class lexer {
 };
 
 } // namespace lex
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<lex::tok> {
   public:

@@ -3,11 +3,7 @@
 #include <optional>
 #include <string>
 
-#include <fmt/core.h>
-
-#include <util/expected.h>
-
-#include <uenv/envvars.h>
+#include <util/envvars.h>
 
 namespace uenv {
 
@@ -37,11 +33,12 @@ struct concrete_view {
     std::string description;
     /// the environment variable updates to be applied when the view is loaded:
     /// loaded from env.json meta data
-    envvarset environment;
+    envvars::patch environment;
 };
 
 } // namespace uenv
 
+#include <fmt/core.h>
 template <> class fmt::formatter<uenv::view_description> {
   public:
     // parse format specification and store it:

@@ -5,9 +5,6 @@
 #include <string>
 
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
-
-#include <uenv/env.h>
 
 #include "uenv.h"
 
@@ -24,6 +21,8 @@ int image_delete(const image_delete_args& args,
                  const global_settings& settings);
 
 } // namespace uenv
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<uenv::image_delete_args> {
   public:

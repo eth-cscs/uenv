@@ -11,6 +11,7 @@
 #include <spdlog/spdlog.h>
 
 #include <site/site.h>
+#include <uenv/env.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/expected.h>

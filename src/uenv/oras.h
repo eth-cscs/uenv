@@ -4,9 +4,8 @@
 #include <string>
 #include <vector>
 
-#include <fmt/core.h>
-
 #include <uenv/uenv.h>
+#include <util/expected.h>
 
 namespace uenv {
 namespace oras {
@@ -60,6 +59,7 @@ copy(const std::string& registry, const std::string& src_nspace,
 } // namespace oras
 } // namespace uenv
 
+#include <fmt/core.h>
 template <> class fmt::formatter<uenv::oras::credentials> {
   public:
     // parse format specification and store it:

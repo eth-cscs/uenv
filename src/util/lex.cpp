@@ -1,7 +1,7 @@
 #include <cctype>
 #include <string_view>
 
-#include "lex.h"
+#include <util/lex.h>
 
 namespace lex {
 

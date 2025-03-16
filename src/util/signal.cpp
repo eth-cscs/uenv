@@ -1,12 +1,21 @@
 #include <atomic>
 #include <csignal>
 
+#include <fmt/format.h>
+
 #include <util/signal.h>
 
 namespace util {
 
 std::atomic<bool> signal_received{false};
 std::atomic<int> last_signal{0};
+
+signal_exception::signal_exception(int signal)
+    : signal(signal), msg(fmt::format("signal {} raised", signal)) {
+}
+const char* signal_exception::what() const throw() {
+    return msg.c_str();
+}
 
 void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {

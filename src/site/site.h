@@ -5,7 +5,7 @@
 
 #include <uenv/oras.h>
 #include <uenv/repository.h>
-#include <util/environment.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 
 namespace site {
@@ -13,7 +13,7 @@ namespace site {
 // return the name of the current system
 // on CSCS systems this is derived from the CLUSTER_NAME environment variable
 std::optional<std::string> get_system_name(const std::optional<std::string>,
-                                           const environment::variables&);
+                                           const envvars::state&);
 
 std::optional<std::string> get_username();
 

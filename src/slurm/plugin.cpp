@@ -1,7 +1,6 @@
 #include <charconv>
 #include <cstdlib>
 #include <optional>
-#include <ranges>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -10,14 +9,15 @@
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
 #include <uenv/env.h>
-#include <uenv/envvars.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <util/envvars.h>
 
 #include "config.hpp"
 
@@ -31,7 +31,7 @@ namespace uenv {
 util::expected<void, std::string>
 do_mount(const std::vector<mount_entry>& mount_entries);
 
-void set_log_level(const environment::variables& env) {
+void set_log_level(const envvars::state& env) {
     // use warn as the default log level
     auto log_level = spdlog::level::warn;
     bool invalid_env = false;
@@ -239,7 +239,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // this function is called in the local context (where srun and sbatch are
     // called), where the standard setenv/getenv interface is used to access
     // environment variables.
-    const auto calling_environment = environment::variables(environ);
+    const auto calling_environment = envvars::state(environ);
 
     // initialise logging
     uenv::set_log_level(calling_environment);
@@ -320,7 +320,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     runtime_environment.set("UENV_MOUNT_LIST",
                             fmt::format("{}", fmt::join(uenv_mount_list, ",")));
 
-    for (auto& var : runtime_environment.vars()) {
+    for (auto& var : runtime_environment.variables()) {
         ::setenv(var.first.c_str(), var.second.c_str(), 1);
     }
 

@@ -1,8 +1,10 @@
 // vim: ts=4 sts=4 sw=4 et
 #pragma once
 
+#include <optional>
+#include <string>
+
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
 
 #include "uenv.h"
 

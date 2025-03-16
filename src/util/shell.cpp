@@ -6,7 +6,7 @@
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
-#include <util/environment.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
@@ -14,7 +14,7 @@ namespace util {
 
 /// returns the path of the shell currently being used
 util::expected<std::filesystem::path, std::string>
-current_shell(const environment::variables& envvars) {
+current_shell(const envvars::state& envvars) {
     auto env_shell = envvars.get("SHELL");
 
     if (!env_shell) {

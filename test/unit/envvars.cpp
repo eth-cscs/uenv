@@ -2,17 +2,17 @@
 
 #include <vector>
 
-#include <uenv/envvars.h>
-#include <util/environment.h>
+// #include <uenv/envvars.h>
+#include <util/envvars.h>
 
 TEST_CASE("prefix_path update", "[envvars]") {
-    uenv::prefix_path_update pr_empty{uenv::update_kind::prepend, {}};
-    uenv::prefix_path_update pr_2{uenv::update_kind::prepend, {"a", "b"}};
-    uenv::prefix_path_update set_empty{uenv::update_kind::set, {}};
-    uenv::prefix_path_update set_2{uenv::update_kind::set, {"c", "d"}};
-    uenv::prefix_path_update ap_empty{uenv::update_kind::append, {}};
-    uenv::prefix_path_update ap_2{uenv::update_kind::append, {"e", "f"}};
-    uenv::prefix_path_update unset{uenv::update_kind::unset, {}};
+    envvars::prefix_path_update pr_empty{envvars::update_kind::prepend, {}};
+    envvars::prefix_path_update pr_2{envvars::update_kind::prepend, {"a", "b"}};
+    envvars::prefix_path_update set_empty{envvars::update_kind::set, {}};
+    envvars::prefix_path_update set_2{envvars::update_kind::set, {"c", "d"}};
+    envvars::prefix_path_update ap_empty{envvars::update_kind::append, {}};
+    envvars::prefix_path_update ap_2{envvars::update_kind::append, {"e", "f"}};
+    envvars::prefix_path_update unset{envvars::update_kind::unset, {}};
 
     {
         std::vector<std::string> value = {};
@@ -63,26 +63,26 @@ TEST_CASE("prefix_path update", "[envvars]") {
 }
 
 TEST_CASE("prefix_path simplify", "[envvars]") {
-    REQUIRE_THAT(uenv::simplify_prefix_path_list({}),
+    REQUIRE_THAT(envvars::simplify_prefix_path_list({}),
                  Catch::Matchers::Equals(std::vector<std::string>{}));
 
-    REQUIRE_THAT(uenv::simplify_prefix_path_list({"a"}),
+    REQUIRE_THAT(envvars::simplify_prefix_path_list({"a"}),
                  Catch::Matchers::Equals(std::vector<std::string>{"a"}));
 
-    REQUIRE_THAT(uenv::simplify_prefix_path_list({"a", "a"}),
+    REQUIRE_THAT(envvars::simplify_prefix_path_list({"a", "a"}),
                  Catch::Matchers::Equals(std::vector<std::string>{"a"}));
 
-    REQUIRE_THAT(uenv::simplify_prefix_path_list({"a", "b", "a"}),
+    REQUIRE_THAT(envvars::simplify_prefix_path_list({"a", "b", "a"}),
                  Catch::Matchers::Equals(std::vector<std::string>{"a", "b"}));
 
-    REQUIRE_THAT(uenv::simplify_prefix_path_list({"c", "d"}),
+    REQUIRE_THAT(envvars::simplify_prefix_path_list({"c", "d"}),
                  Catch::Matchers::Equals(std::vector<std::string>{"c", "d"}));
 
-    REQUIRE_THAT(uenv::simplify_prefix_path_list(
+    REQUIRE_THAT(envvars::simplify_prefix_path_list(
                      {"z", "hello", "apple", "cat", "apple", "z", "wombat"}),
                  Catch::Matchers::Equals(std::vector<std::string>{
                      "z", "hello", "apple", "cat", "wombat"}));
-    REQUIRE_THAT(uenv::simplify_prefix_path_list(
+    REQUIRE_THAT(envvars::simplify_prefix_path_list(
                      {"/opt/cray/libfabric/1.15.2.0", "/usr/lib64",
                       "/opt/cray/libfabric/1.15.2.0"}),
                  Catch::Matchers::Equals(std::vector<std::string>{
@@ -90,21 +90,22 @@ TEST_CASE("prefix_path simplify", "[envvars]") {
 }
 
 // check that conflicts are correctly flagged
-TEST_CASE("envvarset validate", "[envvars]") {
-    uenv::envvarset ev;
+TEST_CASE("patch validate", "[envvars]") {
+    envvars::patch ev;
     REQUIRE_FALSE(ev.update_scalar("FOO", "wombat"));
-    REQUIRE(ev.update_prefix_path("FOO", {uenv::update_kind::set, {"wombat"}}));
+    REQUIRE(
+        ev.update_prefix_path("FOO", {envvars::update_kind::set, {"wombat"}}));
     REQUIRE_FALSE(ev.update_prefix_path("apple", {{}, {}}));
     REQUIRE(ev.update_scalar("apple", ""));
 }
 
 // check environment variable substitution
-TEST_CASE("envvarset expand", "[envvars]") {
-    environment::variables vars;
+TEST_CASE("patch expand", "[envvars]") {
+    envvars::state vars;
     vars.set("SCRATCH", "/scratch/cscs/wombat");
     vars.set("CLUSTER_NAME", "daint");
 
-    uenv::envvarset env;
+    envvars::patch env;
     env.update_scalar("JULIA_HOME", "${@SCRATCH@}/julia-up/${@CLUSTER_NAME@}");
     env.expand_env_variables(vars);
 
@@ -118,28 +119,28 @@ TEST_CASE("envvarset expand", "[envvars]") {
     REQUIRE(values[0].value == "/scratch/cscs/wombat/julia-up/daint");
 }
 
-// check that final envvarset variables are correctly generated
-TEST_CASE("envvarset get final values", "[envvars]") {
-    uenv::envvarset ev;
+// check that final patch variables are correctly generated
+TEST_CASE("patch get final values", "[envvars]") {
+    envvars::patch ev;
     ev.update_scalar("ANIMAL", "wombat");
     ev.update_scalar("VEHICLE", "car");
     ev.update_scalar("ABODE", "tent");
 
-    ev.update_prefix_path("A", {uenv::update_kind::set, {"c", "d"}});
-    ev.update_prefix_path("B", {uenv::update_kind::prepend, {"a", "b"}});
-    ev.update_prefix_path("C", {uenv::update_kind::append, {"c", "d"}});
+    ev.update_prefix_path("A", {envvars::update_kind::set, {"c", "d"}});
+    ev.update_prefix_path("B", {envvars::update_kind::prepend, {"a", "b"}});
+    ev.update_prefix_path("C", {envvars::update_kind::append, {"c", "d"}});
 
     {
         auto getenv = []([[maybe_unused]] const std::string& name)
             -> std::optional<std::string> { return std::nullopt; };
         REQUIRE_THAT(ev.get_values(getenv),
                      Catch::Matchers::UnorderedEquals(
-                         std::vector<uenv::scalar>{{"ABODE", "tent"},
-                                                   {"VEHICLE", "car"},
-                                                   {"ANIMAL", "wombat"},
-                                                   {"A", "c:d"},
-                                                   {"B", "a:b"},
-                                                   {"C", "c:d"}}));
+                         std::vector<envvars::scalar>{{"ABODE", "tent"},
+                                                      {"VEHICLE", "car"},
+                                                      {"ANIMAL", "wombat"},
+                                                      {"A", "c:d"},
+                                                      {"B", "a:b"},
+                                                      {"C", "c:d"}}));
     }
 
     {
@@ -155,47 +156,47 @@ TEST_CASE("envvarset get final values", "[envvars]") {
         };
         REQUIRE_THAT(ev.get_values(getenv),
                      Catch::Matchers::UnorderedEquals(
-                         std::vector<uenv::scalar>{{"ABODE", "tent"},
-                                                   {"VEHICLE", "car"},
-                                                   {"ANIMAL", "wombat"},
-                                                   {"A", "c:d"},
-                                                   {"B", "a:b:c:d"},
-                                                   {"C", "a:b:c:d"}}));
+                         std::vector<envvars::scalar>{{"ABODE", "tent"},
+                                                      {"VEHICLE", "car"},
+                                                      {"ANIMAL", "wombat"},
+                                                      {"A", "c:d"},
+                                                      {"B", "a:b:c:d"},
+                                                      {"C", "a:b:c:d"}}));
     }
 }
 
 /*
  * test the environment variable handler below here
  */
-namespace environment {
+namespace envvars {
 bool validate_name(std::string_view name, bool strict = true);
 }
 
 TEST_CASE("validate envvar names", "[environment]") {
-    REQUIRE(environment::validate_name("wombat", true));
-    REQUIRE(environment::validate_name("_", true));
-    REQUIRE(environment::validate_name("__", true));
-    REQUIRE(environment::validate_name("_WOMBAT", true));
-    REQUIRE(environment::validate_name("a", true));
-    REQUIRE(environment::validate_name("A", true));
-    REQUIRE(environment::validate_name("ab", true));
-    REQUIRE(environment::validate_name("AB", true));
-    REQUIRE(environment::validate_name("PATH", true));
-    REQUIRE(environment::validate_name("CUDA_HOME", true));
-    REQUIRE(environment::validate_name("P1", true));
-    REQUIRE(environment::validate_name("_1", true));
-    REQUIRE(environment::validate_name("a123_4", true));
+    REQUIRE(envvars::validate_name("wombat", true));
+    REQUIRE(envvars::validate_name("_", true));
+    REQUIRE(envvars::validate_name("__", true));
+    REQUIRE(envvars::validate_name("_WOMBAT", true));
+    REQUIRE(envvars::validate_name("a", true));
+    REQUIRE(envvars::validate_name("A", true));
+    REQUIRE(envvars::validate_name("ab", true));
+    REQUIRE(envvars::validate_name("AB", true));
+    REQUIRE(envvars::validate_name("PATH", true));
+    REQUIRE(envvars::validate_name("CUDA_HOME", true));
+    REQUIRE(envvars::validate_name("P1", true));
+    REQUIRE(envvars::validate_name("_1", true));
+    REQUIRE(envvars::validate_name("a123_4", true));
 
-    REQUIRE(!environment::validate_name("a-b", true));
-    REQUIRE(!environment::validate_name("b?", true));
-    REQUIRE(!environment::validate_name("-", true));
-    REQUIRE(!environment::validate_name("!", true));
-    REQUIRE(!environment::validate_name("wombat soup", true));
+    REQUIRE(!envvars::validate_name("a-b", true));
+    REQUIRE(!envvars::validate_name("b?", true));
+    REQUIRE(!envvars::validate_name("-", true));
+    REQUIRE(!envvars::validate_name("!", true));
+    REQUIRE(!envvars::validate_name("wombat soup", true));
 }
 
-TEST_CASE("variables::clear", "[environment]") {
+TEST_CASE("state::clear", "[environment]") {
     {
-        environment::variables E{};
+        envvars::state E{};
         auto initial_vars = E.c_env();
         // assume that the calling environment has at least one environment
         // variabls
@@ -207,7 +208,7 @@ TEST_CASE("variables::clear", "[environment]") {
         REQUIRE(final_vars[0] == nullptr);
     }
     {
-        environment::variables E{environ};
+        envvars::state E{environ};
         auto initial_vars = E.c_env();
         // assume that the calling environment has at least one environment
         // variabls
@@ -220,7 +221,7 @@ TEST_CASE("variables::clear", "[environment]") {
     }
 }
 
-TEST_CASE("variables::set-get-unset", "[environment]") {
+TEST_CASE("state::set-get-unset", "[environment]") {
     auto n_env = [](char** env) -> unsigned {
         if (env == nullptr) {
             return 0u;
@@ -233,7 +234,7 @@ TEST_CASE("variables::set-get-unset", "[environment]") {
         return count;
     };
 
-    environment::variables E{};
+    envvars::state E{};
 
     {
         auto vars = E.c_env();
@@ -282,9 +283,9 @@ TEST_CASE("variables::set-get-unset", "[environment]") {
     REQUIRE(!E.get("wombat"));
 }
 
-TEST_CASE("variables::expand-curly", "[environment]") {
-    environment::variables V{};
-    auto mode = environment::expand_delim::curly;
+TEST_CASE("state::expand-curly", "[environment]") {
+    envvars::state V{};
+    auto mode = envvars::expand_delim::curly;
 
     V.set("USER", "wombat");
 
@@ -320,9 +321,9 @@ TEST_CASE("variables::expand-curly", "[environment]") {
             "/usr/lib:/opt/cuda/lib:/opt/cuda/lib64");
 }
 
-TEST_CASE("variables::expand-view", "[environment]") {
-    environment::variables V{};
-    auto mode = environment::expand_delim::view;
+TEST_CASE("state::expand-view", "[environment]") {
+    envvars::state V{};
+    auto mode = envvars::expand_delim::view;
 
     V.set("USER", "wombat");
 

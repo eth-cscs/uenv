@@ -8,12 +8,13 @@
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <uenv/uenv.h>
-#include <util/environment.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
 // the C API for sqlite3
@@ -38,8 +39,7 @@ using util::unexpected;
 /// - the path string was not valid
 ///
 /// returns error if it a path is set, but it is invalid
-std::optional<std::string>
-default_repo_path(const environment::variables& env) {
+std::optional<std::string> default_repo_path(const envvars::state& env) {
     std::optional<std::string> path_string;
     if (auto p = env.get("SCRATCH")) {
         spdlog::trace(fmt::format("default_repo_path: found SCRATCH={}", p));

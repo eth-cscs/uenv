@@ -9,8 +9,7 @@
 // namespace fs = std::filesystem;
 namespace uenv::impl {
 util::expected<config_base, std::string>
-read_config_file(const std::filesystem::path& path,
-                 const environment::variables&);
+read_config_file(const std::filesystem::path& path, const envvars::state&);
 }
 
 TEST_CASE("read config files", "[settings]") {
@@ -43,7 +42,7 @@ TEST_CASE("read config files", "[settings]") {
         REQUIRE(!result->color);
     }
     {
-        environment::variables env{};
+        envvars::state env{};
         env.set("HOME", "/users/wombat");
         auto result =
             uenv::impl::read_config_file(config_root / "set-repo-envvar", env);

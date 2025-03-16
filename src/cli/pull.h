@@ -5,9 +5,6 @@
 #include <string>
 
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
-
-#include <uenv/env.h>
 
 #include "uenv.h"
 
@@ -26,6 +23,8 @@ struct image_pull_args {
 int image_pull(const image_pull_args& args, const global_settings& settings);
 
 } // namespace uenv
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<uenv::image_pull_args> {
   public:

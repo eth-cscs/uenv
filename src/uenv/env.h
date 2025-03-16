@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <util/environment.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 
 #include <uenv/uenv.h>
@@ -24,16 +24,14 @@ util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
                std::optional<std::string> view_args,
                std::optional<std::filesystem::path> repo_arg,
-               const environment::variables& calling_env);
+               const envvars::state& calling_env);
 
-environment::variables
-generate_environment(const env&, const environment::variables&,
-                     std::optional<std::string> = std::nullopt);
+envvars::state generate_environment(const env&, const envvars::state&,
+                                    std::optional<std::string> = std::nullopt);
 
-environment::variables
-generate_slurm_environment(const env&, const environment::variables&);
+envvars::state generate_slurm_environment(const env&, const envvars::state&);
 
 // returns true iff in a running uenv session
-bool in_uenv_session(const environment::variables&);
+bool in_uenv_session(const envvars::state&);
 
 } // namespace uenv

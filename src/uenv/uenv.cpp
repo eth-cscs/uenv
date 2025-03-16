@@ -1,3 +1,8 @@
+#include <optional>
+#include <string>
+#include <variant>
+
+#include <fmt/core.h>
 #include <string>
 
 #include <uenv/uenv.h>

@@ -8,10 +8,9 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <uenv/meta.h>
+#include <util/envvars.h>
 #include <util/expected.h>
-
-#include "envvars.h"
-#include "meta.h"
 
 namespace uenv {
 
@@ -56,7 +55,7 @@ util::expected<meta, std::string> load_meta(const std::filesystem::path& file) {
         std::unordered_map<std::string, concrete_view> views;
         if (auto& jviews = raw["views"]; jviews.is_object()) {
             for (auto& [name, desc] : jviews.items()) {
-                uenv::envvarset envvars;
+                envvars::patch envvars;
                 if (auto& list = desc["env"]["values"]["list"];
                     list.is_object()) {
                     for (auto& [var_name, updates] : list.items()) {
@@ -64,12 +63,14 @@ util::expected<meta, std::string> load_meta(const std::filesystem::path& file) {
                             // todo: check whether "op" field exists
                             // todo: handle case where "op" is not one of "set",
                             // "append", "prepend" or "unset"
-                            const uenv::update_kind op =
-                                u["op"] == "append" ? uenv::update_kind::append
+                            const envvars::update_kind op =
+                                u["op"] == "append"
+                                    ? envvars::update_kind::append
                                 : u["op"] == "prepend"
-                                    ? uenv::update_kind::prepend
-                                : u["op"] == "set" ? uenv::update_kind::set
-                                                   : uenv::update_kind::unset;
+                                    ? envvars::update_kind::prepend
+                                : u["op"] == "set"
+                                    ? envvars::update_kind::set
+                                    : envvars::update_kind::unset;
                             std::vector<std::string> paths = u["value"];
                             envvars.update_prefix_path(var_name, {op, paths});
                         }

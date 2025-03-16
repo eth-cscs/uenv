@@ -43,7 +43,7 @@ void start_args::add_cli(CLI::App& cli,
 // uenv start doesn't make sense when not tty - it is designed for running
 // an interactive session.
 std::optional<std::string>
-detect_non_interactive(const environment::variables& envvars) {
+detect_non_interactive(const envvars::state& envvars) {
     if (!isatty(fileno(stdout))) {
         return "stdout is redirected";
     }

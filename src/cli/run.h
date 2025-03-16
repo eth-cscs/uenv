@@ -5,10 +5,6 @@
 #include <vector>
 
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
-#include <fmt/ranges.h>
-
-#include <uenv/env.h>
 
 #include "uenv.h"
 
@@ -26,6 +22,9 @@ struct run_args {
 int run(const run_args& args, const global_settings& settings);
 
 } // namespace uenv
+
+#include <fmt/core.h>
+#include <fmt/ranges.h>
 
 template <> class fmt::formatter<uenv::run_args> {
   public:

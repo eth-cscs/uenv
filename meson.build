@@ -41,7 +41,6 @@ barkeep_dep = declare_dependency(
 lib_src = [
         'src/site/site.cpp',
         'src/uenv/env.cpp',
-        'src/uenv/envvars.cpp',
         'src/uenv/log.cpp',
         'src/uenv/meta.cpp',
         'src/uenv/oras.cpp',
@@ -52,13 +51,13 @@ lib_src = [
         'src/uenv/uenv.cpp',
         'src/util/color.cpp',
         'src/util/curl.cpp',
+        'src/util/envvars.cpp',
         'src/util/fs.cpp',
         'src/util/lex.cpp',
         'src/util/shell.cpp',
         'src/util/signal.cpp',
         'src/util/strings.cpp',
         'src/util/subprocess.cpp',
-        'src/util/environment.cpp',
 ]
 lib_inc = include_directories('src')
 

@@ -1,16 +1,10 @@
 #pragma once
-
-#include <ctime>
 #include <filesystem>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <variant>
 
-#include <fmt/core.h>
-
 #include <uenv/view.h>
-#include <util/expected.h>
 
 namespace uenv {
 
@@ -164,6 +158,7 @@ struct concrete_uenv {
 
 } // namespace uenv
 
+#include <fmt/core.h>
 template <> class fmt::formatter<uenv::uenv_label> {
   public:
     // parse format specification and store it:

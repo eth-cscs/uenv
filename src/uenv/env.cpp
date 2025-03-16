@@ -8,6 +8,7 @@
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
 #include <site/site.h>
@@ -16,6 +17,7 @@
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
+#include <util/envvars.h>
 #include <util/fs.h>
 #include <util/subprocess.h>
 
@@ -24,7 +26,7 @@ namespace uenv {
 using util::unexpected;
 
 // returns true iff in a running uenv session
-bool in_uenv_session(const environment::variables& e) {
+bool in_uenv_session(const envvars::state& e) {
     return e.get("UENV_MOUNT_LIST") && e.get("UENV_VIEW");
 }
 
@@ -66,7 +68,7 @@ util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
                std::optional<std::string> view_args,
                std::optional<std::filesystem::path> repo_arg,
-               const environment::variables& calling_env) {
+               const envvars::state& calling_env) {
     namespace fs = std::filesystem;
 
     // parse the uenv description that was provided as a command line
@@ -354,9 +356,9 @@ std::set<std::string_view> unsecure_envvars__{
     "TMPDIR",
 };
 
-environment::variables
-generate_environment(const env& environment, environment::variables const& base,
-                     std::optional<std::string> secure_prefix) {
+envvars::state generate_environment(const env& environment,
+                                    envvars::state const& base,
+                                    std::optional<std::string> secure_prefix) {
     auto vars = base;
 
     for (auto& view : environment.views) {
@@ -383,9 +385,9 @@ generate_environment(const env& environment, environment::variables const& base,
                                         std::views::transform(view_description),
                                     ",")));
 
-    std::vector<scalar> secure_vars;
+    std::vector<envvars::scalar> secure_vars;
     if (secure_prefix) {
-        for (const auto& e : vars.vars()) {
+        for (const auto& e : vars.variables()) {
             if (unsecure_envvars__.contains(e.first)) {
                 secure_vars.push_back(
                     {secure_prefix.value() + e.first, e.second});
@@ -398,10 +400,9 @@ generate_environment(const env& environment, environment::variables const& base,
     return vars;
 }
 
-environment::variables
-generate_slurm_environment(const env& environment,
-                           environment::variables const& base) {
-    environment::variables vars{};
+envvars::state generate_slurm_environment(const env& environment,
+                                          envvars::state const& base) {
+    envvars::state vars{};
 
     for (auto& view : environment.views) {
         const auto result = environment.uenvs.at(view.uenv)

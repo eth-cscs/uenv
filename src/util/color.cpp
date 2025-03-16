@@ -4,7 +4,7 @@
 #include <fmt/format.h>
 
 #include <util/color.h>
-#include <util/environment.h>
+#include <util/envvars.h>
 
 namespace color {
 
@@ -12,7 +12,7 @@ namespace impl {
 bool use = true;
 }
 
-bool default_color(const environment::variables& calling_env) {
+bool default_color(const envvars::state& calling_env) {
     // disable color if NO_COLOR env. variable is set
     if (calling_env.get("NO_COLOR")) {
         return false;
