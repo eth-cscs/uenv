@@ -12,37 +12,53 @@ TEST_CASE("prefix_path update", "[envvars]") {
     uenv::prefix_path_update set_2{uenv::update_kind::set, {"c", "d"}};
     uenv::prefix_path_update ap_empty{uenv::update_kind::append, {}};
     uenv::prefix_path_update ap_2{uenv::update_kind::append, {"e", "f"}};
+    uenv::prefix_path_update unset{uenv::update_kind::unset, {}};
 
     {
         std::vector<std::string> value = {};
-        set_2.apply(value);
-        REQUIRE_THAT(
-            value, Catch::Matchers::Equals(std::vector<std::string>{"c", "d"}));
-        set_2.apply(value);
+        bool is_set = false;
+
+        set_2.apply(value, is_set);
         REQUIRE_THAT(
             value, Catch::Matchers::Equals(std::vector<std::string>{"c", "d"}));
 
-        set_empty.apply(value);
+        // check that applying unset works
+        unset.apply(value, is_set);
+        REQUIRE(!is_set);
+
+        // setting an unset variable will reset the variable
+        set_2.apply(value, is_set);
+        REQUIRE_THAT(
+            value, Catch::Matchers::Equals(std::vector<std::string>{"c", "d"}));
+
+        set_empty.apply(value, is_set);
         REQUIRE_THAT(value,
                      Catch::Matchers::Equals(std::vector<std::string>{}));
+        REQUIRE(is_set);
+
+        // check that applying unset works
+        unset.apply(value, is_set);
+        REQUIRE(!is_set);
     }
     {
         std::vector<std::string> value = {};
-        set_2.apply(value);
+        bool is_set = false;
+        set_2.apply(value, is_set);
         REQUIRE_THAT(
             value, Catch::Matchers::Equals(std::vector<std::string>{"c", "d"}));
-        pr_2.apply(value);
+        pr_2.apply(value, is_set);
         REQUIRE_THAT(value, Catch::Matchers::Equals(
                                 std::vector<std::string>{"a", "b", "c", "d"}));
-        pr_empty.apply(value);
+        pr_empty.apply(value, is_set);
         REQUIRE_THAT(value, Catch::Matchers::Equals(
                                 std::vector<std::string>{"a", "b", "c", "d"}));
-        ap_empty.apply(value);
+        ap_empty.apply(value, is_set);
         REQUIRE_THAT(value, Catch::Matchers::Equals(
                                 std::vector<std::string>{"a", "b", "c", "d"}));
-        ap_2.apply(value);
+        ap_2.apply(value, is_set);
         REQUIRE_THAT(value, Catch::Matchers::Equals(std::vector<std::string>{
                                 "a", "b", "c", "d", "e", "f"}));
+        REQUIRE(is_set);
     }
 }
 

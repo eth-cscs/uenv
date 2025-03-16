@@ -25,13 +25,19 @@ void scalar::expand_env_variables(const environment::variables& env) {
 // prefix_path implementation
 //
 
-void prefix_path_update::apply(std::vector<std::string>& in) {
+void prefix_path_update::apply(std::vector<std::string>& in, bool& set) {
     if (op == update_kind::set) {
         in = values;
+        set = true;
     } else if (op == update_kind::append) {
         in.insert(in.end(), values.begin(), values.end());
-    } else {
+        set = true;
+    } else if (op == update_kind::prepend) {
         in.insert(in.begin(), values.begin(), values.end());
+        set = true;
+    } else {
+        in.clear();
+        set = false;
     }
 }
 
@@ -39,10 +45,16 @@ void prefix_path::update(prefix_path_update u) {
     updates_.push_back(std::move(u));
 }
 
-std::string prefix_path::get(const std::string& initial_value) const {
+std::optional<std::string>
+prefix_path::get(const std::string& initial_value) const {
     auto value = util::split(initial_value, ':', true);
+    bool is_set = true;
     for (auto u : updates_) {
-        u.apply(value);
+        u.apply(value, is_set);
+    }
+    // if the variable has been unset:
+    if (!is_set) {
+        return std::nullopt;
     }
     return util::join(":", simplify_prefix_path_list(value));
 }
@@ -94,9 +106,13 @@ std::vector<scalar> envvarset::get_values(
 
     for (auto& v : prefix_paths_) {
         if (auto current = getenv(v.first)) {
-            vars.push_back({v.first, v.second.get(*current)});
+            if (auto value = v.second.get(*current)) {
+                vars.push_back({v.first, *value});
+            }
         } else {
-            vars.push_back({v.first, v.second.get()});
+            if (auto value = v.second.get()) {
+                vars.push_back({v.first, *value});
+            }
         }
     }
 

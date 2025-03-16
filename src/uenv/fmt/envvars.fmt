@@ -23,7 +23,8 @@ template <> class fmt::formatter<uenv::update_kind> {
         return fmt::format_to(ctx.out(), "{}",
                               (k == uenv::update_kind::prepend  ? "prepend"
                                : k == uenv::update_kind::append ? "append"
-                                                                : "set"));
+                               : k == uenv::update_kind::set    ? "set"
+                                                                : "unset"));
     }
 };
 

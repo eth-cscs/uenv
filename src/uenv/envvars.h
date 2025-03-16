@@ -23,10 +23,10 @@ struct scalar {
 
 bool operator==(const scalar& lhs, const scalar& rhs);
 
-enum class update_kind { set, prepend, append };
+enum class update_kind { set, prepend, append, unset };
 
 struct prefix_path_update {
-    void apply(std::vector<std::string>&);
+    void apply(std::vector<std::string>&, bool& set);
 
     update_kind op;
     std::vector<std::string> values;
@@ -37,7 +37,7 @@ struct prefix_path {
     prefix_path() = delete;
 
     void update(prefix_path_update u);
-    std::string get(const std::string& initial_value = "") const;
+    std::optional<std::string> get(const std::string& initial_value = "") const;
 
     std::string_view name() const {
         return name_;

@@ -61,11 +61,15 @@ util::expected<meta, std::string> load_meta(const std::filesystem::path& file) {
                     list.is_object()) {
                     for (auto& [var_name, updates] : list.items()) {
                         for (auto& u : updates) {
+                            // todo: check whether "op" field exists
+                            // todo: handle case where "op" is not one of "set",
+                            // "append", "prepend" or "unset"
                             const uenv::update_kind op =
                                 u["op"] == "append" ? uenv::update_kind::append
                                 : u["op"] == "prepend"
                                     ? uenv::update_kind::prepend
-                                    : uenv::update_kind::set;
+                                : u["op"] == "set" ? uenv::update_kind::set
+                                                   : uenv::update_kind::unset;
                             std::vector<std::string> paths = u["value"];
                             envvars.update_prefix_path(var_name, {op, paths});
                         }
@@ -73,6 +77,8 @@ util::expected<meta, std::string> load_meta(const std::filesystem::path& file) {
                 }
                 if (auto& scalar = desc["env"]["values"]["scalar"];
                     scalar.is_object()) {
+                    // todo: check that val is a string
+                    // todo handle NULL case -> unset
                     for (auto& [var_name, val] : scalar.items()) {
                         envvars.update_scalar(var_name, val);
                     }
