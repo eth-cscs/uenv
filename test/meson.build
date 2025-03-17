@@ -57,7 +57,7 @@ unit_src = [
         'unit/strings.cpp',
         'unit/repository.cpp',
         'unit/settings.cpp',
-        #'unit/subprocess.cpp',
+        'unit/subprocess.cpp',
 ]
 
 unit = executable('unit',
