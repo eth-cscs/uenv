@@ -105,18 +105,15 @@ TEST_CASE("patch expand", "[envvars]") {
     vars.set("SCRATCH", "/scratch/cscs/wombat");
     vars.set("CLUSTER_NAME", "daint");
 
-    envvars::patch env;
-    env.update_scalar("JULIA_HOME", "${@SCRATCH@}/julia-up/${@CLUSTER_NAME@}");
-    env.expand_env_variables(vars);
+    envvars::patch patch;
+    patch.update_scalar("JULIA_HOME",
+                        "${@SCRATCH@}/julia-up/${@CLUSTER_NAME@}");
 
-    auto getenv = [](const std::string&) -> std::optional<std::string> {
-        return std::nullopt;
-    };
+    vars.apply_patch(patch, envvars::expand_delim::view);
 
-    auto values = env.get_values(getenv);
-    REQUIRE(values.size() == 1u);
-    REQUIRE(values[0].name == "JULIA_HOME");
-    REQUIRE(values[0].value == "/scratch/cscs/wombat/julia-up/daint");
+    REQUIRE(vars.get("JULIA_HOME"));
+    REQUIRE(vars.get("JULIA_HOME").value() ==
+            "/scratch/cscs/wombat/julia-up/daint");
 }
 
 // check that final patch variables are correctly generated

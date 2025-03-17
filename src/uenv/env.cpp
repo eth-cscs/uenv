@@ -362,15 +362,15 @@ envvars::state generate_environment(const env& environment,
     auto vars = base;
 
     for (auto& view : environment.views) {
-        const auto result =
-            environment.uenvs.at(view.uenv)
-                .views.at(view.name)
-                .environment.get_values([&vars](const std::string& name) {
-                    return vars.get(name);
-                });
-        for (const auto& v : result) {
-            vars.set(v.name, v.value);
-        }
+        // Environment.views is a list of {uenv.name, view.name} pairs.
+        // to get the concrete view, look up the view in the appropriate uenv
+        // definition.
+        // Performed in this awkward way to ensure that views are applied in the
+        // correct order (which matches the order that the user specified them
+        // in the --views command)
+        vars.apply_patch(
+            environment.uenvs.at(view.name).views.at(view.name).environment,
+            envvars::expand_delim::view);
     }
 
     // set UENV_VIEW env variable, used inside the environment by uenv
@@ -385,6 +385,10 @@ envvars::state generate_environment(const env& environment,
                                         std::views::transform(view_description),
                                     ",")));
 
+    // search the environment for variables that are security sensitive, and
+    // generate renamed copies.
+    // Performed in two stages, because directly updating in the first loop
+    // would invalidate iterators.
     std::vector<envvars::scalar> secure_vars;
     if (secure_prefix) {
         for (const auto& e : vars.variables()) {
@@ -395,7 +399,7 @@ envvars::state generate_environment(const env& environment,
         }
     }
     for (const auto& var : secure_vars) {
-        vars.set(var.name, var.value);
+        vars.set(var.name, *(var.value));
     }
     return vars;
 }
@@ -404,6 +408,10 @@ envvars::state generate_slurm_environment(const env& environment,
                                           envvars::state const& base) {
     envvars::state vars{};
 
+    // todo: we can't just use the state::apply_path method here.
+    // what a mess.
+    // The reason is that we need to return a state object that contains only
+    // the updated / new env vars
     for (auto& view : environment.views) {
         const auto result = environment.uenvs.at(view.uenv)
                                 .views.at(view.name)
@@ -418,7 +426,7 @@ envvars::state generate_slurm_environment(const env& environment,
                                         return base.get(name);
                                     });
         for (const auto& v : result) {
-            vars.set(v.name, v.value);
+            vars.set(v.name, *(v.value));
         }
     }
 

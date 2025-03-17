@@ -183,6 +183,7 @@ function teardown() {
     #
     # check --view and @system
     #
+    echo "uenv --repo=$REPOS/apptool run --view=tool tool@$CLUSTER_NAME -- tool" &>3
     run uenv --repo=$REPOS/apptool run --view=tool tool@$CLUSTER_NAME -- tool
     assert_success
     assert_output "hello tool"

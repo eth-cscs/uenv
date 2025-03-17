@@ -24,6 +24,10 @@ namespace envvars {
 //      "${@HOME@}/.config/${@CLUSTER_NAME@}"
 enum class expand_delim { curly, view };
 
+// forward declare patch;
+
+struct patch;
+
 // The environment variable state of an environment.
 // Environment variables are stored in a hash table with the variable name as
 // the key.
@@ -60,6 +64,9 @@ class state {
     char** c_env() const;
     std::string expand(std::string_view, expand_delim) const;
 
+    // apply a patch to the environment
+    void apply_patch(const patch&, expand_delim);
+
   private:
     std::unordered_map<std::string, std::string> variables_;
 };
@@ -73,10 +80,10 @@ void c_env_free(char** env);
 // variables.
 struct scalar {
     std::string name;
-    std::string value;
 
-    // expand any environment variables of the form "${VAR}"
-    void expand_env_variables(const envvars::state& env);
+    // store the value in an optional.
+    // nullopt implies that the variable is to be explicitly unset.
+    std::optional<std::string> value;
 };
 
 bool operator==(const scalar& lhs, const scalar& rhs);
@@ -115,9 +122,6 @@ struct prefix_path {
         return updates_;
     }
 
-    // expand any environment variables of the form "${VAR}"
-    void expand_env_variables(const envvars::state& env);
-
   private:
     std::string name_;
     std::vector<prefix_path_update> updates_;
@@ -129,7 +133,8 @@ struct prefix_path {
 //      - a list of prefix_paths that describe how to overwrite or update the
 //      existing value
 struct patch {
-    bool update_scalar(const std::string& name, const std::string& value);
+    bool update_scalar(const std::string& name,
+                       std::optional<std::string> value);
     bool update_prefix_path(const std::string& name, prefix_path_update update);
     std::vector<scalar> get_values(
         std::function<std::optional<std::string>(const std::string&)> f) const;
@@ -140,9 +145,6 @@ struct patch {
     const std::unordered_map<std::string, prefix_path>& prefix_paths() const {
         return prefix_paths_;
     };
-
-    // expand any environment variables of the form "${VAR}"
-    void expand_env_variables(const envvars::state& env);
 
   private:
     std::unordered_map<std::string, scalar> scalars_;
@@ -172,7 +174,8 @@ template <> class fmt::formatter<envvars::scalar> {
     // format a value using stored specification:
     template <typename FmtContext>
     constexpr auto format(envvars::scalar const& s, FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "{}={}", s.name, s.value);
+        return fmt::format_to(ctx.out(), "{}={}", s.name,
+                              s.value.value_or("<unset>"));
     }
 };
 

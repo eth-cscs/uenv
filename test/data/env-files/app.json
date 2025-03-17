@@ -1,0 +1,51 @@
+{
+  "description": "the application",
+  "modules": {
+    "root": "/user-environment/modules"
+  },
+  "mount": "/user-environment",
+  "name": "app",
+  "views": {
+    "app": {
+      "activate": "/user-environment/env/app/activate.sh",
+      "description": "the main view",
+      "root": "/user-environment/env/app",
+      "env": {
+        "version": 1,
+        "values": {
+          "list": {
+            "PATH": [
+              {
+                "op": "prepend",
+                "value": [
+                  "/user-environment/app/bin"
+                ]
+              },
+              {
+                "op": "append",
+                "value": [
+                  "/user-environment/app/bin",
+                  "${@SCRATCH@}/local",
+                  "/usr/bin"
+                ]
+              }
+            ],
+            "PYTHONPATH": [
+              {
+                "op": "unset",
+                "value": []
+              }
+            ]
+          },
+          "scalar": {
+            "BOOST_ROOT": null,
+            "CUDA_HOME": "/user-environment/env/app",
+            "SCRATCHPAD": "${@SCRATCH@}/work",
+            "EMPTYSUB": "${@THIS_DOES_NOT_EXIST@}/work"
+          }
+        }
+      },
+      "type": "spack-view"
+    }
+  }
+}

@@ -137,6 +137,29 @@ void state::clear() {
     variables_.clear();
 }
 
+void state::apply_patch(const patch& p, expand_delim mode) {
+    // todo: handle unset scalars
+    for (const auto& [k, v] : p.scalars()) {
+        // the value is an optional -> if the optional is null it implies that
+        // the variable is to be uset
+        if (v.value) {
+            auto expanded_value = expand(*(v.value), mode);
+            set(v.name, expanded_value);
+        } else {
+            unset(v.name);
+        }
+    }
+    for (const auto& [k, v] : p.prefix_paths()) {
+        auto result = v.get(get(k).value_or(""));
+        if (result) {
+            auto value = expand(*result, mode);
+            set(k, value);
+        } else {
+            unset(k);
+        }
+    }
+}
+
 void c_env_free(char** env) {
     if (env == nullptr) {
         return;
@@ -316,10 +339,6 @@ bool operator==(const scalar& lhs, const scalar& rhs) {
     return lhs.name == rhs.name && lhs.value == rhs.value;
 }
 
-void scalar::expand_env_variables(const envvars::state& env) {
-    value = env.expand(value, envvars::expand_delim::view);
-}
-
 //
 // prefix_path implementation
 //
@@ -358,25 +377,18 @@ prefix_path::get(const std::string& initial_value) const {
     return util::join(":", simplify_prefix_path_list(value));
 }
 
-void prefix_path::expand_env_variables(const envvars::state& env) {
-    for (auto& u : updates_) {
-        for (auto v : u.values) {
-            v = env.expand(v, envvars::expand_delim::view);
-        }
-    }
-}
-
-//
+///
 // patch implementation
 //
 
-bool patch::update_scalar(const std::string& name, const std::string& value) {
+bool patch::update_scalar(const std::string& name,
+                          std::optional<std::string> value) {
     bool conflict = false;
     if (prefix_paths_.count(name)) {
         prefix_paths_.erase(name);
         conflict = true;
     }
-    scalars_[name] = {name, value};
+    scalars_[name] = {name, std::move(value)};
     return conflict;
 }
 
@@ -415,16 +427,6 @@ std::vector<scalar> patch::get_values(
     }
 
     return vars;
-}
-
-// expand any environment variables of the form "${VAR}"
-void patch::expand_env_variables(const envvars::state& env) {
-    for (auto& var : scalars_) {
-        var.second.expand_env_variables(env);
-    }
-    for (auto& var : prefix_paths_) {
-        var.second.expand_env_variables(env);
-    }
 }
 
 // remove duplicate paths, keeping the paths in the order that they are first
