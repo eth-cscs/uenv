@@ -100,6 +100,7 @@ std::optional<std::string> state::get(std::string_view name) const {
 
 void state::unset(std::string_view name) {
     if (validate_name(name)) {
+        // if name is not a key, unordered_map::erase is a noop.
         variables_.erase(std::string(name));
     } else {
         spdlog::warn("envvars::state::unset invalid environment variable "
@@ -377,6 +378,10 @@ prefix_path::get(const std::string& initial_value) const {
     return util::join(":", simplify_prefix_path_list(value));
 }
 
+bool prefix_path::unset() const {
+    return updates_.back().op == update_kind::unset;
+}
+
 ///
 // patch implementation
 //
@@ -427,6 +432,22 @@ std::vector<scalar> patch::get_values(
     }
 
     return vars;
+}
+
+void patch::merge(const patch& other) {
+    for (auto& [name, var] : other.scalars()) {
+        scalars_[name] = var;
+    }
+    for (auto& [name, var] : other.prefix_paths()) {
+        if (prefix_paths_.count(name) > 0u) {
+            auto& pfx = prefix_paths_.at(name);
+            for (auto& u : var.updates()) {
+                pfx.update(u);
+            }
+        } else {
+            prefix_paths_.try_emplace(name, var);
+        }
+    }
 }
 
 // remove duplicate paths, keeping the paths in the order that they are first

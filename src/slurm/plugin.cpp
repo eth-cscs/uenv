@@ -303,13 +303,10 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         return -ESPANK_ERROR;
     }
 
-    // set the environment variables
-    auto runtime_environment =
-        generate_slurm_environment(*env, calling_environment);
-
-    // set additional environment variables that are required to communicate
-    // with the remote plugin.
-    std::unordered_map<std::string, std::string> uenv_vars;
+    // patch the environment variables in the calling environment: calls the
+    // setenv and unsetenv to adjust the variables in the calling
+    // environment.
+    patch_slurm_environment(*env, calling_environment);
 
     std::vector<std::string> uenv_mount_list;
     for (auto& e : env->uenvs) {
@@ -317,12 +314,10 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         uenv_mount_list.push_back(
             fmt::format("{}:{}", u.sqfs_path.string(), u.mount_path.string()));
     }
-    runtime_environment.set("UENV_MOUNT_LIST",
-                            fmt::format("{}", fmt::join(uenv_mount_list, ",")));
 
-    for (auto& var : runtime_environment.variables()) {
-        ::setenv(var.first.c_str(), var.second.c_str(), 1);
-    }
+    std::string uenv_mount_list_value =
+        fmt::format("{}", fmt::join(uenv_mount_list, ","));
+    ::setenv("UENV_MOUNT_LIST", uenv_mount_list_value.c_str(), 1);
 
     return ESPANK_SUCCESS;
 }

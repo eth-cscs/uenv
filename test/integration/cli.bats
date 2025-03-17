@@ -183,7 +183,6 @@ function teardown() {
     #
     # check --view and @system
     #
-    echo "uenv --repo=$REPOS/apptool run --view=tool tool@$CLUSTER_NAME -- tool" &>3
     run uenv --repo=$REPOS/apptool run --view=tool tool@$CLUSTER_NAME -- tool
     assert_success
     assert_output "hello tool"
@@ -191,6 +190,18 @@ function teardown() {
     run uenv --repo=$REPOS/apptool run --view=app app/42.0:v1 -- app
     assert_success
     assert_output "hello app"
+
+    # the tool view in the tool environment:
+    # - sets TOOLVAR=SET
+    # - unsets TOOLCONFLICT
+    # check that this is the case
+    export TOOLCONFLICT="yes"
+    unset TOOLVAR
+    run uenv --repo=$REPOS/apptool run --view=tool tool -- printenv
+    assert_success
+    assert_line "TOOLVAR=SET"
+    refute_line "TOOLCONFLICT=yes"
+    unset TOOLCONFLICT
 
     #
     # check --view works when reading meta data from inside a standalone sqfs file

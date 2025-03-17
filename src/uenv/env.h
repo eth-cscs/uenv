@@ -18,6 +18,8 @@ struct env {
 
     // the order of views matters: views are initialised in order
     std::vector<qualified_view_description> views;
+
+    envvars::patch patch() const;
 };
 
 util::expected<env, std::string>
@@ -29,7 +31,7 @@ concretise_env(const std::string& uenv_args,
 envvars::state generate_environment(const env&, const envvars::state&,
                                     std::optional<std::string> = std::nullopt);
 
-envvars::state generate_slurm_environment(const env&, const envvars::state&);
+void patch_slurm_environment(const env&, const envvars::state&);
 
 // returns true iff in a running uenv session
 bool in_uenv_session(const envvars::state&);

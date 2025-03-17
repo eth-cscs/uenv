@@ -122,6 +122,9 @@ struct prefix_path {
         return updates_;
     }
 
+    // return true if the result of applying this is that the variable is unset
+    bool unset() const;
+
   private:
     std::string name_;
     std::vector<prefix_path_update> updates_;
@@ -145,6 +148,8 @@ struct patch {
     const std::unordered_map<std::string, prefix_path>& prefix_paths() const {
         return prefix_paths_;
     };
+
+    void merge(const patch& other);
 
   private:
     std::unordered_map<std::string, scalar> scalars_;

@@ -99,6 +99,20 @@ function teardown() {
     assert_output --partial "the view 'tools' does not exist"
     run_srun_unchecked --repo=$RP --uenv=app/42.0,tool --view=app:app,wombat:tool true
     assert_output --partial "the view 'wombat:tool' does not exist"
+
+    # the tool view in the tool environment:
+    # - sets TOOLVAR=SET
+    # - unsets TOOLCONFLICT
+    # check that this is the case
+    export TOOLCONFLICT="yes"
+    export TOOLCONFLICTS="yes"
+    unset TOOLVAR
+    run_srun_unchecked --repo=$REPOS/apptool --view=tool --uenv=tool -- printenv
+    assert_success
+    assert_line "TOOLVAR=SET"
+    assert_line "TOOLCONFLICTS=yes"
+    refute_line "TOOLCONFLICT=yes"
+    unset TOOLCONFLICT
 }
 
 # check for invalid arguments passed to --uenv
