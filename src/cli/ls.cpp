@@ -116,6 +116,10 @@ std::string image_ls_footer() {
         help::linebreak{},
         help::block{xmpl, "search for uenv by id (id is the first 16 characters of the sha256):"},
         help::block{code,   "uenv image ls 510094ddb3484e30"},
+        help::linebreak{},
+        help::block{xmpl, "list all uenv on any target system"},
+        help::block{code,   "uenv image ls @*"},
+
         // clang-format on
     };
 
