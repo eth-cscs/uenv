@@ -265,21 +265,35 @@ TEST_CASE("state::set-get-unset", "[environment]") {
         REQUIRE(vars[0] == std::string("hello=there"));
         envvars::c_env_free(vars);
     }
-    /*
     E.set("another", "variable");
     REQUIRE(E.get("another"));
     REQUIRE(E.get("another").value() == "variable");
-    REQUIRE(n_env(E.c_env()) == 2u);
+    {
+        auto vars = E.c_env();
+        REQUIRE(n_env(vars) == 2u);
+        envvars::c_env_free(vars);
+    }
     E.set("and", "another");
-    REQUIRE(n_env(E.c_env()) == 3u);
+    {
+        auto vars = E.c_env();
+        REQUIRE(n_env(vars) == 3u);
+        envvars::c_env_free(vars);
+    }
     E.set("and", "overwrite");
-    REQUIRE(n_env(E.c_env()) == 3u);
+    {
+        auto vars = E.c_env();
+        REQUIRE(n_env(vars) == 3u);
+        envvars::c_env_free(vars);
+    }
     // an illegal environment variable name will be ignored (a warning log
     // message is generated)
     E.set("and it was always thus", "antechinus");
-    REQUIRE(n_env(E.c_env()) == 3u);
+    {
+        auto vars = E.c_env();
+        REQUIRE(n_env(vars) == 3u);
+        envvars::c_env_free(vars);
+    }
     REQUIRE(!E.get("and it was always thus"));
-    */
 
     REQUIRE(!E.get("A_VALID_NAME"));
     REQUIRE(!E.get("_"));

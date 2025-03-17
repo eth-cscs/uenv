@@ -5,7 +5,6 @@
 
 namespace matchers = Catch::Matchers;
 
-/*
 TEST_CASE("error", "[subprocess]") {
     // test that execve error is handled correctly by running an binary that
     // does not exist
@@ -82,4 +81,3 @@ TEST_CASE("stdout", "[subprocess]") {
         REQUIRE(!proc->err.getline());
     }
 }
-*/
