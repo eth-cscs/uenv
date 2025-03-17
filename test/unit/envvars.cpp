@@ -215,6 +215,8 @@ TEST_CASE("state::clear", "[environment]") {
         auto final_vars = E.c_env();
         REQUIRE(final_vars != nullptr);
         REQUIRE(final_vars[0] == nullptr);
+
+        envvars::c_env_free(initial_vars);
     }
 }
 
@@ -228,6 +230,7 @@ TEST_CASE("state::set-get-unset", "[environment]") {
             ++env;
             ++count;
         }
+        envvars::c_env_free(env);
         return count;
     };
 
