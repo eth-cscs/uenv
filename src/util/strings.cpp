@@ -8,6 +8,20 @@
 
 namespace util {
 
+std::string strip(std::string_view input) {
+    if (input.empty()) {
+        return {};
+    }
+    auto b = std::find_if_not(input.begin(), input.end(), std::iswspace);
+    if (b == input.end()) {
+        return {};
+    }
+    auto e = input.end();
+    while (std::iswspace(*--e))
+        ;
+    return {b, e + 1};
+}
+
 std::vector<std::string> split(std::string_view s, const char delim,
                                const bool drop_empty) {
     std::vector<std::string> results;

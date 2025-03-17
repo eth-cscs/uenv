@@ -1,0 +1,72 @@
+# TODO
+
+This PR works towards a consolidated configuration setup
+
+* centralised configuration:
+    * uenv::global_settings
+* sane defaults
+* all configuration options should be settable using the same "key" in both
+    * e.g. `uenv --repo=X` and `repo = X` in the configuration file
+
+```
+global_settings
+    config
+        verbose
+        repo
+        color
+    mode
+```
+
+Everything should be resolved at startup.
+
+Every option has a default (or a callback that can generate the default)
+
+## Workflow
+
+An intermediate data structure that stores all of the options as optional<type>
+
+```
+// read the configuration file
+config_path = XDG_CONFIG_PATH/uenv/config
+if ! config_path.exists():
+    create config_path
+config_file_settings = config_path.exists()? read(config_path): empty;
+
+// set the defaults
+default_settings = get_defaults()
+cli_settings = parse_settings_from_CLI()
+
+settings = merge(defaults, config_file);
+settings = merge(settings, cli);
+
+settings.validate()
+```
+
+struct config_set {
+    optional<string> repo;
+    optional<string> color;
+    optional<int> verbosity;
+};
+
+merge(config_set lhs, config_set rhs) {
+    return {
+        .repo = lhs.repo.value_or(rhs.repo.value_or(nullopt)),
+        .color = lhs.color.value_or(rhs.color.value_or(nullopt)),
+    }
+}
+
+## options
+
+* repo = path,path,path
+    * e.g. "~/.uenv/repo, /capstor/store/myproject/uenv-repo"
+* color = [never, always, auto]
+* tokens = name:path, name:path, name:path
+    * e.g. "jfrog:$HOME/.ssh/jfrog, vasp:opt/cscs/uenv/tokens/vasp"
+
+
+
+## Considerations
+
+* what if an invalid value is set for an option that is not always used
+    * e.g. that parameter is only used by a subset of commands...
+

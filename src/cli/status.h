@@ -2,9 +2,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
-
-#include <uenv/env.h>
 
 #include "uenv.h"
 
@@ -18,6 +15,7 @@ int status(const status_args& args, const global_settings& settings);
 
 } // namespace uenv
 
+#include <fmt/core.h>
 template <> class fmt::formatter<uenv::status_args> {
   public:
     // parse format specification and store it:

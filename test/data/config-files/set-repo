@@ -1,0 +1,4 @@
+# this file sets only repo
+repo = /path/to/config
+
+# another comment

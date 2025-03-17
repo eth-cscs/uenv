@@ -1,7 +1,9 @@
 // vim: ts=4 sts=4 sw=4 et
+#include <unistd.h>
 
 #include <CLI/CLI.hpp>
 #include <fmt/core.h>
+#include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
 #include <uenv/log.h>
@@ -9,7 +11,9 @@
 #include <uenv/config.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <uenv/settings.h>
 #include <util/color.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
@@ -28,23 +32,23 @@
 
 std::string help_footer();
 
+uenv::global_settings::global_settings() : calling_environment(environ) {
+}
+
 int main(int argc, char** argv) {
+    uenv::config_base cli_config;
     uenv::global_settings settings;
     bool print_version = false;
-
-    // enable/disable color depending on NOCOLOR env. var and tty terminal
-    // status.
-    color::default_color();
 
     CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
     cli.add_flag_callback(
-        "--no-color", []() -> void { color::set_color(false); },
+        "--no-color", [&cli_config]() -> void { cli_config.color = false; },
         "disable color output");
     cli.add_flag_callback(
-        "--color", []() -> void { color::set_color(true); },
+        "--color", [&cli_config]() -> void { cli_config.color = true; },
         "enable color output");
-    cli.add_flag("--repo", settings.repo_, "the uenv repository");
+    cli.add_flag("--repo", cli_config.repo, "the uenv repository");
     cli.add_flag("--version", print_version, "print version");
 
     cli.footer(help_footer);
@@ -95,31 +99,75 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // if a repo was not provided as a flag, look at environment variables
-    if (!settings.repo_) {
-        if (const auto p = uenv::default_repo_path()) {
-            settings.repo_ = *p;
-        } else {
-            spdlog::warn("ignoring the repo path: {}", p.error());
-            term::warn("ignoring the repo path: {}", p.error());
+    // set the configuration according to defaults, cli options and config
+    // files.
+    uenv::config_base user_config;
+    if (auto x = uenv::load_user_config(settings.calling_environment)) {
+        user_config = *x;
+    }
+    const auto default_config =
+        uenv::default_config(settings.calling_environment);
+    const auto full_config =
+        uenv::merge(cli_config, uenv::merge(user_config, default_config));
+    if (auto merged_config = uenv::generate_configuration(full_config)) {
+        settings.config = merged_config.value();
+    } else {
+        term::error("an invalid configuration was provided: {}",
+                    merged_config.error());
+    }
+    if (!settings.config.repo) {
+        term::warn("there is no valid repo - use the --repo flag or edit the "
+                   "configuration to set a repo path");
+    }
+
+    //
+    // perform actions based on the configuration
+    //
+    // toggle whether to use color output
+    spdlog::info("color output is {}",
+                 (settings.config.color ? "enabled" : "disabled"));
+    color::set_color(settings.config.color);
+
+    // validate the user repository - attempt to create if it does not exist
+    if (settings.config.repo) {
+        using enum uenv::repo_state;
+        const auto initial_state =
+            uenv::validate_repository(settings.config.repo.value());
+        switch (initial_state) {
+        // repo exists and is read only
+        case invalid:
+            spdlog::warn("unable to create repository: {} is invalid",
+                         settings.config.repo.value());
+            break;
+        // repo exists and is read only
+        case readonly:
+            spdlog::warn("the repo {} exists, but is read only, some "
+                         "operations like image pull are disabled.",
+                         settings.config.repo.value());
+        // repo exists and is writable
+        case readwrite:
+            break;
+        // repo does not exist - attempt to create
+        // ignore any error - later attempts to use the repo can handle the
+        // error
+        default:
+            spdlog::info("the repo {} does not exist - creating",
+                         settings.config.repo.value());
+            if (auto result =
+                    uenv::create_repository(settings.config.repo.value());
+                !result) {
+                spdlog::warn("the repo {} was not created: {}",
+                             settings.config.repo.value(), result.error());
+            }
+            break;
         }
     }
 
-    // post-process settings after the CLI arguments have been parsed
-    if (settings.repo_) {
-        if (const auto rpath =
-                uenv::validate_repo_path(*settings.repo_, false, false)) {
-            settings.repo = *rpath;
-        } else {
-            term::warn("ignoring repo path: {}", rpath.error());
-            settings.repo = std::nullopt;
-            settings.repo_ = std::nullopt;
-        }
-    }
+    // util::expected<repository, std::string>
+    // create_repository(const fs::path& repo_path) {
+    // using enum repo_state;
 
-    if (settings.repo) {
-        spdlog::info("using repo {}", *settings.repo);
-    }
+    // auto abs_repo_path = fs::absolute(repo_path);
 
     spdlog::info("{}", settings);
 

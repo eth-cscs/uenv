@@ -1,11 +1,9 @@
 #include <cctype>
 #include <string_view>
 
-#include <fmt/core.h>
+#include <util/lex.h>
 
-#include "lex.h"
-
-namespace uenv {
+namespace lex {
 
 bool operator==(const token& lhs, const token& rhs) {
     return lhs.loc == rhs.loc && lhs.kind == rhs.kind &&
@@ -114,6 +112,14 @@ class lexer_impl {
                 return;
             case '/':
                 character_token(tok::slash);
+                ++stream_;
+                return;
+            case '=':
+                character_token(tok::equals);
+                ++stream_;
+                return;
+            case '#':
+                character_token(tok::hash);
                 ++stream_;
                 return;
             case '@':
@@ -235,4 +241,4 @@ std::string lexer::string() const {
 
 lexer::~lexer() = default;
 
-} // namespace uenv
+} // namespace lex

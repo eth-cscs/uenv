@@ -1,28 +1,27 @@
-#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <vector>
-
-#include <unistd.h>
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
+#include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
 namespace util {
 
 /// returns the path of the shell currently being used
-util::expected<std::filesystem::path, std::string> current_shell() {
-    auto env_shell = std::getenv("SHELL");
+util::expected<std::filesystem::path, std::string>
+current_shell(const envvars::state& envvars) {
+    auto env_shell = envvars.get("SHELL");
 
-    if (env_shell == nullptr) {
+    if (!env_shell) {
         return util::unexpected("SHELL environment variable is not set");
     }
 
-    const auto raw_path = std::filesystem::path(env_shell);
+    const auto raw_path = std::filesystem::path(*env_shell);
     std::error_code ec;
     const auto can_path = std::filesystem::canonical(raw_path, ec);
 
@@ -35,7 +34,7 @@ util::expected<std::filesystem::path, std::string> current_shell() {
     return can_path;
 }
 
-int exec(const std::vector<std::string>& args) {
+int exec(const std::vector<std::string>& args, char* const envp[]) {
     std::vector<char*> argv;
 
     // clean up temporary files before calling execve, because the descructor
@@ -50,7 +49,12 @@ int exec(const std::vector<std::string>& args) {
     argv.push_back(nullptr);
 
     spdlog::info("exec: {}", fmt::join(args, " "));
-    int r = execvp(argv[0], argv.data());
+    int r;
+    if (envp == nullptr) {
+        r = execvp(argv[0], argv.data());
+    } else {
+        r = execvpe(argv[0], argv.data(), envp);
+    }
     // } // end unsafe
 
     spdlog::error("unable to launch a new shell");

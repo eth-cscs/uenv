@@ -31,6 +31,9 @@ namespace util {
 std::vector<std::string> split(std::string_view s, const char delim,
                                const bool drop_empty = false);
 
+// strip whitespace from beginning and end of a string
+std::string strip(std::string_view input);
+
 std::string join(std::string_view joiner, const std::vector<std::string>& list);
 
 bool is_sha(const std::string& str);

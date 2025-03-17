@@ -2,13 +2,11 @@
 #pragma once
 
 #include <cstdint>
-#include <filesystem>
-#include <optional>
-#include <string>
 
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
 
+#include <uenv/settings.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 
 namespace uenv {
@@ -33,20 +31,25 @@ enum class cli_mode : std::uint32_t {
 };
 
 struct global_settings {
-    using enum cli_mode;
+    global_settings();
 
+    // the environment variables that were set when the application is started.
+    const envvars::state calling_environment;
+
+    // the verbosity level: used to set spdlog level
     int verbose = 0;
+
+    // the command mode
+    using enum cli_mode;
     cli_mode mode = unset;
 
-    // repo_ is the unverified string description of the repo path that is
-    // either read from an environment variable or as a --repo CLI argument. the
-    // value should be validated using uenv::validate_repo_path before use.
-    std::optional<std::string> repo_;
-
-    std::optional<std::filesystem::path> repo;
+    // configuration options: merged from config file, CLI options and defaults
+    configuration config;
 };
 
 } // namespace uenv
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<uenv::cli_mode> {
   public:

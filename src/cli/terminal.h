@@ -1,5 +1,9 @@
 #pragma once
 
+// this is in src/cli and not in src/util because only cli code should
+// be printing messages to the terminal - core library should only ever
+// print messages via spdlog.
+
 #include <fmt/core.h>
 
 #include <util/color.h>

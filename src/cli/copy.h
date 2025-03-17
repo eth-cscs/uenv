@@ -5,9 +5,6 @@
 #include <string>
 
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
-
-#include <uenv/env.h>
 
 #include "uenv.h"
 
@@ -25,6 +22,8 @@ struct image_copy_args {
 int image_copy(const image_copy_args& args, const global_settings& settings);
 
 } // namespace uenv
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<uenv::image_copy_args> {
   public:

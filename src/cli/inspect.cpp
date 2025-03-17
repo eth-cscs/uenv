@@ -37,14 +37,14 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
     spdlog::info("image inspect {}", args.label);
 
     // get the repo and handle errors if it does not exist
-    if (!settings.repo) {
+    if (!settings.config.repo) {
         term::error("a repo needs to be provided either using the --repo flag "
-                    "or by setting the UENV_REPO_PATH environment variable");
+                    "in the config file");
         return 1;
     }
 
     // open the repo
-    auto store = uenv::open_repository(*settings.repo);
+    auto store = uenv::open_repository(*settings.config.repo);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;
@@ -61,7 +61,8 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
 
     // set label->system to the current cluster name if it has not
     // already been set.
-    label.system = site::get_system_name(label.system);
+    label.system =
+        site::get_system_name(label.system, settings.calling_environment);
 
     // query the repo
     const auto result = store->query(label);
@@ -76,7 +77,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
     }
 
     if (result->size() > 1) {
-        term::error("more than one uenv matches the search criteria '{}'",
+        term::error("more than one uenv matche the search criteria '{}'",
                     label);
         fmt::print("\n");
         for (const auto& r : *result) {

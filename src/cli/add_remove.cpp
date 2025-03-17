@@ -117,14 +117,13 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     // Open the repository
     //
-    if (!settings.repo) {
-        term::error(
-            "a repo needs to be provided either using the --repo flag or by "
-            "setting the UENV_REPO_PATH environment variable");
+    if (!settings.config.repo) {
+        term::error("a repo needs to be provided either using the --repo flag "
+                    "in the config file");
         return 1;
     }
-    auto store =
-        uenv::open_repository(settings.repo.value(), repo_mode::readwrite);
+    auto store = uenv::open_repository(settings.config.repo.value(),
+                                       repo_mode::readwrite);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;
@@ -136,7 +135,11 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     bool existing_label = false;
     {
         auto results = store->query(*label);
-        // TODO check error on results
+        if (!results) {
+            term::error(
+                "image_add: internal error search repository for {}\n  {}",
+                *label, results.error());
+        }
         existing_label = !results->empty();
 
         if (existing_label) {
@@ -154,7 +157,11 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     {
         uenv_label hash_label{hash};
         auto results = store->query(hash_label);
-        // TODO check error on results
+        if (!results) {
+            term::error(
+                "image_add: internal error search repository for {}\n  {}",
+                *label, results.error());
+        }
         existing_hash = !results->empty();
 
         if (existing_hash) {
@@ -264,9 +271,14 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
              [[maybe_unused]] const global_settings& settings) {
     spdlog::info("image rm {}", args.uenv_description);
 
-    // open the database
-    auto store =
-        uenv::open_repository(settings.repo.value(), repo_mode::readwrite);
+    // open the repo
+    if (!settings.config.repo) {
+        term::error("a repo needs to be provided either using the --repo flag "
+                    "in the config file");
+        return 1;
+    }
+    auto store = uenv::open_repository(settings.config.repo.value(),
+                                       repo_mode::readwrite);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;

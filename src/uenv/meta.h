@@ -11,8 +11,9 @@
 
 namespace uenv {
 
+// Stores uenv meta data loaded from the menta/env.json file inside the uenv
+// squashfs.
 struct meta {
-    // construct meta data from an input file
     std::string name;
     std::optional<std::string> description;
     std::optional<std::string> mount;

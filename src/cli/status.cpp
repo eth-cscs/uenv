@@ -11,6 +11,7 @@
 #include <spdlog/spdlog.h>
 
 #include <site/site.h>
+#include <uenv/env.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
@@ -38,13 +39,17 @@ int status([[maybe_unused]] const status_args& args,
            [[maybe_unused]] const global_settings& settings) {
     spdlog::info("uenv status");
 
-    if (!in_uenv_session()) {
+    if (!in_uenv_session(settings.calling_environment)) {
         term::msg("there is no uenv loaded");
         return 0;
     }
 
-    std::string mount_desc = std::getenv("UENV_MOUNT_LIST");
-    std::string view_literal = std::getenv("UENV_VIEW");
+    // assume that the environment variables have been set, because this is
+    // implied by the call to in_uenv_session passing
+    std::string mount_desc =
+        settings.calling_environment.get("UENV_MOUNT_LIST").value();
+    std::string view_literal =
+        settings.calling_environment.get("UENV_VIEW").value();
 
     // the UENV_VIEW environment variable is a comma-separated list of the form
     //   mount:uenv-name:view-name
@@ -68,7 +73,8 @@ int status([[maybe_unused]] const status_args& args,
     }
     spdlog::debug("derived view description from UENV_VIEW {}", view_desc);
 
-    const auto env = concretise_env(mount_desc, view_desc, settings.repo);
+    const auto env = concretise_env(mount_desc, view_desc, settings.config.repo,
+                                    settings.calling_environment);
 
     if (!env) {
         term::error("could not interpret environment: {}", env.error());

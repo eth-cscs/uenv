@@ -3,10 +3,6 @@
 #include <string>
 
 #include <CLI/CLI.hpp>
-#include <fmt/core.h>
-#include <fmt/ranges.h>
-
-#include <uenv/env.h>
 
 #include "uenv.h"
 
@@ -24,6 +20,8 @@ struct completion_args {
 int completion(const completion_args& args);
 
 } // namespace uenv
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<uenv::completion_args> {
   public:

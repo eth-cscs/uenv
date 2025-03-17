@@ -49,10 +49,10 @@ resolve_repo_path(std::optional<std::string> path,
         }
         return *path;
     }
-    if (settings.repo) {
-        return *(settings.repo);
+    if (settings.config.repo) {
+        return settings.config.repo.value();
     }
-    return util::unexpected("no path provided");
+    return util::unexpected("no repo path provided");
 }
 
 int repo_create(const repo_create_args& args, const global_settings& settings) {

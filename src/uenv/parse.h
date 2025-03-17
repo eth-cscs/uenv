@@ -1,15 +1,15 @@
 #pragma once
 
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include <util/expected.h>
 
-#include <uenv/lex.h>
 #include <uenv/mount.h>
+#include <uenv/settings.h>
 #include <uenv/uenv.h>
 #include <uenv/view.h>
+#include <util/lex.h>
 
 namespace uenv {
 
@@ -29,22 +29,18 @@ struct parse_error {
     std::string detail;
     unsigned loc;
     unsigned width;
-    parse_error(std::string input, std::string detail, const token& tok)
+    parse_error(std::string input, std::string detail, const lex::token& tok)
         : input(std::move(input)), detail(std::move(detail)), loc(tok.loc),
           width(tok.spelling.length()) {
     }
     parse_error(std::string input, std::string description, std::string detail,
-                const token& tok)
+                const lex::token& tok)
         : input(std::move(input)), description(std::move(description)),
           detail(std::move(detail)), loc(tok.loc),
           width(tok.spelling.length()) {
     }
     std::string message() const;
 };
-
-// apply to strings before parsing them.
-// - strips white space from beginning and end of input
-std::string strip(std::string_view input);
 
 util::expected<std::vector<view_description>, parse_error>
 parse_view_args(const std::string& arg);
@@ -67,5 +63,8 @@ parse_uenv_nslabel(const std::string& in);
 
 util::expected<uenv_registry_entry, parse_error>
 parse_registry_entry(const std::string& in);
+
+util::expected<config_line, parse_error>
+parse_config_line(const std::string& arg);
 
 } // namespace uenv

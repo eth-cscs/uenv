@@ -1,5 +1,6 @@
 #include <unistd.h>
 
+#include <fstream>
 #include <optional>
 #include <string>
 
@@ -10,6 +11,7 @@
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/curl.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
@@ -24,7 +26,9 @@ std::optional<std::string> get_username() {
     return std::nullopt;
 }
 
-std::optional<std::string> get_system_name(std::optional<std::string> value) {
+std::optional<std::string>
+get_system_name(const std::optional<std::string> value,
+                const envvars::state& calling_env) {
     if (value) {
         if (value == "*") {
             return std::nullopt;
@@ -32,9 +36,9 @@ std::optional<std::string> get_system_name(std::optional<std::string> value) {
         return value;
     }
 
-    if (auto system_name = std::getenv("CLUSTER_NAME")) {
-        spdlog::debug("cluster name is '{}'", system_name);
-        return system_name;
+    if (auto system_name = calling_env.get("CLUSTER_NAME")) {
+        spdlog::debug("cluster name is '{}'", system_name.value());
+        return system_name.value();
     }
 
     spdlog::debug("cluster name is undefined");
@@ -109,10 +113,6 @@ registry_listing(const std::string& nspace) {
 }
 
 std::string registry_url() {
-    if (auto url = std::getenv("UENV_REGISTRY_URL")) {
-        spdlog::debug("registry url from UENV_REGISTRY '{}'", url);
-        return url;
-    }
     return "jfrog.svc.cscs.ch/uenv";
 }
 

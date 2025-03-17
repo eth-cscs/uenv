@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <uenv/uenv.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 
 namespace uenv {
@@ -38,10 +39,9 @@ class record_set {
 };
 
 /// get the default location for the user's repository.
-/// - use the environment variable UENV_REPO_PATH if it is set
 /// - use $SCRATCH/.uenv-images if $SCRATCH is set
 /// - use $HOME/.uenv/images
-util::expected<std::optional<std::string>, std::string> default_repo_path();
+std::optional<std::string> default_repo_path(const envvars::state&);
 
 util::expected<std::filesystem::path, std::string>
 validate_repo_path(const std::string& path, bool is_absolute = true,

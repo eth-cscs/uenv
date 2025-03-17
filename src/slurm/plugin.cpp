@@ -9,14 +9,15 @@
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
 #include <uenv/env.h>
-#include <uenv/envvars.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <util/envvars.h>
 
 #include "config.hpp"
 
@@ -30,17 +31,18 @@ namespace uenv {
 util::expected<void, std::string>
 do_mount(const std::vector<mount_entry>& mount_entries);
 
-void set_log_level() {
+void set_log_level(const envvars::state& env) {
     // use warn as the default log level
     auto log_level = spdlog::level::warn;
     bool invalid_env = false;
 
     // check the environment variable UENV_LOG_LEVEL
-    auto log_level_str = std::getenv("UENV_LOG_LEVEL");
-    if (log_level_str != nullptr) {
+    auto log_level_str = env.get("UENV_LOG_LEVEL");
+    if (log_level_str) {
         int lvl;
         auto [ptr, ec] = std::from_chars(
-            log_level_str, log_level_str + std::strlen(log_level_str), lvl);
+            log_level_str->c_str(),
+            log_level_str->c_str() + log_level_str->size(), lvl);
 
         if (ec == std::errc()) {
             if (lvl == 1) {
@@ -109,19 +111,10 @@ struct arg_pack {
 
 static arg_pack args{};
 
-/// wrapper for getenv - uses std::getenv or spank_getenv depending
-/// on the slurm context (local or remote)
+/// wrapper spank_getenv : for use in the remote context
 std::optional<std::string> getenv_wrapper(spank_t sp, const char* var) {
     const int len = 1024;
     char buf[len];
-
-    if (spank_context() == spank_context_t::S_CTX_LOCAL ||
-        spank_context() == spank_context_t::S_CTX_ALLOCATOR) {
-        if (const auto ret = std::getenv(var); ret != nullptr) {
-            return ret;
-        }
-        return std::nullopt;
-    }
 
     const auto ret = spank_getenv(sp, var, buf, len);
 
@@ -242,8 +235,14 @@ int init_post_opt_remote(spank_t sp) {
 /// set environment variables that are used in the remote context to mount the
 /// image set environment variables for all requested views
 int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
+    // grab a snapshot of the calling environment
+    // this function is called in the local context (where srun and sbatch are
+    // called), where the standard setenv/getenv interface is used to access
+    // environment variables.
+    const auto calling_environment = envvars::state(environ);
+
     // initialise logging
-    uenv::set_log_level();
+    uenv::set_log_level(calling_environment);
 
     if (!args.uenv_description) {
         // it is an error if the view argument was passed without the uenv
@@ -260,7 +259,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         // * the squashfs image exists
         // * the user has read access to the squashfs image
         // * the mount point exists
-        if (auto mount_var = getenv_wrapper(sp, "UENV_MOUNT_LIST")) {
+        if (auto mount_var = calling_environment.get("UENV_MOUNT_LIST")) {
             if (auto mount_list = validate_uenv_mount_list(*mount_var);
                 !mount_list) {
                 slurm_error("invalid UENV_MOUNT_LIST: %s",
@@ -276,11 +275,9 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // UENV_REPO_PATH environment variable, before using default in SCRATCH or
     // HOME.
     if (!args.repo_description) {
-        if (const auto r = uenv::default_repo_path()) {
-            args.repo_description = *r;
-        } else {
-            slurm_error("unable to find a valid repo path: %s",
-                        r.error().c_str());
+        args.repo_description = uenv::default_repo_path(calling_environment);
+        if (!args.repo_description) {
+            slurm_error("unable to find a valid repo path");
             return -ESPANK_ERROR;
         }
     }
@@ -289,37 +286,27 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // - it is a valid path description
     // - it is an absolute path
     // - it exists
-    std::optional<std::filesystem::path> repo_path;
-    if (args.repo_description) {
-        const auto r =
-            uenv::validate_repo_path(*args.repo_description, false, false);
-        if (!r) {
-            slurm_error("unable to find a valid repo path: %s",
-                        r.error().c_str());
-            return -ESPANK_ERROR;
-        }
-        repo_path = *r;
+    const auto r =
+        uenv::validate_repo_path(*args.repo_description, false, false);
+    if (!r) {
+        slurm_error("unable to find a valid repo path: %s", r.error().c_str());
+        return -ESPANK_ERROR;
     }
+    std::optional<std::filesystem::path> repo_path = *r;
 
-    const auto env = uenv::concretise_env(*args.uenv_description,
-                                          args.view_description, repo_path);
+    const auto env =
+        uenv::concretise_env(*args.uenv_description, args.view_description,
+                             repo_path, calling_environment);
 
     if (!env) {
         slurm_error("%s", env.error().c_str());
         return -ESPANK_ERROR;
     }
 
-    // generate the environment variables to set
-    auto env_vars = uenv::getenv(*env);
-
-    if (auto rval = uenv::setenv(env_vars, ""); !rval) {
-        slurm_error("setting environment variables: %s", rval.error().c_str());
-        return -ESPANK_ERROR;
-    }
-
-    // set additional environment variables that are required to communicate
-    // with the remote plugin.
-    std::unordered_map<std::string, std::string> uenv_vars;
+    // patch the environment variables in the calling environment: calls the
+    // setenv and unsetenv to adjust the variables in the calling
+    // environment.
+    patch_slurm_environment(*env, calling_environment);
 
     std::vector<std::string> uenv_mount_list;
     for (auto& e : env->uenvs) {
@@ -327,23 +314,10 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         uenv_mount_list.push_back(
             fmt::format("{}:{}", u.sqfs_path.string(), u.mount_path.string()));
     }
-    uenv_vars["UENV_MOUNT_LIST"] =
-        fmt::format("{}", fmt::join(uenv_mount_list, ","));
-    if (!env->views.empty()) {
-        std::vector<std::string> view_list;
-        for (auto& v : env->views) {
-            auto& u = env->uenvs.at(v.uenv);
-            view_list.push_back(
-                fmt::format("{}:{}:{}", u.mount_path.string(), v.uenv, v.name));
-        }
-        uenv_vars["UENV_VIEW"] = fmt::format("{}", fmt::join(view_list, ","));
-    }
 
-    if (auto rval = uenv::setenv(uenv_vars, ""); !rval) {
-        slurm_error("setting uenv environment variables %s",
-                    rval.error().c_str());
-        return -ESPANK_ERROR;
-    }
+    std::string uenv_mount_list_value =
+        fmt::format("{}", fmt::join(uenv_mount_list, ","));
+    ::setenv("UENV_MOUNT_LIST", uenv_mount_list_value.c_str(), 1);
 
     return ESPANK_SUCCESS;
 }

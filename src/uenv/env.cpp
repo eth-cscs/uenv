@@ -1,3 +1,5 @@
+#include <stdlib.h>
+
 #include <algorithm>
 #include <filesystem>
 #include <optional>
@@ -8,6 +10,7 @@
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
 #include <site/site.h>
@@ -16,6 +19,7 @@
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
+#include <util/envvars.h>
 #include <util/fs.h>
 #include <util/subprocess.h>
 
@@ -23,9 +27,34 @@ namespace uenv {
 
 using util::unexpected;
 
+// a convenience helper that merges all of the environment variable patches, one
+// for each view, into a single patch
+envvars::patch env::patch() const {
+    if (views.empty()) {
+        return {};
+    }
+    if (views.size() == 1u) {
+        return uenvs.at(views[0].name).views.at(views[0].name).environment;
+    }
+
+    envvars::patch p{};
+
+    for (auto& view : views) {
+        // Environment.views is a list of {uenv.name, view.name} pairs.
+        // to get the concrete view, look up the view in the appropriate uenv
+        // definition.
+        // Performed in this awkward way to ensure that views are applied in the
+        // correct order (which matches the order that the user specified them
+        // in the --views command)
+        p.merge(uenvs.at(view.name).views.at(view.name).environment);
+    }
+
+    return p;
+}
+
 // returns true iff in a running uenv session
-bool in_uenv_session() {
-    return std::getenv("UENV_MOUNT_LIST") && std::getenv("UENV_VIEW");
+bool in_uenv_session(const envvars::state& e) {
+    return e.get("UENV_MOUNT_LIST") && e.get("UENV_VIEW");
 }
 
 struct meta_info {
@@ -65,7 +94,8 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
 util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
                std::optional<std::string> view_args,
-               std::optional<std::filesystem::path> repo_arg) {
+               std::optional<std::filesystem::path> repo_arg,
+               const envvars::state& calling_env) {
     namespace fs = std::filesystem;
 
     // parse the uenv description that was provided as a command line
@@ -109,7 +139,7 @@ concretise_env(const std::string& uenv_args,
 
             // set label->system to the current cluster name if it has not
             // already been set.
-            label->system = site::get_system_name(label->system);
+            label->system = site::get_system_name(label->system, calling_env);
 
             // search for label in the repo
             const auto result = store->query(*label);
@@ -315,50 +345,6 @@ concretise_env(const std::string& uenv_args,
     return env{uenvs, views};
 }
 
-std::unordered_map<std::string, std::string> getenv(const env& environment) {
-    // accumulator for the environment variables that will be set.
-    // (key, value) -> (environment variable name, value)
-    std::unordered_map<std::string, std::string> env_vars;
-
-    // returns the value of an environment variable.
-    // if the variable has been recorded in env_vars, that value is returned
-    // else the cstdlib getenv function is called to get the currently set
-    // value returns nullptr if the variable is not set anywhere
-    auto ge = [&env_vars](const std::string& name) -> const char* {
-        if (env_vars.count(name)) {
-            return env_vars[name].c_str();
-        }
-        return ::getenv(name.c_str());
-    };
-
-    // iterate over each view in order, and set the environment variables
-    // that each view configures. the variables are not set directly,
-    // instead they are accumulated in env_vars.
-    for (auto& view : environment.views) {
-        auto result = environment.uenvs.at(view.uenv)
-                          .views.at(view.name)
-                          .environment.get_values(ge);
-        for (const auto& v : result) {
-            env_vars[v.name] = v.value;
-        }
-    }
-
-    // set UENV_VIEW env variable, used inside the environment by uenv
-    auto view_description = [&environment](const auto& v) {
-        return fmt::format("{}:{}:{}", environment.uenvs.at(v.uenv).mount_path,
-                           v.uenv, v.name);
-    };
-
-    env_vars["UENV_VIEW"] =
-        fmt::format("{}", fmt::join(environment.views |
-                                        std::views::transform(view_description),
-                                    ","));
-
-    // NOTE: UENV_MOUNT_LIST is set by squashfs-mount, not by the uenv CLI.
-
-    return env_vars;
-}
-
 // list of environment variables that are ignored in setuid applications
 // the full list is defined here:
 //      https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/generic/unsecvars.h
@@ -397,30 +383,78 @@ std::set<std::string_view> unsecure_envvars__{
     "TMPDIR",
 };
 
-util::expected<int, std::string>
-setenv(const std::unordered_map<std::string, std::string>& variables,
-       const std::string& prefix) {
-    for (auto var : variables) {
-        // prepend prefix to unsecure environment variables
-        std::string fwd_name = unsecure_envvars__.contains(var.first)
-                                   ? prefix + var.first
-                                   : var.first;
-        spdlog::trace("forwarding environment variable {} as {}", fwd_name,
-                      var.second);
-        if (auto rcode = ::setenv(fwd_name.c_str(), var.second.c_str(), true)) {
-            switch (rcode) {
-            case EINVAL:
-                return unexpected(
-                    fmt::format("invalid variable name {}", fwd_name));
-            case ENOMEM:
-                return unexpected("out of memory");
-            default:
-                return unexpected(
-                    fmt::format("unknown error setting {}", fwd_name));
+envvars::state generate_environment(const env& environment,
+                                    envvars::state const& base,
+                                    std::optional<std::string> secure_prefix) {
+    auto vars = base;
+
+    vars.apply_patch(environment.patch(), envvars::expand_delim::view);
+
+    // set UENV_VIEW env variable, used inside the environment by uenv
+    auto view_description = [&environment](const auto& v) {
+        return fmt::format("{}:{}:{}", environment.uenvs.at(v.uenv).mount_path,
+                           v.uenv, v.name);
+    };
+
+    vars.set(
+        "UENV_VIEW",
+        fmt::format("{}", fmt::join(environment.views |
+                                        std::views::transform(view_description),
+                                    ",")));
+
+    // search the environment for variables that are security sensitive, and
+    // generate renamed copies.
+    // Performed in two stages, because directly updating in the first loop
+    // would invalidate iterators.
+    std::vector<envvars::scalar> secure_vars;
+    if (secure_prefix) {
+        for (const auto& e : vars.variables()) {
+            if (unsecure_envvars__.contains(e.first)) {
+                secure_vars.push_back(
+                    {secure_prefix.value() + e.first, e.second});
             }
         }
     }
-    return 0;
+    for (const auto& var : secure_vars) {
+        vars.set(var.name, *(var.value));
+    }
+    return vars;
+}
+
+// Update the calling environment to apply the environment variable updates.
+// note: making this into a nice clean function that returns state that can be
+// used by the calling slurm plugin was too hard - because slurm requires that
+// the use of setenv/getenv/unsetenv or spank_getenv/spank_setenv/spank_unsetenv
+void patch_slurm_environment(const env& environment,
+                             envvars::state const& base) {
+    // create the full environment with all patches applied
+    envvars::state full_env =
+        generate_environment(environment, base, std::nullopt);
+
+    // get the patch that was applied
+    auto patch = environment.patch();
+
+    // iterate over all variables in the patch:
+    // - if the variable was unset: unset it in the calling environment
+    // - if the variable was set: apply the new value to the calling environment
+    for (auto& [name, _] : patch.scalars()) {
+        if (auto value = full_env.get(name)) {
+            setenv(name.c_str(), value->c_str(), 1);
+        } else {
+            unsetenv(name.c_str());
+        }
+    }
+    for (auto& [name, var] : patch.prefix_paths()) {
+        if (auto value = full_env.get(name)) {
+            setenv(name.c_str(), value->c_str(), 1);
+        } else {
+            unsetenv(name.c_str());
+        }
+    }
+
+    if (auto value = full_env.get("UENV_VIEW")) {
+        setenv("UENV_VIEW", value->c_str(), 1);
+    }
 }
 
 bool operator==(const uenv_record& lhs, const uenv_record& rhs) {

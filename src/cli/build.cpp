@@ -92,7 +92,8 @@ int build(const build_args& args,
     }
 
     // get system from args or autodetect
-    auto system = site::get_system_name(label->system);
+    auto system =
+        site::get_system_name(label->system, settings.calling_environment);
     if (!system) {
         term::error("Couldn't auto-detect system name. Please specify it "
                     "explicitly using desc@<system>");

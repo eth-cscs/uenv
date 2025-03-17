@@ -3,18 +3,16 @@
 #include <optional>
 #include <string>
 
-#include <fmt/core.h>
-
-#include <util/expected.h>
-
-#include <uenv/envvars.h>
+#include <util/envvars.h>
 
 namespace uenv {
 
 /// The result of parsing a uenv description from the command line.
 struct view_description {
-    /// name of the uenv that provides the view
-    /// optional because users can provide only the view name
+    /// name of the uenv that provides the view -
+    /// optional because view descriptions are in one of two forms:
+    /// - view_name
+    /// - uenv_name:view_name
     std::optional<std::string> uenv;
     /// name of the view
     std::string name;
@@ -33,13 +31,14 @@ struct concrete_view {
     std::string name;
     /// the string description of the view: loaded from env.json meta data
     std::string description;
-    /// the environment variables updates to be applied when the view is loaded:
+    /// the environment variable updates to be applied when the view is loaded:
     /// loaded from env.json meta data
-    envvarset environment;
+    envvars::patch environment;
 };
 
 } // namespace uenv
 
+#include <fmt/core.h>
 template <> class fmt::formatter<uenv::view_description> {
   public:
     // parse format specification and store it:

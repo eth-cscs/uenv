@@ -4,9 +4,6 @@
 #include <string>
 #include <vector>
 
-#include <fmt/color.h>
-#include <fmt/format.h>
-
 #include <util/color.h>
 
 namespace help {
@@ -98,6 +95,8 @@ class item {
 };
 
 } // namespace help
+
+#include <fmt/core.h>
 
 template <> class fmt::formatter<help::item> {
   public:
