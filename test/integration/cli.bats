@@ -212,6 +212,14 @@ function teardown() {
     assert_output "hello tool"
 
     #
+    # check --view works when the view has a different name to the uenv
+    #
+
+    run uenv --repo=$REPOS/apptool run --view=wombat tool -- printenv WOMBAT
+    assert_success
+    assert_output "soup for $USER"
+
+    #
     # check that relative paths can be used for squashfs images
     #
 
