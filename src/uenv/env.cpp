@@ -34,7 +34,7 @@ envvars::patch env::patch() const {
         return {};
     }
     if (views.size() == 1u) {
-        return uenvs.at(views[0].name).views.at(views[0].name).environment;
+        return uenvs.at(views[0].uenv).views.at(views[0].name).environment;
     }
 
     envvars::patch p{};
@@ -46,7 +46,7 @@ envvars::patch env::patch() const {
         // Performed in this awkward way to ensure that views are applied in the
         // correct order (which matches the order that the user specified them
         // in the --views command)
-        p.merge(uenvs.at(view.name).views.at(view.name).environment);
+        p.merge(uenvs.at(view.uenv).views.at(view.name).environment);
     }
 
     return p;
