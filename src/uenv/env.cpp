@@ -458,15 +458,17 @@ void patch_slurm_environment(const env& environment,
 }
 
 bool operator==(const uenv_record& lhs, const uenv_record& rhs) {
-    return std::tie(lhs.name, lhs.version, lhs.tag, lhs.system, lhs.uarch,
-                    lhs.sha) == std::tie(rhs.name, rhs.version, rhs.tag,
-                                         rhs.system, rhs.uarch, rhs.sha);
+    return std::tie(lhs.name, lhs.version, lhs.tag, lhs.date, lhs.system,
+                    lhs.uarch, lhs.sha) ==
+           std::tie(rhs.name, rhs.version, rhs.tag, rhs.date, rhs.system,
+                    rhs.uarch, rhs.sha);
 }
 
 bool operator<(const uenv_record& lhs, const uenv_record& rhs) {
     return std::tie(lhs.name, lhs.version, lhs.tag, lhs.system, lhs.uarch,
-                    lhs.sha) < std::tie(rhs.name, rhs.version, rhs.tag,
-                                        rhs.system, rhs.uarch, rhs.sha);
+                    lhs.date, lhs.sha) < std::tie(rhs.name, rhs.version,
+                                                  rhs.tag, rhs.system,
+                                                  rhs.uarch, rhs.date, rhs.sha);
 }
 
 } // namespace uenv
