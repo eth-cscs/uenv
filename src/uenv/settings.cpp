@@ -93,8 +93,9 @@ load_user_config(const envvars::state& calling_env) {
                      "HOME nor XDG_CONFIG_HOME are defined.");
         return config_base{};
     }
-    const auto config_path = xdg_env ? (fs::path(xdg_env.value()) / "uenv")
-                                     : (fs::path(home_env.value()) / "uenv");
+    const auto config_path =
+        xdg_env ? (fs::path(xdg_env.value()) / "uenv")
+                : (fs::path(home_env.value()) / ".config/uenv");
     const auto config_file = config_path / "config";
 
     auto create_config_file = [](const auto& path) {
@@ -118,6 +119,7 @@ load_user_config(const envvars::state& calling_env) {
         return config_base{};
     }
 
+    spdlog::info("opening configuration file {}", config_file);
     auto result = impl::read_config_file(config_file, calling_env);
 
     if (!result) {
