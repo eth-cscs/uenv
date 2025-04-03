@@ -34,6 +34,13 @@ void traverse_subcommand_tree(completion_list& cl, CLI::App* cli,
          cli->get_options([](auto* o) { return o->nonpositional(); })) {
         completions.push_back(option->get_name());
     }
+    for (const auto& option :
+         cli->get_options([](auto* o) { return o->get_positional(); })) {
+        auto name = option->get_name();
+        if (name == "uenv") {
+            completions.push_back("$(uenv image ls --no-header | awk '{print $1}')");
+        }
+    }
 
     cl.push_back({stack, completions});
 
