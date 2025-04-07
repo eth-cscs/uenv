@@ -105,7 +105,7 @@ tarball=uenv-"${SLURM_UENV_MOUNT_VERSION}".tar.gz
   sed -i "s|RPM_SLURM_VERSION|${RPM_SLURM_VERSION}|g" SPECS/uenv.spec
 
   # create src rpm
-  rpmbuild -bs --define "_enable_debug -Ddebug=false" --define "_topdir ." SPECS/uenv.spec
+  rpmbuild -bs --define 'optflags -O2' --define "_enable_debug -Ddebug=false" --define "_topdir ." SPECS/uenv.spec
 
   if [ "${skip_bin}" -eq "0" ]; then
     # create binary rpm
