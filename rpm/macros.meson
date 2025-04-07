@@ -9,7 +9,6 @@
   FFLAGS="${FFLAGS:-%optflags}"; export FFLAGS; \
   FCFLAGS="${FCFLAGS:-%optflags}"; export FCFLAGS; \
   meson setup %{__sourcedir} %{__builddir}  \\\
-	%{?_enable_debug:-Ddebug=true} \\\
 	--prefix=%{_prefix} \\\
 	--buildtype=release \\\
 	--bindir=%{_bindir} \\\
