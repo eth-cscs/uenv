@@ -4,13 +4,16 @@
 
 %meson_setup \
   mkdir -p %{__builddir} \
-  %{set_build_flags} \
+  CFLAGS="${CFLAGS:-%optflags}"; export CFLAGS; \
+  CXXFLAGS="${CXXFLAGS:-%optflags}"; export CXXFLAGS; \
+  FFLAGS="${FFLAGS:-%optflags}"; export FFLAGS; \
+  FCFLAGS="${FCFLAGS:-%optflags}"; export FCFLAGS; \
   meson setup %{__sourcedir} %{__builddir}  \\\
-	%{?_enable_debug:-Ddebug=true} \\\
 	--prefix=%{_prefix} \\\
+	--buildtype=release \\\
 	--bindir=%{_bindir} \\\
 	--sbindir=%{_sbindir} \\\
-	--libexecdir=%{_libexecdir} \\\
+	--libexecdir=/usr/libexec \\\
 	--libdir=%{_libdir} \\\
 	--localstatedir=%{_var} \\\
 	--sharedstatedir=%{_sharedstatedir} \\\
