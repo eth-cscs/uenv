@@ -1,19 +1,11 @@
 # UENV 2
 
+Documentation for uenv2 is available on the [new cscs documentation](https://eth-cscs.github.io/cscs-docs/software/uenv/).
+
 A rewrite of uenv in C++:
 * deployed as static binaries
 * no longer supports modification of the environment in the calling shell
 * bring the CLI and Slurm plugin under one roof, with a common library
-
-Not just a rewrite - new features!
-* `uenv image build $recipe_path arbor/10.1@todi%gh200` - automatically dispatch a build job to build your uenv and deploy it on JFrog.
-* `uenv image add arbor/10.1:v2@todi%gh200 $SCRATCH/myimages/arbor.squashfs` add a squashfs file to your local repository and give it a label
-* `uenv image rm prgenv-gnu/24.11:rc4` remove a uenv from your local repository
-* `uenv image find @eiger` find all uenv on eigher
-* `uenv image find @'*'%gh200` show all uenv built for `gh200` on all clusters
-* `uenv start /abspath/to/store.squashfs --view=develop` now works - uenv can now "peek inside" squashfs images to read meta data
-* **supports bash, zsh, fish, tcsh**, and no more bash wrappers polluting your history.
-* and more...
 
 Some old features are gone:
 * `uenv view` and `uenv modules` have been removed - the tool can no longer modify the environment of the calling shell
@@ -22,6 +14,8 @@ Some old features are gone:
 
 ## Alps quickstart
 
+> Before running the build script, install [uv](https://docs.astral.sh/uv/getting-started/installation/), which is used to provide meson and ninja for the build.
+
 To take uenv2 for a test drive on alps,
 
 ```
@@ -29,11 +23,9 @@ git clone https://github.com/eth-cscs/uenv2.git
 
 cd uenv2
 
-# this script will build uenv2, and install it in $HOME/.local
+# this script will build uenv2, and install it in $HOME/.local/$(uname -m)/bin
 ./install-alps-local.sh
 ```
-
-(very rough) documentation is starting to form over here on the [KB proposal](https://bcumming.github.io/kb-poc/build-install/uenv/).
 
 ## building
 
@@ -46,19 +38,18 @@ To build you only need
 
 On your laptop these requirements can be met using your package manager of choice.
 
-On an Alps vCluster, we want to use the system compiler "as is" without using a uenv or modules. The `g++` requirement is met by the `g++-12` compiler, that is installed on the vClusters as part of the boot image. The easiest way to set up meson and ninja is to pip install them to create an isolated build environment.
+On an Alps vCluster, we want to use the system compiler "as is" without using a uenv or modules. The `g++` requirement is met by the `g++-12` compiler, that is installed on the vClusters as part of the boot image.
 
-On Alps the version of Python3 is ancient, so it can't support the required meson version.
-The `prgenv-gnu/24.11` uenv provides all of the tools required.
+On Alps the version of Python3 is too ancient to support the required meson version.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) to use appropriate Python and meson versions.
 
 ```
-alias e="uenv run prgenv-gnu/24.11:v1 --view=default --"
+alias e="uvx --with meson,ninja"
 CXX=g++-12 e meson setup -Dtests=enabled build
 e meson compile -Cbuild
 ```
 
 * use the system version of gcc-12 in order to create a statically linked binary that can run outside the uenv
-* the integraton tests can't be run through the alias (or in the uenv), because it isn't possible to use `uenv run` or `uenv start` inside a uenv.
 
 ## testing
 
