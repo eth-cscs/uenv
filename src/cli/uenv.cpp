@@ -192,6 +192,8 @@ int main(int argc, char** argv) {
         return uenv::image_find(image.find_args, settings);
     case settings.image_pull:
         return uenv::image_pull(image.pull_args, settings);
+    case settings.image_push:
+        return uenv::image_push(image.push_args, settings);
     case settings.repo_create:
         return uenv::repo_create(repo.create_args, settings);
     case settings.repo_status:

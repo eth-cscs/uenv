@@ -53,6 +53,9 @@ void image_args::add_cli(CLI::App& cli,
     // add the `uenv image pull` command
     pull_args.add_cli(*image_cli, settings);
 
+    // add the `uenv image push` command
+    push_args.add_cli(*image_cli, settings);
+
     image_cli->footer(image_footer);
 }
 

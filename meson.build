@@ -81,6 +81,7 @@ if uenv_cli
             'src/cli/inspect.cpp',
             'src/cli/ls.cpp',
             'src/cli/pull.cpp',
+            'src/cli/push.cpp',
             'src/cli/repo.cpp',
             'src/cli/run.cpp',
             'src/cli/start.cpp',
