@@ -48,6 +48,7 @@ function teardown() {
     SLURM_UENV=app/42.0 run_srun_unchecked  bash -c 'findmnt -r | grep /user-environment'
     assert_output --partial '/user-environment'
 
+    unset SLURM_UENV
 
     # tool has default mount /user-tools
     run_srun_unchecked --repo=$RP  --uenv=tool bash -c 'findmnt -r | grep /user-tools'
