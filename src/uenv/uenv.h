@@ -57,6 +57,8 @@ struct uenv_date {
     auto operator<=>(const uenv_date&) const = default;
 };
 
+// used specifically to store the results using curl to query the jfrog
+// container registry at CSCS (see site implementation).
 struct uenv_registry_entry {
     std::string nspace;
     std::string system;

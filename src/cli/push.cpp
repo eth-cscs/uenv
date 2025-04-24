@@ -23,6 +23,7 @@
 #include "help.h"
 #include "push.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -55,7 +56,7 @@ void image_push_args::add_cli(CLI::App& cli,
 
 int image_push([[maybe_unused]] const image_push_args& args,
                [[maybe_unused]] const global_settings& settings) {
-    // namespace fs = std::filesystem;
+    namespace fs = std::filesystem;
 
     std::optional<uenv::oras::credentials> credentials;
     if (auto c = site::get_credentials(args.username, args.token)) {
@@ -65,7 +66,81 @@ int image_push([[maybe_unused]] const image_push_args& args,
         return 1;
     }
 
-    // TODO
+    // parse and validate the destination (i.e. the label in the registry)
+    uenv_nslabel dst_label{};
+    if (const auto parse = parse_uenv_nslabel(args.dest)) {
+        dst_label = *parse;
+    } else {
+        term::error("invalid destination: {}", parse.error().message());
+        return 1;
+    }
+    if (!dst_label.nspace || !dst_label.label.fully_qualified()) {
+        term::error("the destination uenv {} must be fully qualified, e.g. "
+                    "'deploy::name/version:tag%system%gh200'",
+                    args.dest);
+        return 1;
+    }
+    spdlog::debug("destination label {}::{}", dst_label.nspace,
+                  dst_label.label);
+    // TODO: use how the uenv image copy command does this for the
+
+    const auto nspace = dst_label.nspace.value();
+    auto registry = site::registry_listing(nspace);
+    if (!registry) {
+        term::error("unable to get a listing of the uenv", registry.error());
+        return 1;
+    }
+
+    const auto remote_matches = registry->query(dst_label.label);
+    if (!remote_matches) {
+        term::error("invalid search term: {}", registry.error());
+        return 1;
+    }
+    // check that there is one record with a unique sha
+    if (!remote_matches->empty()) {
+        using enum help::block::admonition;
+        term::error(
+            "a uenv that matches '{}' is already in the registry\n\n{}",
+            args.dest,
+            help::block(info,
+                        "use the --force flag if you want to overwrite it "));
+        return 1;
+    }
+
+    // check the squashfs file
+    auto sqfs = uenv::validate_squashfs_image(args.source);
+    if (!sqfs) {
+        term::error("invalid squashfs file {}: {}", args.source, sqfs.error());
+        return 1;
+    }
+    spdlog::info("image_add: squashfs {}", sqfs.value());
+
+    // TODO: create the tag to push
+
+    //
+    try {
+        auto rego_url = site::registry_url();
+        spdlog::debug("registry url: {}", rego_url);
+
+        /*
+        auto tag_result = oras::push_tag(rego_url, nspace, dst_label.label,
+                                         file.value(), credentials);
+        if (!tag_result) {
+            term::error("unable to pull uenv.\n{}", tag_result.error().message);
+            return 1;
+        }
+        */
+    } catch (util::signal_exception& e) {
+        spdlog::info("user interupted the upload with ctrl-c");
+        /* TODO: clean up, if needed, and printa
+        spdlog::debug("removing record {}", record);
+        store->remove(record.sha);
+        spdlog::debug("deleting path {}", paths.store);
+        std::filesystem::remove_all(paths.store);
+        */
+        // reraise the signal
+        raise(e.signal);
+    }
 
     return 0;
 } // namespace uenv

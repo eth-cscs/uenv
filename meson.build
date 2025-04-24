@@ -87,6 +87,7 @@ if uenv_cli
             'src/cli/start.cpp',
             'src/cli/status.cpp',
             'src/cli/uenv.cpp',
+            'src/cli/util.cpp',
             'src/cli/build.cpp',
             'src/cli/completion.cpp',
             'src/util/completion.cpp',
