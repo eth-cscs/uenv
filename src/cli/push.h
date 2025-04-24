@@ -35,8 +35,8 @@ template <> class fmt::formatter<uenv::image_push_args> {
     template <typename FmtContext>
     constexpr auto format(uenv::image_push_args const& opts,
                           FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(),
-                              "(image push .source {} .dest {} .token={} .force={})",
-                              opts.source, opts.dest, opts.token, opts.force);
+        return fmt::format_to(
+            ctx.out(), "(image push .source {} .dest {} .token={} .force={})",
+            opts.source, opts.dest, opts.token, opts.force);
     }
 };
