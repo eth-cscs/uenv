@@ -15,7 +15,6 @@
 #include "fs.h"
 #include "subprocess.h"
 
-
 namespace util {
 
 struct temp_dir_wrap {
