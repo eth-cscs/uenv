@@ -50,12 +50,10 @@ pull_tag(const std::string& registry, const std::string& nspace,
          const uenv_record& uenv, const std::filesystem::path& destination,
          const std::optional<credentials> token = std::nullopt);
 
-/*
 util::expected<void, error>
 push_tag(const std::string& registry, const std::string& nspace,
-         const uenv_record& uenv, const std::filesystem::path& source,
+         const uenv_label& label, const std::filesystem::path& source,
          const std::optional<credentials> token = std::nullopt);
-*/
 
 util::expected<void, error>
 copy(const std::string& registry, const std::string& src_nspace,

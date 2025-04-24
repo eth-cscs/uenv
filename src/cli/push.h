@@ -15,6 +15,7 @@ struct image_push_args {
     std::string dest;
     std::optional<std::string> token;
     std::optional<std::string> username;
+    bool force = false;
     void add_cli(CLI::App&, global_settings& settings);
 };
 
@@ -35,7 +36,7 @@ template <> class fmt::formatter<uenv::image_push_args> {
     constexpr auto format(uenv::image_push_args const& opts,
                           FmtContext& ctx) const {
         return fmt::format_to(ctx.out(),
-                              "(image push .source {} .dest {} .token={})",
-                              opts.source, opts.dest, opts.token);
+                              "(image push .source {} .dest {} .token={} .force={})",
+                              opts.source, opts.dest, opts.token, opts.force);
     }
 };

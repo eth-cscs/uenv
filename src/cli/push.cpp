@@ -1,7 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
 #include <csignal>
-#include <filesystem>
 #include <string>
 
 #include <fmt/core.h>
@@ -48,6 +47,8 @@ void image_push_args::add_cli(CLI::App& cli,
     push_cli->add_option("--username", username,
                          "user name for the registry (by default the username "
                          "on the system will be used).");
+    push_cli->add_flag("--force", force,
+                       "overwrite the destination if it exists");
     push_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_push; });
 
@@ -56,8 +57,6 @@ void image_push_args::add_cli(CLI::App& cli,
 
 int image_push([[maybe_unused]] const image_push_args& args,
                [[maybe_unused]] const global_settings& settings) {
-    namespace fs = std::filesystem;
-
     std::optional<uenv::oras::credentials> credentials;
     if (auto c = site::get_credentials(args.username, args.token)) {
         credentials = *c;
@@ -82,7 +81,6 @@ int image_push([[maybe_unused]] const image_push_args& args,
     }
     spdlog::debug("destination label {}::{}", dst_label.nspace,
                   dst_label.label);
-    // TODO: use how the uenv image copy command does this for the
 
     const auto nspace = dst_label.nspace.value();
     auto registry = site::registry_listing(nspace);
@@ -91,13 +89,14 @@ int image_push([[maybe_unused]] const image_push_args& args,
         return 1;
     }
 
+    // check whether an image that matches the target label is already
+    // in the registry.
     const auto remote_matches = registry->query(dst_label.label);
     if (!remote_matches) {
         term::error("invalid search term: {}", registry.error());
         return 1;
     }
-    // check that there is one record with a unique sha
-    if (!remote_matches->empty()) {
+    if (!remote_matches->empty() && !args.force) {
         using enum help::block::admonition;
         term::error(
             "a uenv that matches '{}' is already in the registry\n\n{}",
@@ -105,39 +104,36 @@ int image_push([[maybe_unused]] const image_push_args& args,
             help::block(info,
                         "use the --force flag if you want to overwrite it "));
         return 1;
+    } else if (!remote_matches->empty() && args.force) {
+        spdlog::info("{} already exists and will be overwritten", args.dest);
+        term::msg("the destination already exists and will be overwritten");
     }
 
-    // check the squashfs file
+    // validate the source squashfs file
     auto sqfs = uenv::validate_squashfs_image(args.source);
     if (!sqfs) {
         term::error("invalid squashfs file {}: {}", args.source, sqfs.error());
         return 1;
     }
-    spdlog::info("image_add: squashfs {}", sqfs.value());
+    spdlog::info("image_push: squashfs {}", sqfs.value());
 
-    // TODO: create the tag to push
-
-    //
     try {
         auto rego_url = site::registry_url();
         spdlog::debug("registry url: {}", rego_url);
 
-        /*
-        auto tag_result = oras::push_tag(rego_url, nspace, dst_label.label,
-                                         file.value(), credentials);
-        if (!tag_result) {
-            term::error("unable to pull uenv.\n{}", tag_result.error().message);
+        auto push_result = oras::push_tag(rego_url, nspace, dst_label.label,
+                                          sqfs->sqfs, credentials);
+        if (!push_result) {
+            term::error("unable to push uenv.\n{}",
+                        push_result.error().message);
             return 1;
         }
-        */
+
+        term::msg("successfully pushed {}", args.source);
+        term::msg("to {}", args.dest);
     } catch (util::signal_exception& e) {
-        spdlog::info("user interupted the upload with ctrl-c");
-        /* TODO: clean up, if needed, and printa
-        spdlog::debug("removing record {}", record);
-        store->remove(record.sha);
-        spdlog::debug("deleting path {}", paths.store);
-        std::filesystem::remove_all(paths.store);
-        */
+        spdlog::info("user interrupted the upload with ctrl-c");
+
         // reraise the signal
         raise(e.signal);
     }
@@ -157,6 +153,9 @@ std::string image_push_footer() {
         help::linebreak{},
         help::block{xmpl, "push a uenv from a SquashFS file on the local filesystem"},
         help::block{code,   "uenv image push ./store.squashfs prgenv-gnu/24.11:v3%gh200@daint"},
+        help::linebreak{},
+        help::block{xmpl, "overwrite an existing uenv in the registry"},
+        help::block{code,   "uenv image push --force ./store.squashfs prgenv-gnu/24.11:v3%gh200@daint"},
         help::linebreak{},
         help::block{xmpl, "use a token for the registry"},
         help::block{code,   "uenv image push --token=/opt/cscs/uenv/tokens/vasp6 \\"},

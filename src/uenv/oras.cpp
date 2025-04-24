@@ -133,6 +133,11 @@ run_oras_async(std::vector<std::string> args) {
 
     args.insert(args.begin(), oras->string());
     spdlog::trace("run_oras: {}", fmt::join(args, " "));
+
+    // TODO //////////////////////////////////
+    args.clear();
+    args = {"sleep", "5"};
+    //////////////////////////////////////////
     return util::run(args);
 }
 
@@ -249,7 +254,7 @@ util::expected<void, error> pull_tag(const std::string& registry,
 
     util::set_signal_catcher();
     while (!proc->finished()) {
-        std::this_thread::sleep_for(100ms);
+        std::this_thread::sleep_for(500ms);
         // handle a signal, usually SIGTERM or SIGINT
         if (util::signal_raised()) {
             spdlog::error("signal raised - interrupting download");
@@ -265,6 +270,84 @@ util::expected<void, error> pull_tag(const std::string& registry,
 
     if (proc->rvalue()) {
         spdlog::error("unable to pull tag with oras: {}", proc->err.string());
+        return util::unexpected{create_error({.returncode = proc->rvalue(),
+                                              .stdout = proc->out.string(),
+                                              .stderr = proc->err.string()})};
+    }
+
+    return {};
+}
+
+util::expected<void, error> push_tag(const std::string& registry,
+                                     const std::string& nspace,
+                                     const uenv_label& label,
+                                     const std::filesystem::path& source,
+                                     const std::optional<credentials> token) {
+    using namespace std::chrono_literals;
+    namespace fs = std::filesystem;
+    namespace bk = barkeep;
+
+    // Format the registry address with the appropriate path structure
+    auto address =
+        fmt::format("{}/{}/{}/{}/{}/{}:{}", registry, nspace, *label.system,
+                    *label.uarch, *label.name, *label.version, *label.tag);
+
+    spdlog::debug("oras::push_tag: {}", address);
+
+    // Prepare the arguments for the push command
+    std::vector<std::string> args{"push", "--concurrency", "10"};
+
+    if (token) {
+        args.push_back("--password");
+        args.push_back(token->token);
+        args.push_back("--username");
+        args.push_back(token->username);
+    }
+
+    // Add artifact type and annotations
+    args.push_back("--artifact-type");
+    args.push_back("uenv/squashfs");
+
+    // Add the source file path and destination address
+    args.push_back(source.string());
+    args.push_back(address);
+
+    // Run the oras command asynchronously
+    auto proc = run_oras_async(args);
+
+    if (!proc) {
+        spdlog::error("unable to push tag with oras: {}", proc.error());
+        return util::unexpected{generic_error(proc.error())};
+    }
+
+    // Create a spinner to show upload progress
+    auto spinner = bk::Animation({
+        .message = fmt::format("pushing {} to registry",
+                               fs::path(source).filename().string()),
+        .style = bk::Ellipsis,
+        .no_tty = !isatty(fileno(stdout)),
+    });
+
+    // Handle signals during upload (e.g., Ctrl+C)
+    util::set_signal_catcher();
+
+    // Loop until the upload process completes
+    while (!proc->finished()) {
+        std::this_thread::sleep_for(100ms);
+
+        // Handle interruption signals
+        if (util::signal_raised()) {
+            spdlog::error("signal raised - interrupting upload");
+            proc->kill();
+            throw util::signal_exception(util::last_signal_raised());
+        }
+    }
+
+    spinner->done();
+
+    // Check if the upload was successful
+    if (proc->rvalue()) {
+        spdlog::error("unable to push tag with oras: {}", proc->err.string());
         return util::unexpected{create_error({.returncode = proc->rvalue(),
                                               .stdout = proc->out.string(),
                                               .stderr = proc->err.string()})};
