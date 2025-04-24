@@ -45,9 +45,8 @@ function teardown() {
     run_srun_unchecked --repo=$RP  --uenv=app/42.0 bash -c 'findmnt -r | grep /user-environment'
     assert_output --partial '/user-environment'
 
-    SLURM_UENV=app/42.0 run_srun_unchecked  bash -c 'findmnt -r | grep /user-environment'
+    SLURM_UENV=app/42.0 run_srun_unchecked  --repo=$RP bash -c 'findmnt -r | grep /user-environment'
     assert_output --partial '/user-environment'
-
 
     # tool has default mount /user-tools
     run_srun_unchecked --repo=$RP  --uenv=tool bash -c 'findmnt -r | grep /user-tools'
@@ -59,7 +58,7 @@ function teardown() {
 
     # check SLURM_UENV, SLURM_UENV_VIEW env variables
     # if the view is mounted, the app should be visible
-    SLURM_UENV=app/42.0 SLURM_UENV_VIEW=app run_srun_unchecked app
+    SLURM_UENV=app/42.0 SLURM_UENV_VIEW=app run_srun_unchecked --repo=$RP app
     assert_output --partial 'hello app'
 
     # if the view is mounted, the app should be visible
