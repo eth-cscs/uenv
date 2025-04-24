@@ -24,12 +24,10 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get install util-linux libmount-dev libslurm-dev
       #  run: sudo apt-get install util-linux libmount-dev slurm-wlm libslurm-dev slurmd slurmctld slurm-client
-      # disable for now, because the cache has never actually worked
-      # ironically, this means that it slows down the build
-      #- name: Set up ccache
-      #    uses: hendrikmuhs/ccache-action@v1.2
-      #  with:
-      #    key: ccache-linux-${{ matrix.buildtype }}-${{ matrix.sanitizer }}
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ccache-linux-${{ matrix.buildtype }}-${{ matrix.sanitizer }}
       - name: Install compiler and build tools
         run: sudo apt install --no-install-recommends --yes g++-12 ninja-build
       - name: install meson
@@ -47,7 +45,7 @@ jobs:
           sudo ./meson/meson install -C build-sqfs
       - name: Configure
         run: |
-            CC="gcc-12" CXX="g++-12" ./meson/meson setup \
+            CC="ccache gcc-12" CXX="ccache g++-12" ./meson/meson setup \
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
               -Dtests=enabled \
