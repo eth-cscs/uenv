@@ -44,6 +44,15 @@ TEST_CASE("wait", "[subprocess]") {
     REQUIRE(t.getElapsedMicroseconds() > 100'000);
 }
 
+TEST_CASE("runpath", "[subprocess]") {
+    // test that the sub process is run in the provided (optional) runpath
+    // in this case call `pwd` in the root directory
+    auto proc = util::run({"pwd"}, "/");
+    REQUIRE(proc->wait() == 0);
+    REQUIRE(proc->finished());
+    REQUIRE(proc->out.getline() == "/");
+}
+
 TEST_CASE("kill", "[subprocess]") {
     // sleep 100 ms
     auto proc = util::run({"sleep", "0.1s"});

@@ -51,6 +51,16 @@ pull_tag(const std::string& registry, const std::string& nspace,
          const std::optional<credentials> token = std::nullopt);
 
 util::expected<void, error>
+push_tag(const std::string& registry, const std::string& nspace,
+         const uenv_label& label, const std::filesystem::path& source,
+         const std::optional<credentials> token = std::nullopt);
+
+util::expected<void, error>
+push_meta(const std::string& registry, const std::string& nspace,
+          const uenv_label& label, const std::filesystem::path& meta_path,
+          const std::optional<credentials> token = std::nullopt);
+
+util::expected<void, error>
 copy(const std::string& registry, const std::string& src_nspace,
      const uenv_record& src_uenv, const std::string& dst_nspace,
      const uenv_record& dst_uenv,

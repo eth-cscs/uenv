@@ -17,6 +17,7 @@
 #include "add_remove.h"
 #include "help.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -76,43 +77,13 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
     spdlog::info("image_add: label {}", *label);
 
-    auto file = uenv::parse_path(args.squashfs);
-    if (!file) {
+    auto sqfs = uenv::validate_squashfs_image(args.squashfs);
+    if (!sqfs) {
         term::error("invalid squashfs file {}: {}", args.squashfs,
-                    file.error().message());
+                    sqfs.error());
         return 1;
     }
-    fs::path sqfs = *file;
-    if (!fs::is_regular_file(sqfs)) {
-        term::error("invalid squashfs: {} is not a file", args.squashfs);
-        return 1;
-    }
-    spdlog::info("image_add: squashfs {}", fs::absolute(sqfs));
-
-    //
-    // get the sha256 of the file
-    //
-    std::string hash;
-    {
-        auto proc = util::run({"sha256sum", sqfs.string()});
-        if (!proc) {
-            spdlog::error("{}", proc.error());
-            term::error("unable to calculate sha256 of squashfs file {}",
-                        args.squashfs);
-            return 1;
-        }
-        auto success = proc->wait();
-        if (success != 0) {
-            term::error("unable to calculate sha256 of squashfs file {}",
-                        args.squashfs);
-            return 1;
-        }
-
-        auto raw = *proc->out.getline();
-
-        hash = raw.substr(0, 64);
-    }
-    spdlog::debug("image_add: squashfs hash {}", hash);
+    spdlog::info("image_add: squashfs {}", sqfs.value());
 
     //
     // Open the repository
@@ -155,7 +126,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     bool existing_hash = false;
     {
-        uenv_label hash_label{hash};
+        uenv_label hash_label{sqfs->hash};
         auto results = store->query(hash_label);
         if (!results) {
             term::error(
@@ -166,13 +137,13 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
         if (existing_hash) {
             spdlog::warn("a uenv with the same sha {} is already in the repo",
-                         hash);
+                         sqfs->hash);
             term::warn("a uenv with the same sha {} is already in the repo",
-                       hash);
+                       sqfs->hash);
         }
     }
 
-    const auto uenv_paths = store->uenv_paths(hash);
+    const auto uenv_paths = store->uenv_paths(sqfs->hash);
 
     //
     // create the path inside the repo
@@ -184,7 +155,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                       uenv_paths.store.string());
         fs::remove_all(uenv_paths.store);
     }
-    uenv::uenv_date date{*util::file_creation_date(sqfs)};
+    uenv::uenv_date date{*util::file_creation_date(sqfs->sqfs)};
 
     fs::create_directories(uenv_paths.store, ec);
     if (ec) {
@@ -197,10 +168,10 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     // copy the meta data into the repo
     //
-    if (auto p = util::unsquashfs_tmp(sqfs, "meta")) {
+    if (sqfs->meta) {
         fs::copy_options options{};
         options |= fs::copy_options::recursive;
-        fs::copy(p.value() / "meta", uenv_paths.meta, options, ec);
+        fs::copy(sqfs->meta.value() / "meta", uenv_paths.meta, options, ec);
         if (ec) {
             spdlog::error("unable to copy meta data to {}: {}",
                           uenv_paths.meta.string(), ec.message());
@@ -211,19 +182,19 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
     // copy or move the
     if (!args.move) {
-        fs::copy_file(sqfs, uenv_paths.squashfs, ec);
+        fs::copy_file(sqfs->sqfs, uenv_paths.squashfs, ec);
         if (ec) {
             spdlog::error("unable to copy squashfs image {} to {}: {}",
-                          sqfs.string(), uenv_paths.squashfs.string(),
+                          sqfs->sqfs.string(), uenv_paths.squashfs.string(),
                           ec.message());
             term::error("unable to add the uenv");
             return 1;
         }
     } else {
-        fs::rename(sqfs, uenv_paths.squashfs, ec);
+        fs::rename(sqfs->sqfs, uenv_paths.squashfs, ec);
         if (ec) {
             spdlog::error("unable to move squashfs image {} to {}: {}",
-                          sqfs.string(), uenv_paths.squashfs.string(),
+                          sqfs->sqfs.string(), uenv_paths.squashfs.string(),
                           ec.message());
             term::error(
                 "unable to add the uenv\n{}",
@@ -232,7 +203,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                     fmt::format(
                         "check that the file {} is on the same filesystem as "
                         "the repository, and that you have write access to it.",
-                        sqfs)}});
+                        sqfs->sqfs.string())}});
             return 1;
         }
     }
@@ -253,15 +224,15 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         *label->tag,
         date,
         fs::file_size(uenv_paths.squashfs),
-        hash,
-        hash.substr(0, 16),
+        sqfs->hash,
+        sqfs->hash.substr(0, 16),
     };
     if (auto result = store->add(r); !result) {
         spdlog::error("image_add: {}", result.error());
         term::error("unable to add the uenv");
         return 1;
     }
-    term::msg("the uenv {} with sha {} was added to {}", r, hash,
+    term::msg("the uenv {} with sha {} was added to {}", r, sqfs->hash,
               store->path()->string());
 
     return 0;

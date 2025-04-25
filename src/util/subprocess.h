@@ -1,7 +1,9 @@
 #pragma once
 
+#include <filesystem>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -93,6 +95,8 @@ class subprocess {
     void setrcode(int);
 };
 
-expected<subprocess, std::string> run(const std::vector<std::string>& argv);
+expected<subprocess, std::string>
+run(const std::vector<std::string>& argv,
+    std::optional<std::filesystem::path> = std::nullopt);
 
 } // namespace util
