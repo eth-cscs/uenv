@@ -43,14 +43,12 @@ error generic_error(std::string err) {
 }
 
 // Convert oras_output to a uenv::oras::error.
-// oras returns 1 for all errors (from what we observe - there is no
-// documentation).
-// Hence, parse stderr & stdout for hints about what went wrong to generate the
-// user-friendly message
+// oras returns 1 for all errors that it bothers signalling (from what we
+// observe - there is no documentation). sometimes it returns 0, and you have to
+// parse stderr to double check.
+// Hence, parse stderr & stdout for hints about
+// what went wrong to generate the user-friendly message
 error create_error(const oras_output& result) {
-    if (result.returncode == 0) {
-        return {0, {}, {}};
-    }
     std::string message = generic_error_message;
 
     auto contains = [](std::string_view string,
@@ -77,6 +75,16 @@ error create_error(const oras_output& result) {
         contains(err, "Error response from registry")) {
         return {403, result.stderr,
                 "Invalid username was provided. Check the --username flag."};
+    }
+    if (contains(err, "unauthorized") &&
+        contains(err, "Error response from registry")) {
+        return {403, result.stderr,
+                fmt::format("no authorization: provide valid --token and "
+                            "--username arguments.",
+                            err)};
+    }
+    if (result.returncode == 0) {
+        return {0, {}, {}};
     }
     return {result.returncode, result.stderr, std::move(message)};
 };
@@ -156,9 +164,6 @@ discover(const std::string& registry, const std::string& nspace,
         args.push_back(token->username);
     }
     auto result = run_oras(args);
-
-    fmt::println("OUT: {}", result.stdout);
-    fmt::println("ERR: {}", result.stderr);
 
     if (result.returncode) {
         spdlog::error("oras discover returncode={} stderr='{}'",
@@ -351,16 +356,13 @@ util::expected<void, error> push_tag(const std::string& registry,
 
     spinner->done();
 
-    fmt::println("push_tag_out:: {}", proc->out.string());
-    fmt::println("push_tag_err:: {}", proc->err.string());
-    fmt::println("push_tag_int:: {}", proc->rvalue());
-
     // Check if the upload was successful
-    if (proc->rvalue()) {
+    auto err = create_error({.returncode = proc->rvalue(),
+                             .stdout = proc->out.string(),
+                             .stderr = proc->err.string()});
+    if (err.returncode) {
         spdlog::error("unable to push tag with oras: {}", proc->err.string());
-        return util::unexpected{create_error({.returncode = proc->rvalue(),
-                                              .stdout = proc->out.string(),
-                                              .stderr = proc->err.string()})};
+        return util::unexpected{err};
     }
 
     return {};
@@ -446,17 +448,13 @@ util::expected<void, error> push_meta(const std::string& registry,
 
     spinner->done();
 
-    fmt::println("push_meta_out:: {}", proc->out.string());
-    fmt::println("push_meta_err:: {}", proc->err.string());
-    fmt::println("push_meta_int:: {}", proc->rvalue());
-
     // Check if the upload was successful
-    if (proc->rvalue()) {
-        spdlog::error("unable to push metadata with oras: {}",
-                      proc->err.string());
-        return util::unexpected{create_error({.returncode = proc->rvalue(),
-                                              .stdout = proc->out.string(),
-                                              .stderr = proc->err.string()})};
+    auto err = create_error({.returncode = proc->rvalue(),
+                             .stdout = proc->out.string(),
+                             .stderr = proc->err.string()});
+    if (err.returncode) {
+        spdlog::error("unable to metadata with oras: {}", proc->err.string());
+        return util::unexpected{err};
     }
 
     return {};
