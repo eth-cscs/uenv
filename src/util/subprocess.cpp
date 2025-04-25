@@ -20,7 +20,9 @@ expected<pipe, int> make_pipe() {
     return p;
 }
 
-expected<subprocess, std::string> run(const std::vector<std::string>& argv) {
+expected<subprocess, std::string>
+run(const std::vector<std::string>& argv,
+    std::optional<std::filesystem::path> runpath) {
     // WARNING: NEVER add logging of the call and its arguments here.
     // The arguments may contain sensitive information like passwords, and
     // we rely on the caller printing redacted logs one level up.
@@ -53,6 +55,14 @@ expected<subprocess, std::string> run(const std::vector<std::string>& argv) {
         }
         args.push_back(nullptr);
 
+        if (runpath) {
+            if (std::filesystem::is_directory(*runpath)) {
+                std::filesystem::current_path(*runpath);
+            } else {
+                return util::unexpected{fmt::format(
+                    "the run path {} does not exist", runpath->string())};
+            }
+        }
         execvp(args[0], &args[0]);
 
         // this code only executes if the attempt to launch the subprocess

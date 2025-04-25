@@ -121,12 +121,32 @@ int image_push([[maybe_unused]] const image_push_args& args,
         auto rego_url = site::registry_url();
         spdlog::debug("registry url: {}", rego_url);
 
+        // Push the SquashFS image
         auto push_result = oras::push_tag(rego_url, nspace, dst_label.label,
                                           sqfs->sqfs, credentials);
         if (!push_result) {
             term::error("unable to push uenv.\n{}",
                         push_result.error().message);
             return 1;
+        }
+
+        // Check for metadata and push if available
+        if (sqfs->meta) {
+            spdlog::info("image_push: pushing metadata from {}",
+                         sqfs->meta.value().string());
+
+            auto meta_result =
+                oras::push_meta(rego_url, nspace, dst_label.label,
+                                sqfs->meta.value(), credentials);
+            if (!meta_result) {
+                spdlog::warn("unable to push metadata.\n{}",
+                             meta_result.error().message);
+                term::warn("unable to push metadata.\n{}",
+                           meta_result.error().message);
+                // Continue even if metadata push fails
+            } else {
+                spdlog::info("successfully pushed metadata");
+            }
         }
 
         term::msg("successfully pushed {}", args.source);

@@ -179,15 +179,25 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             auto rego_url = site::registry_url();
             spdlog::debug("registry url: {}", rego_url);
 
+            // the digests returned by oras::discover is a list of artifacts that
+            // have been "oras attach"ed to our squashfs image.
+            // This would be empty if no meta data was attached - currently we
+            // assume that meta data has been attached
             auto digests =
                 oras::discover(rego_url, nspace, record, credentials);
-            if (!digests || digests->empty()) {
-                term::error("unable to pull uenv.\n{}",
+            if (!digests) {
+                term::error("unable to pull meta digest.\n{}",
                             digests.error().message);
+                return 1;
+            }
+            if (digests->empty()) {
+                term::error("unable to pull uenv: no metadata in manifest");
                 return 1;
             }
             spdlog::debug("manifests: {}", fmt::join(*digests, ", "));
 
+            // this is a fragile.
+            // in the future, we may attache multiple or zero items to the squashfs image
             const auto digest = *(digests->begin());
 
             if (auto okay = oras::pull_digest(rego_url, nspace, record, digest,

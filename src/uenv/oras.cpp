@@ -106,7 +106,9 @@ redact_arguments(const std::vector<std::string>& args) {
     return redacted_args;
 }
 
-oras_output run_oras(std::vector<std::string> args) {
+oras_output
+run_oras(std::vector<std::string> args,
+         std::optional<std::filesystem::path> runpath = std::nullopt) {
     auto oras = util::oras_path();
     if (!oras) {
         spdlog::error("no oras executable found");
@@ -115,7 +117,7 @@ oras_output run_oras(std::vector<std::string> args) {
 
     args.insert(args.begin(), oras->string());
     spdlog::trace("run_oras: {}", fmt::join(redact_arguments(args), " "));
-    auto proc = util::run(args);
+    auto proc = util::run(args, runpath);
 
     auto result = proc->wait();
 
@@ -125,20 +127,17 @@ oras_output run_oras(std::vector<std::string> args) {
 }
 
 util::expected<util::subprocess, std::string>
-run_oras_async(std::vector<std::string> args) {
+run_oras_async(std::vector<std::string> args,
+               std::optional<std::filesystem::path> runpath = std::nullopt) {
     auto oras = util::oras_path();
     if (!oras) {
         return util::unexpected{"no oras executable found"};
     }
 
     args.insert(args.begin(), oras->string());
-    spdlog::trace("run_oras: {}", fmt::join(args, " "));
+    spdlog::trace("run_oras_async: {}", fmt::join(redact_arguments(args), " "));
 
-    // TODO //////////////////////////////////
-    args.clear();
-    args = {"sleep", "5"};
-    //////////////////////////////////////////
-    return util::run(args);
+    return util::run(args, runpath);
 }
 
 util::expected<std::vector<std::string>, error>
@@ -157,6 +156,9 @@ discover(const std::string& registry, const std::string& nspace,
         args.push_back(token->username);
     }
     auto result = run_oras(args);
+
+    fmt::println("OUT: {}", result.stdout);
+    fmt::println("ERR: {}", result.stderr);
 
     if (result.returncode) {
         spdlog::error("oras discover returncode={} stderr='{}'",
@@ -239,7 +241,9 @@ util::expected<void, error> pull_tag(const std::string& registry,
     const fs::path& sqfs = destination / "store.squashfs";
 
     std::size_t downloaded_mb{0u};
-    std::size_t total_mb{uenv.size_byte / (1024 * 1024)};
+    // force rounding up, so that total_mb is never zero
+    std::size_t total_mb{(uenv.size_byte + (1024 * 1024 - 1)) / (1024 * 1024)};
+    spdlog::info("byte {} MB {}", uenv.size_byte, total_mb);
     auto bar = bk::ProgressBar(
         &downloaded_mb,
         {
@@ -306,14 +310,16 @@ util::expected<void, error> push_tag(const std::string& registry,
 
     // Add artifact type and annotations
     args.push_back("--artifact-type");
-    args.push_back("uenv/squashfs");
+    args.push_back("application/x-squashfs");
 
-    // Add the source file path and destination address
-    args.push_back(source.string());
+    // Add the destination address
     args.push_back(address);
+    // Add the file to push - note that we strip the absolute and relative path
+    args.push_back("./" + source.filename().string());
 
     // Run the oras command asynchronously
-    auto proc = run_oras_async(args);
+    // Note: oras must be called in the path of the file
+    auto proc = run_oras_async(args, source.parent_path());
 
     if (!proc) {
         spdlog::error("unable to push tag with oras: {}", proc.error());
@@ -345,9 +351,109 @@ util::expected<void, error> push_tag(const std::string& registry,
 
     spinner->done();
 
+    fmt::println("push_tag_out:: {}", proc->out.string());
+    fmt::println("push_tag_err:: {}", proc->err.string());
+    fmt::println("push_tag_int:: {}", proc->rvalue());
+
     // Check if the upload was successful
     if (proc->rvalue()) {
         spdlog::error("unable to push tag with oras: {}", proc->err.string());
+        return util::unexpected{create_error({.returncode = proc->rvalue(),
+                                              .stdout = proc->out.string(),
+                                              .stderr = proc->err.string()})};
+    }
+
+    return {};
+}
+
+util::expected<void, error> push_meta(const std::string& registry,
+                                      const std::string& nspace,
+                                      const uenv_label& label,
+                                      const std::filesystem::path& meta_path,
+                                      const std::optional<credentials> token) {
+    using namespace std::chrono_literals;
+    namespace fs = std::filesystem;
+    namespace bk = barkeep;
+
+    // Check if the meta path exists and is a directory
+    if (!fs::exists(meta_path) || !fs::is_directory(meta_path)) {
+        spdlog::error(
+            "metadata directory {} does not exist or is not a directory",
+            meta_path.string());
+        return util::unexpected{error(
+            1, "metadata directory not found",
+            fmt::format(
+                "metadata directory {} does not exist or is not a directory",
+                meta_path.string()))};
+    }
+
+    // Format the registry address with the appropriate path structure
+    auto address =
+        fmt::format("{}/{}/{}/{}/{}/{}:{}", registry, nspace, *label.system,
+                    *label.uarch, *label.name, *label.version, *label.tag);
+
+    spdlog::debug("oras::push_meta: {}", address);
+
+    // Prepare the arguments for the attach command
+    std::vector<std::string> args{"attach"};
+
+    if (token) {
+        args.push_back("--password");
+        args.push_back(token->token);
+        args.push_back("--username");
+        args.push_back(token->username);
+    }
+
+    // Add artifact type and annotations for metadata
+    args.push_back("--artifact-type");
+    args.push_back("uenv/meta");
+
+    // Add destination address
+    args.push_back(address);
+    // Add the meta data path - strip relative/absolute path from the path
+    args.push_back("./" + meta_path.filename().string());
+
+    // Run the oras command asynchronously
+    // Note: oras must be called in the path of the file
+    auto proc = run_oras_async(args, meta_path.parent_path());
+
+    if (!proc) {
+        spdlog::error("unable to push metadata with oras: {}", proc.error());
+        return util::unexpected{generic_error(proc.error())};
+    }
+
+    // Create a spinner to show upload progress
+    auto spinner = bk::Animation({
+        .message = fmt::format("pushing metadata to registry"),
+        .style = bk::Ellipsis,
+        .no_tty = !isatty(fileno(stdout)),
+    });
+
+    // Handle signals during upload (e.g., Ctrl+C)
+    util::set_signal_catcher();
+
+    // Loop until the upload process completes
+    while (!proc->finished()) {
+        std::this_thread::sleep_for(100ms);
+
+        // Handle interruption signals
+        if (util::signal_raised()) {
+            spdlog::error("signal raised - interrupting metadata upload");
+            proc->kill();
+            throw util::signal_exception(util::last_signal_raised());
+        }
+    }
+
+    spinner->done();
+
+    fmt::println("push_meta_out:: {}", proc->out.string());
+    fmt::println("push_meta_err:: {}", proc->err.string());
+    fmt::println("push_meta_int:: {}", proc->rvalue());
+
+    // Check if the upload was successful
+    if (proc->rvalue()) {
+        spdlog::error("unable to push metadata with oras: {}",
+                      proc->err.string());
         return util::unexpected{create_error({.returncode = proc->rvalue(),
                                               .stdout = proc->out.string(),
                                               .stderr = proc->err.string()})};
