@@ -2,6 +2,7 @@ function setup() {
     # set the cluster name to be arapiles
     # this is required for tests to work when run on a vCluster
     # that sets this variable
+    set -u
     export CLUSTER_NAME=arapiles
 
     #echo "BATS_LIB_PATH $BATS_LIB_PATH" 1>&3
