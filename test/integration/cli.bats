@@ -49,7 +49,9 @@ function teardown() {
     assert_output --regexp "app/43.0:v1\s+zen3\s+arapiles"
     assert_output --regexp "tool/17.3.2:v1\s+zen3\s+arapiles"
 
-    run uenv --repo=$REPOS/apptool image ls --no-header
+    # use space instead of = for the --repo option, to check
+    # that both methods work.
+    run uenv --repo $REPOS/apptool image ls --no-header
     assert_success
     refute_line --regexp "^uenv\s+arch\s+system\s+id"
     assert_line --regexp "app/42.0:v1\s+zen3\s+arapiles"
@@ -359,6 +361,11 @@ EOF
 
     # check a format string that contains no fields
     run uenv --repo=$REPOS/apptool image inspect --format='hello world' tool
+    assert_success
+    assert_output "hello world"
+
+    # check that the --format argument works with whitespace instead of =
+    run uenv --repo=$REPOS/apptool image inspect --format 'hello world' tool
     assert_success
     assert_output "hello world"
 
