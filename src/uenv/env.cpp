@@ -23,6 +23,9 @@
 #include <util/fs.h>
 #include <util/subprocess.h>
 
+#include "modular_env.hpp"
+#include "util/expected.h"
+
 namespace uenv {
 
 using util::unexpected;
@@ -116,12 +119,14 @@ concretise_env(const std::string& uenv_args,
     // and meta data (if they have meta data).
 
     std::unordered_map<std::string, uenv::concrete_uenv> uenvs;
+    // std::vector<std::tuple<>>
     std::set<fs::path> used_mounts;
     std::set<fs::path> used_sqfs;
     for (auto& desc : *uenv_descriptions) {
         // determine the sqfs_path
         fs::path sqfs_path;
-
+        // dependent images
+        std::vector<std::tuple<std::filesystem::path, std::filesystem::path>> sub_images;
         // if a label was used to describe the uenv (e.g. "prgenv-gnu/24.7"
         // it has to be looked up in a repo.
         if (auto label = desc.label()) {
@@ -169,7 +174,17 @@ concretise_env(const std::string& uenv_args,
         // otherwise an explicit filename was provided, e.g.
         // "/scratch/myimages/develp/store.squashfs"
         else {
+            // check if desc.filename is a json
             sqfs_path = fs::path(*desc.filename());
+            if (sqfs_path.extension() == ".json") {
+                // NOTE: we ignore mount_path and read it from the sqfs file
+                auto menv = read_modular_env(sqfs_path, *repo_arg);
+                if (!menv) {
+                  return unexpected(menv.error());
+                }
+                sqfs_path = menv.value().sqfs_path;
+                sub_images = menv.value().sub_images;
+            }
         }
 
         sqfs_path = fs::absolute(sqfs_path);
@@ -264,8 +279,13 @@ concretise_env(const std::string& uenv_args,
             used_sqfs.insert(sqfs_path);
         }
 
-        uenvs[name] = concrete_uenv{name,      mount,       sqfs_path,
-                                    meta.path, description, std::move(views)};
+        uenvs[name] = concrete_uenv{.name = name,
+                                    .mount_path = mount,
+                                    .sqfs_path = sqfs_path,
+                                    .sub_images = sub_images,
+                                    .meta_path = meta.path,
+                                    .description = description,
+                                    .views = std::move(views)};
     }
 
     // A dictionary with view name as a key, and a list of uenv that provide

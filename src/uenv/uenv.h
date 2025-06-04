@@ -147,6 +147,9 @@ struct concrete_uenv {
     std::filesystem::path mount_path;
     /// the path of the squashfs image to be mounted
     std::filesystem::path sqfs_path;
+    /// subordinate images tuple(sqfs path, mount point)
+    std::vector<std::tuple<std::filesystem::path, std::filesystem::path>>
+        sub_images;
     /// the path of the meta data - not set if no meta data path was found
     std::optional<std::filesystem::path> meta_path;
 
