@@ -77,8 +77,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
     }
 
     if (result->size() > 1) {
-        term::error("more than one uenv match the search criteria '{}'",
-                    label);
+        term::error("more than one uenv match the search criteria '{}'", label);
         fmt::print("\n");
         for (const auto& r : *result) {
             fmt::print("{}  {}/{}:{}\n", r.id, r.name, r.version, r.tag);
