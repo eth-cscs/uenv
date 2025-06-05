@@ -24,7 +24,7 @@ void image_inspect_args::add_cli(CLI::App& cli,
                                  [[maybe_unused]] global_settings& settings) {
     auto* inspect_cli =
         cli.add_subcommand("inspect", "print information about a uenv.");
-    inspect_cli->add_flag("--format", format, "the format string.");
+    inspect_cli->add_option("--format", format, "the format string.");
     inspect_cli->add_option("uenv", label, "the uenv to inspect.")->required();
     inspect_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_inspect; });
