@@ -38,9 +38,9 @@ read_modular_env(const std::filesystem::path& modular_uenv_json_path,
     std::vector<std::tuple<std::filesystem::path, std::filesystem::path>>
         sub_images;
     std::filesystem::path sqfs_path =
-        data["root-image"]["file"].get<std::string>();
+        data["root-image"]["image"]["file"].get<std::string>();
     std::filesystem::path mount_path =
-        data["root-image"]["prefix_path"].get<std::string>();
+        data["root-image"]["image"]["prefix_path"].get<std::string>();
 
     // GPU image if present
     if (data.contains("gpu")) {
