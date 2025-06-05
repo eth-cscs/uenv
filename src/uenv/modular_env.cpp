@@ -1,16 +1,16 @@
 #include "modular_env.hpp"
-#include <tuple>
-#include <util/expected.h>
 #include <exception>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <tuple>
 #include <uenv/repository.h>
+#include <util/expected.h>
 
 namespace uenv {
 
 util::expected<modular_env_paths, std::string>
 read_modular_env(const std::filesystem::path& modular_uenv_json_path,
-                       std::optional<std::filesystem::path> repo_arg) {
+                 std::optional<std::filesystem::path> repo_arg) {
 
     using json = nlohmann::json;
     std::ifstream f(modular_uenv_json_path.c_str());
@@ -50,17 +50,16 @@ read_modular_env(const std::filesystem::path& modular_uenv_json_path,
     }
 
     if (data.contains("compilers")) {
-      for(auto entry: data["compilers"]) {
-        auto mount = entry["image"]["prefix_path"];
-        auto sqfs = entry["image"]["file"];
-        sub_images.push_back(std::make_tuple(sqfs,mount));
-      }
+        for (auto entry : data["compilers"]) {
+            auto mount = entry["image"]["prefix_path"];
+            auto sqfs = entry["image"]["file"];
+            sub_images.push_back(std::make_tuple(sqfs, mount));
+        }
     }
 
-    return modular_env_paths{
-      .sqfs_path = sqfs_path,
-      .mount_path = mount_path,
-      .sub_images = sub_images};
+    return modular_env_paths{.sqfs_path = sqfs_path,
+                             .mount_path = mount_path,
+                             .sub_images = sub_images};
 }
 
 } // namespace uenv

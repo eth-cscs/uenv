@@ -126,7 +126,8 @@ concretise_env(const std::string& uenv_args,
         // determine the sqfs_path
         fs::path sqfs_path;
         // dependent images
-        std::vector<std::tuple<std::filesystem::path, std::filesystem::path>> sub_images;
+        std::vector<std::tuple<std::filesystem::path, std::filesystem::path>>
+            sub_images;
         // if a label was used to describe the uenv (e.g. "prgenv-gnu/24.7"
         // it has to be looked up in a repo.
         if (auto label = desc.label()) {
@@ -180,7 +181,7 @@ concretise_env(const std::string& uenv_args,
                 // NOTE: we ignore mount_path and read it from the sqfs file
                 auto menv = read_modular_env(sqfs_path, *repo_arg);
                 if (!menv) {
-                  return unexpected(menv.error());
+                    return unexpected(menv.error());
                 }
                 sqfs_path = menv.value().sqfs_path;
                 sub_images = menv.value().sub_images;

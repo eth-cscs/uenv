@@ -112,7 +112,8 @@ will not work, because it starts a new interactive shell.)",
                                        e.second.mount_path));
         // sub-images
         for (auto [sqfs, mnt] : e.second.sub_images) {
-          commands.push_back(fmt::format("{}:{}", sqfs.string(), mnt.string()));
+            commands.push_back(
+                fmt::format("{}:{}", sqfs.string(), mnt.string()));
         }
     }
 
