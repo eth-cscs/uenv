@@ -44,8 +44,8 @@ read_modular_env(const std::filesystem::path& modular_uenv_json_path,
 
     // GPU image if present
     if (data.contains("gpu")) {
-        std::filesystem::path image = data["gpu"]["file"];
-        std::filesystem::path mount = data["gpu"]["prefix_path"];
+        std::filesystem::path image = data["gpu"]["image"]["file"];
+        std::filesystem::path mount = data["gpu"]["image"]["prefix_path"];
         sub_images.push_back(std::make_tuple(image, mount));
     }
 
