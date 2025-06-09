@@ -65,12 +65,22 @@ struct meta_info {
 meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
     namespace fs = std::filesystem;
 
+    // this test checks whether the meta path contains env.json.
+    // extend in the future to check for other required files, as needed.
+    auto is_valid_meta_path = [](const std::filesystem::path& path) -> bool {
+        return fs::is_regular_file(path / "env.json");
+    };
+
     meta_info meta;
-    if (fs::is_directory(sqfs_path.parent_path() / "meta")) {
-        meta.path = sqfs_path.parent_path() / "meta";
-    } else if (auto p = util::unsquashfs_tmp(sqfs_path, "meta")) {
+
+    if (const auto p = sqfs_path.parent_path() / "meta";
+        is_valid_meta_path(p)) {
+        meta.path = p;
+    } else if (const auto p = util::unsquashfs_tmp(sqfs_path, "meta");
+               p && is_valid_meta_path(*p / "meta")) {
         meta.path = *p / "meta";
     }
+
     if (meta.path) {
         spdlog::debug("find_meta_path: {} found meta path {}",
                       sqfs_path.string(), meta.path->string());
