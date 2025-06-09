@@ -72,10 +72,11 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
     };
 
     meta_info meta;
-    const auto external_meta_path = sqfs_path.parent_path() / "meta";
-    if (is_valid_meta_path(external_meta_path)) {
-        meta.path = external_meta_path;
-    } else if (auto p = util::unsquashfs_tmp(sqfs_path, "meta");
+
+    if (const auto p = sqfs_path.parent_path() / "meta";
+        is_valid_meta_path(p)) {
+        meta.path = p;
+    } else if (const auto p = util::unsquashfs_tmp(sqfs_path, "meta");
                p && is_valid_meta_path(*p / "meta")) {
         meta.path = *p / "meta";
     }
