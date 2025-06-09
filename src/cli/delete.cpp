@@ -12,6 +12,7 @@
 #include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
+#include <uenv/registry.h>
 #include <uenv/repository.h>
 #include <util/curl.h>
 #include <util/expected.h>
@@ -21,6 +22,7 @@
 #include "delete.h"
 #include "help.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -78,9 +80,20 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     }
     spdlog::debug("requested to delete {}::{}", nspace, label);
 
-    auto registry = site::registry_listing(nspace);
+    auto registry_backend = create_registry_from_config(settings.config);
+    if (!registry_backend) {
+        term::error("{}", registry_backend.error());
+        return 1;
+    }
+    
+    if (!(*registry_backend)->supports_search()) {
+        term::error("Registry does not support search - cannot validate uenv for deletion");
+        return 1;
+    }
+    
+    auto registry = (*registry_backend)->get_listing(nspace);
     if (!registry) {
-        term::error("unable to get a listing of the uenv", registry.error());
+        term::error("unable to get a listing of the uenv: {}", registry.error());
         return 1;
     }
 
@@ -95,7 +108,7 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
         using enum help::block::admonition;
         term::error("no uenv found that matches '{}'\n\n{}",
                     args.uenv_description,
-                    help::block(info, "try searching for the uenv to copy "
+                    help::block(info, "try searching for the uenv to delete "
                                       "first using 'uenv image find'"));
         return 1;
     } else if (!matches->unique_sha()) {
@@ -113,6 +126,7 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     }
     const auto rego_url = settings.config.registry.value();
     spdlog::debug("registry url: {}", rego_url);
+    
     for (auto& record : *matches) {
         auto url = fmt::format(
             "https://jfrog.svc.cscs.ch/artifactory/uenv/{}/{}/{}/{}/{}/{}",

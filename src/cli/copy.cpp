@@ -13,6 +13,7 @@
 #include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
+#include <uenv/registry.h>
 #include <uenv/repository.h>
 #include <util/curl.h>
 #include <util/expected.h>
@@ -22,6 +23,7 @@
 #include "copy.h"
 #include "help.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -91,10 +93,15 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
         return 1;
     }
 
-    auto src_registry = site::registry_listing(*src_label.nspace);
+    auto registry_backend = create_registry_from_config(settings.config);
+    if (!registry_backend) {
+        term::error("{}", registry_backend.error());
+        return 1;
+    }
+    
+    auto src_registry = (*registry_backend)->get_listing(*src_label.nspace);
     if (!src_registry) {
-        term::error("unable to get a listing of the uenv",
-                    src_registry.error());
+        term::error("unable to get a listing of the uenv: {}", src_registry.error());
         return 1;
     }
 
@@ -154,7 +161,7 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
     spdlog::info("destination record: {} {}", dst_record.sha, dst_record);
 
     // check whether the destination already exists
-    auto dst_registry = site::registry_listing(*dst_label.nspace);
+    auto dst_registry = (*registry_backend)->get_listing(*dst_label.nspace);
     if (dst_registry && dst_registry->contains(dst_record)) {
         if (!args.force) {
             term::error("the destination already exists - use the --force flag "
@@ -164,11 +171,7 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
         term::error("the destination already exists and will be overwritten");
     }
 
-    if (!settings.config.registry) {
-        term::error("registry is not configured - set it in the config file or provide --registry option");
-        return 1;
-    }
-    const auto rego_url = settings.config.registry.value();
+    const auto rego_url = (*registry_backend)->get_url();
     spdlog::debug("registry url: {}", rego_url);
     if (auto result =
             oras::copy(rego_url, src_label.nspace.value(), src_record,

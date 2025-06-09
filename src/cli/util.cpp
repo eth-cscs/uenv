@@ -4,11 +4,12 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
+#include <site/site.h>
+#include <uenv/parse.h>
+#include <uenv/registry.h>
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/subprocess.h>
-
-#include <uenv/parse.h>
 
 #include "util.h"
 
@@ -54,6 +55,26 @@ validate_squashfs_image(const std::string& path) {
     img.hash = raw.substr(0, 64);
 
     return img;
+}
+
+util::expected<std::unique_ptr<registry_backend>, std::string>
+create_registry_from_config(const configuration& config) {
+    if (!config.registry) {
+        return util::unexpected("registry is not configured - set it in the config file or provide --registry option");
+    }
+    
+    auto registry_url = config.registry.value().string();
+    
+    switch (config.registry_type_val) {
+        case registry_type::site:
+            return site::create_site_registry();
+        case registry_type::oci:
+        case registry_type::zot:
+        case registry_type::ghcr:
+            return create_registry(registry_url, config.registry_type_val);
+    }
+    
+    return util::unexpected("unknown registry type");
 }
 
 } // namespace uenv

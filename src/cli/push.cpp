@@ -13,6 +13,7 @@
 #include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
+#include <uenv/registry.h>
 #include <uenv/repository.h>
 #include <util/curl.h>
 #include <util/expected.h>
@@ -83,30 +84,44 @@ int image_push([[maybe_unused]] const image_push_args& args,
                   dst_label.label);
 
     const auto nspace = dst_label.nspace.value();
-    auto registry = site::registry_listing(nspace);
-    if (!registry) {
-        term::error("unable to get a listing of the uenv", registry.error());
+    
+    auto registry_backend = create_registry_from_config(settings.config);
+    if (!registry_backend) {
+        term::error("{}", registry_backend.error());
         return 1;
     }
+    
+    if ((*registry_backend)->supports_search()) {
+        auto registry = (*registry_backend)->get_listing(nspace);
+        if (!registry) {
+            term::error("unable to get a listing of the uenv: {}", registry.error());
+            return 1;
+        }
 
-    // check whether an image that matches the target label is already
-    // in the registry.
-    const auto remote_matches = registry->query(dst_label.label);
-    if (!remote_matches) {
-        term::error("invalid search term: {}", registry.error());
-        return 1;
-    }
-    if (!remote_matches->empty() && !args.force) {
-        using enum help::block::admonition;
-        term::error(
-            "a uenv that matches '{}' is already in the registry\n\n{}",
-            args.dest,
-            help::block(info,
-                        "use the --force flag if you want to overwrite it "));
-        return 1;
-    } else if (!remote_matches->empty() && args.force) {
-        spdlog::info("{} already exists and will be overwritten", args.dest);
-        term::msg("the destination already exists and will be overwritten");
+        // check whether an image that matches the target label is already
+        // in the registry.
+        const auto remote_matches = registry->query(dst_label.label);
+        if (!remote_matches) {
+            term::error("invalid search term: {}", registry.error());
+            return 1;
+        }
+        if (!remote_matches->empty() && !args.force) {
+            using enum help::block::admonition;
+            term::error(
+                "a uenv that matches '{}' is already in the registry\n\n{}",
+                args.dest,
+                help::block(info,
+                            "use the --force flag if you want to overwrite it "));
+            return 1;
+        } else if (!remote_matches->empty() && args.force) {
+            spdlog::info("{} already exists and will be overwritten", args.dest);
+            term::msg("the destination already exists and will be overwritten");
+        }
+    } else {
+        spdlog::info("Registry does not support search, proceeding without pre-validation");
+        if (!args.force) {
+            term::warn("Registry does not support search - cannot check for existing images. Consider using --force if overwriting is acceptable.");
+        }
     }
 
     // validate the source squashfs file

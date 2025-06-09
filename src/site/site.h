@@ -1,9 +1,11 @@
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string>
 
 #include <uenv/oras.h>
+#include <uenv/registry.h>
 #include <uenv/repository.h>
 #include <util/envvars.h>
 #include <util/expected.h>
@@ -28,5 +30,8 @@ std::string registry_url();
 util::expected<std::optional<uenv::oras::credentials>, std::string>
 get_credentials(std::optional<std::string> username,
                 std::optional<std::string> token);
+
+// Create site-specific registry backend (JFrog implementation)
+std::unique_ptr<uenv::registry_backend> create_site_registry();
 
 } // namespace site

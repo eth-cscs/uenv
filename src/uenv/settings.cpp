@@ -41,6 +41,9 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
         .registry = lhs.registry   ? lhs.registry
                     : rhs.registry ? rhs.registry
                                    : std::nullopt,
+        .registry_type = lhs.registry_type   ? lhs.registry_type
+                         : rhs.registry_type ? rhs.registry_type
+                                             : std::nullopt,
         .color = lhs.color   ? lhs.color
                  : rhs.color ? rhs.color
                              : std::nullopt,
@@ -51,6 +54,7 @@ config_base default_config(const envvars::state& env) {
     return {
         .repo = default_repo_path(env),
         .registry = site::registry_url(),
+        .registry_type = "site",
         .color = color::default_color(env),
     };
 }
@@ -77,6 +81,13 @@ generate_configuration(const config_base& base) {
     }
 
     config.registry = base.registry;
+
+    // set registry type
+    auto registry_type_result = parse_registry_type(base.registry_type.value_or("site"));
+    if (!registry_type_result) {
+        return util::unexpected(registry_type_result.error());
+    }
+    config.registry_type_val = *registry_type_result;
 
     // toggle color output
     config.color = base.color.value_or(false);
@@ -210,6 +221,8 @@ read_config_file(const std::filesystem::path& path,
                     fmt::format("invalid reguistry url '{}={}': {}", key, value,
                                 p.error().message()));
             }
+        } else if (key == "registry_type") {
+            config.registry_type = value;
         } else {
             return util::unexpected(
                 fmt::format("invalid configuration parameter '{}'", key));

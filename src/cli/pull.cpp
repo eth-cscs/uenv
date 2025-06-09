@@ -14,6 +14,7 @@
 #include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
+#include <uenv/registry.h>
 #include <uenv/repository.h>
 #include <util/curl.h>
 #include <util/expected.h>
@@ -23,6 +24,7 @@
 #include "help.h"
 #include "pull.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -97,37 +99,57 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
 
     spdlog::info("image_pull: {}::{}", nspace, label);
 
-    auto registry = site::registry_listing(nspace);
-    if (!registry) {
-        term::error("unable to get a listing of the uenv", registry.error());
+    auto registry_backend = create_registry_from_config(settings.config);
+    if (!registry_backend) {
+        term::error("{}", registry_backend.error());
         return 1;
     }
+    
+    uenv_record record{};
+    
+    if ((*registry_backend)->supports_search()) {
+        auto registry = (*registry_backend)->get_listing(nspace);
+        if (!registry) {
+            term::error("unable to get a listing of the uenv: {}", registry.error());
+            return 1;
+        }
 
-    // search db for matching records
-    const auto remote_matches = registry->query(label);
-    if (!remote_matches) {
-        term::error("invalid search term: {}", registry.error());
-        return 1;
-    }
-    // check that there is one record with a unique sha
-    if (remote_matches->empty()) {
-        using enum help::block::admonition;
-        term::error("no uenv found that matches '{}'\n\n{}",
-                    args.uenv_description,
-                    help::block(info, "try searching for the uenv to pull "
-                                      "first using 'uenv image find'"));
-        return 1;
-    } else if (!remote_matches->unique_sha()) {
-        std::string errmsg =
-            fmt::format("more than one uenv found that matches '{}':\n",
-                        args.uenv_description);
-        errmsg += format_record_set(*remote_matches);
-        term::error("{}", errmsg);
-        return 1;
-    }
+        // search db for matching records
+        const auto remote_matches = registry->query(label);
+        if (!remote_matches) {
+            term::error("invalid search term: {}", registry.error());
+            return 1;
+        }
+        // check that there is one record with a unique sha
+        if (remote_matches->empty()) {
+            using enum help::block::admonition;
+            term::error("no uenv found that matches '{}'\n\n{}",
+                        args.uenv_description,
+                        help::block(info, "try searching for the uenv to pull "
+                                          "first using 'uenv image find'"));
+            return 1;
+        } else if (!remote_matches->unique_sha()) {
+            std::string errmsg =
+                fmt::format("more than one uenv found that matches '{}':\n",
+                            args.uenv_description);
+            errmsg += format_record_set(*remote_matches);
+            term::error("{}", errmsg);
+            return 1;
+        }
 
-    // pick a record to use for pulling
-    const auto record = *(remote_matches->begin());
+        // pick a record to use for pulling
+        record = *(remote_matches->begin());
+    } else {
+        spdlog::info("Registry does not support search, proceeding without pre-validation");
+        // Construct a minimal record from the label for non-searchable registries
+        record.name = label.name.value();
+        record.version = label.version.value_or("latest");
+        record.tag = label.tag.value_or("latest");
+        auto system_name = site::get_system_name({}, settings.calling_environment);
+        record.system = label.system.value_or(system_name.value_or("unknown"));
+        record.uarch = label.uarch.value_or("unknown");
+        // Note: sha will be empty, but ORAS operations should still work
+    }
     spdlog::info("pulling {} {}", record.sha, record);
 
     // require that a valid repo has been provided
@@ -236,15 +258,34 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
     // add the label to the repo, even if there was no download.
     // download may have been skipped if a squashfs with the same sha has
     // been downloaded, and this download uses a different label.
-    for (auto& r : *remote_matches) {
-        bool exists = in_repo({.name = r.name,
-                               .version = r.version,
-                               .tag = r.tag,
-                               .system = r.system,
-                               .uarch = r.uarch});
+    if ((*registry_backend)->supports_search()) {
+        auto registry = (*registry_backend)->get_listing(nspace);
+        if (registry) {
+            const auto remote_matches = registry->query(label);
+            if (remote_matches) {
+                for (auto& r : *remote_matches) {
+                    bool exists = in_repo({.name = r.name,
+                                           .version = r.version,
+                                           .tag = r.tag,
+                                           .system = r.system,
+                                           .uarch = r.uarch});
+                    if (!exists) {
+                        term::msg("updating {}", r);
+                        store->add(r);
+                    }
+                }
+            }
+        }
+    } else {
+        // For non-searchable registries, add the constructed record
+        bool exists = in_repo({.name = record.name,
+                               .version = record.version,
+                               .tag = record.tag,
+                               .system = record.system,
+                               .uarch = record.uarch});
         if (!exists) {
-            term::msg("updating {}", r);
-            store->add(r);
+            term::msg("updating {}", record);
+            store->add(record);
         }
     }
 

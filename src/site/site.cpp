@@ -163,4 +163,29 @@ get_credentials(std::optional<std::string> username,
     return oras::credentials{.username = uname.value(), .token = token_string};
 }
 
+// JFrog-specific registry implementation
+class jfrog_registry : public uenv::registry_backend {
+public:
+    util::expected<uenv::repository, std::string> 
+    get_listing(const std::string& nspace) override {
+        return registry_listing(nspace);
+    }
+
+    std::string get_url() const override {
+        return registry_url();
+    }
+
+    bool supports_search() const override {
+        return true;
+    }
+
+    uenv::registry_type get_type() const override {
+        return uenv::registry_type::site;
+    }
+};
+
+std::unique_ptr<uenv::registry_backend> create_site_registry() {
+    return std::make_unique<jfrog_registry>();
+}
+
 } // namespace site
