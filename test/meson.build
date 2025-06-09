@@ -62,7 +62,7 @@ unit_src = [
 
 unit = executable('unit',
         sources: unit_src,
-        dependencies: [catch_dep, lib_dep],
+        dependencies: [catch_dep, uenv_dep],
         build_by_default: true,
         install: false)
 

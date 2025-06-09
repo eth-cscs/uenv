@@ -61,8 +61,15 @@ lib_src = [
 ]
 lib_inc = include_directories('src')
 
-lib_dep = declare_dependency(
-        sources: lib_src,
+lib_uenv = static_library(
+        'libuenv',
+        lib_src,
+        include_directories: lib_inc,
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
+)
+
+uenv_dep = declare_dependency(
+        link_with: lib_uenv,
         dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
         include_directories: lib_inc
 )
@@ -71,7 +78,7 @@ subdir('src/uenv')
 
 # the uenv executable
 if uenv_cli
-    uenv_src = [
+    cli_src = [
             'src/cli/add_remove.cpp',
             'src/cli/copy.cpp',
             'src/cli/delete.cpp',
@@ -90,13 +97,11 @@ if uenv_cli
             'src/cli/util.cpp',
             'src/cli/build.cpp',
             'src/cli/completion.cpp',
-            'src/util/completion.cpp',
     ]
-    uenv_dep = [sqlite3_dep]
 
     cli = executable('uenv',
-            sources: uenv_src,
-            dependencies: [uenv_dep, lib_dep, fmt_dep, spdlog_dep, cli11_dep, barkeep_dep],
+            sources: cli_src,
+            dependencies: [uenv_dep, sqlite3_dep, fmt_dep, spdlog_dep, cli11_dep, barkeep_dep],
             c_args: [
               '-DVERSION="@0@"'.format(version),
             ],

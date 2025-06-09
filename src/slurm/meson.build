@@ -9,7 +9,7 @@ libmount_dep = dependency('mount')
 
 module_src = ['plugin.cpp', 'mount.cpp']
 
-module_dep = [libmount_dep, sqlite3_dep, lib_dep]
+module_dep = [libmount_dep, sqlite3_dep, uenv_dep]
 
 shared_module('slurm-uenv-mount',
               sources: module_src,
