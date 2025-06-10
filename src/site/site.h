@@ -22,16 +22,11 @@ std::optional<std::string> get_username();
 // default namespace for image deployment
 std::string default_namespace();
 
-util::expected<uenv::repository, std::string>
-registry_listing(const std::string& nspace);
-
-std::string registry_url();
-
 util::expected<std::optional<uenv::oras::credentials>, std::string>
 get_credentials(std::optional<std::string> username,
                 std::optional<std::string> token);
 
-// Create site-specific registry backend (JFrog implementation)
-std::unique_ptr<uenv::registry_backend> create_site_registry();
+// Create site-specific registry (JFrog implementation)
+uenv::registry create_site_registry();
 
 } // namespace site

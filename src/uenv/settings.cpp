@@ -53,7 +53,7 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
 config_base default_config(const envvars::state& env) {
     return {
         .repo = default_repo_path(env),
-        .registry = site::registry_url(),
+        .registry = "jfrog.svc.cscs.ch/uenv",  // Default site registry URL
         .registry_type = "site",
         .color = color::default_color(env),
     };
@@ -83,7 +83,8 @@ generate_configuration(const config_base& base) {
     config.registry = base.registry;
 
     // set registry type
-    auto registry_type_result = parse_registry_type(base.registry_type.value_or("site"));
+    auto registry_type_result =
+        parse_registry_type(base.registry_type.value_or("site"));
     if (!registry_type_result) {
         return util::unexpected(registry_type_result.error());
     }

@@ -57,23 +57,24 @@ validate_squashfs_image(const std::string& path) {
     return img;
 }
 
-util::expected<std::unique_ptr<registry_backend>, std::string>
+util::expected<registry, std::string>
 create_registry_from_config(const configuration& config) {
     if (!config.registry) {
-        return util::unexpected("registry is not configured - set it in the config file or provide --registry option");
+        return util::unexpected("registry is not configured - set it in the "
+                                "config file or provide --registry option");
     }
-    
+
     auto registry_url = config.registry.value().string();
-    
+
     switch (config.registry_type_val) {
-        case registry_type::site:
-            return site::create_site_registry();
-        case registry_type::oci:
-        case registry_type::zot:
-        case registry_type::ghcr:
-            return create_registry(registry_url, config.registry_type_val);
+    case registry_type::site:
+        return site::create_site_registry();
+    case registry_type::oci:
+    case registry_type::zot:
+    case registry_type::ghcr:
+        return create_registry(registry_url, config.registry_type_val);
     }
-    
+
     return util::unexpected("unknown registry type");
 }
 

@@ -26,8 +26,8 @@ struct squashfs_image {
 util::expected<squashfs_image, std::string>
 validate_squashfs_image(const std::string& path);
 
-// Create registry backend based on configuration
-util::expected<std::unique_ptr<registry_backend>, std::string>
+// Create registry based on configuration
+util::expected<registry, std::string>
 create_registry_from_config(const configuration& config);
 
 } // namespace uenv

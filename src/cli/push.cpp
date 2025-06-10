@@ -84,17 +84,18 @@ int image_push([[maybe_unused]] const image_push_args& args,
                   dst_label.label);
 
     const auto nspace = dst_label.nspace.value();
-    
+
     auto registry_backend = create_registry_from_config(settings.config);
     if (!registry_backend) {
         term::error("{}", registry_backend.error());
         return 1;
     }
-    
-    if ((*registry_backend)->supports_search()) {
-        auto registry = (*registry_backend)->get_listing(nspace);
+
+    if (registry_backend->supports_search()) {
+        auto registry = registry_backend->get_listing(nspace);
         if (!registry) {
-            term::error("unable to get a listing of the uenv: {}", registry.error());
+            term::error("unable to get a listing of the uenv: {}",
+                        registry.error());
             return 1;
         }
 
@@ -110,17 +111,21 @@ int image_push([[maybe_unused]] const image_push_args& args,
             term::error(
                 "a uenv that matches '{}' is already in the registry\n\n{}",
                 args.dest,
-                help::block(info,
-                            "use the --force flag if you want to overwrite it "));
+                help::block(
+                    info, "use the --force flag if you want to overwrite it "));
             return 1;
         } else if (!remote_matches->empty() && args.force) {
-            spdlog::info("{} already exists and will be overwritten", args.dest);
+            spdlog::info("{} already exists and will be overwritten",
+                         args.dest);
             term::msg("the destination already exists and will be overwritten");
         }
     } else {
-        spdlog::info("Registry does not support search, proceeding without pre-validation");
+        spdlog::info("Registry does not support search, proceeding without "
+                     "pre-validation");
         if (!args.force) {
-            term::warn("Registry does not support search - cannot check for existing images. Consider using --force if overwriting is acceptable.");
+            term::warn(
+                "Registry does not support search - cannot check for existing "
+                "images. Consider using --force if overwriting is acceptable.");
         }
     }
 
@@ -134,7 +139,8 @@ int image_push([[maybe_unused]] const image_push_args& args,
 
     try {
         if (!settings.config.registry) {
-            term::error("registry is not configured - set it in the config file or provide --registry option");
+            term::error("registry is not configured - set it in the config "
+                        "file or provide --registry option");
             return 1;
         }
         auto rego_url = settings.config.registry.value();

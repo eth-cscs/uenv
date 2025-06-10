@@ -467,3 +467,77 @@ EOF
     [ ! -d $UENV_REPO_PATH/images/$sha ]
 }
 
+@test "docker registry setup teardown" {
+    # Skip if Docker is not available
+    if ! registry_is_available; then
+        skip "Docker not available for registry tests"
+    fi
+
+    # Test registry setup
+    setup_test_registry
+
+    # Verify registry is accessible
+    run curl -s "http://localhost:$REGISTRY_PORT/v2/"
+    assert_success
+
+    # Verify environment variables are set
+    [ -n "$REGISTRY_URL" ]
+    [ -n "$REGISTRY_PORT" ]
+    [ -n "$REGISTRY_CONTAINER" ]
+
+    # Store container name before teardown
+    local container_name="$REGISTRY_CONTAINER"
+
+    # Test teardown
+    teardown_test_registry
+
+    # Verify container is removed
+    run docker ps -a --filter "name=$container_name" --format "{{.Names}}"
+    refute_output --partial "$container_name"
+}
+
+@test "zot registry push pull" {
+    # Skip if Docker is not available
+    if ! registry_is_available; then
+        skip "Docker not available for registry tests"
+    fi
+
+    # Set up test registry
+    setup_test_registry
+
+    # Create a test repository for the source image
+    local src_repo=$(mktemp -d $TMP/push-test-XXXXXX)
+    run uenv repo create $src_repo
+    assert_success
+
+    # Add an app image to the source repo
+    run uenv --repo=$src_repo image add test-app/1.0:v1@test%zen3 $SQFS_LIB/apptool/standalone/app42.squashfs
+    assert_success
+
+    # Push the image to the Zot registry
+    run uenv --repo=$src_repo --registry=$REGISTRY_URL --registry-type=zot \
+             image push test-app/1.0:v1@test%zen3 test::test-app/1.0:v1@test%zen3
+    assert_success
+    assert_output --partial "successfully pushed"
+
+    # Create a separate repository for pulling
+    local dst_repo=$(mktemp -d $TMP/pull-test-XXXXXX)
+    run uenv repo create $dst_repo
+    assert_success
+
+    # Pull the image from the Zot registry
+    run uenv --repo=$dst_repo --registry=$REGISTRY_URL --registry-type=zot \
+             image pull test::test-app/1.0:v1@test%zen3
+    assert_success
+
+    # Verify the image was pulled successfully
+    run uenv --repo=$dst_repo image ls test-app --no-header
+    assert_success
+    assert_output --partial "test-app/1.0:v1"
+    assert_output --partial "zen3"
+    assert_output --partial "test"
+
+    # Clean up
+    teardown_test_registry
+}
+

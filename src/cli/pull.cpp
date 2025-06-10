@@ -104,13 +104,14 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         term::error("{}", registry_backend.error());
         return 1;
     }
-    
+
     uenv_record record{};
-    
-    if ((*registry_backend)->supports_search()) {
-        auto registry = (*registry_backend)->get_listing(nspace);
+
+    if (registry_backend->supports_search()) {
+        auto registry = registry_backend->get_listing(nspace);
         if (!registry) {
-            term::error("unable to get a listing of the uenv: {}", registry.error());
+            term::error("unable to get a listing of the uenv: {}",
+                        registry.error());
             return 1;
         }
 
@@ -140,12 +141,15 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         // pick a record to use for pulling
         record = *(remote_matches->begin());
     } else {
-        spdlog::info("Registry does not support search, proceeding without pre-validation");
-        // Construct a minimal record from the label for non-searchable registries
+        spdlog::info("Registry does not support search, proceeding without "
+                     "pre-validation");
+        // Construct a minimal record from the label for non-searchable
+        // registries
         record.name = label.name.value();
         record.version = label.version.value_or("latest");
         record.tag = label.tag.value_or("latest");
-        auto system_name = site::get_system_name({}, settings.calling_environment);
+        auto system_name =
+            site::get_system_name({}, settings.calling_environment);
         record.system = label.system.value_or(system_name.value_or("unknown"));
         record.uarch = label.uarch.value_or("unknown");
         // Note: sha will be empty, but ORAS operations should still work
@@ -199,7 +203,8 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             spdlog::debug("pull sqfs: {}", pull_sqfs);
 
             if (!settings.config.registry) {
-                term::error("registry is not configured - set it in the config file or provide --registry option");
+                term::error("registry is not configured - set it in the config "
+                            "file or provide --registry option");
                 return 1;
             }
             auto rego_url = settings.config.registry.value();
@@ -258,8 +263,8 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
     // add the label to the repo, even if there was no download.
     // download may have been skipped if a squashfs with the same sha has
     // been downloaded, and this download uses a different label.
-    if ((*registry_backend)->supports_search()) {
-        auto registry = (*registry_backend)->get_listing(nspace);
+    if (registry_backend->supports_search()) {
+        auto registry = registry_backend->get_listing(nspace);
         if (registry) {
             const auto remote_matches = registry->query(label);
             if (remote_matches) {

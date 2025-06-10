@@ -85,15 +85,17 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
         term::error("{}", registry_backend.error());
         return 1;
     }
-    
-    if (!(*registry_backend)->supports_search()) {
-        term::error("Registry does not support search - cannot validate uenv for deletion");
+
+    if (!registry_backend->supports_search()) {
+        term::error("Registry does not support search - cannot validate uenv "
+                    "for deletion");
         return 1;
     }
-    
-    auto registry = (*registry_backend)->get_listing(nspace);
+
+    auto registry = registry_backend->get_listing(nspace);
     if (!registry) {
-        term::error("unable to get a listing of the uenv: {}", registry.error());
+        term::error("unable to get a listing of the uenv: {}",
+                    registry.error());
         return 1;
     }
 
@@ -121,12 +123,13 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     }
 
     if (!settings.config.registry) {
-        term::error("registry is not configured - set it in the config file or provide --registry option");
+        term::error("registry is not configured - set it in the config file or "
+                    "provide --registry option");
         return 1;
     }
     const auto rego_url = settings.config.registry.value();
     spdlog::debug("registry url: {}", rego_url);
-    
+
     for (auto& record : *matches) {
         auto url = fmt::format(
             "https://jfrog.svc.cscs.ch/artifactory/uenv/{}/{}/{}/{}/{}/{}",

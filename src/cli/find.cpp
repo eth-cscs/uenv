@@ -11,6 +11,7 @@
 #include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
+#include <uenv/registry.h>
 #include <uenv/repository.h>
 #include <util/curl.h>
 #include <util/expected.h>
@@ -18,6 +19,7 @@
 #include "find.h"
 #include "help.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -67,9 +69,20 @@ int image_find([[maybe_unused]] const image_find_args& args,
         site::get_system_name(label.system, settings.calling_environment);
     spdlog::info("image_find: {}::{}", nspace, label);
 
-    auto store = site::registry_listing(nspace);
+    auto registry = create_registry_from_config(settings.config);
+    if (!registry) {
+        term::error("{}", registry.error());
+        return 1;
+    }
+    
+    if (!registry->supports_search()) {
+        term::error("Registry does not support search functionality");
+        return 1;
+    }
+    
+    auto store = registry->get_listing(nspace);
     if (!store) {
-        term::error("unable to get a listing of the uenv", store.error());
+        term::error("unable to get a listing of the uenv: {}", store.error());
         return 1;
     }
 
