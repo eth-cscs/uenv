@@ -23,10 +23,13 @@ function setup() {
     # remove the bash function uenv, if an older version of uenv is installed on
     # the system
     unset -f uenv
+
+    # Set up test registry
+    setup_test_registry
 }
 
 function teardown() {
-    :
+    teardown_test_registry
 }
 
 @test "noargs" {
@@ -473,9 +476,6 @@ EOF
         skip "Docker not available for registry tests"
     fi
 
-    # Test registry setup
-    setup_test_registry
-
     # Verify registry is accessible
     run curl -s "http://localhost:$REGISTRY_PORT/v2/"
     assert_success
@@ -501,9 +501,6 @@ EOF
     if ! registry_is_available; then
         skip "Docker not available for registry tests"
     fi
-
-    # Set up test registry
-    setup_test_registry
 
     # Create a test repository for the source image
     local src_repo=$(mktemp -d $TMP/push-test-XXXXXX)
@@ -536,8 +533,5 @@ EOF
     assert_output --partial "test-app/1.0:v1"
     assert_output --partial "zen3"
     assert_output --partial "test"
-
-    # Clean up
-    teardown_test_registry
 }
 
