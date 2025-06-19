@@ -34,7 +34,7 @@ validate_squashfs_image(const std::string& path) {
     spdlog::info("found squashfs {}", img.sqfs);
 
     if (auto p = util::unsquashfs_tmp(img.sqfs, "meta")) {
-        img.meta = *p;
+        img.meta = p.value() / "meta";
     } else {
         spdlog::info("no meta data in {}", img.sqfs);
     }
