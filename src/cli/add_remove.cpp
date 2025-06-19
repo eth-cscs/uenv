@@ -171,7 +171,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     if (sqfs->meta) {
         fs::copy_options options{};
         options |= fs::copy_options::recursive;
-        fs::copy(sqfs->meta.value() / "meta", uenv_paths.meta, options, ec);
+        fs::copy(sqfs->meta.value(), uenv_paths.meta, options, ec);
         if (ec) {
             spdlog::error("unable to copy meta data to {}: {}",
                           uenv_paths.meta.string(), ec.message());
