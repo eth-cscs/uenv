@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include <uenv/registry.h>
 #include <uenv/uenv.h>
 #include <util/expected.h>
 
@@ -60,11 +61,21 @@ push_meta(const std::string& registry, const std::string& nspace,
           const uenv_label& label, const std::filesystem::path& meta_path,
           const std::optional<credentials> token = std::nullopt);
 
+util::expected<uenv::sha256, error>
+pull_sha(const std::string& registry, const std::string& nspace,
+         const uenv_record& uenv,
+         const std::optional<credentials> token = std::nullopt);
+
 util::expected<void, error>
 copy(const std::string& registry, const std::string& src_nspace,
      const uenv_record& src_uenv, const std::string& dst_nspace,
      const uenv_record& dst_uenv,
      const std::optional<credentials> token = std::nullopt);
+
+// combine registry
+util::expected<uenv::manifest, error>
+manifest(const std::string& registry, const uenv_record& uenv,
+         const std::optional<credentials> token = std::nullopt);
 
 } // namespace oras
 } // namespace uenv

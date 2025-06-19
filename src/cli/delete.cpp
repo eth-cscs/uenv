@@ -92,7 +92,7 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
         return 1;
     }
 
-    auto registry = registry_backend->get_listing(nspace);
+    auto registry = registry_backend->listing(nspace);
     if (!registry) {
         term::error("unable to get a listing of the uenv: {}",
                     registry.error());

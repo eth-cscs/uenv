@@ -23,13 +23,12 @@ function setup() {
     # remove the bash function uenv, if an older version of uenv is installed on
     # the system
     unset -f uenv
-
-    # Set up test registry
-    setup_test_registry
 }
 
 function teardown() {
-    teardown_test_registry
+    :
+    # this will tear down the test registry if it was started inside the test
+    #teardown_test_registry
 }
 
 @test "noargs" {
@@ -476,6 +475,9 @@ EOF
         skip "Docker not available for registry tests"
     fi
 
+    # Set up test registry
+    setup_test_registry
+
     # Verify registry is accessible
     run curl -s "http://localhost:$REGISTRY_PORT/v2/"
     assert_success
@@ -496,39 +498,40 @@ EOF
     refute_output --partial "$container_name"
 }
 
-@test "zot registry push pull" {
+@test "oci registry push pull" {
+    # Set up test registry
+    setup_test_registry
+
     # Skip if Docker is not available
     if ! registry_is_available; then
         skip "Docker not available for registry tests"
     fi
 
+    local work=$(mktemp -d $TMP/push-test-XXXXXX)
+
     # Create a test repository for the source image
-    local src_repo=$(mktemp -d $TMP/push-test-XXXXXX)
-    run uenv repo create $src_repo
+    local repo=$work/repo
+    run uenv repo create $repo
     assert_success
 
-    # Add an app image to the source repo
-    run uenv --repo=$src_repo image add test-app/1.0:v1@test%zen3 $SQFS_LIB/apptool/standalone/app42.squashfs
-    assert_success
+    # create a config file that points to the working repo and registry
+    local config=$work/config
+    echo "repo = $repo" > $config
+    echo "registry = $REGISTRY_URL" >> $config
+    echo "registry-type = oci" >> $config
 
-    # Push the image to the Zot registry
-    run uenv --repo=$src_repo --registry=$REGISTRY_URL --registry-type=zot \
-             image push test-app/1.0:v1@test%zen3 test::test-app/1.0:v1@test%zen3
+    # Push the image to the oci registry
+    sqfs_path=$SQFS_LIB/apptool/standalone/app42.squashfs
+    run uenv -vv --config=$config image push $sqfs_path deploy::app/1.0:v1@cluster%zen3
     assert_success
     assert_output --partial "successfully pushed"
 
-    # Create a separate repository for pulling
-    local dst_repo=$(mktemp -d $TMP/pull-test-XXXXXX)
-    run uenv repo create $dst_repo
-    assert_success
-
-    # Pull the image from the Zot registry
-    run uenv --repo=$dst_repo --registry=$REGISTRY_URL --registry-type=zot \
-             image pull test::test-app/1.0:v1@test%zen3
+    # Pull the image from the oci registry
+    run uenv -vvv --config=$config image pull deploy::app/1.0:v1@cluster%zen3
     assert_success
 
     # Verify the image was pulled successfully
-    run uenv --repo=$dst_repo image ls test-app --no-header
+    run uenv --config=$config image ls test-app --no-header
     assert_success
     assert_output --partial "test-app/1.0:v1"
     assert_output --partial "zen3"

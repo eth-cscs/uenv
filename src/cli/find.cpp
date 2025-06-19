@@ -74,13 +74,13 @@ int image_find([[maybe_unused]] const image_find_args& args,
         term::error("{}", registry.error());
         return 1;
     }
-    
+
     if (!registry->supports_search()) {
         term::error("Registry does not support search functionality");
         return 1;
     }
-    
-    auto store = registry->get_listing(nspace);
+
+    auto store = registry->listing(nspace);
     if (!store) {
         term::error("unable to get a listing of the uenv: {}", store.error());
         return 1;

@@ -166,11 +166,11 @@ get_credentials(std::optional<std::string> username,
 // cscs-specific registry implementation
 struct cscs_registry {
     util::expected<uenv::repository, std::string>
-    get_listing(const std::string& nspace) const {
+    listing(const std::string& nspace) const {
         return registry_listing(nspace);
     }
 
-    std::string get_url() const {
+    std::string url() const {
         return registry_url();
     }
 
@@ -178,8 +178,14 @@ struct cscs_registry {
         return true;
     }
 
-    uenv::registry_type get_type() const {
+    uenv::registry_type type() const {
         return uenv::registry_type::site;
+    }
+
+    util::expected<uenv::manifest, std::string>
+    manifest(const std::string&, const uenv::uenv_label&) const {
+        // TODO: fill this out
+        return {};
     }
 };
 

@@ -4,28 +4,42 @@
 #include <optional>
 #include <string>
 
+#include <fmt/core.h>
+
 #include <uenv/repository.h>
+#include <uenv/uenv.h>
 #include <util/expected.h>
 
 namespace uenv {
 
+struct manifest {
+    sha256 digest;
+    sha256 squashfs_digest;
+    size_t squashfs_bytes;
+    std::optional<sha256> meta_digest;
+    std::string respository;
+    std::string tag;
+};
+
 enum class registry_type {
-    oci,  // Generic OCI registry (Docker Hub, etc.)
-    zot,  // Zot registry implementation
-    ghcr, // GitHub Container Registry
-    site  // Site-specific implementation (JFrog, etc.)
+    oci, // Generic OCI registry (Docker Hub, etc.)
+    site // Site-specific implementation (JFrog, etc.)
 };
 
 // Concept for registry implementations
 // Any type T that implements these operations can be used as a registry
 template <typename T>
-concept RegistryImpl = requires(T registry, const std::string& nspace) {
+concept RegistryImpl = requires(T registry, const std::string& nspace,
+                                const uenv::uenv_label& label) {
     {
-        registry.get_listing(nspace)
+        registry.listing(nspace)
     } -> std::convertible_to<util::expected<uenv::repository, std::string>>;
-    { registry.get_url() } -> std::convertible_to<std::string>;
+    { registry.url() } -> std::convertible_to<std::string>;
     { registry.supports_search() } -> std::convertible_to<bool>;
-    { registry.get_type() } -> std::convertible_to<registry_type>;
+    { registry.type() } -> std::convertible_to<registry_type>;
+    {
+        registry.manifest(nspace, label)
+    } -> std::convertible_to<util::expected<uenv::manifest, std::string>>;
 };
 
 // Type-erased registry class using value semantics
@@ -48,23 +62,25 @@ class registry {
     // Get listing of images in a namespace
     // Returns empty repository for registries that don't support search
     util::expected<uenv::repository, std::string>
-    get_listing(const std::string& nspace) const {
-        return impl_->get_listing(nspace);
+    listing(const std::string& nspace) const {
+        return impl_->listing(nspace);
     }
 
-    // Get the registry URL
-    std::string get_url() const {
-        return impl_->get_url();
+    std::string url() const {
+        return impl_->url();
     }
 
-    // Whether this registry supports search/listing operations
     bool supports_search() const {
         return impl_->supports_search();
     }
 
-    // Get the registry type
-    registry_type get_type() const {
-        return impl_->get_type();
+    registry_type type() const {
+        return impl_->type();
+    }
+
+    util::expected<uenv::manifest, std::string>
+    manifest(const std::string& nspace, const uenv_label& label) const {
+        return impl_->manifest(nspace, label);
     }
 
   private:
@@ -72,10 +88,12 @@ class registry {
         virtual ~interface() = default;
         virtual std::unique_ptr<interface> clone() = 0;
         virtual util::expected<uenv::repository, std::string>
-        get_listing(const std::string& nspace) const = 0;
-        virtual std::string get_url() const = 0;
+        listing(const std::string& nspace) const = 0;
+        virtual std::string url() const = 0;
         virtual bool supports_search() const = 0;
-        virtual registry_type get_type() const = 0;
+        virtual registry_type type() const = 0;
+        virtual util::expected<uenv::manifest, std::string>
+        manifest(const std::string& nspace, const uenv_label& label) const = 0;
     };
 
     std::unique_ptr<interface> impl_;
@@ -91,20 +109,26 @@ class registry {
         }
 
         virtual util::expected<uenv::repository, std::string>
-        get_listing(const std::string& nspace) const override {
-            return wrapped.get_listing(nspace);
+        listing(const std::string& nspace) const override {
+            return wrapped.listing(nspace);
         }
 
-        virtual std::string get_url() const override {
-            return wrapped.get_url();
+        virtual std::string url() const override {
+            return wrapped.url();
         }
 
         virtual bool supports_search() const override {
             return wrapped.supports_search();
         }
 
-        virtual registry_type get_type() const override {
-            return wrapped.get_type();
+        virtual registry_type type() const override {
+            return wrapped.type();
+        }
+
+        virtual util::expected<uenv::manifest, std::string>
+        manifest(const std::string& nspace,
+                 const uenv_label& label) const override {
+            return wrapped.manifest(nspace, label);
         }
 
         T wrapped;
@@ -118,7 +142,26 @@ registry create_registry(const std::string& url, registry_type type);
 util::expected<registry_type, std::string>
 parse_registry_type(const std::string& type_str);
 
-// Convert registry type to string
-std::string registry_type_to_string(registry_type type);
-
 } // namespace uenv
+
+template <> class fmt::formatter<uenv::registry_type> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(uenv::registry_type const& type,
+                          FmtContext& ctx) const {
+        using uenv::registry_type;
+
+        switch (type) {
+        case registry_type::oci:
+            return fmt::format_to(ctx.out(), "oci");
+        case registry_type::site:
+            return fmt::format_to(ctx.out(), "site");
+        }
+        return fmt::format_to(ctx.out(), "unknown");
+    }
+};

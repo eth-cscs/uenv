@@ -4,6 +4,9 @@
 #include <string>
 #include <vector>
 
+#include <fmt/core.h>
+#include <fmt/ranges.h>
+
 #include <barkeep/barkeep.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -11,6 +14,8 @@
 #include <spdlog/spdlog.h>
 
 #include <uenv/oras.h>
+#include <uenv/parse.h>
+#include <uenv/registry.h>
 #include <uenv/uenv.h>
 #include <util/color.h>
 #include <util/fs.h>
@@ -19,6 +24,19 @@
 
 namespace uenv {
 namespace oras {
+
+namespace impl {
+
+void add_credentials(std::vector<std::string>& args,
+                     const std::optional<credentials> token) {
+    if (token) {
+        args.push_back("--password");
+        args.push_back(token->token);
+        args.push_back("--username");
+        args.push_back(token->username);
+    }
+}
+} // namespace impl
 
 using opt_creds = std::optional<credentials>;
 
@@ -148,6 +166,25 @@ run_oras_async(std::vector<std::string> args,
     return util::run(args, runpath);
 }
 
+// Wraps `oras discover`
+// Oras discover returns a list of manifests that refer to a tag:
+// oras discover --format=json --artifact-type=uenv/meta
+//      localhost:5862/deploy/cluster/zen3/app/1.0:v1
+//  {
+//      "manifests": [
+//          {
+//              ...
+//              "digest": "sha256:....",
+//              "artifactType": "uenv/meta",
+//              ...
+//          }
+//      ]
+//  }
+//
+//  NOTE: we currently restrict the search to 'uenv/meta' artifacts
+//
+//  returns a list of shas in the form "sha256:<64 characters>"
+//  The list should be of length 0 or 1
 util::expected<std::vector<std::string>, error>
 discover(const std::string& registry, const std::string& nspace,
          const uenv_record& uenv, const opt_creds token) {
@@ -157,12 +194,8 @@ discover(const std::string& registry, const std::string& nspace,
 
     std::vector<std::string> args = {"discover",        "--format",  "json",
                                      "--artifact-type", "uenv/meta", address};
-    if (token) {
-        args.push_back("--password");
-        args.push_back(token->token);
-        args.push_back("--username");
-        args.push_back(token->username);
-    }
+    impl::add_credentials(args, token);
+
     auto result = run_oras(args);
 
     if (result.returncode) {
@@ -198,12 +231,8 @@ pull_digest(const std::string& registry, const std::string& nspace,
 
     std::vector<std::string> args{"pull", "--output", destination.string(),
                                   address};
-    if (token) {
-        args.push_back("--password");
-        args.push_back(token->token);
-        args.push_back("--username");
-        args.push_back(token->username);
-    }
+    impl::add_credentials(args, token);
+
     auto proc = run_oras(args);
 
     if (proc.returncode) {
@@ -212,6 +241,29 @@ pull_digest(const std::string& registry, const std::string& nspace,
     }
 
     return {};
+}
+
+util::expected<uenv::sha256, error> pull_sha(const std::string& registry,
+                                             const std::string& nspace,
+                                             const uenv_record& uenv,
+                                             const opt_creds token) {
+    auto address =
+        fmt::format("{}/{}/{}/{}/{}/{}:{}", registry, nspace, uenv.system,
+                    uenv.uarch, uenv.name, uenv.version, uenv.tag);
+
+    spdlog::debug("oras::pull_sha: {}", address);
+
+    std::vector<std::string> args{"resolve", address};
+    impl::add_credentials(args, token);
+
+    auto proc = run_oras(args);
+
+    if (proc.returncode) {
+        spdlog::error("unable to resolve image sha with oras: {}", proc.stderr);
+        return util::unexpected{create_error(proc)};
+    }
+
+    return uenv::sha256(uenv::parse_oras_sha256(proc.stdout).value());
 }
 
 util::expected<void, error> pull_tag(const std::string& registry,
@@ -230,12 +282,8 @@ util::expected<void, error> pull_tag(const std::string& registry,
     spdlog::debug("oras::pull_tag: {}", address);
     std::vector<std::string> args{"pull",     "--concurrency",      "10",
                                   "--output", destination.string(), address};
-    if (token) {
-        args.push_back("--password");
-        args.push_back(token->token);
-        args.push_back("--username");
-        args.push_back(token->username);
-    }
+    impl::add_credentials(args, token);
+
     auto proc = run_oras_async(args);
 
     if (!proc) {
@@ -305,13 +353,7 @@ util::expected<void, error> push_tag(const std::string& registry,
 
     // Prepare the arguments for the push command
     std::vector<std::string> args{"push", "--concurrency", "10"};
-
-    if (token) {
-        args.push_back("--password");
-        args.push_back(token->token);
-        args.push_back("--username");
-        args.push_back(token->username);
-    }
+    impl::add_credentials(args, token);
 
     // Add artifact type and annotations
     args.push_back("--artifact-type");
@@ -399,12 +441,7 @@ util::expected<void, error> push_meta(const std::string& registry,
     // Prepare the arguments for the attach command
     std::vector<std::string> args{"attach"};
 
-    if (token) {
-        args.push_back("--password");
-        args.push_back(token->token);
-        args.push_back("--username");
-        args.push_back(token->username);
-    }
+    impl::add_credentials(args, token);
 
     // Add artifact type and annotations for metadata
     args.push_back("--artifact-type");
@@ -489,6 +526,38 @@ copy(const std::string& registry, const std::string& src_nspace,
     }
 
     return {};
+}
+
+util::expected<uenv::manifest, error>
+manifest(const std::string& registry, const uenv_record& uenv,
+         const std::optional<credentials> token) {
+    auto address = fmt::format("{}/{}/{}/{}/{}:{}", registry, uenv.system,
+                               uenv.uarch, uenv.name, uenv.version, uenv.tag);
+    std::vector<std::string> args = {"manifest", "fetch", address};
+    impl::add_credentials(args, token);
+
+    auto result = run_oras(args);
+
+    if (result.returncode) {
+        spdlog::error("oras manifest fetch returncode={} stderr='{}'",
+                      result.returncode, result.stderr);
+        return util::unexpected{create_error(result)};
+    }
+
+    std::vector<std::string> manifests;
+    using json = nlohmann::json;
+    uenv::manifest M;
+    try {
+        const auto raw = json::parse(result.stdout);
+        const auto& layer = raw["layers"][0];
+        M.squashfs_digest = parse_oras_sha256(layer["digest"]).value();
+        M.squashfs_bytes = layer["size"];
+    } catch (std::exception& e) {
+        spdlog::error("error parsing oras manifest fetch output: {}", e.what());
+        return util::unexpected(generic_error(e.what()));
+    }
+
+    return M;
 }
 
 } // namespace oras

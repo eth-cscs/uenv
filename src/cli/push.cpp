@@ -92,7 +92,7 @@ int image_push([[maybe_unused]] const image_push_args& args,
     }
 
     if (registry_backend->supports_search()) {
-        auto registry = registry_backend->get_listing(nspace);
+        auto registry = registry_backend->listing(nspace);
         if (!registry) {
             term::error("unable to get a listing of the uenv: {}",
                         registry.error());

@@ -105,10 +105,18 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         return 1;
     }
 
+    if (!settings.config.registry) {
+        term::error("registry is not configured - set it in the config "
+                    "file or provide --registry option");
+        return 1;
+    }
+    const auto rego_url = settings.config.registry.value();
+    spdlog::debug("registry url: {}", rego_url);
+
     uenv_record record{};
 
     if (registry_backend->supports_search()) {
-        auto registry = registry_backend->get_listing(nspace);
+        auto registry = registry_backend->listing(nspace);
         if (!registry) {
             term::error("unable to get a listing of the uenv: {}",
                         registry.error());
@@ -143,16 +151,25 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
     } else {
         spdlog::info("Registry does not support search, proceeding without "
                      "pre-validation");
-        // Construct a minimal record from the label for non-searchable
-        // registries
+        if (!label.fully_qualified()) {
+            term::error("the uenv {} to pull must be fully qualified, e.g. "
+                        "'deploy::name/version:tag%system%gh200'",
+                        label);
+            return 1;
+        }
         record.name = label.name.value();
-        record.version = label.version.value_or("latest");
-        record.tag = label.tag.value_or("latest");
-        auto system_name =
-            site::get_system_name({}, settings.calling_environment);
-        record.system = label.system.value_or(system_name.value_or("unknown"));
-        record.uarch = label.uarch.value_or("unknown");
-        // Note: sha will be empty, but ORAS operations should still work
+        record.version = label.version.value();
+        record.tag = label.tag.value();
+        record.system = label.system.value();
+        record.uarch = label.uarch.value();
+        // we need to query oras to get the sha
+        auto sha = oras::pull_sha(rego_url, nspace, record, credentials);
+        if (!sha) {
+            term::error("unable to contact registry {}", sha.error().message);
+            return 1;
+        }
+
+        record.sha = sha.value();
     }
     spdlog::info("pulling {} {}", record.sha, record);
 
@@ -172,10 +189,11 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
 
     auto paths = store->uenv_paths(record.sha);
 
-    // acquire a file lock so that only one process can try to pull an image.
-    // TODO: how do we handle the case where we have many processes waiting, and
-    // there is a failure (e.g. file system problem), that causes the processes
-    // to attempt the pull one-after-the-other
+    // acquire a file lock so that only one process can try to pull an
+    // image.
+    // TODO: how do we handle the case where we have many processes waiting,
+    // and there is a failure (e.g. file system problem), that causes the
+    // processes to attempt the pull one-after-the-other
     auto lock = util::make_file_lock(paths.store.string() + ".lock");
 
     bool meta_exists = fs::exists(paths.meta);
@@ -202,18 +220,10 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
             spdlog::debug("pull meta: {}", pull_meta);
             spdlog::debug("pull sqfs: {}", pull_sqfs);
 
-            if (!settings.config.registry) {
-                term::error("registry is not configured - set it in the config "
-                            "file or provide --registry option");
-                return 1;
-            }
-            auto rego_url = settings.config.registry.value();
-            spdlog::debug("registry url: {}", rego_url);
-
             // the digests returned by oras::discover is a list of artifacts
-            // that have been "oras attach"ed to our squashfs image. This would
-            // be empty if no meta data was attached - currently we assume that
-            // meta data has been attached
+            // that have been "oras attach"ed to our squashfs image. This
+            // would be empty if no meta data was attached - currently we
+            // assume that meta data has been attached
             auto digests =
                 oras::discover(rego_url, nspace, record, credentials);
             if (!digests) {
@@ -264,7 +274,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
     // download may have been skipped if a squashfs with the same sha has
     // been downloaded, and this download uses a different label.
     if (registry_backend->supports_search()) {
-        auto registry = registry_backend->get_listing(nspace);
+        auto registry = registry_backend->listing(nspace);
         if (registry) {
             const auto remote_matches = registry->query(label);
             if (remote_matches) {

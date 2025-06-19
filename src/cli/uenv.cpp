@@ -39,6 +39,7 @@ int main(int argc, char** argv) {
     uenv::config_base cli_config;
     uenv::global_settings settings;
     bool print_version = false;
+    std::optional<std::string> config_file_path;
 
     CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
@@ -50,6 +51,7 @@ int main(int argc, char** argv) {
         "enable color output");
     cli.add_flag("--version", print_version, "print version");
     cli.add_option("--repo", cli_config.repo, "the uenv repository");
+    cli.add_option("--config", config_file_path, "path to configuration file");
 
     cli.footer(help_footer);
 
@@ -102,11 +104,17 @@ int main(int argc, char** argv) {
     // set the configuration according to defaults, cli options and config
     // files.
     uenv::config_base user_config;
-    if (auto x = uenv::load_user_config(settings.calling_environment)) {
-        user_config = *x;
+    if (auto cfg = uenv::load_user_config(settings.calling_environment,
+                                          config_file_path)) {
+        user_config = *cfg;
+    } else {
+        term::error("error in configuration file:\n  {}", cfg.error());
+        return 1;
     }
+    spdlog::info("user    config: {}", user_config);
     const auto default_config =
         uenv::default_config(settings.calling_environment);
+    spdlog::info("default config: {}", default_config);
     const auto full_config =
         uenv::merge(cli_config, uenv::merge(user_config, default_config));
     if (auto merged_config = uenv::generate_configuration(full_config)) {

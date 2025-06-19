@@ -70,8 +70,6 @@ create_registry_from_config(const configuration& config) {
     case registry_type::site:
         return site::create_site_registry();
     case registry_type::oci:
-    case registry_type::zot:
-    case registry_type::ghcr:
         return create_registry(registry_url, config.registry_type_val);
     }
 
