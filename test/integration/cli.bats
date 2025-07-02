@@ -111,6 +111,16 @@ function teardown() {
     assert_line --partial "app/42.0:v1"
     assert_line --partial "app/43.0:v1"
     assert_line --partial "tool/17.3.2:v1"
+
+    # test --json output
+    run uenv --repo=$REPOS/apptool image ls --json app | jq '.records | length'
+    assert_success
+    assert_line "2"
+
+    # empty results is not an error
+    run uenv --repo=$REPOS/apptool image ls --json doesnotexist | jq '.records | length'
+    assert_success
+    assert_line "0"
 }
 
 @test "repo status" {
