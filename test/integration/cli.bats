@@ -10,7 +10,6 @@ function setup() {
     bats_load_library bats-assert
     load ./common
 
-    # TODO: set the BUILD_PATH from a template for out of tree builds
     export PATH="$BUILD_PATH:$PATH"
 
     unset UENV_MOUNT_LIST
@@ -113,14 +112,17 @@ function teardown() {
     assert_line --partial "tool/17.3.2:v1"
 
     # test --json output
-    run uenv --repo=$REPOS/apptool image ls --json app | jq '.records | length'
+    #run uenv --repo=$REPOS/apptool image ls --json app | jq '.records | length'
+    run uenv --repo=$REPOS/apptool image ls --json app
     assert_success
-    assert_line "2"
+    jq_output="$(echo "$output" | jq '.records | length')"
+    assert_equal "$jq_output" "2"
 
     # empty results is not an error
-    run uenv --repo=$REPOS/apptool image ls --json doesnotexist | jq '.records | length'
+    run uenv --repo=$REPOS/apptool image ls --json doesnotexist
     assert_success
-    assert_line "0"
+    jq_output="$(echo "$output" | jq '.records | length')"
+    assert_equal "$jq_output" "0"
 }
 
 @test "repo status" {
