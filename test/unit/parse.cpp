@@ -373,7 +373,6 @@ TEST_CASE("parse registry entry", "[parse]") {
     {
         auto r = uenv::parse_registry_entry(
             "service/eiger/zen2/prgenv/test/v1/1902620939");
-        REQUIRE(r->nspace == "service");
         REQUIRE(!r);
     }
 }
