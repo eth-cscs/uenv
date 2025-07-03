@@ -368,6 +368,13 @@ TEST_CASE("parse registry entry", "[parse]") {
             REQUIRE(r);
         }
     }
+
+    // invalid input that was involved in a crash
+    {
+        auto r = uenv::parse_registry_entry(
+            "service/eiger/zen2/prgenv/test/v1/1902620939");
+        REQUIRE(!r);
+    }
 }
 
 TEST_CASE("date", "[parse]") {

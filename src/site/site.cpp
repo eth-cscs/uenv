@@ -78,7 +78,9 @@ registry_listing(const std::string& nspace) {
             const std::string sha = j["sha256"];
             const auto date = uenv::parse_uenv_date(j["created"]);
             auto rg = uenv::parse_registry_entry(j["path"]);
-            if (rg->nspace == nspace) {
+            if (!rg) {
+                spdlog::warn("drop due to error: {}", rg.error().message());
+            } else if (rg->nspace == nspace) {
                 spdlog::trace("keep {} {}", sha.substr(0, 16), *rg);
                 records.push_back({
                     .system = rg->system,
