@@ -12,6 +12,7 @@ namespace uenv {
 struct image_ls_args {
     std::optional<std::string> uenv_description;
     bool no_header = false;
+    bool json = false;
     void add_cli(CLI::App&, global_settings& settings);
 };
 

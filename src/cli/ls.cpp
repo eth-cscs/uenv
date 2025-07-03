@@ -28,6 +28,7 @@ void image_ls_args::add_cli(CLI::App& cli,
     ls_cli->add_option("uenv", uenv_description, "search term");
     ls_cli->add_flag("--no-header", no_header,
                      "print only the matching records, with no header.");
+    ls_cli->add_flag("--json", json, "format output as JSON.");
     ls_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_ls; });
 
@@ -72,7 +73,7 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
         return 1;
     }
 
-    print_record_set(*result, args.no_header);
+    print_record_set(*result, args.no_header, args.json);
 
     return 0;
 }

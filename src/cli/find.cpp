@@ -30,6 +30,7 @@ void image_find_args::add_cli(CLI::App& cli,
     find_cli->add_option("uenv", uenv_description, "search term");
     find_cli->add_flag("--no-header", no_header,
                        "print only the matching records, with no header.");
+    find_cli->add_flag("--json", json, "format output as JSON.");
     find_cli->add_flag("--build", build,
                        "invalid: replaced with 'build::' prefix on uenv label");
     find_cli->callback(
@@ -81,7 +82,7 @@ int image_find([[maybe_unused]] const image_find_args& args,
     }
 
     // pass results to print
-    print_record_set(*result, args.no_header);
+    print_record_set(*result, args.no_header, args.json);
 
     return 0;
 }

@@ -1,6 +1,7 @@
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
+#include <nlohmann/json.hpp>
 
 #include <uenv/repository.h>
 #include <uenv/uenv.h>
@@ -9,7 +10,7 @@
 namespace uenv {
 
 std::string format_record_set(const record_set& records, bool no_header) {
-    if (records.empty()) {
+    if (!no_header && records.empty()) {
         if (!no_header) {
             return "no matching uenv\n";
         }
@@ -61,8 +62,26 @@ std::string format_record_set(const record_set& records, bool no_header) {
     return result;
 }
 
-void print_record_set(const record_set& records, bool no_header) {
-    fmt::print("{}", format_record_set(records, no_header));
+std::string format_record_set_json(const record_set& records) {
+    using nlohmann::json;
+    std::vector<json> jrecords;
+    for (auto& r : records) {
+        jrecords.push_back(json{
+            {"name", r.name},
+            {"system", r.system},
+            {"uarch", r.uarch},
+            {"id", r.id.string()},
+            {"size", r.size_byte},
+            {"date", fmt::format("{}", r.date)},
+            {"digest", r.sha.string()},
+        });
+    }
+    return json{{"records", jrecords}}.dump();
+}
+
+void print_record_set(const record_set& records, bool no_header, bool json) {
+    fmt::print("{}", json ? format_record_set_json(records)
+                          : format_record_set(records, no_header));
 }
 
 } // namespace uenv
