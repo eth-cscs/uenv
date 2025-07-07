@@ -49,7 +49,7 @@ std::string default_namespace() {
     return "deploy";
 }
 
-util::expected<uenv::repository, std::string>
+static util::expected<uenv::repository, std::string>
 registry_listing(const std::string& nspace) {
     using json = nlohmann::json;
 
@@ -114,7 +114,7 @@ registry_listing(const std::string& nspace) {
     return store;
 }
 
-std::string registry_url() {
+static std::string registry_url() {
     return "jfrog.svc.cscs.ch/uenv";
 }
 
@@ -163,6 +163,36 @@ get_credentials(std::optional<std::string> username,
     }
 
     return oras::credentials{.username = uname.value(), .token = token_string};
+}
+
+// cscs-specific registry implementation
+struct cscs_registry {
+    util::expected<uenv::repository, std::string>
+    listing(const std::string& nspace) const {
+        return registry_listing(nspace);
+    }
+
+    std::string url() const {
+        return registry_url();
+    }
+
+    bool supports_search() const {
+        return true;
+    }
+
+    uenv::registry_type type() const {
+        return uenv::registry_type::site;
+    }
+
+    util::expected<uenv::manifest, std::string>
+    manifest(const std::string&, const uenv::uenv_label&) const {
+        // TODO: fill this out
+        return {};
+    }
+};
+
+uenv::registry create_site_registry() {
+    return uenv::registry{cscs_registry{}};
 }
 
 } // namespace site

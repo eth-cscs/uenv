@@ -26,6 +26,8 @@ function setup() {
 
 function teardown() {
     :
+    # this will tear down the test registry if it was started inside the test
+    #teardown_test_registry
 }
 
 @test "noargs" {
@@ -477,5 +479,74 @@ EOF
     run uenv --repo=$UENV_REPO_PATH image rm $pattern
     assert_success
     [ ! -d $UENV_REPO_PATH/images/$sha ]
+}
+
+@test "docker registry setup teardown" {
+    # Skip if Docker is not available
+    if ! registry_is_available; then
+        skip "Docker not available for registry tests"
+    fi
+
+    # Set up test registry
+    setup_test_registry
+
+    # Verify registry is accessible
+    run curl -s "http://localhost:$REGISTRY_PORT/v2/"
+    assert_success
+
+    # Verify environment variables are set
+    [ -n "$REGISTRY_URL" ]
+    [ -n "$REGISTRY_PORT" ]
+    [ -n "$REGISTRY_CONTAINER" ]
+
+    # Store container name before teardown
+    local container_name="$REGISTRY_CONTAINER"
+
+    # Test teardown
+    teardown_test_registry
+
+    # Verify container is removed
+    run docker ps -a --filter "name=$container_name" --format "{{.Names}}"
+    refute_output --partial "$container_name"
+}
+
+@test "oci registry push pull" {
+    # Set up test registry
+    setup_test_registry
+
+    # Skip if Docker is not available
+    if ! registry_is_available; then
+        skip "Docker not available for registry tests"
+    fi
+
+    local work=$(mktemp -d $TMP/push-test-XXXXXX)
+
+    # Create a test repository for the source image
+    local repo=$work/repo
+    run uenv repo create $repo
+    assert_success
+
+    # create a config file that points to the working repo and registry
+    local config=$work/config
+    echo "repo = $repo" > $config
+    echo "registry = $REGISTRY_URL" >> $config
+    echo "registry-type = oci" >> $config
+
+    # Push the image to the oci registry
+    sqfs_path=$SQFS_LIB/apptool/standalone/app42.squashfs
+    run uenv -vv --config=$config image push $sqfs_path deploy::app/1.0:v1@cluster%zen3
+    assert_success
+    assert_output --partial "successfully pushed"
+
+    # Pull the image from the oci registry
+    run uenv -vvv --config=$config image pull deploy::app/1.0:v1@cluster%zen3
+    assert_success
+
+    # Verify the image was pulled successfully
+    run uenv --config=$config image ls test-app --no-header
+    assert_success
+    assert_output --partial "test-app/1.0:v1"
+    assert_output --partial "zen3"
+    assert_output --partial "test"
 }
 

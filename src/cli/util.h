@@ -1,10 +1,13 @@
 #pragma once
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 
 #include <fmt/format.h>
 
+#include <uenv/registry.h>
+#include <uenv/settings.h>
 #include <util/expected.h>
 
 namespace uenv {
@@ -22,6 +25,10 @@ struct squashfs_image {
 
 util::expected<squashfs_image, std::string>
 validate_squashfs_image(const std::string& path);
+
+// Create registry based on configuration
+util::expected<registry, std::string>
+create_registry_from_config(const configuration& config);
 
 } // namespace uenv
 

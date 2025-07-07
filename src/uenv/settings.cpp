@@ -6,6 +6,7 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
+#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <uenv/settings.h>
@@ -23,6 +24,8 @@ const std::string config_file_default =
 # set the path to the local uenv repository
 #repo = /users/bobsmith/uenv
 
+#registry = ...
+
 # by default uenv will choose whether to use color based on your environment.
 #color=true
 #color=false
@@ -35,6 +38,12 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
         .repo = lhs.repo   ? lhs.repo
                 : rhs.repo ? rhs.repo
                            : std::nullopt,
+        .registry = lhs.registry   ? lhs.registry
+                    : rhs.registry ? rhs.registry
+                                   : std::nullopt,
+        .registry_type = lhs.registry_type   ? lhs.registry_type
+                         : rhs.registry_type ? rhs.registry_type
+                                             : std::nullopt,
         .color = lhs.color   ? lhs.color
                  : rhs.color ? rhs.color
                              : std::nullopt,
@@ -44,6 +53,8 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
 config_base default_config(const envvars::state& env) {
     return {
         .repo = default_repo_path(env),
+        .registry = "jfrog.svc.cscs.ch/uenv", // Default site registry URL
+        .registry_type = "site",
         .color = color::default_color(env),
     };
 }
@@ -53,7 +64,8 @@ generate_configuration(const config_base& base) {
     configuration config;
 
     // set the repo path
-    // initialise to unset
+
+    // initialise to unset, and then set if the path provided by base is valid.
     config.repo = {};
     if (base.repo) {
         if (auto path = parse_path(base.repo.value())) {
@@ -67,6 +79,16 @@ generate_configuration(const config_base& base) {
             spdlog::warn("invalid repo path {}", path.error().message());
         }
     }
+
+    config.registry = base.registry;
+
+    // set registry type
+    auto registry_type_result =
+        parse_registry_type(base.registry_type.value_or("site"));
+    if (!registry_type_result) {
+        return util::unexpected(registry_type_result.error());
+    }
+    config.registry_type_val = *registry_type_result;
 
     // toggle color output
     config.color = base.color.value_or(false);
@@ -82,44 +104,57 @@ read_config_file(const std::filesystem::path& path,
 }
 
 util::expected<config_base, std::string>
-load_user_config(const envvars::state& calling_env) {
+load_user_config(const envvars::state& calling_env,
+                 const std::optional<std::filesystem::path>& config_path) {
     namespace fs = std::filesystem;
 
-    auto home_env = calling_env.get("HOME");
-    auto xdg_env = calling_env.get("XDG_CONFIG_HOME");
-    // return an empty config if no configuration path can be determined
-    if (!home_env && !xdg_env) {
-        spdlog::warn("unable to find default configuration location, neither "
-                     "HOME nor XDG_CONFIG_HOME are defined.");
-        return config_base{};
-    }
-    const auto config_path =
-        xdg_env ? (fs::path(xdg_env.value()) / "uenv")
-                : (fs::path(home_env.value()) / ".config/uenv");
-    const auto config_file = config_path / "config";
+    fs::path config_file;
 
-    auto create_config_file = [](const auto& path) {
-        auto fid = std::ofstream(path);
-        fid << config_file_default << std::endl;
-    };
-    if (!fs::exists(config_path)) {
-        spdlog::info("creating configuration path {}", config_path);
-        std::error_code ec;
-        fs::create_directories(config_path, ec);
-        if (ec) {
-            spdlog::error("unable to create config path: {}", ec.message());
+    // if a custom config path is provided, use it directly
+    if (config_path) {
+        spdlog::info("using custom configuration file {}",
+                     config_path->string());
+
+        if (!(fs::exists(*config_path) && fs::is_regular_file(*config_path))) {
+            return util::unexpected(fmt::format(
+                "custom configuration file '{}' is not a regular file",
+                config_path->string()));
+        }
+
+        config_file = config_path.value();
+    } else {
+        auto home_env = calling_env.get("HOME");
+        auto xdg_env = calling_env.get("XDG_CONFIG_HOME");
+        // return an empty config if no configuration path can be determined
+        if (!home_env && !xdg_env) {
+            spdlog::warn(
+                "unable to find default configuration location, neither "
+                "HOME nor XDG_CONFIG_HOME are defined.");
             return config_base{};
         }
-        spdlog::info("creating configuration file {}", config_file);
-        create_config_file(config_file);
-        return config_base{};
-    } else if (!fs::exists(config_file)) {
-        spdlog::info("creating configuration file {}", config_file);
-        create_config_file(config_file);
-        return config_base{};
+        const auto config_dir =
+            xdg_env ? (fs::path(xdg_env.value()) / "uenv")
+                    : (fs::path(home_env.value()) / ".config/uenv");
+        config_file = config_dir / "config";
+
+        if (!fs::exists(config_dir)) {
+            spdlog::info("creating configuration path {}", config_dir);
+            std::error_code ec;
+            fs::create_directories(config_dir, ec);
+            if (ec) {
+                spdlog::error("unable to create config path: {}", ec.message());
+                return config_base{};
+            }
+        }
+        if (!fs::exists(config_file)) {
+            spdlog::info("creating configuration file {}", config_file);
+            auto fid = std::ofstream(config_file);
+            fid << config_file_default << std::endl;
+            return config_base{};
+        }
     }
 
-    spdlog::info("opening configuration file {}", config_file);
+    spdlog::info("parsing configuration file {}", config_file);
     auto result = impl::read_config_file(config_file, calling_env);
 
     if (!result) {
@@ -127,7 +162,7 @@ load_user_config(const envvars::state& calling_env) {
             "error opening '{}': {}", config_file.string(), result.error())};
     }
 
-    return *result;
+    return result.value();
 }
 
 namespace impl {
@@ -172,6 +207,8 @@ read_config_file(const std::filesystem::path& path,
 
     fid.close();
 
+    spdlog::debug("finished parsing file");
+
     // build a config from the key value
     config_base config;
     for (auto [key, value] : settings) {
@@ -186,9 +223,22 @@ read_config_file(const std::filesystem::path& path,
             } else {
                 return util::unexpected(
                     fmt::format("invalid configuration value '{}={}': color "
-                                "muste be true or false",
+                                "must be true or false",
                                 key, value));
             }
+        } else if (key == "registry") {
+            // an empty value is interpretted as unsetting the registry
+            if (value == "") {
+                config.registry = std::nullopt;
+            } else if (const auto p = parse_registry_url(value)) {
+                config.registry = p.value();
+            } else {
+                return util::unexpected(
+                    fmt::format("invalid reguistry url '{}={}': {}", key, value,
+                                p.error().message()));
+            }
+        } else if (key == "registry-type") {
+            config.registry_type = value;
         } else {
             return util::unexpected(
                 fmt::format("invalid configuration parameter '{}'", key));
