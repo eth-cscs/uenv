@@ -10,7 +10,6 @@ function setup() {
     bats_load_library bats-assert
     load ./common
 
-    # TODO: set the BUILD_PATH from a template for out of tree builds
     export PATH="$BUILD_PATH:$PATH"
 
     unset UENV_MOUNT_LIST
@@ -49,7 +48,9 @@ function teardown() {
     assert_output --regexp "app/43.0:v1\s+zen3\s+arapiles"
     assert_output --regexp "tool/17.3.2:v1\s+zen3\s+arapiles"
 
-    run uenv --repo=$REPOS/apptool image ls --no-header
+    # use space instead of = for the --repo option, to check
+    # that both methods work.
+    run uenv --repo $REPOS/apptool image ls --no-header
     assert_success
     refute_line --regexp "^uenv\s+arch\s+system\s+id"
     assert_line --regexp "app/42.0:v1\s+zen3\s+arapiles"
@@ -109,6 +110,19 @@ function teardown() {
     assert_line --partial "app/42.0:v1"
     assert_line --partial "app/43.0:v1"
     assert_line --partial "tool/17.3.2:v1"
+
+    # test --json output
+    #run uenv --repo=$REPOS/apptool image ls --json app | jq '.records | length'
+    run uenv --repo=$REPOS/apptool image ls --json app
+    assert_success
+    jq_output="$(echo "$output" | jq '.records | length')"
+    assert_equal "$jq_output" "2"
+
+    # empty results is not an error
+    run uenv --repo=$REPOS/apptool image ls --json doesnotexist
+    assert_success
+    jq_output="$(echo "$output" | jq '.records | length')"
+    assert_equal "$jq_output" "0"
 }
 
 @test "repo status" {
@@ -359,6 +373,11 @@ EOF
 
     # check a format string that contains no fields
     run uenv --repo=$REPOS/apptool image inspect --format='hello world' tool
+    assert_success
+    assert_output "hello world"
+
+    # check that the --format argument works with whitespace instead of =
+    run uenv --repo=$REPOS/apptool image inspect --format 'hello world' tool
     assert_success
     assert_output "hello world"
 

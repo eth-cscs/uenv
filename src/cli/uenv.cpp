@@ -48,8 +48,8 @@ int main(int argc, char** argv) {
     cli.add_flag_callback(
         "--color", [&cli_config]() -> void { cli_config.color = true; },
         "enable color output");
-    cli.add_flag("--repo", cli_config.repo, "the uenv repository");
     cli.add_flag("--version", print_version, "print version");
+    cli.add_option("--repo", cli_config.repo, "the uenv repository");
 
     cli.footer(help_footer);
 

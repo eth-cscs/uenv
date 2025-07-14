@@ -132,8 +132,8 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
 
     // require that a valid repo has been provided
     if (!settings.config.repo) {
-        term::error("a repo needs to be provided either using the --repo flag "
-                    "in the config file");
+        term::error("a repo needs to be provided either using the --repo "
+                    "option, or in the config file");
         return 1;
     }
     // open the repo

@@ -89,8 +89,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     // Open the repository
     //
     if (!settings.config.repo) {
-        term::error("a repo needs to be provided either using the --repo flag "
-                    "in the config file");
+        term::error("a repo needs to be provided either using the --repo "
+                    "option, or in the config file");
         return 1;
     }
     auto store = uenv::open_repository(settings.config.repo.value(),
@@ -171,7 +171,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     if (sqfs->meta) {
         fs::copy_options options{};
         options |= fs::copy_options::recursive;
-        fs::copy(sqfs->meta.value() / "meta", uenv_paths.meta, options, ec);
+        fs::copy(sqfs->meta.value(), uenv_paths.meta, options, ec);
         if (ec) {
             spdlog::error("unable to copy meta data to {}: {}",
                           uenv_paths.meta.string(), ec.message());

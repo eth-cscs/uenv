@@ -24,7 +24,7 @@ void image_inspect_args::add_cli(CLI::App& cli,
                                  [[maybe_unused]] global_settings& settings) {
     auto* inspect_cli =
         cli.add_subcommand("inspect", "print information about a uenv.");
-    inspect_cli->add_flag("--format", format, "the format string.");
+    inspect_cli->add_option("--format", format, "the format string.");
     inspect_cli->add_option("uenv", label, "the uenv to inspect.")->required();
     inspect_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_inspect; });
@@ -77,8 +77,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
     }
 
     if (result->size() > 1) {
-        term::error("more than one uenv matche the search criteria '{}'",
-                    label);
+        term::error("more than one uenv match the search criteria '{}'", label);
         fmt::print("\n");
         for (const auto& r : *result) {
             fmt::print("{}  {}/{}:{}\n", r.id, r.name, r.version, r.tag);
