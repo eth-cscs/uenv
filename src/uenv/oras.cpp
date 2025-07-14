@@ -248,22 +248,24 @@ util::expected<void, error> pull_tag(const std::string& registry,
     std::size_t downloaded_mb{0u};
     // force rounding up, so that total_mb is never zero
     std::size_t total_mb{(uenv.size_byte + (1024 * 1024 - 1)) / (1024 * 1024)};
+    const unsigned interval_ms = 500;
     spdlog::info("byte {} MB {}", uenv.size_byte, total_mb);
     auto bar = bk::ProgressBar(
         &downloaded_mb,
         {
             .total = total_mb,
             .message = fmt::format("pulling {}", uenv.id.string()),
-            .speed = 1.,
+            .speed = 0.1,
             .speed_unit = "MB/s",
             .style = color::use_color() ? bk::ProgressBarStyle::Rich
                                         : bk::ProgressBarStyle::Bars,
+            .interval = interval_ms / 1000.,
             .no_tty = !isatty(fileno(stdout)),
         });
 
     util::set_signal_catcher();
     while (!proc->finished()) {
-        std::this_thread::sleep_for(500ms);
+        std::this_thread::sleep_for(1ms * interval_ms);
         // handle a signal, usually SIGTERM or SIGINT
         if (util::signal_raised()) {
             spdlog::error("signal raised - interrupting download");
