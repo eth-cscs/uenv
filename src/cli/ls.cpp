@@ -6,6 +6,7 @@
 #include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
+#include <toml++/toml.hpp>
 
 #include <site/site.h>
 #include <uenv/parse.h>
@@ -43,6 +44,18 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
         return 1;
     }
 
+    //parse configuration.toml
+    toml::table config;
+    char *config_location = getenv("UENV_CONFIGURATION_PATH"); //gets config file from UENV_CONFIGURATION_PATH env variable
+    std::string_view config_sv{config_location};
+    try{
+        config = toml::parse_file(config_sv);
+    } catch(const toml::parse_error& err){
+        term::err("{}", fmt::format("Error parsing configuration.toml:\n{}",err));
+    }
+
+    toml::array& config_repo = *config["uenv_global_repo"].as_array();
+
     // open the repo
     auto store = uenv::open_repository(settings.config.repo.value());
     if (!store) {
@@ -72,8 +85,28 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
         term::error("invalid search term: {}", store.error());
         return 1;
     }
-
+    printf("User Repository: %s\n", settings.config.repo.value().c_str());
     print_record_set(*result, args.no_header, args.json);
+
+    // query the local repos
+    for (auto& repo : config_repo){
+        if (repo.is_string()){//if repo is string, query
+            std::filesystem::path repo_path = repo.value_or("");
+            auto local_store = uenv::open_repository(repo_path);
+            if (!local_store) {
+                term::error("unable to open local repo: {}", local_store.error());
+                return 1;
+            }
+
+            const auto local_result = local_store->query(label);
+            if (!local_result) {
+                term::error("invalid search term: {}", local_store.error());
+                return 1;
+            }
+            printf("\nLocal Repository: %s\n", repo.value_or(""));
+            print_record_set(*local_result, args.no_header, args.json); //print local repo listing
+        }
+    }
 
     return 0;
 }
