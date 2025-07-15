@@ -6,6 +6,7 @@
 #include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
+#include <toml++/toml.hpp>
 
 #include <site/site.h>
 #include <uenv/parse.h>

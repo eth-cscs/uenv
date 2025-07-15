@@ -12,6 +12,7 @@
 #include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
+#include <toml++/toml.hpp>
 
 #include <site/site.h>
 #include <uenv/env.h>
@@ -159,22 +160,64 @@ concretise_env(const std::string& uenv_args,
             const auto results = *result;
 
             if (results.empty()) {
-                return unexpected(fmt::format("no uenv matches '{}'", *label));
-            }
+                //parse configuration.toml
+                toml::table config;
+                char *config_location = getenv("UENV_CONFIGURATION_PATH"); //gets config file from UENV_CONFIGURATION_PATH env variable
+                std::string_view config_sv{config_location};
+                try{
+                    config = toml::parse_file(config_sv);
+                } catch(const toml::parse_error& err){
+                    std::cerr << "Error parsing configuration.toml:\n" << err << "\n";
+                }
 
-            // ensure that all results share a unique sha
-            if (!results.unique_sha()) {
+                toml::array& config_repo = *config["uenv_global_repo"].as_array(); //parses toml key as an array of repos
+
+                auto global_results = results;
+                //recuse through uenv_global_repo array
+                for (auto& repo : config_repo){
+                    if (repo.is_string()){ //if repo is a string, then query
+                        std::filesystem::path repo_path = repo.value_or("");
+                        const auto global_store = uenv::open_repository(repo_path);
+                        const auto global_result = global_store->query(*label);
+                        global_results = *global_result;
+                        if (!global_results.empty()){ //if repo finds uenv, then set sqfs_path and break
+                            const auto& r = *global_results.begin();
+                            sqfs_path = global_store->uenv_paths(r.sha).squashfs;
+                            //printf("Uenv found in global repository: %s\n", repo.value_or(""));
+                            break;
+                        }
+                    }
+                    else{
+                        std::cerr << "Error: uenv global config isn't a string" << std::endl;
+                    }
+                }
+                if (global_results.empty()){ //if uenv couldn't be found in local or global repo
+                    return unexpected(fmt::format("no uenv matches '{}'", *label));
+                }
+                // ensure that all results share a unique sha
+                if (!global_results.unique_sha()) {
                 auto errmsg = fmt::format(
                     "more than one uenv matches the uenv description "
                     "'{}':\n",
                     desc.label().value());
-                errmsg += format_record_set(results);
+                errmsg += format_record_set(global_results);
                 return unexpected(errmsg);
-            }
+                }
+            } else {
+                // ensure that all results share a unique sha
+                if (!results.unique_sha()) {
+                    auto errmsg = fmt::format(
+                        "more than one uenv matches the uenv description "
+                        "'{}':\n",
+                        desc.label().value());
+                    errmsg += format_record_set(results);
+                    return unexpected(errmsg);
+                }
 
-            // set sqfs_path
-            const auto& r = *results.begin();
-            sqfs_path = store->uenv_paths(r.sha).squashfs;
+                // set sqfs_path
+                const auto& r = *results.begin();
+                sqfs_path = store->uenv_paths(r.sha).squashfs;
+            }
         }
         // otherwise an explicit filename was provided, e.g.
         // "/scratch/myimages/develp/store.squashfs"
