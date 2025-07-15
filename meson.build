@@ -28,6 +28,7 @@ fmt_dep   = subproject('fmt', default_options: ['werror=false', 'warning_level=0
 json_dep = subproject('nlohmann_json', default_options: ['werror=false', 'warning_level=0']).get_variable('nlohmann_json_dep')
 spdlog_dep   = subproject('spdlog', default_options: ['werror=false', 'warning_level=0','std_format=disabled','external_fmt=enabled']).get_variable('spdlog_dep')
 sqlite3_dep = subproject('sqlite3', default_options: ['werror=false', 'warning_level=0']).get_variable('sqlite3_dep')
+tomlplusplus_dep = subproject('tomlplusplus', default_options: ['werror=false', 'warning_level=0']).get_variable('tomlplusplus_dep')
 subproject('curl', default_options: ['werror=false', 'warning_level=0', 'tests=disabled', 'unittests=disabled', 'tool=disabled'])
 
 curl_dep = dependency('libcurl', required: true)
@@ -65,12 +66,12 @@ lib_uenv = static_library(
         'libuenv',
         lib_src,
         include_directories: lib_inc,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, tomlplusplus_dep],
 )
 
 uenv_dep = declare_dependency(
         link_with: lib_uenv,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, tomlplusplus_dep],
         include_directories: lib_inc
 )
 
@@ -101,7 +102,7 @@ if uenv_cli
 
     cli = executable('uenv',
             sources: cli_src,
-            dependencies: [uenv_dep, sqlite3_dep, fmt_dep, spdlog_dep, cli11_dep, barkeep_dep],
+            dependencies: [uenv_dep, sqlite3_dep, fmt_dep, spdlog_dep, cli11_dep, barkeep_dep, tomlplusplus_dep],
             c_args: [
               '-DVERSION="@0@"'.format(version),
             ],
