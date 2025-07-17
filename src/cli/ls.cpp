@@ -51,7 +51,7 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
     try{
         config = toml::parse_file(config_sv);
     } catch(const toml::parse_error& err){
-        term::err("{}", fmt::format("Error parsing configuration.toml:\n{}",err));
+        term::error("{}", fmt::format("Error parsing configuration.toml:\n{}",err));
     }
 
     toml::array& config_repo = *config["uenv_global_repo"].as_array();

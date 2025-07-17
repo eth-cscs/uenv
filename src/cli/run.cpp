@@ -67,7 +67,7 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
     try{
         config = toml::parse_file(config_sv);
     } catch(const toml::parse_error& err){
-        term::err("{}", fmt::format("Error parsing configuration.toml:\n{}",err));
+        term::error("{}", fmt::format("Error parsing configuration.toml:\n{}",err));
     }
     bool use_squashfuse = config["use_squashfuse"].value_or(false); //parse use_squashfuse key from configuration.toml
 
