@@ -24,6 +24,8 @@
 #include <util/fs.h>
 #include <util/subprocess.h>
 
+#include "terminal.h"
+
 namespace uenv {
 
 using util::unexpected;
