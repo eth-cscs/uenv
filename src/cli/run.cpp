@@ -75,15 +75,12 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         generate_environment(*env, globals.calling_environment, "SQFSMNT_FWD_");
 
     // generate the mount list
-    std::vector<std::string> commands = {};
+    std::vector<std::string> commands = {"squashfs-mount"};
     
     if (use_squashfuse){
-        commands.push_back("squashfs-mount-rootless");
+        commands.push_back("--squashfuse");
     }
-    else{
-        commands.push_back("squashfs-mount");
-    }
-
+    
     for (auto e : env->uenvs) {
         commands.push_back(fmt::format("{}:{}", e.second.sqfs_path.string(),
                                        e.second.mount_path));

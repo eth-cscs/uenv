@@ -118,13 +118,10 @@ will not work, because it starts a new interactive shell.)",
         generate_environment(*env, globals.calling_environment, "SQFSMNT_FWD_");
 
     // generate the mount list
-    std::vector<std::string> commands = {};
+    std::vector<std::string> commands = {"squashfs-mount"};
     
     if (use_squashfuse){
-        commands.push_back("squashfs-mount-rootless");
-    }
-    else{
-        commands.push_back("squashfs-mount");
+        commands.push_back("--squashfuse");
     }
 
     for (auto e : env->uenvs) {
