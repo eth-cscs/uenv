@@ -167,7 +167,7 @@ concretise_env(const std::string& uenv_args,
                 try{
                     config = toml::parse_file(config_sv);
                 } catch(const toml::parse_error& err){
-                    std::cerr << "Error parsing configuration.toml:\n" << err << "\n";
+                    term::error("{}", fmt::format("Error parsing configuration.toml:\n{}",err));
                 }
 
                 toml::array& config_repo = *config["uenv_global_repo"].as_array(); //parses toml key as an array of repos
@@ -188,7 +188,7 @@ concretise_env(const std::string& uenv_args,
                         }
                     }
                     else{
-                        std::cerr << "Error: uenv global config isn't a string" << std::endl;
+                        term::error("{}", "Error: uenv global config isn't a string");
                     }
                 }
                 if (global_results.empty()){ //if uenv couldn't be found in local or global repo
