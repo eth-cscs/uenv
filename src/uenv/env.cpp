@@ -24,8 +24,6 @@
 #include <util/fs.h>
 #include <util/subprocess.h>
 
-#include "terminal.h"
-
 namespace uenv {
 
 using util::unexpected;
@@ -170,6 +168,8 @@ concretise_env(const std::string& uenv_args,
                     config = toml::parse_file(config_sv);
                 } catch(const toml::parse_error& err){
                     term::error("{}", fmt::format("Error parsing configuration.toml:\n{}",err));
+                    return unexpected(
+                        fmt::format("Error parsing configuration.toml:\n{}",err));
                 }
 
                 toml::array& config_repo = *config["uenv_global_repo"].as_array(); //parses toml key as an array of repos
