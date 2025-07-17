@@ -177,8 +177,21 @@ concretise_env(const std::string& uenv_args,
                 //recuse through uenv_local_repo array
                 for (auto& repo : config_repo){
                     if (repo.is_string()){ //if repo is a string, then query
-                        std::filesystem::path repo_path = repo.value_or("");
-                        const auto local_store = uenv::open_repository(repo_path);
+                        std::string repo_path_string = repo.value_or("");
+
+                        //validate local repo and skip if validation fails
+                        if (auto rpath =
+                                uenv::validate_repo_path(repo_path_string, false, false)) {
+                            config.repo = path.value();
+                        } else {
+                            spdlog::warn("invalid repo path {}", rpath.error());
+                            break;
+                        }
+
+                        //open local repo if valid
+                        std::filesystem::path repo_path = repo_path_string;
+                        auto local_store = uenv::open_repository(repo_path);
+
                         const auto local_result = local_store->query(*label);
                         local_results = *local_result;
                         if (!local_results.empty()){ //if repo finds uenv, then set sqfs_path and break
