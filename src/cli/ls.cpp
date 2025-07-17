@@ -94,27 +94,28 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
             std::string repo_path_string = repo.value_or("");
             
             //validate local repo and skip if validation fails
-            if (!(auto rpath = uenv::validate_repo_path(repo_path_string, false, false))) {
+            if (auto rpath = uenv::validate_repo_path(repo_path_string, false, false)) {
+                //open local repo if valid
+                std::filesystem::path repo_path = repo_path_string;
+                auto local_store = uenv::open_repository(repo_path);
+
+                if (!local_store) {
+                    term::error("unable to open local repo: {}", local_store.error());
+                    return 1;
+                }
+
+                const auto local_result = local_store->query(label);
+                if (!local_result) {
+                    term::error("invalid search term: {}", local_store.error());
+                    return 1;
+                }
+                printf("\nLocal Repository: %s\n", repo.value_or(""));
+                print_record_set(*local_result, args.no_header, args.json); //print local repo listing
+
+            } else {
                 spdlog::warn("invalid repo path {}", rpath.error());
                 continue;
             }
-            
-            //open local repo if valid
-            std::filesystem::path repo_path = repo_path_string;
-            auto local_store = uenv::open_repository(repo_path);
-
-            if (!local_store) {
-                term::error("unable to open local repo: {}", local_store.error());
-                return 1;
-            }
-
-            const auto local_result = local_store->query(label);
-            if (!local_result) {
-                term::error("invalid search term: {}", local_store.error());
-                return 1;
-            }
-            printf("\nLocal Repository: %s\n", repo.value_or(""));
-            print_record_set(*local_result, args.no_header, args.json); //print local repo listing
         }
     }
 

@@ -180,21 +180,22 @@ concretise_env(const std::string& uenv_args,
                         std::string repo_path_string = repo.value_or("");
 
                         //validate local repo and skip if validation fails
-                        if (!(auto rpath = uenv::validate_repo_path(repo_path_string, false, false))) {
+                        if (auto rpath = uenv::validate_repo_path(repo_path_string, false, false)) {
+                            
+                            //open local repo if valid
+                            std::filesystem::path repo_path = repo_path_string;
+                            auto local_store = uenv::open_repository(repo_path);
+
+                            const auto local_result = local_store->query(*label);
+                            local_results = *local_result;
+                            if (!local_results.empty()){ //if repo finds uenv, then set sqfs_path and break
+                                const auto& r = *local_results.begin();
+                                sqfs_path = local_store->uenv_paths(r.sha).squashfs;
+                                //printf("Uenv found in local repository: %s\n", repo.value_or(""));
+                                break;
+                            }
+                        } else {
                             spdlog::warn("invalid repo path {}", rpath.error());
-                            continue;
-                        }
-
-                        //open local repo if valid
-                        std::filesystem::path repo_path = repo_path_string;
-                        auto local_store = uenv::open_repository(repo_path);
-
-                        const auto local_result = local_store->query(*label);
-                        local_results = *local_result;
-                        if (!local_results.empty()){ //if repo finds uenv, then set sqfs_path and break
-                            const auto& r = *local_results.begin();
-                            sqfs_path = local_store->uenv_paths(r.sha).squashfs;
-                            //printf("Uenv found in local repository: %s\n", repo.value_or(""));
                             break;
                         }
                     }
