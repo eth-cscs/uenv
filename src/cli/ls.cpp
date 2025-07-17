@@ -94,12 +94,9 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
             std::string repo_path_string = repo.value_or("");
             
             //validate local repo and skip if validation fails
-            if (auto rpath =
-                    uenv::validate_repo_path(repo_path_string, false, false)) {
-                config.repo = path.value();
-            } else {
+            if (!(auto rpath = uenv::validate_repo_path(repo_path_string, false, false))) {
                 spdlog::warn("invalid repo path {}", rpath.error());
-                break;
+                continue;
             }
             
             //open local repo if valid

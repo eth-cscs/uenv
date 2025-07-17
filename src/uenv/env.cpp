@@ -180,12 +180,9 @@ concretise_env(const std::string& uenv_args,
                         std::string repo_path_string = repo.value_or("");
 
                         //validate local repo and skip if validation fails
-                        if (auto rpath =
-                                uenv::validate_repo_path(repo_path_string, false, false)) {
-                            config.repo = path.value();
-                        } else {
+                        if (!(auto rpath = uenv::validate_repo_path(repo_path_string, false, false))) {
                             spdlog::warn("invalid repo path {}", rpath.error());
-                            break;
+                            continue;
                         }
 
                         //open local repo if valid
