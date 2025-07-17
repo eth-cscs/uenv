@@ -54,7 +54,7 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
         term::error("{}", fmt::format("Error parsing configuration.toml:\n{}",err));
     }
 
-    toml::array& config_repo = *config["uenv_global_repo"].as_array();
+    toml::array& config_repo = *config["uenv_local_repos"].as_array();
 
     // open the repo
     auto store = uenv::open_repository(settings.config.repo.value());
