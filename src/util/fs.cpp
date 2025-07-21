@@ -74,9 +74,10 @@ unsquashfs_tmp(const std::filesystem::path& sqfs,
     }
 
     auto base = make_temp_dir();
-    std::vector<std::string> command{"unsquashfs",  "-no-exit",
-                                     "-d",          base.string(),
-                                     sqfs.string(), contents.string()};
+    std::vector<std::string> command{
+        "unsquashfs", "-no-exit", "-d", base.string(),
+        // single threaded to avoid resource contention.
+        "-processors", "1", sqfs.string(), contents.string()};
     spdlog::debug("unsquashfs_tmp: attempting to unpack {} from {}",
                   contents.string(), sqfs.string());
 
