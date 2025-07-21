@@ -36,6 +36,8 @@ barkeep_dep = declare_dependency(
         compile_args: ['-DBARKEEP_ENABLE_FMT_FORMAT'],
 )
 
+libmount_dep = dependency('mount')
+
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
 lib_src = [
@@ -43,6 +45,7 @@ lib_src = [
         'src/uenv/env.cpp',
         'src/uenv/log.cpp',
         'src/uenv/meta.cpp',
+        'src/uenv/mount.cpp',
         'src/uenv/oras.cpp',
         'src/uenv/parse.cpp',
         'src/uenv/print.cpp',
@@ -70,7 +73,7 @@ lib_uenv = static_library(
 
 uenv_dep = declare_dependency(
         link_with: lib_uenv,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep],
         include_directories: lib_inc
 )
 
