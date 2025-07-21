@@ -13,6 +13,7 @@ oras_version = get_option('oras_version')
 
 uenv_slurm_plugin = get_option('slurm_plugin')
 uenv_cli = get_option('cli')
+uenv_squashfs_mount = get_option('squashfs_mount')
 
 conf_data = configuration_data()
 
@@ -137,6 +138,16 @@ endif
 
 if uenv_slurm_plugin
     subdir('src/slurm')
+endif
+
+if uenv_squashfs_mount
+  squashfs_mount = executable('squashfs-mount',
+          sources: ['src/squashfs-mount/squashfs-mount.cpp'],
+          dependencies: [uenv_dep, fmt_dep, cli11_dep],
+          c_args: [
+            '-DVERSION="@0@"'.format(version),
+          ],
+          install: true)
 endif
 
 if get_option('tests').enabled()
