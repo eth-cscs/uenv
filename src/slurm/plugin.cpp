@@ -1,8 +1,6 @@
 #include <charconv>
-#include <cstdlib>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include <unistd.h>
@@ -27,9 +25,6 @@ extern "C" {
 }
 
 namespace uenv {
-
-util::expected<void, std::string>
-do_mount(const std::vector<mount_entry>& mount_entries);
 
 void set_log_level(const envvars::state& env) {
     // use warn as the default log level

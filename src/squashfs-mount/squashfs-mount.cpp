@@ -8,7 +8,9 @@
 #include <uenv/log.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
+#include <util/envvars.h>
 #include <util/expected.h>
+#include <util/shell.h>
 
 #include "terminal.h"
 
@@ -28,9 +30,18 @@ util::expected<void, std::string> unshare_mntns_and_become_root();
 // do sudo postamble
 // update the environment
 //  - look for SQFS_MOUNT_ prefixed var
-int main(int argc, char** argv) {
+//  - set UENV_MOUNT_LIST etc
+int main(int argc, char** argv, char** envp) {
+    //
+    // Capture the environment variables
+    //
 
-    // variables set by cli argument parser
+    const auto calling_env = envvars::state(envp);
+
+    //
+    // Command line argument parsing
+    //
+
     bool print_version = false;
     int verbosity = 1;
     std::string raw_mounts;
@@ -49,11 +60,18 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(cli, argc, argv);
 
+    //
     // print version and quit if --version flag was used
+    //
+
     if (print_version) {
         fmt::println("{}", UENV_VERSION);
         return 0;
     }
+
+    //
+    // set logging level
+    //
 
     // By default there is no logging to the console
     // The level of logging is increased by adding --verbose
@@ -69,26 +87,80 @@ int main(int argc, char** argv) {
     // note: syslog uses level::info to capture key events
     uenv::init_log(console_log_level, spdlog::level::info);
 
-    // parse and validate the mounts passed with the --sqfs argument.
-    // the values in mounts are fully validated, and can be used without further
-    // validation.
-    auto mounts = uenv::parse_mount_list(raw_mounts);
-    if (!mounts) {
-        term::error("invalid sqfs mounts - {}", mounts.error().message());
+    //
+    // validate the mount points
+    //
+
+    // to perform here:
+    //  canonicalise
+    //  sort
+    //  check for duplicates
+    //  for nested paths (paths inside paths), check that the root path exists
+    //  do not allow root path `/`
+    // to perform just in time before mounting:
+    //  check for existance of mount inside mount routine
+
+    const auto parsed_mounts = uenv::parse_mount_list(raw_mounts);
+    if (!parsed_mounts) {
+        term::error("invalid sqfs mounts - {}",
+                    parsed_mounts.error().message());
         exit(1);
     }
-    for (auto const& mount : mounts.value()) {
+    // build a list of canonicalised names
+    std::vector<uenv::mount_entry> mounts;
+    mounts.reserve(parsed_mounts->size());
+    for (auto const& mount : parsed_mounts.value()) {
         if (auto v = mount.validate(); !v) {
             term::error("invalid mount {}:{} - {}", mount.sqfs_path,
                         mount.mount_path, v.error());
             exit(1);
         }
+        mounts.push_back(mount);
     }
 
     spdlog::info("mounts {}", raw_mounts);
     spdlog::info("commands: ['{}']", fmt::join(commands, "', '"));
 
-    return 0;
+    //
+    // Mount the file systems
+    //
+
+    // get the uid before performing any updates to uid
+    const uid_t uid = getuid();
+
+    if (auto r = unshare_mntns_and_become_root(); !r) {
+        term::error("{}", r.error());
+        exit(1);
+    }
+
+    if (auto r = uenv::do_mount(mounts); !r) {
+        term::error("{}", r.error());
+        exit(1);
+    }
+
+    if (auto r = return_to_user_and_no_new_privs(uid); !r) {
+        term::error("{}", r.error());
+        exit(1);
+    }
+
+    //
+    // generate the runtime environment variables
+    //
+
+    envvars::state runtime_env{};
+
+    // forward all environment variables prefixed with SQFSMNT_FWD_
+    for (auto& [name, v] : calling_env.variables()) {
+        if (name.starts_with("SQFSMNT_FWD_")) {
+            runtime_env.set(name.substr(12), v);
+        } else {
+            runtime_env.set(name, v);
+        }
+    }
+
+    // runtime_env.set("UENV_MOUNT_LIST", fmt::join());
+
+    return util::exec(commands, runtime_env.c_env());
 }
 
 util::expected<void, std::string> unshare_mntns_and_become_root() {

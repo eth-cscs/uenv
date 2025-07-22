@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <util/expected.h>
 
@@ -12,5 +13,8 @@ struct mount_entry {
 
     util::expected<void, std::string> validate() const;
 };
+
+util::expected<void, std::string>
+do_mount(const std::vector<mount_entry>& mount_entries);
 
 } // namespace uenv
