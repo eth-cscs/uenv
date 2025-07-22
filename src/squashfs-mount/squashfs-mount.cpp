@@ -1,3 +1,7 @@
+#include <ranges>
+#include <string>
+#include <vector>
+
 #include <CLI/CLI.hpp>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
@@ -91,35 +95,31 @@ int main(int argc, char** argv, char** envp) {
     // validate the mount points
     //
 
-    // to perform here:
-    //  canonicalise
-    //  sort
-    //  check for duplicates
-    //  for nested paths (paths inside paths), check that the root path exists
-    //  do not allow root path `/`
-    // to perform just in time before mounting:
-    //  check for existance of mount inside mount routine
-
-    const auto parsed_mounts = uenv::parse_mount_list(raw_mounts);
+    auto parsed_mounts = uenv::parse_mount_list(raw_mounts);
     if (!parsed_mounts) {
         term::error("invalid sqfs mounts - {}",
                     parsed_mounts.error().message());
         exit(1);
     }
-    // build a list of canonicalised names
-    std::vector<uenv::mount_entry> mounts;
+    std::vector<uenv::mount_entry> mounts{};
     mounts.reserve(parsed_mounts->size());
-    for (auto const& mount : parsed_mounts.value()) {
+    for (auto mount : parsed_mounts.value()) {
         if (auto v = mount.validate(); !v) {
             term::error("invalid mount {}:{} - {}", mount.sqfs_path,
                         mount.mount_path, v.error());
             exit(1);
         }
-        mounts.push_back(mount);
+        mounts.push_back(std::move(mount));
     }
 
-    spdlog::info("mounts {}", raw_mounts);
-    spdlog::info("commands: ['{}']", fmt::join(commands, "', '"));
+    const std::string uenv_mount_list = fmt::format(
+        "{}", fmt::join(mounts | std::views::transform([](const auto& in) {
+                            return fmt::format("{}:{}", in.sqfs_path,
+                                               in.mount_path);
+                        }),
+                        ","));
+    spdlog::info("uenv_mount_list {}", uenv_mount_list);
+    spdlog::info("commands ['{}']", fmt::join(commands, "', '"));
 
     //
     // Mount the file systems
@@ -144,21 +144,27 @@ int main(int argc, char** argv, char** envp) {
     }
 
     //
-    // generate the runtime environment variables
+    // Generate the runtime environment variables
     //
 
     envvars::state runtime_env{};
 
-    // forward all environment variables prefixed with SQFSMNT_FWD_
+    // forward all environment variables not prefixed with SQFSMNT_FWD_
     for (auto& [name, v] : calling_env.variables()) {
-        if (name.starts_with("SQFSMNT_FWD_")) {
-            runtime_env.set(name.substr(12), v);
-        } else {
+        if (!name.starts_with("SQFSMNT_FWD_")) {
             runtime_env.set(name, v);
         }
     }
+    // add the forwarded variables in a second loop, in case a variable with the
+    // same name was already in the calling environment.
+    for (auto& [name, v] : calling_env.variables()) {
+        if (name.starts_with("SQFSMNT_FWD_")) {
+            runtime_env.set(name.substr(12), v);
+        }
+    }
 
-    // runtime_env.set("UENV_MOUNT_LIST", fmt::join());
+    // add UENV environment variables
+    runtime_env.set("UENV_MOUNT_LIST", uenv_mount_list);
 
     return util::exec(commands, runtime_env.c_env());
 }
