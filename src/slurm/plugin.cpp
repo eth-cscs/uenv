@@ -125,26 +125,6 @@ std::optional<std::string> getenv_wrapper(spank_t sp, const char* var) {
     throw ret;
 }
 
-util::expected<std::vector<uenv::mount_entry>, std::string>
-validate_uenv_mount_list(std::string mount_var) {
-    auto mount_list = uenv::parse_mount_list(mount_var);
-    if (!mount_list) {
-        return util::unexpected(mount_list.error().message());
-    }
-
-    for (auto& entry : *mount_list) {
-        // NOTE: the validate step is important because it checks both
-        // that the paths exist AND that the user has permission
-        // to read the squashfs image. Weakening this check would possibly
-        // let users mount images to which they don't have access.
-        if (auto valid = entry.validate(); !valid) {
-            return util::unexpected(valid.error());
-        }
-    }
-
-    return *mount_list;
-}
-
 static spank_option uenv_arg{
     (char*)"uenv",
     (char*)"<file>[:mount-point][,<file:mount-point>]*",
@@ -209,14 +189,16 @@ int init_post_opt_remote(spank_t sp) {
         return ESPANK_SUCCESS;
     }
 
-    auto mount_list = validate_uenv_mount_list(*mount_var);
-    if (!mount_list) {
-        slurm_error("internal error parsing the mount list: %s",
-                    mount_list.error().c_str());
-        return -ESPANK_ERROR;
+    // parse and validate the mount descriptions
+    // note that it is very important to carefully validate the mount_list
+    // * check that the squashfs files exist and can be read by the user
+    // * check that the mount points exist
+    auto mounts = uenv::parse_and_validate_mounts(mount_var.value());
+    if (!mounts) {
+        slurm_error("%s", mounts.error().c_str());
     }
 
-    auto result = do_mount(*mount_list);
+    auto result = do_mount(mounts.value());
     if (!result) {
         slurm_error("error mounting the requested uenv image: %s",
                     result.error().c_str());
@@ -266,7 +248,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         // * the user has read access to the squashfs image
         // * the mount point exists
         if (auto mount_var = calling_environment.get("UENV_MOUNT_LIST")) {
-            if (auto mount_list = validate_uenv_mount_list(*mount_var);
+            if (auto mount_list = uenv::parse_and_validate_mounts(*mount_var);
                 !mount_list) {
                 slurm_error("invalid UENV_MOUNT_LIST: %s",
                             mount_list.error().c_str());

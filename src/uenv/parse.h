@@ -48,7 +48,7 @@ parse_view_args(const std::string& arg);
 util::expected<std::vector<uenv_description>, parse_error>
 parse_uenv_args(const std::string& arg);
 
-util::expected<std::vector<mount_entry>, parse_error>
+util::expected<std::vector<mount_description>, parse_error>
 parse_mount_list(const std::string& arg);
 
 util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg);

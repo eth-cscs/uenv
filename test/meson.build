@@ -52,6 +52,7 @@ unit_src = [
         'unit/fs.cpp',
         'unit/lex.cpp',
         'unit/main.cpp',
+        'unit/mount.cpp',
         'unit/parse.cpp',
         'unit/signal.cpp',
         'unit/strings.cpp',

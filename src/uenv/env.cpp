@@ -232,6 +232,10 @@ concretise_env(const std::string& uenv_args,
                 fmt::format("no mount point provided for {}", desc));
         }
 
+        // TODO: hand off validation to the mount.cpp implementation
+        // - NOTE: maybe add the is_absolute test?
+        // - NOTE: add the unique mount point test?
+
         fs::path mount;
         if (auto p = parse_path(*mount_string)) {
             mount = *p;

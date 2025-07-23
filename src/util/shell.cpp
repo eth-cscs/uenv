@@ -57,7 +57,7 @@ int exec(const std::vector<std::string>& args, char* const envp[]) {
     }
     // } // end unsafe
 
-    spdlog::error("unable to launch a new shell");
+    spdlog::error("unable to exec");
 
     return r;
 }

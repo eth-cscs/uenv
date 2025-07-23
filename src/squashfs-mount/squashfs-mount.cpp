@@ -12,29 +12,28 @@
 #include <uenv/log.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
+#include <util/color.h>
 #include <util/envvars.h>
-#include <util/expected.h>
 #include <util/shell.h>
-
-#include "terminal.h"
 
 #include <libmount.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
 
-util::expected<void, std::string> return_to_user_and_no_new_privs(int uid);
-util::expected<void, std::string> unshare_mntns_and_become_root();
+void return_to_user_and_no_new_privs(int uid);
+void unshare_mntns_and_become_root();
 
-/*
-   squashfs-mount file:mount file:mount file:mount -- command
+// print a formtted error message and exit with return code 1
+template <typename... T>
+void error_and_exit(fmt::format_string<T...> fmt, T&&... args) {
+    fmt::print(stderr, "{}: {}\n", ::color::red("error"),
+               fmt::vformat(fmt, fmt::make_format_args(args...)));
+    exit(1);
+}
 
-   --version --verbose=2, -v, -vv, -vvv */
-
-// do sudo preamble
-// do sudo postamble
-// update the environment
-//  - look for SQFS_MOUNT_ prefixed var
-//  - set UENV_MOUNT_LIST etc
+// squashfs-mount --sqfs=file:mount[,file:mount] -- cmd [args]
+//
+// --version --verbose=2, -v, -vv, -vvv
 int main(int argc, char** argv, char** envp) {
     //
     // Capture the environment variables
@@ -95,29 +94,13 @@ int main(int argc, char** argv, char** envp) {
     // validate the mount points
     //
 
-    auto parsed_mounts = uenv::parse_mount_list(raw_mounts);
-    if (!parsed_mounts) {
-        term::error("invalid sqfs mounts - {}",
-                    parsed_mounts.error().message());
-        exit(1);
+    auto mounts = uenv::parse_and_validate_mounts(raw_mounts);
+    if (!mounts) {
+        error_and_exit("{}", mounts.error());
     }
-    std::vector<uenv::mount_entry> mounts{};
-    mounts.reserve(parsed_mounts->size());
-    for (auto mount : parsed_mounts.value()) {
-        if (auto v = mount.validate(); !v) {
-            term::error("invalid mount {}:{} - {}", mount.sqfs_path,
-                        mount.mount_path, v.error());
-            exit(1);
-        }
-        mounts.push_back(std::move(mount));
-    }
+    const std::string uenv_mount_list =
+        fmt::format("{}", fmt::join(mounts.value(), ","));
 
-    const std::string uenv_mount_list = fmt::format(
-        "{}", fmt::join(mounts | std::views::transform([](const auto& in) {
-                            return fmt::format("{}:{}", in.sqfs_path,
-                                               in.mount_path);
-                        }),
-                        ","));
     spdlog::info("uenv_mount_list {}", uenv_mount_list);
     spdlog::info("commands ['{}']", fmt::join(commands, "', '"));
 
@@ -128,20 +111,13 @@ int main(int argc, char** argv, char** envp) {
     // get the uid before performing any updates to uid
     const uid_t uid = getuid();
 
-    if (auto r = unshare_mntns_and_become_root(); !r) {
-        term::error("{}", r.error());
-        exit(1);
+    unshare_mntns_and_become_root();
+
+    if (auto r = uenv::do_mount(mounts.value()); !r) {
+        error_and_exit("{}", r.error());
     }
 
-    if (auto r = uenv::do_mount(mounts); !r) {
-        term::error("{}", r.error());
-        exit(1);
-    }
-
-    if (auto r = return_to_user_and_no_new_privs(uid); !r) {
-        term::error("{}", r.error());
-        exit(1);
-    }
+    return_to_user_and_no_new_privs(uid);
 
     //
     // Generate the runtime environment variables
@@ -166,46 +142,39 @@ int main(int argc, char** argv, char** envp) {
     // add UENV environment variables
     runtime_env.set("UENV_MOUNT_LIST", uenv_mount_list);
 
-    return util::exec(commands, runtime_env.c_env());
+    auto rcode = util::exec(commands, runtime_env.c_env());
+
+    return rcode;
 }
 
-util::expected<void, std::string> unshare_mntns_and_become_root() {
+void unshare_mntns_and_become_root() {
     if (unshare(CLONE_NEWNS) != 0) {
-        // TODO: exit directly with message?
-        return util::unexpected{"Failed to unshare the mount namespace"};
+        error_and_exit("Failed to unshare the mount namespace");
     }
 
     if (mount(NULL, "/", NULL, MS_SLAVE | MS_REC, NULL) != 0) {
-        // TODO: exit directly with message?
-        return util::unexpected{"Failed to remount \"/\" with MS_SLAVE"};
+        error_and_exit("Failed to remount \"/\" with MS_SLAVE");
     }
 
     // Set real user to root before creating the mount context, otherwise it
     // fails.
     if (setreuid(0, 0) != 0) {
-        // TODO: exit directly with message?
-        return util::unexpected{"Failed to setreuid\n"};
+        error_and_exit("Failed to setreuid");
     }
 
     // Configure the mount
     // Makes LIBMOUNT_DEBUG=... work.
     mnt_init_debug(0);
-
-    return {};
 }
 
 /// set real, effective, saved user id to original user and allow no new
 /// priviledges
-util::expected<void, std::string> return_to_user_and_no_new_privs(int uid) {
+void return_to_user_and_no_new_privs(int uid) {
     if (setresuid(uid, uid, uid) != 0) {
-        // TODO: exit directly with message?
-        return util::unexpected{"setresuid failed"};
+        error_and_exit("setresuid failed");
     }
 
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-        // TODO: exit directly with message?
-        return util::unexpected{"PR_SET_NO_NEW_PRIVS failed"};
+        error_and_exit("PR_SET_NO_NEW_PRIVS failed");
     }
-
-    return {};
 }

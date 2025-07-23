@@ -1,4 +1,7 @@
+#include <algorithm>
+#include <array>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -15,93 +18,178 @@
 
 #include <fmt/format.h>
 #include <libmount/libmount.h>
+#include <spdlog/spdlog.h>
 
 #include <uenv/mount.h>
+#include <uenv/parse.h>
 #include <util/expected.h>
 
 namespace uenv {
 
-util::expected<void, std::string> mount_entry::validate() const {
+// A mount_description has string descriptions of the squashfs file path and
+// mount path taken from parsing a CLI argument or environment variable.
+// Convert this to a mount_pair by converting these to std::filesystem::path,
+// and validating that the squashfs file exists and can be read.
+// The existance of the mount points is not checked, because these need to be
+// checked when mounting.
+util::expected<mount_pair, std::string>
+make_mount_pair(const mount_description& d) {
     namespace fs = std::filesystem;
 
-    auto mount = fs::path(mount_path);
-
-    // does the mount point exist?
-    if (!fs::exists(mount)) {
-        return util::unexpected(
-            fmt::format("the mount point '{}' does not exist", mount_path));
+    std::error_code ec{};
+    const auto mount = fs::weakly_canonical(fs::path(d.mount_path), ec);
+    if (ec) {
+        return util::unexpected{fmt::format("invalid mount point {} ({})",
+                                            d.mount_path, ec.message())};
     }
 
-    mount = fs::canonical(mount);
-
-    // is the mount point a directory?
-    if (!fs::is_directory(mount)) {
-        return util::unexpected(
-            fmt::format("the mount point '{}' is not a directory", mount_path));
+    const auto sqfs = fs::weakly_canonical(fs::path(d.sqfs_path), ec);
+    if (ec) {
+        return util::unexpected{fmt::format("invalid squashfs {} ({})",
+                                            d.mount_path, ec.message())};
     }
 
-    auto sqfs = fs::path(sqfs_path);
-
-    // does the squashfs path exist?
-    if (!fs::exists(sqfs)) {
-        return util::unexpected(
-            fmt::format("the squashfs file '{}' does not exist", sqfs_path));
+    if (!fs::is_regular_file(sqfs, ec)) {
+        return util::unexpected{fmt::format(
+            "invalid squashfs {} (is not a regular file)", sqfs.string())};
     }
 
-    // remove symlink etc, so that we can test file and permissions
-    sqfs = fs::canonical(sqfs);
+    // A valid squashfs file contains the magic string "hsqs" in the first 4
+    // bytes.
+    if (std::filesystem::file_size(sqfs) < 4) {
+        return util::unexpected{fmt::format(
+            "unable to read squashfs {} (not a valid squashfs file)",
+            sqfs.string())};
+    }
+    if (auto file = std::ifstream{sqfs, std::ios::binary}) {
+        std::array<char, 4> magic{};
+        file.read(reinterpret_cast<char*>(magic.data()), magic.size());
 
-    // is the squashfs path a file ?
-    if (!fs::is_regular_file(sqfs)) {
-        return util::unexpected(
-            fmt::format("the squashfs file '{}' is not a file", sqfs_path));
+        // Compare against little-endian 'hsqs'
+        if (!(magic[0] == 'h' && magic[1] == 's' && magic[2] == 'q' &&
+              magic[3] == 's')) {
+            return util::unexpected{fmt::format(
+                "unable to read squashfs {} (not a valid squashfs file)",
+                sqfs.string())};
+        }
+    } else {
+        return util::unexpected{
+            fmt::format("unable to read squashfs {}", sqfs.string())};
     }
 
-    // do we have read access to the squashfs file?
+    return mount_pair{.sqfs = sqfs, .mount = mount};
+}
+
+util::expected<std::vector<uenv::mount_pair>, std::string>
+validate_mount_list(const mount_list& input) {
+    namespace fs = std::filesystem;
+
+    if (input.empty()) {
+        return input;
+    }
+
+    // Iterate over the mount points and verify whether they exist.
+    // There is a wrinkle: a mount point may be "inside" another mount
+    // point, and thus rely on the other mount first being mounted before it
+    // can be mounted. We first sort the mount entries so that they can be
+    // mounted like this, and only check for existance of "root" mounts that
+    // are not inside another mount.
     //
-    // NOTE: this check is performed on the login node under the user's account.
-    // The mount step is performed with elevated privelages on the compute node.
-    // Skipping this check could possibly allow users to mount images to which
-    // they don't have access.
-    const fs::perms sqfs_perm = fs::status(sqfs).permissions();
-    auto satisfies = [&sqfs_perm](fs::perms c) {
-        return fs::perms::none != (sqfs_perm & c);
+    // Note that we do not check for the existance of mount points that have
+    // to be provided by another mount. This would be very tricky, without
+    // starting to parse squashfs files and their meta data (which we might
+    // be forced to do at some point).
+
+    std::vector<uenv::mount_pair> mounts{input};
+    std::sort(std::begin(mounts), std::end(mounts),
+              [](const auto& lhs, const auto& rhs) {
+                  return lhs.mount.compare(rhs.mount) < 0;
+              });
+
+    auto is_child = [](const fs::path& parent, const fs::path& child) -> bool {
+        auto rel = child.lexically_relative(parent);
+        return !rel.empty() && *rel.begin() != "..";
     };
-    if (!(satisfies(fs::perms::owner_read) ||
-          satisfies(fs::perms::group_read))) {
-        return util::unexpected(
-            fmt::format("you do not have read access to the squashfs file '{}'",
-                        sqfs_path));
+
+    const auto b = std::begin(mounts);
+    const auto e = std::cend(mounts);
+
+    // check whether the first mount point exists
+    if (!fs::is_directory(b->mount)) {
+        return util::unexpected{
+            fmt::format("the mount path {} does not exist", b->mount.string())};
+    }
+    // iterate over the remaining mounts
+    for (auto c = b + 1; c != e; ++c) {
+        // only check mounts that are not children of the previous mount
+        // TODO: this won't work for [/a, /a/b, /a/c]
+        auto parent = std::find_if(b, c, [&c, is_child](const auto& it) {
+            return is_child(it.mount, c->mount);
+        });
+        if (parent != c) {
+            if (!fs::is_directory(b->mount)) {
+                return util::unexpected{fmt::format(
+                    "the mount path {} does not exist", b->mount.string())};
+            }
+        } else {
+            spdlog::warn("the mount path {} is a subdirectory of another "
+                         "mount path {}",
+                         (b)->mount.string(), (b - 1)->mount.string());
+        }
     }
 
-    return {};
+    return mounts;
+}
+
+util::expected<mount_list, std::string>
+validate_mount_descriptions(const std::vector<mount_description>& input) {
+    mount_list mounts;
+    for (auto desc : input) {
+        if (auto mount = uenv::make_mount_pair(desc); !mount) {
+            return util::unexpected{
+                fmt::format("invalid squashfs mount {}:{} - {}", desc.sqfs_path,
+                            desc.mount_path, mount.error())};
+        } else {
+            mounts.push_back(mount.value());
+        }
+    }
+
+    return validate_mount_list(mounts);
+}
+
+util::expected<mount_list, std::string>
+parse_and_validate_mounts(const std::string& description) {
+    auto mount_descriptions = uenv::parse_mount_list(description);
+    if (!mount_descriptions) {
+        return util::unexpected{mount_descriptions.error().message()};
+    }
+
+    return validate_mount_descriptions(mount_descriptions.value());
 }
 
 util::expected<void, std::string>
-do_mount(const std::vector<mount_entry>& mount_entries) {
+do_mount(const std::vector<mount_pair>& mount_entries) {
     if (mount_entries.size() == 0) {
         return {};
     }
     if (unshare(CLONE_NEWNS) != 0) {
         return util::unexpected("Failed to unshare the mount namespace");
     }
-    // make all mounts in new namespace slave mounts, changes in the original
-    // namesapce won't propagate into current namespace
+    // make all mounts in new namespace slave mounts, changes in the
+    // original namesapce won't propagate into current namespace
     if (mount(NULL, "/", NULL, MS_SLAVE | MS_REC, NULL) != 0) {
         return util::unexpected(
             "mount: unable to change `/` to MS_SLAVE | MS_REC");
     }
 
     for (auto& entry : mount_entries) {
-        std::string mount_point = entry.mount_path;
-        std::string squashfs_file = entry.sqfs_path;
+        std::string mount_point = entry.mount;
+        std::string squashfs_file = entry.sqfs;
 
-        if (!std::filesystem::is_regular_file(squashfs_file)) {
-            return util::unexpected("the uenv squashfs file does not exist: " +
-                                    squashfs_file);
-        }
+        // Check the mount point exists inside the mount loop, because the
+        // mount point may have been created inside a previous mount.
         if (!std::filesystem::is_directory(mount_point)) {
-            return util::unexpected("the mount point is not a valide path: " +
+            return util::unexpected("the mount point is not a valid path: " +
                                     mount_point);
         }
 

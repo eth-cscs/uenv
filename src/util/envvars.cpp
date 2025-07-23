@@ -116,11 +116,11 @@ const std::unordered_map<std::string, std::string> state::variables() const {
 char** state::c_env() const {
     const auto n = variables_.size();
     char** ev = reinterpret_cast<char**>(malloc((n + 1) * sizeof(char*)));
-    spdlog::info("envvars::state::c_env using {} bytes",
-                 (n + 1) * sizeof(char*));
+    spdlog::debug("envvars::state::c_env using {} bytes",
+                  (n + 1) * sizeof(char*));
     ev[n] = nullptr;
     unsigned i = 0;
-    spdlog::info("envvars::state::c_env outputing {} variables", n);
+    spdlog::debug("envvars::state::c_env outputing {} variables", n);
     for (auto& p : variables_) {
         // generate a string: name=value
         // length is len(name)+len(value)+2 ('=' and '\0')

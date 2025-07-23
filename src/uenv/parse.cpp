@@ -295,8 +295,9 @@ parse_uenv_description(lex::lexer& L) {
         L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
 }
 
-util::expected<mount_entry, parse_error> parse_mount_entry(lex::lexer& L) {
-    mount_entry result;
+util::expected<mount_description, parse_error>
+parse_mount_description(lex::lexer& L) {
+    mount_description result;
 
     PARSE(L, path, result.sqfs_path);
     if (L.current_kind() != lex::tok::colon) {
@@ -389,16 +390,16 @@ parse_uenv_args(const std::string& arg) {
     return uenvs;
 }
 
-util::expected<std::vector<mount_entry>, parse_error>
+util::expected<std::vector<mount_description>, parse_error>
 parse_mount_list(const std::string& arg) {
     const std::string sanitised = util::strip(arg);
     auto L = lex::lexer(sanitised);
-    std::vector<mount_entry> mounts;
+    std::vector<mount_description> mounts;
 
     spdlog::trace("parsing uenv mount list {}", arg);
     while (true) {
-        mount_entry mnt;
-        PARSE(L, mount_entry, mnt);
+        mount_description mnt;
+        PARSE(L, mount_description, mnt);
         mounts.push_back(std::move(mnt));
 
         if (L.peek().kind != lex::tok::comma) {
