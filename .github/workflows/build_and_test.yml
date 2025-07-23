@@ -46,7 +46,7 @@ jobs:
               --werror \
               build .
       - name: Build
-        run: sudo ./meson/meson compile -Cbuild
+        run: ./meson/meson compile -Cbuild
       - name: test unit
         run: ./meson/meson test -Cbuild --verbose unit
       - name: test cli
