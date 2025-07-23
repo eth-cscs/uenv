@@ -42,12 +42,11 @@ jobs:
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
               -Dtests=enabled \
-              -Dsquashfs_mount=true \
               --warnlevel 3 \
               --werror \
-              sudo build .
+              build .
       - name: Build
-        run: ./meson/meson compile -Cbuild
+        run: sudo ./meson/meson compile -Cbuild
       - name: test unit
         run: ./meson/meson test -Cbuild --verbose unit
       - name: test cli
