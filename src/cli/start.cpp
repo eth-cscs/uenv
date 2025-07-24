@@ -128,7 +128,15 @@ will not work, because it starts a new interactive shell.)",
     commands.push_back("--");
     commands.push_back(shell->string());
 
-    return util::exec(commands, runtime_environment.c_env());
+    auto c_env = runtime_environment.c_env();
+    auto rcode = util::exec(commands, c_env);
+
+    // clean up memory if there was an error
+    if (rcode) {
+        envvars::c_env_free(c_env);
+    }
+
+    return rcode;
 }
 
 std::string start_footer() {
