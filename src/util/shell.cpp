@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 #include <fmt/core.h>
@@ -57,7 +58,8 @@ int exec(const std::vector<std::string>& args, char* const envp[]) {
     }
     // } // end unsafe
 
-    spdlog::error("unable to exec");
+    spdlog::error(
+        fmt::format("unable to exec {}: {}", argv[0], strerror(errno)));
 
     return r;
 }
