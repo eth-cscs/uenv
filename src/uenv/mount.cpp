@@ -2,6 +2,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,8 @@
 #include <unistd.h>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
+#include <fmt/std.h>
 #include <libmount/libmount.h>
 #include <spdlog/spdlog.h>
 
@@ -111,30 +114,29 @@ validate_mount_list(const mount_list& input) {
         return !rel.empty() && *rel.begin() != "..";
     };
 
-    const auto b = std::begin(mounts);
-    const auto e = std::cend(mounts);
+    auto mview = std::ranges::transform_view(
+        mounts, [](const auto& in) -> const fs::path& { return in.mount; });
+
+    const auto b = std::begin(mview);
+    const auto e = std::cend(mview);
 
     // check whether the first mount point exists
-    if (!fs::is_directory(b->mount)) {
+    if (!fs::is_directory(*b)) {
         return util::unexpected{
-            fmt::format("the mount path {} does not exist", b->mount.string())};
+            fmt::format("the mount path {} does not exist", (*b).string())};
     }
     // iterate over the remaining mounts
     for (auto c = b + 1; c != e; ++c) {
-        // only check mounts that are not children of the previous mount
-        // TODO: this won't work for [/a, /a/b, /a/c]
-        auto parent = std::find_if(b, c, [&c, is_child](const auto& it) {
-            return is_child(it.mount, c->mount);
-        });
-        if (parent != c) {
-            if (!fs::is_directory(b->mount)) {
-                return util::unexpected{fmt::format(
-                    "the mount path {} does not exist", b->mount.string())};
+        auto parent = std::find_if(
+            b, c, [&c, is_child](const auto& it) { return is_child(it, *c); });
+        if (parent == c) { // there is no parent
+            if (!fs::is_directory(*c)) {
+                return util::unexpected{
+                    fmt::format("the mount path {} does not exist", *c)};
             }
         } else {
-            spdlog::warn("the mount path {} is a subdirectory of another "
-                         "mount path {}",
-                         (b)->mount.string(), (b - 1)->mount.string());
+            spdlog::warn("the mount {} is inside another mount {}", *c,
+                         *(c - 1));
         }
     }
 

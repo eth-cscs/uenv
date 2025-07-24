@@ -8,7 +8,7 @@
 #include <uenv/mount.h>
 #include <util/fs.h>
 
-namespace fs = std::filesystem;
+// namespace fs = std::filesystem;
 
 TEST_CASE("validate_mounts", "[mount]") {
     // create some "fake" squashfs images
@@ -28,19 +28,29 @@ TEST_CASE("validate_mounts", "[mount]") {
     auto mount_a = mount / "a";
     auto mount_other = util::make_temp_dir();
 
-    // a single mount point that exists
-    REQUIRE(
-        uenv::parse_and_validate_mounts(fmt::format("{}:{}", sqfs_1, mount)));
-    // two mount points, with one existing and the other "inside"
-    REQUIRE(uenv::parse_and_validate_mounts(
-        fmt::format("{}:{},{}:{}", sqfs_1, mount, sqfs_2, mount_a)));
-    // same as previous, but with mount point order reversed
-    REQUIRE(uenv::parse_and_validate_mounts(
-        fmt::format("{}:{},{}:{}", sqfs_1, mount_a, sqfs_2, mount)));
-    REQUIRE(uenv::parse_and_validate_mounts(
-        fmt::format("{}:{},{}:{},{}:{},{}:{}", sqfs_1, mount, sqfs_2, mount_a,
-                    sqfs_3, mount_a_b, sqfs_4, mount_b)));
-    // a single mount point that does not exist
-    REQUIRE(!uenv::parse_and_validate_mounts(
-        fmt::format("{}:{}", sqfs_1, mount_a)));
+    // valid inputs
+    for (auto input : {
+             // a single mount point that exists
+             fmt::format("{}:{}", sqfs_1, mount),
+             // two mount points, with one existing and the other "inside"
+             fmt::format("{}:{},{}:{}", sqfs_1, mount, sqfs_2, mount_a),
+             // same as previous, but with mount point order reversed
+             fmt::format("{}:{},{}:{}", sqfs_1, mount_a, sqfs_2, mount),
+             // two separate mount points that exist
+             fmt::format("{}:{},{}:{}", sqfs_1, mount, sqfs_2, mount_other),
+             // a more complicated example
+             fmt::format("{}:{},{}:{},{}:{},{}:{}", sqfs_1, mount, sqfs_2,
+                         mount_a, sqfs_3, mount_a_b, sqfs_4, mount_b),
+         }) {
+        REQUIRE(uenv::parse_and_validate_mounts(input));
+    }
+    // invalid inputs
+    for (auto input : {
+             // a single mount point that does not exist
+             fmt::format("{}:{}", sqfs_1, mount_a),
+             // two mount points: the second does not exist
+             fmt::format("{}:{},{}:{}", sqfs_1, mount_other, sqfs_2, mount_a),
+         }) {
+        REQUIRE(!uenv::parse_and_validate_mounts(input));
+    }
 }
