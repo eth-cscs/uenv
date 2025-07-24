@@ -167,8 +167,8 @@ void unshare_mntns_and_become_root() {
     mnt_init_debug(0);
 }
 
-/// set real, effective, saved user id to original user and allow no new
-/// priviledges
+// set real, effective, saved user id to original user and allow no new
+// priviledges
 void return_to_user_and_no_new_privs(int uid) {
     if (setresuid(uid, uid, uid) != 0) {
         error_and_exit("setresuid failed");
