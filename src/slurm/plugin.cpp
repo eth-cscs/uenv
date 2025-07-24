@@ -10,6 +10,7 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
+#include <slurm/mount_slurm.h>
 #include <uenv/env.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
@@ -198,7 +199,12 @@ int init_post_opt_remote(spank_t sp) {
         slurm_error("%s", mounts.error().c_str());
     }
 
-    auto result = do_mount(mounts.value());
+    if (auto result = uenv::unshare_as_root(); !result) {
+        slurm_error("%s", result.error().c_str());
+        return -ESPANK_ERROR;
+    }
+
+    auto result = uenv::do_mount(mounts.value());
     if (!result) {
         slurm_error("error mounting the requested uenv image: %s",
                     result.error().c_str());

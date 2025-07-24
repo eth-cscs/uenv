@@ -174,15 +174,6 @@ do_mount(const std::vector<mount_pair>& mount_entries) {
     if (mount_entries.size() == 0) {
         return {};
     }
-    if (unshare(CLONE_NEWNS) != 0) {
-        return util::unexpected("Failed to unshare the mount namespace");
-    }
-    // make all mounts in new namespace slave mounts, changes in the
-    // original namesapce won't propagate into current namespace
-    if (mount(NULL, "/", NULL, MS_SLAVE | MS_REC, NULL) != 0) {
-        return util::unexpected(
-            "mount: unable to change `/` to MS_SLAVE | MS_REC");
-    }
 
     for (auto& entry : mount_entries) {
         std::string mount_point = entry.mount;

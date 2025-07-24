@@ -5,7 +5,7 @@ configure_file(input : 'config.hpp.in',
                output : 'config.hpp',
                configuration : conf_data)
 
-module_src = ['plugin.cpp']
+module_src = ['plugin.cpp', 'mount_slurm.cpp']
 
 shared_module('slurm-uenv-mount',
               sources: module_src,
