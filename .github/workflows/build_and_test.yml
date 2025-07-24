@@ -42,6 +42,7 @@ jobs:
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
               -Dtests=enabled \
+              -Dsquashfs_mount=true \
               --warnlevel 3 \
               --werror \
               build .
