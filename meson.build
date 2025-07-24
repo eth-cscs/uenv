@@ -66,7 +66,7 @@ lib_src = [
 lib_inc = include_directories('src')
 
 lib_uenv = static_library(
-        'libuenv',
+        'uenv',
         lib_src,
         include_directories: lib_inc,
         dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],

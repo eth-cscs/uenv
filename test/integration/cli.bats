@@ -187,9 +187,7 @@ function teardown() {
     #
     # check that run looks up images in the repo and mounts at the correct location
     #
-    which squashfs-mount >&3
-    which uenv >&3
-    run uenv -vvv --repo=$REPOS/apptool run tool -- ls /user-tools
+    run uenv --repo=$REPOS/apptool run tool -- ls /user-tools
     assert_success
     assert_output --regexp "meta"
 
