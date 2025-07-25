@@ -58,8 +58,7 @@ int exec(const std::vector<std::string>& args, char* const envp[]) {
     }
     // } // end unsafe
 
-    spdlog::error(
-        fmt::format("unable to exec {}: {}", argv[0], strerror(errno)));
+    spdlog::error("unable to exec {}: {}", argv[0], strerror(errno));
 
     return r;
 }
