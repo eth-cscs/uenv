@@ -14,7 +14,6 @@ oras_version = get_option('oras_version')
 uenv_slurm_plugin = get_option('slurm_plugin')
 uenv_cli = get_option('cli')
 uenv_squashfs_mount = get_option('squashfs_mount')
-
 conf_data = configuration_data()
 
 add_global_arguments('-Wno-missing-field-initializers', language : 'cpp')
@@ -137,27 +136,41 @@ if uenv_cli
 endif
 
 if uenv_slurm_plugin
-    subdir('src/slurm')
+  subdir('src/slurm')
 endif
 
 if uenv_squashfs_mount
-    squashfs_mount_build = executable('squashfs-mount-build',
-          sources: ['src/squashfs-mount/squashfs-mount.cpp'],
-          dependencies: [uenv_dep, fmt_dep, cli11_dep],
-          c_args: [
-            '-DVERSION="@0@"'.format(version),
-          ],
-          install: false)
+    if get_option('fuse')
+        fuse_dep = dependency('fuse@0@'.format(get_option('fuse_version')))
+        squashfuse_dep = dependency('squashfuse_ll', static: false)
+        squashfs_mount_build = executable('squashfs-mount',
+                                          sources: ['src/squashfs-mount/squashfs-mount-rootless.cpp',
+                                                    'src/squashfs-mount/rootless.cpp'],
+                                          dependencies: [uenv_dep, fmt_dep, cli11_dep, squashfuse_dep, fuse_dep],
+                                          c_args: [
+                                              '-DVERSION="@0@"'.format(version),
+                                          ])
+    else
+        message('NOT iusing fuse')
+        squashfs_mount_build = executable('squashfs-mount-build',
+                                          sources: ['src/squashfs-mount/squashfs-mount.cpp'],
+                                          dependencies: [uenv_dep, fmt_dep, cli11_dep],
+                                          c_args: [
+                                              '-DVERSION="@0@"'.format(version),
+                                          ],
+                                          install: false)
 
-    squashfs_mount = custom_target(
-        'squashfs-mount',
-        input: squashfs_mount_build,
-        output: 'squashfs-mount',
-        command: ['./meson-scripts/make-setuid.sh', '@INPUT@', '@OUTPUT@'],
-        install: true,
-        install_dir: get_option('bindir'),
-    )
+        squashfs_mount = custom_target(
+            'squashfs-mount',
+            input: squashfs_mount_build,
+            output: 'squashfs-mount',
+            command: ['./meson-scripts/make-setuid.sh', '@INPUT@', '@OUTPUT@'],
+            install: true,
+            install_dir: get_option('bindir'),
+        )
+    endif
 endif
+
 
 if get_option('tests').enabled()
     subdir('test')
