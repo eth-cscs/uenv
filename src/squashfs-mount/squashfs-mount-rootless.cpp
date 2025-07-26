@@ -1,4 +1,5 @@
 #include "squashfs-mount/rootless.h"
+#include <filesystem>
 #include <ranges>
 #include <string>
 #include <vector>
@@ -111,6 +112,11 @@ int main(int argc, char** argv, char** envp) {
     //
     if (auto r = uenv::unshare_mount_map_root(); !r) {
         spdlog::error("fake-root failed {}", r.error());
+        return 1;
+    }
+
+    if (auto r = uenv::make_mutable_root(); !r) {
+        spdlog::error("mutable-root failed {}", r.error());
         return 1;
     }
 

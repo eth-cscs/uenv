@@ -14,4 +14,7 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid);
 /* squashfs_ll mount */
 util::expected<void, std::string> do_sqfs_mount(const uenv::mount_pair&);
 
+util::expected<void, std::string> make_mutable_root();
+
+
 }  // uenv
