@@ -20,6 +20,16 @@ struct mount_pair {
     std::filesystem::path mount;
 };
 
+struct tmpfs_description {
+    std::filesystem::path mount;
+    std::optional<std::uint64_t> size;
+};
+
+struct bindmount_description {
+    std::filesystem::path src;
+    std::filesystem::path dst;
+};
+
 // convert a description to a mount_pair that has a validated squashfs path
 util::expected<mount_pair, std::string>
 make_mount_pair(const mount_description& description);
@@ -33,7 +43,7 @@ using mount_list = std::vector<mount_pair>;
 //     auto mounts = parse_and_validate_mounts(mountvar.value());
 // }
 util::expected<mount_list, std::string>
-parse_and_validate_mounts(const std::string& description);
+parse_and_validate_mounts(const std::string& description, bool mount_points_must_exist=true);
 
 /// called as root, in slurm-plugin
 util::expected<void, std::string> unshare_as_root();

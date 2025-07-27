@@ -1,7 +1,7 @@
 #pragma once
 
 #include "uenv/mount.h"
-// #include "utils.h"
+#include <filesystem>
 
 namespace uenv {
 
@@ -16,5 +16,10 @@ util::expected<void, std::string> do_sqfs_mount(const uenv::mount_pair&);
 
 util::expected<void, std::string> make_mutable_root();
 
+util::expected<void, std::string>
+mount_tmpfs(std::filesystem::path dst, std::optional<std::uint64_t> size);
 
-}  // uenv
+util::expected<void, std::string> bind_mount(std::filesystem::path src,
+                                             std::filesystem::path dst);
+
+} // namespace uenv

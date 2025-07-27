@@ -1,3 +1,4 @@
+#include "uenv/mount.h"
 #include <charconv>
 #include <string>
 #include <string_view>
@@ -316,6 +317,39 @@ parse_mount_description(lex::lexer& L) {
     return result;
 }
 
+util::expected<tmpfs_description, parse_error>
+parse_tmpfs_description(lex::lexer& L) {
+    tmpfs_description result;
+
+    PARSE(L, path, result.mount);
+    // size is optional
+    if (L.current_kind() == lex::tok::colon) {
+        // eat the colon
+        L.next();
+
+        PARSE(L, uint64, result.size);
+    }
+    return result;
+}
+
+util::expected<bindmount_description, parse_error>
+parse_bindmount_description(lex::lexer& L) {
+    bindmount_description result;
+    PARSE(L, path, result.src);
+    if (L.current_kind() != lex::tok::colon) {
+        return util::unexpected{
+            parse_error(L.string(),
+                        fmt::format("expected a ':' separating the bind-mount "
+                                    "src and dest found {}'",
+                                    L.peek().spelling),
+                        L.peek())};
+    }
+    L.next();
+    PARSE(L, path, result.dst);
+    return result;
+}
+
+
 /* Public interface.
  * These are the high level functions for parsing raw strings passed to the
  * command line.
@@ -422,8 +456,50 @@ parse_mount_list(const std::string& arg) {
     return mounts;
 }
 
-util::expected<uenv_registry_entry, parse_error>
-parse_registry_entry(const std::string& in) {
+util::expected<std::vector<tmpfs_description>, parse_error>
+parse_tmpfs(const std::vector<std::string>& args) {
+    std::vector<tmpfs_description> tmpfss;
+    for (auto arg : args) {
+        const std::string sanitised = util::strip(arg);
+        spdlog::trace("parse_tmpfs sanitized `{}`", sanitised);
+        auto L = lex::lexer(sanitised);
+        tmpfs_description td;
+        PARSE(L, tmpfs_description, td);
+        tmpfss.push_back(std::move(td));
+        // if parsing finished and the string has not been consumed,
+        // and invalid token was encountered
+        if (const auto t = L.peek(); t.kind != lex::tok::end) {
+            return util::unexpected(parse_error{
+                L.string(), fmt::format("unexpected symbol {}", t.spelling),
+                t});
+        }
+    }
+    return tmpfss;
+}
+
+util::expected<std::vector<bindmount_description>, parse_error>
+parse_bindmounts(const std::vector<std::string>& args){
+    std::vector<bindmount_description> result;
+    for (auto arg : args) {
+        const std::string sanitised = util::strip(arg);
+        spdlog::trace("parse_bindmounts sanitized `{}`", sanitised);
+        auto L = lex::lexer(sanitised);
+        bindmount_description bm;
+        PARSE(L, bindmount_description, bm);
+        result.push_back(std::move(bm));
+        // if parsing finished and the string has not been consumed,
+        // and invalid token was encountered
+        if (const auto t = L.peek(); t.kind != lex::tok::end) {
+            return util::unexpected(parse_error{
+                L.string(), fmt::format("unexpected symbol {}", t.spelling),
+                t});
+        }
+    }
+    return result;
+}
+
+util::expected<uenv_registry_entry, parse_error> parse_registry_entry(
+    const std::string& in) {
     const std::string sanitised = util::strip(in);
     auto L = lex::lexer(sanitised);
 

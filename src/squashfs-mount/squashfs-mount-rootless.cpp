@@ -30,6 +30,8 @@ void error_and_exit(fmt::format_string<T...> fmt, T&&... args) {
     exit(1);
 }
 
+namespace fs = std::filesystem;
+
 // squashfs-mount --sqfs=file:mount[,file:mount] -- cmd [args]
 //
 // --version --verbose=2, -v, -vv, -vvv
@@ -46,16 +48,19 @@ int main(int argc, char** argv, char** envp) {
 
     bool print_version = false;
     int verbosity = 1;
+    bool mutable_root = false;
     std::string raw_mounts;
     std::vector<std::string> commands;
     std::vector<std::string> tmpfs;
+    std::vector<std::string> bind_mounts;
 
     CLI::App cli(fmt::format("squashfs-mount {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
+    cli.add_flag("-r,--mutable-root", mutable_root, "mutable root");
     cli.add_option("--tmpfs", tmpfs, "tmpfs");
+    cli.add_option("--bind-mount", bind_mounts, "bind_mounts <src>:<dst>");
     cli.add_option("-s,--sqfs", raw_mounts,
-                   "comma separated list of uenv to mount")
-        ->required();
+                   "comma separated list of uenv to mount");
     cli.add_option("commands", commands,
                    "the command to run, including with arguments")
         ->required();
@@ -94,12 +99,20 @@ int main(int argc, char** argv, char** envp) {
     // validate the mount points
     //
 
-    auto mounts = uenv::parse_and_validate_mounts(raw_mounts);
-    if (!mounts) {
-        error_and_exit("{}", mounts.error());
+    // when using a mutable root, mount_points are created, skip test for
+    // existence
+    bool mount_points_must_exist = !mutable_root;
+    uenv::mount_list mounts;
+    if (cli.get_option("--sqfs")->count() > 0) {
+        auto r = uenv::parse_and_validate_mounts(raw_mounts,
+                                                 mount_points_must_exist);
+        if (!r) {
+            error_and_exit("{}", r.error());
+        }
+        mounts = r.value();
     }
     const std::string uenv_mount_list =
-        fmt::format("{}", fmt::join(mounts.value(), ","));
+        fmt::format("{}", fmt::join(mounts, ","));
 
     spdlog::info("uenv_mount_list {}", uenv_mount_list);
     spdlog::info("commands ['{}']", fmt::join(commands, "', '"));
@@ -107,23 +120,60 @@ int main(int argc, char** argv, char** envp) {
     const uid_t uid = getuid();
     const uid_t gid = getgid();
 
-    //
-    // Squashfuse mount
-    //
+    // unshare mount ns, enter fake-root
     if (auto r = uenv::unshare_mount_map_root(); !r) {
-        spdlog::error("fake-root failed {}", r.error());
-        return 1;
+        error_and_exit("fake-root failed {}", r.error());
     }
 
-    if (auto r = uenv::make_mutable_root(); !r) {
-        spdlog::error("mutable-root failed {}", r.error());
-        return 1;
+    // create mutable root
+    if (mutable_root) {
+        if (auto r = uenv::make_mutable_root(); !r) {
+            error_and_exit("mutable-root failed {}", r.error());
+        }
     }
 
-    for (auto mount : mounts.value()) {
+    auto tmpfss = uenv::parse_tmpfs(tmpfs);
+    if (!tmpfss) {
+        auto err = tmpfss.error();
+        error_and_exit("failed to parse tmpfs msg=`{}` detail=`{}` "
+                       "description=`{}`, input=`{}`",
+                       err.message(), err.detail, err.description, err.input);
+    }
+
+    // bind mounts
+    auto bind_mountss = uenv::parse_bindmounts(bind_mounts);
+    if (!bind_mountss) {
+        auto err = bind_mountss.error();
+        error_and_exit("failed to parse tmpfs msg=`{}` detail=`{}` "
+                      "description=`{}`, input=`{}`",
+                      err.message(), err.detail, err.description, err.input);
+    }
+    for (auto entry : bind_mountss.value()) {
+        if(mutable_root) {
+            fs::create_directories(entry.dst);
+        }
+        auto r = uenv::bind_mount(entry.src, entry.dst);
+        if(!r) {
+            error_and_exit("bindmount failed {}", r.error());
+        }
+    }
+
+    for (auto& entry : tmpfss.value()) {
+        if (mutable_root) {
+            fs::create_directories(entry.mount);
+        }
+        auto r = uenv::mount_tmpfs(entry.mount, entry.size);
+        if (!r) {
+            error_and_exit("tmpfs creation failed {}", r.error());
+        }
+    }
+
+    for (auto mount : mounts) {
+        if (mutable_root) {
+            fs::create_directories(mount.mount);
+        }
         if (auto r = do_sqfs_mount(mount); !r) {
-            spdlog::error("failed to mount {}", r.error());
-            return 1;
+            error_and_exit("failed to mount {}", r.error());
         }
     }
 
@@ -147,7 +197,7 @@ int main(int argc, char** argv, char** envp) {
     runtime_env.set("UENV_MOUNT_LIST", uenv_mount_list);
 
     // exit fake-root
-    if ( auto r = uenv::map_effective_user(uid, gid); !r) {
+    if (auto r = uenv::map_effective_user(uid, gid); !r) {
         spdlog::error("failed {}", r.error());
         return 1;
     }
@@ -156,4 +206,3 @@ int main(int argc, char** argv, char** envp) {
 
     return rcode;
 }
-

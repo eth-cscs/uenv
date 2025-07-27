@@ -20,7 +20,7 @@ namespace uenv {
 
 /// Same effect as `unshare --mount --map-root-user`
 util::expected<void, std::string> unshare_mount_map_root() {
-    spdlog::info("become fake root");
+    spdlog::trace("become fake root");
     int uid = getuid(); // get current uid
     int gid = getgid();
     if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0)
@@ -122,7 +122,7 @@ static void init_fs_ops(struct fuse_lowlevel_ops* sqfs_ll_ops) {
  */
 util::expected<void, std::string> do_sqfs_mount(const mount_pair& entry) {
 
-    spdlog::info("do_sqfs_mount");
+    spdlog::trace("do_sqfs_mount");
     // use a pipe to synchronize parent and child process
     int pipe_wait[2];
     if (pipe(pipe_wait) != 0) {
