@@ -51,14 +51,14 @@ int main(int argc, char** argv, char** envp) {
     bool mutable_root = false;
     std::string raw_mounts;
     std::vector<std::string> commands;
-    std::vector<std::string> tmpfs;
-    std::vector<std::string> bind_mounts;
+    std::vector<std::string> tmpfs_str;
+    std::vector<std::string> bind_mounts_str;
 
     CLI::App cli(fmt::format("squashfs-mount {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
     cli.add_flag("-r,--mutable-root", mutable_root, "mutable root");
-    cli.add_option("--tmpfs", tmpfs, "tmpfs");
-    cli.add_option("--bind-mount", bind_mounts, "bind_mounts <src>:<dst>");
+    cli.add_option("--tmpfs", tmpfs_str, "tmpfs[:size]");
+    cli.add_option("--bind-mount", bind_mounts_str, "bind_mounts <src>:<dst>");
     cli.add_option("-s,--sqfs", raw_mounts,
                    "comma separated list of uenv to mount");
     cli.add_option("commands", commands,
@@ -132,23 +132,23 @@ int main(int argc, char** argv, char** envp) {
         }
     }
 
-    auto tmpfss = uenv::parse_tmpfs(tmpfs);
-    if (!tmpfss) {
-        auto err = tmpfss.error();
+    // tmps
+    auto tmpfs = uenv::parse_tmpfs(tmpfs_str);
+    if (!tmpfs) {
+        auto err = tmpfs.error();
         error_and_exit("failed to parse tmpfs msg=`{}` detail=`{}` "
                        "description=`{}`, input=`{}`",
                        err.message(), err.detail, err.description, err.input);
     }
-
     // bind mounts
-    auto bind_mountss = uenv::parse_bindmounts(bind_mounts);
-    if (!bind_mountss) {
-        auto err = bind_mountss.error();
+    auto bind_mounts = uenv::parse_bindmounts(bind_mounts_str);
+    if (!bind_mounts) {
+        auto err = bind_mounts.error();
         error_and_exit("failed to parse tmpfs msg=`{}` detail=`{}` "
                       "description=`{}`, input=`{}`",
                       err.message(), err.detail, err.description, err.input);
     }
-    for (auto entry : bind_mountss.value()) {
+    for (auto entry : bind_mounts.value()) {
         if(mutable_root) {
             fs::create_directories(entry.dst);
         }
@@ -158,7 +158,7 @@ int main(int argc, char** argv, char** envp) {
         }
     }
 
-    for (auto& entry : tmpfss.value()) {
+    for (auto& entry : tmpfs.value()) {
         if (mutable_root) {
             fs::create_directories(entry.mount);
         }
