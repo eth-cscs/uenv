@@ -43,13 +43,30 @@ using mount_list = std::vector<mount_pair>;
 //     auto mounts = parse_and_validate_mounts(mountvar.value());
 // }
 util::expected<mount_list, std::string>
-parse_and_validate_mounts(const std::string& description, bool mount_points_must_exist=true);
+parse_and_validate_mounts(const std::string& description,
+                          bool mount_points_must_exist = true);
 
 /// called as root, in slurm-plugin
 util::expected<void, std::string> unshare_as_root();
 
-/// mount sqfs images, make sure mnt ns has been unshared before calling this function
+/// mount sqfs images, make sure mnt ns has been unshared before calling this
+/// function
 util::expected<void, std::string> do_mount(const mount_list& mount_entries);
+
+/// wrapper to `mount` from `sys/mount.h`
+util::expected<void, std::string> mount(std::optional<std::string> source,
+                                        const std::string& dest,
+                                        std::optional<std::string> fstype,
+                                        unsigned long mountflags,
+                                        const void* nullable_data);
+
+/// create a tmpfs
+util::expected<void, std::string>
+mount_tmpfs(std::filesystem::path dst, std::optional<std::uint64_t> size);
+
+/// bind mount
+util::expected<void, std::string> bind_mount(std::filesystem::path src,
+                                             std::filesystem::path dst);
 
 } // namespace uenv
 

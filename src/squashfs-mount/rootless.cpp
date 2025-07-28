@@ -7,6 +7,7 @@
 extern "C" {
 #include <squashfuse/ll.h>
 }
+#include <spdlog/spdlog.h>
 #include <stddef.h>
 #include <string>
 #include <sys/mount.h>
@@ -14,7 +15,6 @@ extern "C" {
 #include <uenv/mount.h>
 #include <unistd.h>
 #include <util/expected.h>
-#include <spdlog/spdlog.h>
 
 namespace uenv {
 
@@ -26,9 +26,11 @@ util::expected<void, std::string> unshare_mount_map_root() {
     if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0)
         err(EXIT_FAILURE, "unshare(CLONE_NEWUSER | CLONE_NEWUSER) failed");
 
-    if (mount(NULL, "/", NULL, MS_SHARED | MS_REC, NULL) != 0)
-        return util::unexpected(
-            "Failed to remount \"/\" with MS_SHARED | MS_REC");
+    if (auto r =
+            mount(std::nullopt, "/", std::nullopt, MS_SHARED | MS_REC, nullptr);
+        !r) {
+        return r;
+    }
 
     // map current user id to root
     char buf[256];
@@ -47,10 +49,9 @@ util::expected<void, std::string> unshare_mount_map_root() {
     close(proc_gid_map);
 
     // the following is executed by `unshare --mount --map-root-user`
-    if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL)) {
-        return util::unexpected{
-            fmt::format("failed to execute: mount(\" none \", \" / \", "
-                        "NULL, MS_REC|MS_PRIVATE, NULL)")};
+    if (auto r = mount("none", "/", std::nullopt, MS_REC | MS_PRIVATE, nullptr);
+        !r) {
+        return r;
     }
     return {};
 }

@@ -144,7 +144,8 @@ validate_mount_list(const mount_list& input, bool mount_points_must_exist) {
 }
 
 util::expected<mount_list, std::string>
-validate_mount_descriptions(const std::vector<mount_description>& input, bool mount_points_must_exist) {
+validate_mount_descriptions(const std::vector<mount_description>& input,
+                            bool mount_points_must_exist) {
     mount_list mounts;
     for (auto desc : input) {
         if (auto mount = uenv::make_mount_pair(desc); !mount) {
@@ -160,13 +161,15 @@ validate_mount_descriptions(const std::vector<mount_description>& input, bool mo
 }
 
 util::expected<mount_list, std::string>
-parse_and_validate_mounts(const std::string& description, bool mount_points_must_exist) {
+parse_and_validate_mounts(const std::string& description,
+                          bool mount_points_must_exist) {
     auto mount_descriptions = uenv::parse_mount_list(description);
     if (!mount_descriptions) {
         return util::unexpected{mount_descriptions.error().message()};
     }
 
-    return validate_mount_descriptions(mount_descriptions.value(), mount_points_must_exist);
+    return validate_mount_descriptions(mount_descriptions.value(),
+                                       mount_points_must_exist);
 }
 
 util::expected<void, std::string>
@@ -223,6 +226,41 @@ do_mount(const std::vector<mount_pair>& mount_entries) {
     }
 
     return {};
+}
+
+util::expected<void, std::string> mount(std::optional<std::string> source,
+                                        const std::string& dest,
+                                        std::optional<std::string> fstype,
+                                        unsigned long mountflags,
+                                        const void* nullable_data) {
+    spdlog::trace("mount({}, {}, {}, {:b})",
+                  source ? source.value().c_str() : "null", dest,
+                  fstype ? fstype.value().c_str() : "null", mountflags);
+    // spdlog::debug("foo bar {}", "foo");
+    if (::mount(source ? source->c_str() : nullptr, dest.c_str(),
+                fstype ? fstype->c_str() : nullptr, mountflags,
+                nullable_data) != 0) {
+        return util::unexpected(
+            fmt::format("mount failed: {}", strerror(errno)));
+    }
+    return {};
+}
+
+util::expected<void, std::string>
+mount_tmpfs(std::filesystem::path dst, std::optional<std::uint64_t> size) {
+    std::string options = "mode=0755";
+    if (size) {
+        options = fmt::format("{},size={}", options, size.value());
+    }
+    return uenv::mount("tmpfs", dst, "tmpfs", MS_NOSUID | MS_NODEV,
+                       options.c_str());
+}
+
+util::expected<void, std::string> bind_mount(std::filesystem::path src,
+                                             std::filesystem::path dst) {
+    spdlog::trace("bind_mount({}, {})", src.string(), dst.string());
+    return uenv::mount(src, dst, std::nullopt, MS_BIND | MS_REC | MS_SILENT,
+                       nullptr);
 }
 
 } // namespace uenv

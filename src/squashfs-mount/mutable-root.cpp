@@ -20,40 +20,6 @@ extern "C" {
 namespace fs = std::filesystem;
 namespace uenv {
 
-util::expected<void, std::string> mount(std::optional<std::string> source,
-                                        const std::string& dest,
-                                        std::optional<std::string> fstype,
-                                        unsigned long mountflags,
-                                        const void* nullable_data) {
-    spdlog::trace("mount({}, {}, {}, {:b})",
-                  source ? source.value().c_str() : "null", dest,
-                  fstype ? fstype.value().c_str() : "null", mountflags);
-    // spdlog::debug("foo bar {}", "foo");
-    if (::mount(source ? source->c_str() : nullptr, dest.c_str(),
-                fstype ? fstype->c_str() : nullptr, mountflags,
-                nullable_data) != 0) {
-        return util::unexpected(
-            fmt::format("mount failed: {}", strerror(errno)));
-    }
-    return {};
-}
-
-util::expected<void, std::string>
-mount_tmpfs(fs::path dst, std::optional<std::uint64_t> size) {
-    std::string options = "mode=0755";
-    if (size) {
-        options = fmt::format("{},size={}", options, size.value());
-    }
-    return uenv::mount("tmpfs", dst, "tmpfs", MS_NOSUID | MS_NODEV,
-                       options.c_str());
-}
-
-util::expected<void, std::string> bind_mount(fs::path src, fs::path dst) {
-    spdlog::trace("bind_mount({}, {})", src.string(), dst.string());
-    return uenv::mount(src, dst, std::nullopt, MS_BIND | MS_REC | MS_SILENT,
-                       nullptr);
-}
-
 /*
  * see https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L378
  */
