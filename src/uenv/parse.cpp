@@ -349,7 +349,6 @@ parse_bindmount_description(lex::lexer& L) {
     return result;
 }
 
-
 /* Public interface.
  * These are the high level functions for parsing raw strings passed to the
  * command line.
@@ -478,7 +477,7 @@ parse_tmpfs(const std::vector<std::string>& args) {
 }
 
 util::expected<std::vector<bindmount_description>, parse_error>
-parse_bindmounts(const std::vector<std::string>& args){
+parse_bindmounts(const std::vector<std::string>& args) {
     std::vector<bindmount_description> result;
     for (auto arg : args) {
         const std::string sanitised = util::strip(arg);
@@ -498,8 +497,8 @@ parse_bindmounts(const std::vector<std::string>& args){
     return result;
 }
 
-util::expected<uenv_registry_entry, parse_error> parse_registry_entry(
-    const std::string& in) {
+util::expected<uenv_registry_entry, parse_error>
+parse_registry_entry(const std::string& in) {
     const std::string sanitised = util::strip(in);
     auto L = lex::lexer(sanitised);
 
