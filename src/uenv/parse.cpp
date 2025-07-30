@@ -1,3 +1,4 @@
+#include "uenv/mount.h"
 #include <charconv>
 #include <string>
 #include <string_view>
@@ -295,8 +296,9 @@ parse_uenv_description(lex::lexer& L) {
         L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
 }
 
-util::expected<mount_entry, parse_error> parse_mount_entry(lex::lexer& L) {
-    mount_entry result;
+util::expected<mount_description, parse_error>
+parse_mount_description(lex::lexer& L) {
+    mount_description result;
 
     PARSE(L, path, result.sqfs_path);
     if (L.current_kind() != lex::tok::colon) {
@@ -312,6 +314,38 @@ util::expected<mount_entry, parse_error> parse_mount_entry(lex::lexer& L) {
     L.next();
     PARSE(L, path, result.mount_path);
 
+    return result;
+}
+
+util::expected<tmpfs_description, parse_error>
+parse_tmpfs_description(lex::lexer& L) {
+    tmpfs_description result;
+
+    PARSE(L, path, result.mount);
+    // size is optional
+    if (L.current_kind() == lex::tok::colon) {
+        // eat the colon
+        L.next();
+
+        PARSE(L, uint64, result.size);
+    }
+    return result;
+}
+
+util::expected<bindmount_description, parse_error>
+parse_bindmount_description(lex::lexer& L) {
+    bindmount_description result;
+    PARSE(L, path, result.src);
+    if (L.current_kind() != lex::tok::colon) {
+        return util::unexpected{
+            parse_error(L.string(),
+                        fmt::format("expected a ':' separating the bind-mount "
+                                    "src and dest found {}'",
+                                    L.peek().spelling),
+                        L.peek())};
+    }
+    L.next();
+    PARSE(L, path, result.dst);
     return result;
 }
 
@@ -389,16 +423,16 @@ parse_uenv_args(const std::string& arg) {
     return uenvs;
 }
 
-util::expected<std::vector<mount_entry>, parse_error>
+util::expected<std::vector<mount_description>, parse_error>
 parse_mount_list(const std::string& arg) {
     const std::string sanitised = util::strip(arg);
     auto L = lex::lexer(sanitised);
-    std::vector<mount_entry> mounts;
+    std::vector<mount_description> mounts;
 
     spdlog::trace("parsing uenv mount list {}", arg);
     while (true) {
-        mount_entry mnt;
-        PARSE(L, mount_entry, mnt);
+        mount_description mnt;
+        PARSE(L, mount_description, mnt);
         mounts.push_back(std::move(mnt));
 
         if (L.peek().kind != lex::tok::comma) {
@@ -419,6 +453,48 @@ parse_mount_list(const std::string& arg) {
             L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
     }
     return mounts;
+}
+
+util::expected<std::vector<tmpfs_description>, parse_error>
+parse_tmpfs(const std::vector<std::string>& args) {
+    std::vector<tmpfs_description> tmpfss;
+    for (auto arg : args) {
+        const std::string sanitised = util::strip(arg);
+        spdlog::trace("parse_tmpfs sanitized `{}`", sanitised);
+        auto L = lex::lexer(sanitised);
+        tmpfs_description td;
+        PARSE(L, tmpfs_description, td);
+        tmpfss.push_back(std::move(td));
+        // if parsing finished and the string has not been consumed,
+        // and invalid token was encountered
+        if (const auto t = L.peek(); t.kind != lex::tok::end) {
+            return util::unexpected(parse_error{
+                L.string(), fmt::format("unexpected symbol {}", t.spelling),
+                t});
+        }
+    }
+    return tmpfss;
+}
+
+util::expected<std::vector<bindmount_description>, parse_error>
+parse_bindmounts(const std::vector<std::string>& args) {
+    std::vector<bindmount_description> result;
+    for (auto arg : args) {
+        const std::string sanitised = util::strip(arg);
+        spdlog::trace("parse_bindmounts sanitized `{}`", sanitised);
+        auto L = lex::lexer(sanitised);
+        bindmount_description bm;
+        PARSE(L, bindmount_description, bm);
+        result.push_back(std::move(bm));
+        // if parsing finished and the string has not been consumed,
+        // and invalid token was encountered
+        if (const auto t = L.peek(); t.kind != lex::tok::end) {
+            return util::unexpected(parse_error{
+                L.string(), fmt::format("unexpected symbol {}", t.spelling),
+                t});
+        }
+    }
+    return result;
 }
 
 util::expected<uenv_registry_entry, parse_error>

@@ -41,7 +41,7 @@ struct patch;
 //
 // Using this representation, all calls to getenv and setenv system calls can be
 // avoided:
-//      - make a read only copy of the environment by grabbing ::environm or
+//      - make a read only copy of the environment by grabbing ::environ or
 //      envp when the application starts
 //      - when launching a sub-process, make a mutable copy of the calling state
 //      (or create an empty state)

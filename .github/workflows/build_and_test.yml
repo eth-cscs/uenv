@@ -17,46 +17,62 @@ jobs:
           - buildtype: release
             sanitizer: address
     runs-on: ubuntu-24.04
+    container:
+        image: ubuntu:noble
+        options: --privileged
     steps:
       - uses: actions/checkout@v4
       - name: Update apt repositories for ccache
-        run: sudo apt update
+        run: apt update
       - name: Install dependencies
-        run: sudo apt-get install util-linux libmount-dev libslurm-dev
+        run: apt-get install --no-install-recommends --yes util-linux libmount-dev libslurm-dev
       #  run: sudo apt-get install util-linux libmount-dev slurm-wlm libslurm-dev slurmd slurmctld slurm-client
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ccache-linux-${{ matrix.buildtype }}-${{ matrix.sanitizer }}
       - name: Install compiler and build tools
-        run: sudo apt install --no-install-recommends --yes g++-12 ninja-build
+        run: |
+            apt install --no-install-recommends --yes \
+               g++-12 \
+               ninja-build \
+               libsquashfuse-dev \
+               libfuse3-dev \
+               wget \
+               ca-certificates \
+               python3 \
+               pkg-config \
+               sqlite3 \
+               git \
+               squashfs-tools \
+               curl \
+               ninja-build \
+               locales
+
+            locale-gen en_US.UTF-8
+            update-locale LANG=en_US.UTF-8
       - name: install meson
         run: |
           wget https://github.com/mesonbuild/meson/releases/download/1.6.1/meson-1.6.1.tar.gz && \
           tar -xzf meson-1.6.1.tar.gz && \
           mv meson-1.6.1 meson && \
           mv meson/meson.py meson/meson
-      - name: install squashfs-mount
-        run: |
-          wget https://github.com/eth-cscs/squashfs-mount/archive/refs/tags/v1.1.0.tar.gz
-          tar -xzf v1.1.0.tar.gz
-          ./meson/meson setup build-sqfs squashfs-mount-1.1.0
-          ./meson/meson compile -C build-sqfs
-          sudo ./meson/meson install -C build-sqfs
       - name: Configure
         run: |
             CC="ccache gcc-12" CXX="ccache g++-12" ./meson/meson setup \
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
               -Dtests=enabled \
+              -Dfuse=true \
+              -Dsquashfs_mount=true \
               --warnlevel 3 \
               --werror \
               build .
       - name: Build
         run: ./meson/meson compile -Cbuild
       - name: test unit
-        run: ./meson/meson test -Cbuild --verbose unit
+        run: ./meson/meson test -v -Cbuild --verbose unit
       - name: test cli
         run: |
-          sudo mkdir /user-tools /user-environment
+          mkdir /user-tools /user-environment
           UENV_BATS_SKIP_START=on ./meson/meson test -Cbuild --verbose cli

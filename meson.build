@@ -13,7 +13,7 @@ oras_version = get_option('oras_version')
 
 uenv_slurm_plugin = get_option('slurm_plugin')
 uenv_cli = get_option('cli')
-
+uenv_squashfs_mount = get_option('squashfs_mount')
 conf_data = configuration_data()
 
 add_global_arguments('-Wno-missing-field-initializers', language : 'cpp')
@@ -36,6 +36,8 @@ barkeep_dep = declare_dependency(
         compile_args: ['-DBARKEEP_ENABLE_FMT_FORMAT'],
 )
 
+libmount_dep = dependency('mount')
+
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
 lib_src = [
@@ -43,6 +45,7 @@ lib_src = [
         'src/uenv/env.cpp',
         'src/uenv/log.cpp',
         'src/uenv/meta.cpp',
+        'src/uenv/mount.cpp',
         'src/uenv/oras.cpp',
         'src/uenv/parse.cpp',
         'src/uenv/print.cpp',
@@ -62,7 +65,7 @@ lib_src = [
 lib_inc = include_directories('src')
 
 lib_uenv = static_library(
-        'libuenv',
+        'uenv',
         lib_src,
         include_directories: lib_inc,
         dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
@@ -70,7 +73,7 @@ lib_uenv = static_library(
 
 uenv_dep = declare_dependency(
         link_with: lib_uenv,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep],
         include_directories: lib_inc
 )
 
@@ -133,8 +136,45 @@ if uenv_cli
 endif
 
 if uenv_slurm_plugin
-    subdir('src/slurm')
+  subdir('src/slurm')
 endif
+
+if uenv_squashfs_mount
+    if get_option('fuse')
+        fuse_dep = dependency('fuse@0@'.format(get_option('fuse_version')))
+        squashfuse_dep = dependency('squashfuse_ll', static: false)
+        squashfs_mount_build = executable('squashfs-mount',
+                                          sources: ['src/squashfs-mount/squashfs-mount-rootless.cpp',
+                                                    'src/squashfs-mount/rootless.cpp',
+                                                    'src/squashfs-mount/mutable-root.cpp'
+                                                   ],
+                                          dependencies: [uenv_dep, fmt_dep, cli11_dep, squashfuse_dep, fuse_dep],
+                                          c_args: [
+                                              '-DVERSION="@0@"'.format(version),
+                                          ],
+                                          install: true
+                                         )
+    else
+        message('NOT iusing fuse')
+        squashfs_mount_build = executable('squashfs-mount-build',
+                                          sources: ['src/squashfs-mount/squashfs-mount.cpp'],
+                                          dependencies: [uenv_dep, fmt_dep, cli11_dep],
+                                          c_args: [
+                                              '-DVERSION="@0@"'.format(version),
+                                          ],
+                                          install: false)
+
+        squashfs_mount = custom_target(
+            'squashfs-mount',
+            input: squashfs_mount_build,
+            output: 'squashfs-mount',
+            command: ['./meson-scripts/make-setuid.sh', '@INPUT@', '@OUTPUT@'],
+            install: true,
+            install_dir: get_option('bindir'),
+        )
+    endif
+endif
+
 
 if get_option('tests').enabled()
     subdir('test')

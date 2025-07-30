@@ -52,6 +52,7 @@ unit_src = [
         'unit/fs.cpp',
         'unit/lex.cpp',
         'unit/main.cpp',
+        'unit/mount.cpp',
         'unit/parse.cpp',
         'unit/signal.cpp',
         'unit/strings.cpp',
@@ -67,4 +68,4 @@ unit = executable('unit',
         install: false)
 
 test('unit', unit, is_parallel : false)
-test('cli', bats, args: ['./test/cli.bats'], is_parallel : false)
+test('cli', bats, args: ['./test/cli.bats', '--verbose-run'], is_parallel : false)

@@ -15,7 +15,7 @@ util::expected<uenv_description, parse_error>
 parse_uenv_description(lex::lexer&);
 util::expected<view_description, parse_error>
 parse_view_description(lex::lexer& L);
-util::expected<mount_entry, parse_error> parse_mount_entry(lex::lexer& L);
+util::expected<mount_description, parse_error> parse_mount_entry(lex::lexer& L);
 } // namespace uenv
 
 TEST_CASE("parse names", "[parse]") {

@@ -1,5 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
+#include <ranges>
 #include <string>
 
 #include <fmt/core.h>
@@ -64,16 +65,26 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
 
     // generate the mount list
     std::vector<std::string> commands = {"squashfs-mount"};
-    for (auto e : env->uenvs) {
-        commands.push_back(fmt::format("{}:{}", e.second.sqfs_path.string(),
-                                       e.second.mount_path));
-    }
+    commands.push_back(fmt::format(
+        "--sqfs={}",
+        fmt::join(env->uenvs | std::views::transform([](const auto& in) {
+                      return fmt::format("{}:{}", in.second.sqfs_path.string(),
+                                         in.second.mount_path);
+                  }),
+                  ",")));
 
     commands.push_back("--");
     commands.insert(commands.end(), args.commands.begin(), args.commands.end());
 
-    // return util::exec(commands);
-    return util::exec(commands, runtime_environment.c_env());
+    auto c_env = runtime_environment.c_env();
+    auto rcode = util::exec(commands, c_env);
+
+    // clean up memory if there was an error
+    if (rcode) {
+        envvars::c_env_free(c_env);
+    }
+
+    return rcode;
 }
 
 std::string run_footer() {

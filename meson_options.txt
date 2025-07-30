@@ -2,5 +2,7 @@ option('tests', type: 'feature', value: 'disabled')
 
 option('slurm_plugin', type: 'boolean', value: true)
 option('cli', type: 'boolean', value: true)
-
+option('squashfs_mount', type: 'boolean', value: false)
+option('fuse', type: 'boolean', value: true)
+option('fuse_version', type: 'string', value: '3')
 option('oras_version', type: 'string', value: '1.2.0')
