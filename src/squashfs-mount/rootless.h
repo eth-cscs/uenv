@@ -15,5 +15,4 @@ util::expected<void, std::string> do_sqfs_mount(const uenv::mount_pair&);
 
 util::expected<void, std::string> make_mutable_root();
 
-
 } // namespace uenv

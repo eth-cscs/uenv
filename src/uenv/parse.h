@@ -57,8 +57,7 @@ parse_tmpfs(const std::vector<std::string>& args);
 util::expected<std::vector<bindmount_description>, parse_error>
 parse_bindmounts(const std::vector<std::string>& args);
 
-util::expected<uenv_date, parse_error> parse_uenv_date(
-    const std::string& arg);
+util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg);
 
 util::expected<std::string, parse_error> parse_path(const std::string& in);
 

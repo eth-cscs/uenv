@@ -1,6 +1,6 @@
-#include "squashfs-mount/rootless.h"
 #include <filesystem>
 #include <ranges>
+#include <squashfs-mount/rootless.h>
 #include <string>
 #include <vector>
 
@@ -145,15 +145,15 @@ int main(int argc, char** argv, char** envp) {
     if (!bind_mounts) {
         auto err = bind_mounts.error();
         error_and_exit("failed to parse tmpfs msg=`{}` detail=`{}` "
-                      "description=`{}`, input=`{}`",
-                      err.message(), err.detail, err.description, err.input);
+                       "description=`{}`, input=`{}`",
+                       err.message(), err.detail, err.description, err.input);
     }
     for (auto entry : bind_mounts.value()) {
-        if(mutable_root) {
+        if (mutable_root) {
             fs::create_directories(entry.dst);
         }
         auto r = uenv::bind_mount(entry.src, entry.dst);
-        if(!r) {
+        if (!r) {
             error_and_exit("bindmount failed {}", r.error());
         }
     }
