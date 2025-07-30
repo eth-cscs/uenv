@@ -36,7 +36,7 @@ set -eu
 	  )
 )
 
-PKG_CONFIG_PATH=$(realpath extern/zstd-1.5.7/install/lib/pkgconfig):$(realpath extern/squashfuse-0.6.1/install):${PKG_CONFIG_PATH:-}
+PKG_CONFIG_PATH=$(realpath extern/zstd-1.5.7/install/lib/pkgconfig):$(realpath extern/squashfuse-0.6.1/install/lib/pkgconfig):${PKG_CONFIG_PATH:-}
 export PKG_CONFIG_PATH
 
 arch=$(uname -m)
@@ -54,7 +54,7 @@ echo "== configure in $build"
 
 export CC=gcc-12
 export CXX=g++-12
-uvx --with meson,ninja meson setup --Dsquashfs_mount=true -Dfuse=true --prefix=$install $build $root
+uvx --with meson,ninja meson setup -Dsquashfs_mount=true -Dfuse=true --prefix=$install $build $root
 uvx --with meson,ninja meson compile -C$build
 uvx --with meson,ninja meson install -C$build --skip-subprojects
 
