@@ -32,6 +32,7 @@ jobs:
         run: sudo apt install --no-install-recommends --yes g++-12 ninja-build libsquashfuse-dev libfuse3-dev
       - name: install meson
         run: |
+          unshare --mount --map-root-user true
           wget https://github.com/mesonbuild/meson/releases/download/1.6.1/meson-1.6.1.tar.gz && \
           tar -xzf meson-1.6.1.tar.gz && \
           mv meson-1.6.1 meson && \
