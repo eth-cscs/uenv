@@ -29,7 +29,7 @@ jobs:
         with:
           key: ccache-linux-${{ matrix.buildtype }}-${{ matrix.sanitizer }}
       - name: Install compiler and build tools
-        run: sudo apt install --no-install-recommends --yes g++-12 ninja-build libsquashfuse-dev
+        run: sudo apt install --no-install-recommends --yes g++-12 ninja-build libsquashfuse-dev libfuse3-dev
       - name: install meson
         run: |
           wget https://github.com/mesonbuild/meson/releases/download/1.6.1/meson-1.6.1.tar.gz && \
