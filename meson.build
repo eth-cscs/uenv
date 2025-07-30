@@ -151,7 +151,9 @@ if uenv_squashfs_mount
                                           dependencies: [uenv_dep, fmt_dep, cli11_dep, squashfuse_dep, fuse_dep],
                                           c_args: [
                                               '-DVERSION="@0@"'.format(version),
-                                          ])
+                                          ],
+                                          install: true
+                                         )
     else
         message('NOT iusing fuse')
         squashfs_mount_build = executable('squashfs-mount-build',
