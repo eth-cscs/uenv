@@ -17,6 +17,9 @@ jobs:
           - buildtype: release
             sanitizer: address
     runs-on: ubuntu-24.04
+    container:
+        image: ubuntu:noble
+        options: --privileged
     steps:
       - uses: actions/checkout@v4
       - name: Update apt repositories for ccache
