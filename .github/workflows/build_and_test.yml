@@ -71,7 +71,7 @@ jobs:
       - name: Build
         run: ./meson/meson compile -Cbuild
       - name: test unit
-        run: ./meson/meson test -Cbuild --verbose unit
+        run: ./meson/meson test -v -Cbuild --verbose unit
       - name: test cli
         run: |
           mkdir /user-tools /user-environment
