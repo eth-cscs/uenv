@@ -68,4 +68,4 @@ unit = executable('unit',
         install: false)
 
 test('unit', unit, is_parallel : false)
-test('cli', bats, args: ['./test/cli.bats'], is_parallel : false)
+test('cli', bats, args: ['./test/cli.bats', '--verbose-run'], is_parallel : false)
