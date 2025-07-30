@@ -34,19 +34,23 @@ jobs:
       - name: Install compiler and build tools
         run: |
             apt install --no-install-recommends --yes \
-            g++-12 \
-            ninja-build \
-            libsquashfuse-dev \
-            libfuse3-dev \
-            wget \
-            ca-certificates \
-            python3 \
-            pkg-config \
-            sqlite3 \
-            git \
-            squashfs-tools \
-            curl \
-            ninja-build
+               g++-12 \
+               ninja-build \
+               libsquashfuse-dev \
+               libfuse3-dev \
+               wget \
+               ca-certificates \
+               python3 \
+               pkg-config \
+               sqlite3 \
+               git \
+               squashfs-tools \
+               curl \
+               ninja-build \
+               locales
+
+            locale-gen en_US.UTF-8
+            update-locale LANG=en_US.UTF-8
       - name: install meson
         run: |
           wget https://github.com/mesonbuild/meson/releases/download/1.6.1/meson-1.6.1.tar.gz && \
