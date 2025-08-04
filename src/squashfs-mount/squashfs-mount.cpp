@@ -47,19 +47,16 @@ int main(int argc, char** argv, char** envp) {
 
     bool print_version = false;
     int verbosity = 1;
-    std::string raw_mounts;
-    std::vector<std::string> commands;
+    std::optional<std::string> raw_mounts;
+    std::optional<std::vector<std::string>> commands;
 
     CLI::App cli(fmt::format("squashfs-mount {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
     cli.add_flag("--version", print_version, "print version");
     cli.add_option("-s,--sqfs", raw_mounts,
-                   "comma separated list of uenv to mount")
-        ->required();
+                   "comma separated list of uenv to mount");
     cli.add_option("commands", commands,
-                   "the command to run, including with arguments")
-        ->required();
-    cli.add_option("args", commands, "comma separated list of uenv to mount");
+                   "the command to run, including with arguments");
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -70,6 +67,19 @@ int main(int argc, char** argv, char** envp) {
     if (print_version) {
         fmt::println("{}", UENV_VERSION);
         return 0;
+    }
+
+    //
+    // check that required arguments have been set.
+    // do this manually instead of using the required() option in CLI11, in
+    // order to be able to handle `squashfs-mount --version` withouth complaints
+    // that `--sqfs` and commands were not provided.
+    //
+    if (!raw_mounts) {
+        error_and_exit("the --sqfs option must be set");
+    }
+    if (!commands) {
+        error_and_exit("the commands must be provided");
     }
 
     //
@@ -94,7 +104,7 @@ int main(int argc, char** argv, char** envp) {
     // validate the mount points
     //
 
-    auto mounts = uenv::parse_and_validate_mounts(raw_mounts);
+    auto mounts = uenv::parse_and_validate_mounts(*raw_mounts);
     if (!mounts) {
         error_and_exit("{}", mounts.error());
     }
@@ -102,7 +112,7 @@ int main(int argc, char** argv, char** envp) {
         fmt::format("{}", fmt::join(mounts.value(), ","));
 
     spdlog::info("uenv_mount_list {}", uenv_mount_list);
-    spdlog::info("commands ['{}']", fmt::join(commands, "', '"));
+    spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
 
     //
     // Mount the file systems
@@ -142,7 +152,7 @@ int main(int argc, char** argv, char** envp) {
     // add UENV environment variables
     runtime_env.set("UENV_MOUNT_LIST", uenv_mount_list);
 
-    auto rcode = util::exec(commands, runtime_env.c_env());
+    auto rcode = util::exec(*commands, runtime_env.c_env());
 
     return rcode;
 }
