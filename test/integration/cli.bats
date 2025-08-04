@@ -12,6 +12,10 @@ function setup() {
 
     export PATH="$UENV_BIN_PATH:$PATH"
 
+    echo $PATH >&3
+    which uenv >&3
+    which squashfs-mount >&3
+
     unset UENV_MOUNT_LIST
 
     # set up location for creation of working repos
