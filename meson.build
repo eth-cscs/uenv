@@ -141,22 +141,14 @@ if uenv_slurm_plugin
 endif
 
 if uenv_squashfs_mount
-    squashfs_mount_build = executable('squashfs-mount-build',
+    squashfs_mount = executable('squashfs-mount',
           sources: ['src/squashfs-mount/squashfs-mount.cpp'],
           dependencies: [uenv_dep, fmt_dep, cli11_dep],
           c_args: [
             '-DVERSION="@0@"'.format(version),
           ],
-          install: false)
-
-    squashfs_mount = custom_target(
-        'squashfs-mount',
-        input: squashfs_mount_build,
-        output: 'squashfs-mount',
-        command: ['./meson-scripts/make-setuid.sh', '@INPUT@', '@OUTPUT@'],
-        install: true,
-        install_dir: get_option('bindir'),
-    )
+          install_mode: ['rwsr-xr-x', 'root', 'root'],
+          install: true)
 endif
 
 if get_option('tests').enabled()

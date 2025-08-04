@@ -48,9 +48,11 @@ jobs:
               build .
       - name: Build
         run: ./meson/meson compile -Cbuild
+      - name: Stage
+        run: sudo ./meson/meson install --destdir=$PWD/staging --no-rebuild --skip-subprojects
       - name: test unit
         run: ./meson/meson test -Cbuild --verbose unit
       - name: test cli
         run: |
           sudo mkdir /user-tools /user-environment
-          UENV_BATS_SKIP_START=on ./meson/meson test -Cbuild --verbose cli
+          UENV_BATS_SKIP_START=on STAGING_DIR=$PWD/staging/usr/local ./meson/meson test -Cbuild --verbose cli

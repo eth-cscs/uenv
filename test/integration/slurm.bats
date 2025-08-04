@@ -11,7 +11,7 @@ function setup() {
 
     unset UENV_MOUNT_LIST
 
-    export PATH="$BUILD_PATH:$PATH"
+    export PATH="$UENV_BIN_PATH:$PATH"
 
     unset UENV_MOUNT_LIST
 

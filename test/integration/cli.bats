@@ -10,7 +10,7 @@ function setup() {
     bats_load_library bats-assert
     load ./common
 
-    export PATH="$BUILD_PATH:$PATH"
+    export PATH="$UENV_BIN_PATH:$PATH"
 
     unset UENV_MOUNT_LIST
 
