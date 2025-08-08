@@ -147,19 +147,36 @@ _uenv_completions()
     func_name="${prefix// /_}"
     func_name="${func_name//-/_}"
 
-    UENV_OPTS=""
+    local UENV_OPTS=""
+    local FILE_COMPLETION="false"
     if typeset -f $func_name >/dev/null
     then
         $func_name
     fi
 
-    SUBCOMMAND_OPTS=$(compgen -W "${UENV_OPTS}" -- "${cur}")
-    FILE_OPTS=""
+    local SUBCOMMAND_OPTS=$(compgen -W "${UENV_OPTS}" -- "${cur}")
+    local FILE_OPTS=""
+    local FILE_OPTS_FORMATED=""
     if [ "${FILE_COMPLETION}" = "true" ]; then
-        FILE_OPTS=$(compgen -f -d -- "${cur}")
+        FILE_OPTS=$(compgen -f -- "${cur}")
+        for item in $FILE_OPTS; do
+            if [[ -d "${item}" ]]; then
+                FILE_OPTS_FORMATED+="${item}/ "
+            else
+                FILE_OPTS_FORMATED+="${item} "
+            fi
+        done
     fi
 
-    COMPREPLY=(${SUBCOMMAND_OPTS} ${FILE_OPTS})
+    # Do not add space after suggestion if completing a directory
+    local DIRS=$(compgen -d -- "${cur}")
+    if [[ -n "${DIRS}" ]]; then
+        compopt -o nospace
+    else
+        compopt +o nospace
+    fi
+
+    COMPREPLY=(${SUBCOMMAND_OPTS} ${FILE_OPTS_FORMATED})
 }
 
 complete -F _uenv_completions uenv
