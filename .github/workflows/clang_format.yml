@@ -10,7 +10,7 @@ jobs:
   formatting-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Check formatting
       uses: jidicula/clang-format-action@v4.15.0
       with:
