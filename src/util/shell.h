@@ -13,7 +13,21 @@ namespace util {
 util::expected<std::filesystem::path, std::string>
 current_shell(const envvars::state&);
 
+// return value of exec(), which is a wrapper around execvp/execvpe
+// it is always an error when exec returns, because success implies
+// that the current process has had its stack erased by exec.
+struct exec_error {
+    int rcode;
+    std::string message;
+
+    exec_error() = delete;
+    explicit exec_error(int r, std::string m)
+        : rcode(r), message(std::move(m)) {
+    }
+};
+
 /// execve
-int exec(const std::vector<std::string>& argv, char* const envp[] = nullptr);
+exec_error exec(const std::vector<std::string>& argv,
+                char* const envp[] = nullptr);
 
 } // namespace util

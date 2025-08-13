@@ -72,8 +72,12 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
     commands.push_back("--");
     commands.insert(commands.end(), args.commands.begin(), args.commands.end());
 
-    // return util::exec(commands);
-    return util::exec(commands, runtime_environment.c_env());
+    auto error = util::exec(commands, runtime_environment.c_env());
+
+    // it is always an error if this code is executed, because that implies that
+    // execvp failed.
+    term::error("{}", error.message);
+    return error.rcode;
 }
 
 std::string run_footer() {
