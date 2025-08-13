@@ -152,9 +152,15 @@ int main(int argc, char** argv, char** envp) {
     // add UENV environment variables
     runtime_env.set("UENV_MOUNT_LIST", uenv_mount_list);
 
-    auto rcode = util::exec(*commands, runtime_env.c_env());
+    auto cenv = runtime_env.c_env();
+    auto error = util::exec(*commands, cenv);
 
-    return rcode;
+    // it is always an error if this code is executed, because that implies that
+    // execvp failed.
+    envvars::c_env_free(cenv);
+    error_and_exit("{}", error.message);
+
+    return error.rcode;
 }
 
 void unshare_mntns_and_become_root() {

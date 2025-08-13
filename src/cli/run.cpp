@@ -77,14 +77,13 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
     commands.insert(commands.end(), args.commands.begin(), args.commands.end());
 
     auto c_env = runtime_environment.c_env();
-    auto rcode = util::exec(commands, c_env);
+    auto error = util::exec(commands, c_env);
 
-    // clean up memory if there was an error
-    if (rcode) {
-        envvars::c_env_free(c_env);
-    }
-
-    return rcode;
+    // it is always an error if this code is executed, because that implies that
+    // execvp failed.
+    envvars::c_env_free(c_env);
+    term::error("{}", error.message);
+    return error.rcode;
 }
 
 std::string run_footer() {

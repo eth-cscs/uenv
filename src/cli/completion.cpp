@@ -59,6 +59,7 @@ namespace impl {
 struct completion_item {
     std::vector<std::string> command;
     std::vector<std::string> completions;
+    bool file_completion = false;
 };
 
 typedef std::vector<completion_item> completion_list;
@@ -72,6 +73,7 @@ void traverse_subcommand_tree(completion_list& cl, CLI::App* cli,
     }
 
     const auto subcommands = cli->get_subcommands({});
+    bool file_completion = false;
 
     std::vector<std::string> completions;
     for (const auto& cmd : subcommands) {
@@ -81,8 +83,14 @@ void traverse_subcommand_tree(completion_list& cl, CLI::App* cli,
          cli->get_options([](auto* o) { return o->nonpositional(); })) {
         completions.push_back(option->get_name());
     }
+    for (const auto& option :
+         cli->get_options([](auto* o) { return o->get_positional(); })) {
+        if (option->get_name() == "uenv") {
+            file_completion = true;
+        };
+    }
 
-    cl.push_back({stack, completions});
+    cl.push_back({stack, completions, file_completion});
 
     for (auto& cmd : subcommands) {
         auto cmd_stack = stack;
@@ -107,11 +115,13 @@ std::string bash_completion(CLI::App* cli, const std::string& name) {
         return fmt::format(R"(_{}()
 {{
     UENV_OPTS="{}"
+    FILE_COMPLETION="{}"
 }}
 
 )",
                            fmt::join(item.command, "_"),
-                           fmt::join(item.completions, " "));
+                           fmt::join(item.completions, " "),
+                           item.file_completion ? "true" : "false");
     };
 
     std::string main_functions = R"(
@@ -137,13 +147,36 @@ _uenv_completions()
     func_name="${prefix// /_}"
     func_name="${func_name//-/_}"
 
-    UENV_OPTS=""
+    local UENV_OPTS=""
+    local FILE_COMPLETION="false"
     if typeset -f $func_name >/dev/null
     then
         $func_name
     fi
 
-    COMPREPLY=($(compgen -W "${UENV_OPTS}" -- "${cur}"))
+    local SUBCOMMAND_OPTS=$(compgen -W "${UENV_OPTS}" -- "${cur}")
+    local FILE_OPTS=""
+    local FILE_OPTS_FORMATED=""
+    if [ "${FILE_COMPLETION}" = "true" ]; then
+        FILE_OPTS=$(compgen -f -- "${cur}")
+        for item in $FILE_OPTS; do
+            if [[ -d "${item}" ]]; then
+                FILE_OPTS_FORMATED+="${item}/ "
+            else
+                FILE_OPTS_FORMATED+="${item} "
+            fi
+        done
+    fi
+
+    # Do not add space after suggestion if completing a directory
+    local DIRS=$(compgen -d -- "${cur}")
+    if [[ -n "${DIRS}" ]]; then
+        compopt -o nospace
+    else
+        compopt +o nospace
+    fi
+
+    COMPREPLY=(${SUBCOMMAND_OPTS} ${FILE_OPTS_FORMATED})
 }
 
 complete -F _uenv_completions uenv
