@@ -6,9 +6,9 @@
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
-#include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/shell.h>
 
 namespace util {
 
@@ -34,7 +34,7 @@ current_shell(const envvars::state& envvars) {
     return can_path;
 }
 
-int exec(const std::vector<std::string>& args, char* const envp[]) {
+exec_error exec(const std::vector<std::string>& args, char* const envp[]) {
     std::vector<char*> argv;
 
     // clean up temporary files before calling execve, because the descructor
@@ -48,18 +48,26 @@ int exec(const std::vector<std::string>& args, char* const envp[]) {
     }
     argv.push_back(nullptr);
 
-    spdlog::info("exec: {}", fmt::join(args, " "));
+    // WARNING: do not log all arguments to the command that is being executbd
+    //          because it might leak secrets: it is the responsibility of
+    //          callers to log the call appropriately, for example the oras
+    //          wrappers that remove secrets before printing.
     int r;
     if (envp == nullptr) {
+        spdlog::info("execvp({})", args[0]);
         r = execvp(argv[0], argv.data());
     } else {
+        spdlog::info("execvpe({})", args[0]);
         r = execvpe(argv[0], argv.data(), envp);
     }
     // } // end unsafe
 
-    spdlog::error("unable to launch a new shell");
+    std::string errmsg = fmt::format("unable to exec '{}': {} (errno={})",
+                                     args[0], std::strerror(errno), errno);
 
-    return r;
+    spdlog::error("{}", errmsg);
+
+    return exec_error{r, std::move(errmsg)};
 }
 
 } // namespace util

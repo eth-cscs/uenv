@@ -124,7 +124,12 @@ will not work, because it starts a new interactive shell.)",
     commands.push_back("--");
     commands.push_back(shell->string());
 
-    return util::exec(commands, runtime_environment.c_env());
+    auto error = util::exec(commands, runtime_environment.c_env());
+
+    // it is always an error if this code is executed, because that implies that
+    // execvp failed.
+    term::error("{}", error.message);
+    return error.rcode;
 }
 
 std::string start_footer() {
