@@ -10,6 +10,7 @@
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/shell.h>
+#include <util/strings.h>
 
 namespace util {
 
@@ -33,6 +34,44 @@ current_shell(const envvars::state& envvars) {
     }
 
     return can_path;
+}
+
+std::optional<std::filesystem::path> which(std::string const& name,
+                                           std::string const& PATH) {
+    namespace fs = std::filesystem;
+
+    auto is_executable = [](const fs::path& p) {
+        return fs::exists(p) && fs::is_regular_file(p) &&
+               access(p.c_str(), X_OK) == 0;
+    };
+
+    // path constructor can throw exceptions (yay!)
+    auto make_path = [](const std::string& name) -> std::optional<fs::path> {
+        try {
+            return fs::path{name};
+        } catch (...) {
+            return {};
+        }
+    };
+
+    if (name.find('/') != std::string::npos) {
+        const auto p = make_path(name);
+        if (p && is_executable(*p)) {
+            return fs::canonical(*p);
+        }
+        return {};
+    }
+
+    for (auto& path : split(PATH, ':', true)) {
+        if (const auto root = make_path(path)) {
+            const auto candidate = *root / name;
+            if (is_executable(candidate)) {
+                return fs::canonical(candidate);
+            }
+        }
+    }
+
+    return {};
 }
 
 exec_error exec(const std::vector<std::string>& args, char* const envp[]) {

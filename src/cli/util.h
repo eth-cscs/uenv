@@ -2,9 +2,12 @@
 
 #include <filesystem>
 #include <optional>
+#include <string>
+#include <vector>
 
 #include <fmt/format.h>
 
+#include <util/envvars.h>
 #include <util/expected.h>
 
 namespace uenv {
@@ -22,6 +25,11 @@ struct squashfs_image {
 
 util::expected<squashfs_image, std::string>
 validate_squashfs_image(const std::string& path);
+
+std::vector<std::string>
+squashfs_mount_args(const envvars::state& calling_environment,
+                    const std::vector<std::string>& mounts,
+                    const std::vector<std::string>& args);
 
 } // namespace uenv
 

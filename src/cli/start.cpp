@@ -19,6 +19,7 @@
 #include "start.h"
 #include "terminal.h"
 #include "uenv.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -106,16 +107,6 @@ will not work, because it starts a new interactive shell.)",
     auto runtime_environment =
         generate_environment(*env, globals.calling_environment, "SQFSMNT_FWD_");
 
-    // generate the mount list
-    std::vector<std::string> commands = {"squashfs-mount"};
-    commands.push_back(fmt::format(
-        "--sqfs={}",
-        fmt::join(env->uenvs | std::views::transform([](const auto& in) {
-                      return fmt::format("{}:{}", in.second.sqfs_path.string(),
-                                         in.second.mount_path);
-                  }),
-                  ",")));
-
     // find the current shell (zsh, bash, etc)
     auto shell = util::current_shell(globals.calling_environment);
     if (!shell) {
@@ -125,8 +116,14 @@ will not work, because it starts a new interactive shell.)",
     }
     spdlog::info("using shell: {}", shell->string());
 
-    commands.push_back("--");
-    commands.push_back(shell->string());
+    std::vector<std::string> mounts;
+    for (auto m : env->uenvs) {
+        mounts.push_back(fmt::format("{}:{}", m.second.sqfs_path.string(),
+                                     m.second.mount_path));
+    }
+
+    const auto commands = uenv::squashfs_mount_args(globals.calling_environment,
+                                                    mounts, {shell->string()});
 
     auto c_env = runtime_environment.c_env();
     auto error = util::exec(commands, c_env);
