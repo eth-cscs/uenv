@@ -25,9 +25,16 @@ test_generated_data = custom_target (
 )
 
 fs = import('fs')
-fs.copyfile('integration/cli.bats', 'cli.bats')
-fs.copyfile('integration/slurm.bats', 'slurm.bats')
 fs.copyfile('integration/common.bash', 'common.bash')
+if uenv_cli
+  fs.copyfile('integration/cli.bats', 'cli.bats')
+endif
+if uenv_slurm_plugin
+  fs.copyfile('integration/slurm.bats', 'slurm.bats')
+endif
+if uenv_squashfs_mount
+  fs.copyfile('integration/squashfs-mount.bats', 'squashfs-mount.bats')
+endif
 
 suite_input = integration_path + '/setup_suite.bash.in'
 suite_ouput = meson.current_build_dir() + '/setup_suite.bash'

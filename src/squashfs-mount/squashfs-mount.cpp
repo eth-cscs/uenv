@@ -71,15 +71,9 @@ int main(int argc, char** argv, char** envp) {
 
     //
     // check that required arguments have been set.
-    // do this manually instead of using the required() option in CLI11, in
-    // order to be able to handle `squashfs-mount --version` withouth complaints
-    // that `--sqfs` and commands were not provided.
     //
-    if (!raw_mounts) {
-        error_and_exit("the --sqfs option must be set");
-    }
     if (!commands) {
-        error_and_exit("the commands must be provided");
+        error_and_exit("no command given");
     }
 
     //
@@ -100,32 +94,40 @@ int main(int argc, char** argv, char** envp) {
     // note: syslog uses level::info to capture key events
     uenv::init_log(console_log_level, spdlog::level::info);
 
-    //
-    // validate the mount points
-    //
-
-    auto mounts = uenv::parse_and_validate_mounts(*raw_mounts);
-    if (!mounts) {
-        error_and_exit("{}", mounts.error());
-    }
-    const std::string uenv_mount_list =
-        fmt::format("{}", fmt::join(mounts.value(), ","));
-
-    spdlog::info("uenv_mount_list {}", uenv_mount_list);
-    spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
-
-    //
-    // Mount the file systems
-    //
-
     // get the uid before performing any updates to uid
     const uid_t uid = getuid();
 
-    unshare_mntns_and_become_root();
+    std::string uenv_mount_list = "";
+    if (raw_mounts) {
+        //
+        // validate the mount points
+        //
 
-    if (auto r = uenv::do_mount(mounts.value()); !r) {
-        error_and_exit("{}", r.error());
+        auto mounts = uenv::parse_and_validate_mounts(*raw_mounts);
+        if (!mounts) {
+            error_and_exit("{}", mounts.error());
+        }
+        uenv_mount_list = fmt::format("{}", fmt::join(mounts.value(), ","));
+
+        spdlog::info("uenv_mount_list {}", uenv_mount_list);
+        spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
+
+        //
+        // Mount the file systems
+        //
+
+        unshare_mntns_and_become_root();
+
+        if (auto r = uenv::do_mount(mounts.value()); !r) {
+            error_and_exit("{}", r.error());
+        }
+    } else {
+        spdlog::warn("nothing mounted (no --sqfs flag provided)");
     }
+
+    //
+    // Drop privelages
+    //
 
     return_to_user_and_no_new_privs(uid);
 
