@@ -66,6 +66,10 @@ class lexer_impl {
         return token_.kind;
     }
 
+    bool operator==(tok t) const {
+        return token_.kind == t;
+    }
+
   private:
     unsigned loc() const {
         return unsigned(stream_ - input_.begin());
@@ -136,6 +140,10 @@ class lexer_impl {
                 return;
             case '*':
                 character_token(tok::star);
+                ++stream_;
+                return;
+            case '+':
+                character_token(tok::plus);
                 ++stream_;
                 return;
 
@@ -237,6 +245,11 @@ tok lexer::current_kind() const {
 
 std::string lexer::string() const {
     return impl_->string();
+}
+
+// return true if the current token matches tok
+bool lexer::operator==(tok t) const {
+    return impl_->operator==(t);
 }
 
 lexer::~lexer() = default;

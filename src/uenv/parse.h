@@ -10,6 +10,7 @@
 #include <uenv/uenv.h>
 #include <uenv/view.h>
 #include <util/lex.h>
+#include <util/semver.h>
 
 namespace uenv {
 
@@ -66,5 +67,7 @@ parse_registry_entry(const std::string& in);
 
 util::expected<config_line, parse_error>
 parse_config_line(const std::string& arg);
+
+util::expected<util::semver, parse_error> parse_semver(const std::string& arg);
 
 } // namespace uenv
