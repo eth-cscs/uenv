@@ -56,3 +56,7 @@ jobs:
         run: |
           sudo mkdir /user-tools /user-environment
           UENV_BATS_SKIP_START=on STAGING_PATH=$PWD/staging/usr/local ./meson/meson test -Cbuild --verbose cli
+      - name: test squashfs-mount
+        run: |
+          sudo mkdir /user-tools /user-environment
+          UENV_BATS_SKIP_START=on STAGING_PATH=$PWD/staging/usr/local ./meson/meson test -Cbuild --verbose squashfs-mount

@@ -76,4 +76,9 @@ unit = executable('unit',
         install: false)
 
 test('unit', unit, is_parallel : false)
-test('cli', bats, args: ['./test/cli.bats'], is_parallel : false)
+if uenv_cli
+  test('cli', bats, args: ['./test/cli.bats'], is_parallel : false)
+endif
+if uenv_squashfs_mount
+  test('squashfs-mount', bats, args: ['./test/squashfs-mount.bats'], is_parallel : false)
+endif

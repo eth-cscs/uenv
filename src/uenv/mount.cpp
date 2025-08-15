@@ -100,8 +100,8 @@ validate_mount_list(const mount_list& input) {
     //
     // Note that we do not check for the existance of mount points that have
     // to be provided by another mount. This would be very tricky, without
-    // starting to parse squashfs files and their meta data (which we might
-    // be forced to do at some point).
+    // starting to parse squashfs files and their meta data - WHICH WE DO NOT
+    // WANT TO DO BECAUSE THIS CODE RUNS IN THE PRIVILAGED HELPER.
 
     std::vector<uenv::mount_pair> mounts{input};
     std::sort(std::begin(mounts), std::end(mounts),
@@ -116,6 +116,14 @@ validate_mount_list(const mount_list& input) {
 
     auto mview = std::ranges::transform_view(
         mounts, [](const auto& in) -> const fs::path& { return in.mount; });
+
+    // check whether there are two identical mount points.
+    // take advantage of the list being sorted.
+    if (auto it = std::adjacent_find(mview.begin(), mview.end());
+        it != mview.end()) {
+        return util::unexpected{fmt::format(
+            "the mount point {} is used to mount more than one squashfs", *it)};
+    }
 
     const auto b = std::begin(mview);
     const auto e = std::cend(mview);
