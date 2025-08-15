@@ -51,12 +51,12 @@ jobs:
       - name: Stage
         run: sudo ./meson/meson install -Cbuild --destdir=$PWD/staging --no-rebuild --skip-subprojects
       - name: create mount points for tests
-          sudo mkdir /user-tools /user-environment
-      - name: test unit
+        run: sudo mkdir /user-tools /user-environment
+      - name: unit tests
         run: ./meson/meson test -Cbuild --verbose unit
-      - name: test cli
+      - name: cli integration tests
         run: |
           UENV_BATS_SKIP_START=on STAGING_PATH=$PWD/staging/usr/local ./meson/meson test -Cbuild --verbose cli
-      - name: test squashfs-mount
+      - name: squashfs-mount integration tests
         run: |
           UENV_BATS_SKIP_START=on STAGING_PATH=$PWD/staging/usr/local ./meson/meson test -Cbuild --verbose squashfs-mount
