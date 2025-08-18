@@ -1,0 +1,2 @@
+use_squashfuse = false #change to 'true' if you want to mount uenv rootless, without needing a setuid binary
+uenv_local_repos = [""] #add a list of local uenv repos to search through for `uenv image ls`, `uenv start`, and `uenv run` in addition to the user repo.

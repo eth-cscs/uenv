@@ -6,6 +6,7 @@
 #include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
+#include <toml++/toml.hpp>
 
 #include <uenv/env.h>
 #include <uenv/meta.h>
@@ -59,11 +60,27 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         return 1;
     }
 
+    //parse configuration.toml
+    toml::table config;
+    char *config_location = getenv("UENV_CONFIGURATION_PATH"); //gets config file from UENV_CONFIGURATION_PATH env variable
+    std::string_view config_sv{config_location};
+    try{
+        config = toml::parse_file(config_sv);
+    } catch(const toml::parse_error& err){
+        term::error("{}", fmt::format("Error parsing configuration.toml:\n{}",err));
+    }
+    bool use_squashfuse = config["use_squashfuse"].value_or(false); //parse use_squashfuse key from configuration.toml
+
     auto runtime_environment =
         generate_environment(*env, globals.calling_environment, "SQFSMNT_FWD_");
 
     // generate the mount list
     std::vector<std::string> commands = {"squashfs-mount"};
+    
+    if (use_squashfuse){
+        commands.push_back("--squashfuse");
+    }
+    
     for (auto e : env->uenvs) {
         commands.push_back(fmt::format("{}:{}", e.second.sqfs_path.string(),
                                        e.second.mount_path));

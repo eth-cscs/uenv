@@ -12,6 +12,7 @@
 #include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
+#include <toml++/toml.hpp>
 
 #include <site/site.h>
 #include <uenv/env.h>
@@ -159,22 +160,77 @@ concretise_env(const std::string& uenv_args,
             const auto results = *result;
 
             if (results.empty()) {
-                return unexpected(fmt::format("no uenv matches '{}'", *label));
-            }
+                //parse configuration.toml
+                toml::table config;
+                char *config_location = getenv("UENV_CONFIGURATION_PATH"); //gets config file from UENV_CONFIGURATION_PATH env variable
+                std::string_view config_sv{config_location};
+                try{
+                    config = toml::parse_file(config_sv);
+                } catch(const toml::parse_error& err){
+                    return unexpected(
+                        fmt::format("Error parsing configuration.toml:\n{}",err));
+                }
 
-            // ensure that all results share a unique sha
-            if (!results.unique_sha()) {
+                toml::array& config_repo = *config["uenv_local_repos"].as_array(); //parses toml key as an array of repos
+
+                auto local_results = results;
+                //recuse through uenv_local_repo array
+                for (auto& repo : config_repo){
+                    if (repo.is_string()){ //if repo is a string, then query
+                        std::string repo_path_string = repo.value_or("");
+
+                        //validate local repo and skip if validation fails
+                        if (auto rpath = uenv::validate_repo_path(repo_path_string, false, false)) {
+                            
+                            //open local repo if valid
+                            std::filesystem::path repo_path = repo_path_string;
+                            auto local_store = uenv::open_repository(repo_path);
+
+                            const auto local_result = local_store->query(*label);
+                            local_results = *local_result;
+                            if (!local_results.empty()){ //if repo finds uenv, then set sqfs_path and break
+                                const auto& r = *local_results.begin();
+                                sqfs_path = local_store->uenv_paths(r.sha).squashfs;
+                                //printf("Uenv found in local repository: %s\n", repo.value_or(""));
+                                break;
+                            }
+                        } else {
+                            spdlog::warn("invalid repo path {}", rpath.error());
+                            break;
+                        }
+                    }
+                    else{
+                        return unexpected(
+                            fmt::format("Error: uenv local config isn't a string"));
+                    }
+                }
+                if (local_results.empty()){ //if uenv couldn't be found in local or local repo
+                    return unexpected(fmt::format("no uenv matches '{}'", *label));
+                }
+                // ensure that all results share a unique sha
+                if (!local_results.unique_sha()) {
                 auto errmsg = fmt::format(
                     "more than one uenv matches the uenv description "
                     "'{}':\n",
                     desc.label().value());
-                errmsg += format_record_set(results);
+                errmsg += format_record_set(local_results);
                 return unexpected(errmsg);
-            }
+                }
+            } else {
+                // ensure that all results share a unique sha
+                if (!results.unique_sha()) {
+                    auto errmsg = fmt::format(
+                        "more than one uenv matches the uenv description "
+                        "'{}':\n",
+                        desc.label().value());
+                    errmsg += format_record_set(results);
+                    return unexpected(errmsg);
+                }
 
-            // set sqfs_path
-            const auto& r = *results.begin();
-            sqfs_path = store->uenv_paths(r.sha).squashfs;
+                // set sqfs_path
+                const auto& r = *results.begin();
+                sqfs_path = store->uenv_paths(r.sha).squashfs;
+            }
         }
         // otherwise an explicit filename was provided, e.g.
         // "/scratch/myimages/develp/store.squashfs"
