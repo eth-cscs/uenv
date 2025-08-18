@@ -67,6 +67,11 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
     for (auto e : env->uenvs) {
         commands.push_back(fmt::format("{}:{}", e.second.sqfs_path.string(),
                                        e.second.mount_path));
+        // sub-images
+        for (auto [sqfs, mnt] : e.second.sub_images) {
+            commands.push_back(
+                fmt::format("{}:{}", sqfs.string(), mnt.string()));
+        }
     }
 
     commands.push_back("--");

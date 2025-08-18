@@ -41,6 +41,7 @@ barkeep_dep = declare_dependency(
 lib_src = [
         'src/site/site.cpp',
         'src/uenv/env.cpp',
+        'src/uenv/modular_env.cpp',
         'src/uenv/log.cpp',
         'src/uenv/meta.cpp',
         'src/uenv/oras.cpp',
