@@ -13,6 +13,7 @@ oras_version = get_option('oras_version')
 
 uenv_slurm_plugin = get_option('slurm_plugin')
 uenv_cli = get_option('cli')
+uenv_squashfs_mount = get_option('squashfs_mount')
 
 conf_data = configuration_data()
 
@@ -22,7 +23,6 @@ add_global_arguments('-Wno-missing-field-initializers', language : 'cpp')
 
 # use meson wrap to provide the dependencies, because the 'default_library=static' option
 # will be propogated to each dependency, for a statically linked executable.
-catch_dep = subproject('catch2', default_options: ['werror=false', 'warning_level=0', 'tests=false']).get_variable('catch2_with_main_dep')
 cli11_dep = subproject('cli11', default_options: ['werror=false', 'warning_level=0']).get_variable('CLI11_dep')
 fmt_dep   = subproject('fmt', default_options: ['werror=false', 'warning_level=0']).get_variable('fmt_dep')
 json_dep = subproject('nlohmann_json', default_options: ['werror=false', 'warning_level=0']).get_variable('nlohmann_json_dep')
@@ -36,6 +36,8 @@ barkeep_dep = declare_dependency(
         compile_args: ['-DBARKEEP_ENABLE_FMT_FORMAT'],
 )
 
+libmount_dep = dependency('mount')
+
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
 lib_src = [
@@ -43,6 +45,7 @@ lib_src = [
         'src/uenv/env.cpp',
         'src/uenv/log.cpp',
         'src/uenv/meta.cpp',
+        'src/uenv/mount.cpp',
         'src/uenv/oras.cpp',
         'src/uenv/parse.cpp',
         'src/uenv/print.cpp',
@@ -54,6 +57,7 @@ lib_src = [
         'src/util/envvars.cpp',
         'src/util/fs.cpp',
         'src/util/lex.cpp',
+        'src/util/semver.cpp',
         'src/util/shell.cpp',
         'src/util/signal.cpp',
         'src/util/strings.cpp',
@@ -62,7 +66,7 @@ lib_src = [
 lib_inc = include_directories('src')
 
 lib_uenv = static_library(
-        'libuenv',
+        'uenv',
         lib_src,
         include_directories: lib_inc,
         dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
@@ -70,7 +74,7 @@ lib_uenv = static_library(
 
 uenv_dep = declare_dependency(
         link_with: lib_uenv,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep],
         include_directories: lib_inc
 )
 
@@ -136,6 +140,18 @@ if uenv_slurm_plugin
     subdir('src/slurm')
 endif
 
+if uenv_squashfs_mount
+    squashfs_mount = executable('squashfs-mount',
+          sources: ['src/squashfs-mount/squashfs-mount.cpp'],
+          dependencies: [uenv_dep, fmt_dep, cli11_dep],
+          c_args: [
+            '-DVERSION="@0@"'.format(version),
+          ],
+          install_mode: ['rwsr-xr-x', 'root', 'root'],
+          install: true)
+endif
+
 if get_option('tests').enabled()
+    catch_dep = subproject('catch2', default_options: ['werror=false', 'warning_level=0', 'tests=false']).get_variable('catch2_with_main_dep')
     subdir('test')
 endif

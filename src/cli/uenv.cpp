@@ -6,9 +6,8 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
-#include <uenv/log.h>
-
 #include <uenv/config.h>
+#include <uenv/log.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <uenv/settings.h>

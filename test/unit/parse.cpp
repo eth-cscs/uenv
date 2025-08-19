@@ -15,7 +15,7 @@ util::expected<uenv_description, parse_error>
 parse_uenv_description(lex::lexer&);
 util::expected<view_description, parse_error>
 parse_view_description(lex::lexer& L);
-util::expected<mount_entry, parse_error> parse_mount_entry(lex::lexer& L);
+util::expected<mount_description, parse_error> parse_mount_entry(lex::lexer& L);
 } // namespace uenv
 
 TEST_CASE("parse names", "[parse]") {
@@ -479,4 +479,89 @@ TEST_CASE("config_line", "[parse]") {
             uenv::parse_config_line(fmt::format("{}=value", invalid_key));
         REQUIRE(!result);
     }
+}
+
+TEST_CASE("semver", "[parse]") {
+    for (std::string s : {"0.1", "1.2.1", "2.3.1", "2.3-dev-3+build-23"}) {
+        REQUIRE(uenv::parse_semver(s));
+    }
+    for (std::string s : {"0.1+git@23", "1.2.23a", "32"}) {
+        REQUIRE(!uenv::parse_semver(s));
+    }
+    {
+        auto r = uenv::parse_semver("1.2");
+        REQUIRE(r->major == 1);
+        REQUIRE(r->minor == 2);
+        REQUIRE(r->patch == 0);
+        REQUIRE(!r->prerelease);
+        REQUIRE(!r->build);
+    }
+    {
+        auto r = uenv::parse_semver("1.2.3");
+        REQUIRE(r->major == 1);
+        REQUIRE(r->minor == 2);
+        REQUIRE(r->patch == 3);
+        REQUIRE(!r->prerelease);
+        REQUIRE(!r->build);
+    }
+    {
+        auto r = uenv::parse_semver("1.2-dev.2-latest");
+        REQUIRE(r->major == 1);
+        REQUIRE(r->minor == 2);
+        REQUIRE(r->patch == 0);
+        REQUIRE(r->prerelease == "dev.2-latest");
+        REQUIRE(!r->build);
+    }
+    {
+        auto r = uenv::parse_semver("1.2+git-abcd123");
+        REQUIRE(r->major == 1);
+        REQUIRE(r->minor == 2);
+        REQUIRE(r->patch == 0);
+        REQUIRE(!r->prerelease);
+        REQUIRE(r->build == "git-abcd123");
+    }
+    {
+        auto r = uenv::parse_semver("1.2.32-abcd.23+git-abcd123");
+        REQUIRE(r->major == 1);
+        REQUIRE(r->minor == 2);
+        REQUIRE(r->patch == 32);
+        REQUIRE(r->prerelease == "abcd.23");
+        REQUIRE(r->build == "git-abcd123");
+    }
+
+    auto S = [](std::string input) -> util::semver {
+        return uenv::parse_semver(input).value();
+    };
+
+    REQUIRE(S("1.2.7") == S("1.2.7"));
+    // the patch is implicitly 0
+    REQUIRE(S("1.2") == S("1.2.0"));
+    // check that prereleases are checked if present
+    REQUIRE(S("1.2-rc2") == S("1.2.0-rc2"));
+    // check that prereleases are checked if present on one argument
+    REQUIRE(S("1.2-rc2") < S("1.2"));
+    // check that builds are ignored
+    REQUIRE(S("1.2-rc2+build3") == S("1.2-rc2+build4"));
+
+    // examples from semver spec
+
+    // https://semver.org/#spec-item-10
+    //  note we don't enforce that numbers following points can't have leading
+    //  zeros so we parse invalid semver, however valid semver are parsed
+    //  correctly
+    for (std::string s :
+         {"1.0.0-alpha+001", "1.0.0+20130313144700",
+          "1.0.0-beta+exp.sha.5114f85", "1.0.0+21AF26D3----117B344092BD"}) {
+        REQUIRE(uenv::parse_semver(s));
+    }
+
+    // https://semver.org/#spec-item-11
+    //  11.2
+    REQUIRE(S("1.0.0") < S("2.0.0"));
+    REQUIRE(S("2.0.0") < S("2.1.0"));
+    REQUIRE(S("2.1.0") < S("2.1.1"));
+    //  11.3
+    REQUIRE(S("1.0.0-alpha") < S("1.0.0"));
+    //  11.4
+    //  we don't implement correct testing of prerelease dot versions
 }

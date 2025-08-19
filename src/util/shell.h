@@ -13,6 +13,10 @@ namespace util {
 util::expected<std::filesystem::path, std::string>
 current_shell(const envvars::state&);
 
+/// replicates the process used by execvp/which to find an executable
+std::optional<std::filesystem::path> which(std::string const& name,
+                                           std::string const& PATH);
+
 // return value of exec(), which is a wrapper around execvp/execvpe
 // it is always an error when exec returns, because success implies
 // that the current process has had its stack erased by exec.

@@ -10,6 +10,7 @@
 #include <uenv/uenv.h>
 #include <uenv/view.h>
 #include <util/lex.h>
+#include <util/semver.h>
 
 namespace uenv {
 
@@ -48,7 +49,7 @@ parse_view_args(const std::string& arg);
 util::expected<std::vector<uenv_description>, parse_error>
 parse_uenv_args(const std::string& arg);
 
-util::expected<std::vector<mount_entry>, parse_error>
+util::expected<std::vector<mount_description>, parse_error>
 parse_mount_list(const std::string& arg);
 
 util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg);
@@ -66,5 +67,7 @@ parse_registry_entry(const std::string& in);
 
 util::expected<config_line, parse_error>
 parse_config_line(const std::string& arg);
+
+util::expected<util::semver, parse_error> parse_semver(const std::string& arg);
 
 } // namespace uenv

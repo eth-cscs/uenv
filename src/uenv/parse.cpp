@@ -72,7 +72,8 @@ util::expected<std::string, parse_error> parse_name(lex::lexer& L) {
     return parse_string(L, "name", is_name_tok);
 }
 
-util::expected<std::uint64_t, parse_error> parse_uint64(lex::lexer& L) {
+template <std::unsigned_integral T>
+util::expected<T, parse_error> parse_int(lex::lexer& L) {
     const auto t = L.peek();
     if (t.kind != lex::tok::integer) {
         return util::unexpected(parse_error{
@@ -80,7 +81,7 @@ util::expected<std::uint64_t, parse_error> parse_uint64(lex::lexer& L) {
     }
 
     auto s = t.spelling;
-    std::uint64_t value;
+    T value;
     auto result = std::from_chars(s.data(), s.data() + s.size(), value);
 
     if (result.ec != std::errc{}) {
@@ -96,10 +97,19 @@ util::expected<std::uint64_t, parse_error> parse_uint64(lex::lexer& L) {
     return value;
 }
 
+util::expected<std::uint32_t, parse_error> parse_uint32(lex::lexer& L) {
+    return parse_int<std::uint32_t>(L);
+}
+
+util::expected<std::uint64_t, parse_error> parse_uint64(lex::lexer& L) {
+    return parse_int<std::uint64_t>(L);
+}
+
 // all of the symbols that can occur in a path.
-// this is a subset of the characters that posix allows (which is effectively
-// every character). But it is a sane subset. If the user somehow has spaces or
-// colons in their file names, we are doing them a favor.
+// this is a subset of the characters that posix allows (which is
+// effectively every character). But it is a sane subset. If the user
+// somehow has spaces or colons in their file names, we are doing them a
+// favor.
 bool is_path_tok(lex::tok t) {
     return t == lex::tok::slash || t == lex::tok::symbol ||
            t == lex::tok::dash || t == lex::tok::dot || t == lex::tok::integer;
@@ -295,8 +305,9 @@ parse_uenv_description(lex::lexer& L) {
         L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
 }
 
-util::expected<mount_entry, parse_error> parse_mount_entry(lex::lexer& L) {
-    mount_entry result;
+util::expected<mount_description, parse_error>
+parse_mount_description(lex::lexer& L) {
+    mount_description result;
 
     PARSE(L, path, result.sqfs_path);
     if (L.current_kind() != lex::tok::colon) {
@@ -389,16 +400,16 @@ parse_uenv_args(const std::string& arg) {
     return uenvs;
 }
 
-util::expected<std::vector<mount_entry>, parse_error>
+util::expected<std::vector<mount_description>, parse_error>
 parse_mount_list(const std::string& arg) {
     const std::string sanitised = util::strip(arg);
     auto L = lex::lexer(sanitised);
-    std::vector<mount_entry> mounts;
+    std::vector<mount_description> mounts;
 
     spdlog::trace("parsing uenv mount list {}", arg);
     while (true) {
-        mount_entry mnt;
-        PARSE(L, mount_entry, mnt);
+        mount_description mnt;
+        PARSE(L, mount_description, mnt);
         mounts.push_back(std::move(mnt));
 
         if (L.peek().kind != lex::tok::comma) {
@@ -603,6 +614,90 @@ parse_config_line(const std::string& arg) {
     skip_whitespace();
 
     result.value = line.substr(L.peek().loc);
+
+    return result;
+}
+
+// not super strict as per the semver standard.
+// however - valid semvers are parsed, though it might also parse invalid
+// semver.
+util::expected<util::semver, parse_error> parse_semver(const std::string& arg) {
+    const auto input = util::strip(arg);
+    spdlog::trace("parsing semver '{}'", input);
+    auto L = lex::lexer(input);
+
+    util::semver result{};
+
+    // major       (required)
+    if (auto r = parse_uint32(L)) {
+        result.major = *r;
+    } else {
+        return r;
+    }
+
+    // consume '.'
+    if (L != lex::tok::dot) {
+        return util::unexpected(
+            parse_error{L.string(), "expected a .", L.peek()});
+    }
+    L.next();
+
+    // .minor      (required)
+    if (auto r = parse_uint32(L)) {
+        result.minor = *r;
+    } else {
+        return r;
+    }
+
+    // .point      (optional)
+    if (L == lex::tok::dot) {
+        L.next();
+        if (auto r = parse_uint32(L)) {
+            result.patch = *r;
+        } else {
+            return r;
+        }
+    }
+
+    auto parse_semver_blob =
+        [&input, &L]() -> util::expected<std::string, parse_error> {
+        using enum lex::tok;
+        const auto b = L.peek().loc;
+        while (L == symbol || L == dot || L == integer || L == dash) {
+            L.next();
+        }
+        const auto e = L.peek().loc;
+        if (b == e) {
+            return util::unexpected(parse_error{
+                L.string(), "empty prerelease after dash", L.peek()});
+        }
+        return std::string{input.data() + b, input.data() + e};
+    };
+
+    // -prerelease (optional)
+    if (L == lex::tok::dash) {
+        L.next(); // consume dash
+        if (auto r = parse_semver_blob()) {
+            result.prerelease = *r;
+        } else {
+            return util::unexpected{r.error()};
+        }
+    }
+
+    // +build      (optional)
+    if (L == lex::tok::plus) {
+        L.next(); // consume plus
+        if (auto r = parse_semver_blob()) {
+            result.build = *r;
+        } else {
+            return util::unexpected{r.error()};
+        }
+    }
+
+    if (L != lex::tok::end) {
+        return util::unexpected(parse_error(
+            L.string(), "unexpected symbol at end of version", L.peek()));
+    }
 
     return result;
 }

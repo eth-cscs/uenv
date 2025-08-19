@@ -232,6 +232,14 @@ concretise_env(const std::string& uenv_args,
                 fmt::format("no mount point provided for {}", desc));
         }
 
+        // TODO: hand off validation to the mount.cpp implementation:
+        // For now leave this as is - it is working and well-tested.
+        // - the implementation below won't work when / if we have nested mount
+        //   points
+        //      - it is possible that modular uenv could use nested mounts
+        // - NOTE: maybe add the is_absolute test to mount.cpp
+        // - NOTE: add the unique mount point test to mount.cpp
+
         fs::path mount;
         if (auto p = parse_path(*mount_string)) {
             mount = *p;

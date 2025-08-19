@@ -20,6 +20,7 @@ enum class tok {
     hash,       // hash '#'
     equals,     // equal sign '='
     star,       // '*'
+    plus,       // '+'
     percent,    // percentage symbol '%'
     end,        // end of input
     error,      // invalid input encountered in stream
@@ -51,6 +52,9 @@ class lexer {
 
     // return a string view of the full input
     std::string string() const;
+
+    // return true if the current token matches tok
+    bool operator==(tok) const;
 
     ~lexer();
 
@@ -100,6 +104,8 @@ template <> class fmt::formatter<lex::tok> {
             return fmt::format_to(ctx.out(), "bang");
         case lex::tok::percent:
             return fmt::format_to(ctx.out(), "percent");
+        case lex::tok::plus:
+            return fmt::format_to(ctx.out(), "plus");
         case lex::tok::end:
             return fmt::format_to(ctx.out(), "end");
         case lex::tok::error:
