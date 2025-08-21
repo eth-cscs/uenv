@@ -1,5 +1,37 @@
 # For building RPMs.
 
+The binary rpm for uenv2 is built in a docker container using the same opensuse/leap version as the target cluster.
+
+## Docker
+
+1. Build the base container
+    ```bash
+    podman build -f slesp15sp5/docker/Dockerfile -t uenv2-rpmbuild
+    ```
+
+2. Build the binary rpm inside the container
+    ```bash
+    podman run -v $(pwd):/work:rw -w /work -it uenv2-rpmbuild:latest sh -c 'CXX=g++-12 CC=gcc-12 ./build.sh --ref=v8.1.0 --slurm-verison=25.05.2'
+    ```
+    See `./build.sh -h` for more options.
+
+### CSCS podman config
+
+Before calling `podman build` make sure the following config file exists:
+`$HOME/.config/containers/storage.conf`:
+```conf
+[storage]
+  driver = "overlay"
+  runroot = "/dev/shm/<username>/runroot"
+  graphroot = "/dev/shm/<username>/root"
+
+[storage.options.overlay]
+  mount_program = "/usr/bin/fuse-overlayfs"
+```
+
+
+## Notes
+
 RPM packaging requires that it performs the `meson setup ...`, `meson compile ...`
 and `meson install ...` itself, in a controlled environment. The script provided
 here drives that process, after making suitable sacrifices to the RPM packaging gods.
@@ -11,17 +43,8 @@ in the generated RPM.
 **NOTE**: building RPMs is fiddly business - it isn't you, it is `rpmbuild`. Contact
 Ben or Simon for help instead of trying to find good docs on RPMs (they don't exist).
 
-## make-rpm.sh
 
-A script that will generate both source and binary RPMs for the project.
-
-It requires a destination path where the RPM build will occur, and should be run in this path.
-
-```
-./rpm-build.sh $HOME/rpm/uenv
-```
-
-## macros.meson
+### macros.meson
 
 The spec file `uenv.spec` uses macros like `%meson_setup`, which parameterise
 calls to meson. Macros for meson are not usually available, so we provide a definition of
