@@ -75,10 +75,10 @@ set -euo pipefail
 # absolute path to this script (where the spec file is located)
 _scriptdir=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 
-# the project root directory
-_projectdir=$(realpath "${_scriptdir}/../")
+# the project root directory, where `build.sh` checked out the git repo
+_projectdir=./src
 
-SLURM_UENV_MOUNT_VERSION=$(sed 's/-.*//' "${_scriptdir}/../VERSION")
+SLURM_UENV_MOUNT_VERSION=$(sed 's/-.*//' "${_projectdir}/VERSION")
 
 rm -rf "${dstdir}"
 mkdir -p "${dstdir}"
