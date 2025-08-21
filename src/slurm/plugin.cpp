@@ -69,6 +69,7 @@ void set_log_level(const envvars::state& env) {
 namespace impl {
 int slurm_spank_init(spank_t sp, int ac, char** av);
 int slurm_spank_init_post_opt(spank_t sp, int ac, char** av);
+int slurm_spank_local_user_init(spank_t sp, int ac, char** av);
 } // namespace impl
 
 //
@@ -87,6 +88,10 @@ extern const unsigned int spank_plugin_version = 1;
 // Called from both srun and slurmd.
 int slurm_spank_init(spank_t sp, int ac, char** av) {
     return impl::slurm_spank_init(sp, ac, av);
+}
+
+int slurm_spank_local_user_init(spank_t sp, int ac, char** av) {
+    return impl::slurm_spank_local_user_init(sp, ac, av);
 }
 
 int slurm_spank_init_post_opt(spank_t sp, int ac, char** av) {
@@ -170,6 +175,34 @@ int slurm_spank_init(spank_t sp, int ac [[maybe_unused]],
         if (auto status = spank_option_register(sp, arg)) {
             return status;
         }
+    }
+
+    return ESPANK_SUCCESS;
+}
+
+int slurm_spank_local_user_init(spank_t sp [[maybe_unused]], int ac [[maybe_unused]],
+                                char**av [[maybe_unused]]) {
+    // initialise logging
+    // level warning to console
+    // level info to syslog
+    uenv::init_log(spdlog::level::warn, spdlog::level::info);
+    const auto calling_environment = envvars::state(environ);
+
+    auto slurm_stepid = calling_environment.get("SLURM_STEPID");
+    auto slurm_jobid = calling_environment.get("SLURM_JOBID");
+    if (slurm_stepid) {
+        spdlog::trace("stepid: {}", *slurm_stepid);
+        spdlog::trace("stepid: {}", *slurm_stepid);
+
+        // slurm_spank_log(fmt::format("step_id", *slurm_stepid).c_str());
+    } else {
+        spdlog::trace("stepid not defined");
+    }
+
+    if (slurm_jobid) {
+        spdlog::trace("jobid: {}", *slurm_jobid);
+    } else {
+        spdlog::trace("jobid not defined");
     }
 
     return ESPANK_SUCCESS;
