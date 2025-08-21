@@ -29,4 +29,4 @@ RUN python3 -m pip install --upgrade pip && python3 -m pip install meson ninja
 RUN ln -s /usr/local/bin/meson /usr/bin/meson
 
 # rpmbuild > /usr/lib/rpm/macros.d/macros.meson are missing here ...
-COPY ./macros.meson /usr/lib/rpm/macros.d/macros.meson
+COPY ./macros/macros.meson /usr/lib/rpm/macros.d/macros.meson
