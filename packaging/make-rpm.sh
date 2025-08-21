@@ -76,7 +76,7 @@ set -euo pipefail
 _scriptdir=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 
 # the project root directory, where `build.sh` checked out the git repo
-_projectdir=./src
+_projectdir=$PWD/src
 
 SLURM_UENV_MOUNT_VERSION=$(sed 's/-.*//' "${_projectdir}/VERSION")
 
