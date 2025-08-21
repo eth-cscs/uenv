@@ -6,7 +6,7 @@ The binary rpm for uenv2 is built in a docker container using the same opensuse/
 
 1. Build the base container
     ```bash
-    podman build -f slesp15sp5/docker/Dockerfile -t uenv2-rpmbuild
+    podman build -f sles15sp5/docker/Dockerfile . -t uenv2-rpmbuild
     ```
 
 2. Build the binary rpm inside the container
