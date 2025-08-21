@@ -14,7 +14,7 @@ Options:
 "
 
 # A temporary variable to hold the output of `getopt`
-TEMP=$(getopt -o r:,h --long ref:,remote:,help,slurm-version: -- "$@")
+TEMP=$(getopt -o r:h --long ref:,remote:,help,slurm-version: -- "$@")
 
 remote=https://github.com/eth-cscs/uenv2
 
@@ -64,11 +64,16 @@ _scriptdir=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 
 wd=$(mktemp -d)
 
+if [ -z ${git_ref+x} ]; then
+    >&2 echo "-r,--ref must be passed."
+    exit 1
+fi
+
 (
 	cd $wd || exit 1
 	git clone -b $git_ref $remote src
 
-	if [[ ${slurm_version+x} ]]; then
+	if [ -z ${slurm_version+x} ]; then
 		>&2 echo "download slurm headers"
 		IFS='.' read -r major minor patch <<<"$slurm_version"
 		curl -L https://download.schedmd.com/slurm/slurm-${slurm_version}.tar.bz2 |
