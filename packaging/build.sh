@@ -14,7 +14,7 @@ Options:
 "
 
 # A temporary variable to hold the output of `getopt`
-TEMP=$(getopt -o r,h --long reference,remote,help,slurm-version: -- "$@")
+TEMP=$(getopt -o r:,h --long ref:,remote:,help,slurm-version: -- "$@")
 
 remote=https://github.com/eth-cscs/uenv2
 
