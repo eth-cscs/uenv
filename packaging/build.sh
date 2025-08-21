@@ -65,15 +65,15 @@ _scriptdir=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 wd=$(mktemp -d)
 
 if [ -z ${git_ref+x} ]; then
-    >&2 echo "-r,--ref must be passed."
-    exit 1
+	>&2 echo "-r,--ref must be passed."
+	exit 1
 fi
 
 (
 	cd $wd || exit 1
 	git clone -b $git_ref $remote src
 
-	if [ -z ${slurm_version+x} ]; then
+	if [ ! -z ${slurm_version+x} ]; then
 		>&2 echo "download slurm headers"
 		IFS='.' read -r major minor patch <<<"$slurm_version"
 		curl -L https://download.schedmd.com/slurm/slurm-${slurm_version}.tar.bz2 |
