@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage="$(basename "$0") [-h]  [--slurm-version] [--remote] -r,--ref dstdir
 
-Helper script downloads required slurm headers and calls $(make-rpm.sh).
+Helper script downloads required slurm headers and calls make-rpm.sh.
 
 Options:
 -h,--help          show this help text
