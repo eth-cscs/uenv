@@ -101,7 +101,7 @@ fi
 	LDFLAGS="-Wl,--disable-new-dtags -Wl,-rpath,/lib64 -Wl,-rpath,/usr/lib64" \
 		CXXFLAGS="$INCLUDE $FLAGS" \
 		CFLAGS="$INCLUDE $FLAGS" \
-		.src/packaging/make-rpm.sh --slurm-version=$slurm_version ./rpmbuild \
+		./src/packaging/make-rpm.sh --slurm-version=$slurm_version ./rpmbuild \
 		2>${_scriptdir}/stderr.log 1>${_scriptdir}/stdout.log
 
 	find ./rpmbuild/RPMS -iname '*.rpm' -exec cp {} ${_scriptdir} \;
