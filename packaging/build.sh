@@ -104,5 +104,7 @@ fi
 		${_scriptdir}/rpmbuild-wrapper.sh --slurm-version=$slurm_version ./rpmbuild \
 		2>${_scriptdir}/stderr.log 1>${_scriptdir}/stdout.log
 
+  set -x
 	find ./rpmbuild/RPMS -iname '*.rpm' -exec cp {} ${_scriptdir} \;
+  set +x
 )
