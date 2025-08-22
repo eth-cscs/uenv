@@ -16,6 +16,7 @@ The binary rpm for uenv2 is built in a docker container using the same opensuse/
     After a successful build the `uenv-<version>-<slurm_version>.<uarch>.rpm` will be copied to the current directory. 
     See `./build.sh -h` for more options.
     **NOTE** The rpm spec file and scripts will be used from the current branch, not from the release/gitref that is specified in `--ref`. In 2. the current directory is bind-mounted, standard out/error from the rpm build process are redirected to `stdout|err.log`.
+    **NOTE** meson setup options are hardcoded in [macros/macros.meson](./macros/macros.meson).
 
 ### CSCS podman config
 
