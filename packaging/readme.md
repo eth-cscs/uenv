@@ -14,6 +14,7 @@ The binary rpm for uenv2 is built in a docker container using the same opensuse/
     podman run -v $(pwd):/work:rw -w /work -it uenv2-rpmbuild:latest sh -c 'CXX=g++-12 CC=gcc-12 ./build.sh --ref=v8.1.0 --slurm-version=25.05.2'
     ```
     See `./build.sh -h` for more options.
+    **NOTE** The rpm spec file and scripts will be used from the current branch, not from the release/gitref that is specified in `--ref`.
 
 ### CSCS podman config
 
@@ -28,7 +29,6 @@ Before calling `podman build` make sure the following config file exists:
 [storage.options.overlay]
   mount_program = "/usr/bin/fuse-overlayfs"
 ```
-
 
 ## Notes
 
