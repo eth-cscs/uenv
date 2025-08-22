@@ -33,5 +33,6 @@ echo "$REQ" > "$CNF"
 %license LICENSE
 %{_libdir}/libslurm-uenv-mount.so
 %{_bindir}/uenv
+%{_bindir}/squashfs-mount
 /usr/libexec/oras
 /usr/share/bash-completion/completions/uenv
