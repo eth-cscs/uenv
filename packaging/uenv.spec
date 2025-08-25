@@ -34,5 +34,6 @@ echo "$REQ" > "$CNF"
 %{_libdir}/libslurm-uenv-mount.so
 %{_bindir}/uenv
 %{_bindir}/squashfs-mount
+%attr(4755, root, root) %{_bindir}/squashfs-mount
 /usr/libexec/oras
 /usr/share/bash-completion/completions/uenv
