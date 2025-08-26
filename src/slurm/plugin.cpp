@@ -19,6 +19,7 @@
 #include <util/envvars.h>
 
 #include "config.hpp"
+#include "uenv/settings.h"
 
 extern "C" {
 #include <slurm/slurm_errno.h>
@@ -336,15 +337,21 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     patch_slurm_environment(*env, calling_environment);
 
     std::vector<std::string> uenv_mount_list;
+    std::vector<std::string> uenv_sha256;
     for (auto& e : env->uenvs) {
         auto& u = e.second;
         uenv_mount_list.push_back(
             fmt::format("{}:{}", u.sqfs_path.string(), u.mount_path.string()));
+        uenv_sha256.push_back(e.second.sha256);
     }
 
     std::string uenv_mount_list_value =
         fmt::format("{}", fmt::join(uenv_mount_list, ","));
     ::setenv("UENV_MOUNT_LIST", uenv_mount_list_value.c_str(), 1);
+    std::string uenv_sha256_list_value =
+        fmt::format("{}", fmt::join(uenv_sha256, ","));
+    ::setenv("UENV_SHA256_LIST", uenv_sha256_list_value.c_str(), 1);
+    spdlog::info("setting UENV_SHA256");
 
     return ESPANK_SUCCESS;
 }

@@ -143,6 +143,8 @@ struct uenv_description {
 struct concrete_uenv {
     /// the name of the uenv
     std::string name;
+    /// sha256
+    std::string sha256;
     /// the path where the uenv will be mounted
     std::filesystem::path mount_path;
     /// the path of the squashfs image to be mounted
