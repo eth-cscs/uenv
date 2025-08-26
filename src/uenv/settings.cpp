@@ -1,3 +1,4 @@
+#include "util/expected.h"
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -31,14 +32,15 @@ const std::string config_file_default =
 // merge two config_base items
 // if both have the same field set, choose the lhs value
 config_base merge(const config_base& lhs, const config_base& rhs) {
-    return {
-        .repo = lhs.repo   ? lhs.repo
-                : rhs.repo ? rhs.repo
-                           : std::nullopt,
-        .color = lhs.color   ? lhs.color
-                 : rhs.color ? rhs.color
-                             : std::nullopt,
-    };
+    return {.repo = lhs.repo   ? lhs.repo
+                    : rhs.repo ? rhs.repo
+                               : std::nullopt,
+            .color = lhs.color   ? lhs.color
+                     : rhs.color ? rhs.color
+                                 : std::nullopt,
+            .ec = lhs.ec   ? lhs.ec
+                  : rhs.ec ? rhs.ec
+                           : std::nullopt};
 }
 
 config_base default_config(const envvars::state& env) {
@@ -81,8 +83,10 @@ read_config_file(const std::filesystem::path& path,
                  const envvars::state& calling_env);
 }
 
-util::expected<config_base, std::string>
-load_user_config(const envvars::state& calling_env) {
+// read configuration from the user configuration file
+// the location of the config file is determined using XDG_CONFIG_HOME or HOME
+util::expected<config_base, std::string> load_user_config(
+        const envvars::state& calling_env) {
     namespace fs = std::filesystem;
 
     auto home_env = calling_env.get("HOME");
@@ -128,6 +132,45 @@ load_user_config(const envvars::state& calling_env) {
     }
 
     return *result;
+}
+
+// read configuration from /etc
+util::expected<config_base, std::string>
+load_system_config(const envvars::state& calling_env) {
+
+    namespace fs = std::filesystem;
+
+    const auto config_path = fs::path("/etc/uenv2/config");
+
+    if (!fs::exists(config_path)) {
+        return util::unexpected(fmt::format("system config path {} doesn't exist", config_path));
+    }
+
+    auto result =  impl::read_config_file(config_path, calling_env);
+    if (!result) {
+        return util::unexpected{fmt::format(
+            "error opening '{}': {}", config_path.string(), result.error())};
+    }
+
+    return result;
+}
+
+config_base
+load_config(const uenv::config_base& cli_config,
+            const envvars::state& calling_env) {
+    uenv::config_base user_config;
+    if (auto x = uenv::load_user_config(calling_env)) {
+        user_config = *x;
+    }
+    uenv::config_base system_config;
+    if (auto x = uenv::load_system_config(calling_env)) {
+        system_config = *x;
+    }
+    const auto default_config = uenv::default_config(calling_env);
+    const auto full_config = uenv::merge(
+        cli_config,
+        uenv::merge(user_config, uenv::merge(system_config, default_config)));
+    return full_config;
 }
 
 namespace impl {
@@ -189,6 +232,8 @@ read_config_file(const std::filesystem::path& path,
                                 "muste be true or false",
                                 key, value));
             }
+        } else if (key == "elasticsearch") {
+            config.ec = value;
         } else {
             return util::unexpected(
                 fmt::format("invalid configuration parameter '{}'", key));
