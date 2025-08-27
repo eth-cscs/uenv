@@ -182,8 +182,9 @@ int slurm_spank_init(spank_t sp, int ac [[maybe_unused]],
     return ESPANK_SUCCESS;
 }
 
-int slurm_spank_local_user_init(spank_t sp [[maybe_unused]], int ac [[maybe_unused]],
-                                char**av [[maybe_unused]]) {
+int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
+                                int ac [[maybe_unused]],
+                                char** av [[maybe_unused]]) {
     // initialise logging
     // level warning to console
     // level info to syslog
