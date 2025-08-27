@@ -5,4 +5,4 @@ namespace uenv {
 
 void elasticsearch_statistics(const envvars::state&);
 
-}  // uenv
+} // namespace uenv

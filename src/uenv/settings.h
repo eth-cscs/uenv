@@ -26,8 +26,8 @@ struct config_line {
 };
 
 // load config
-config_base
-load_config(const uenv::config_base&, const envvars::state& calling_env);
+config_base load_config(const uenv::config_base&,
+                        const envvars::state& calling_env);
 
 // get the default configuration
 config_base default_config(const envvars::state& calling_env);
