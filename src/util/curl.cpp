@@ -7,6 +7,7 @@
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
+#include <nlohmann/json.hpp>
 #include <util/curl.h>
 #include <util/defer.h>
 #include <util/expected.h>
@@ -46,6 +47,47 @@ size_t memory_callback(void* source, size_t size, size_t n, void* target) {
 
     return realsize;
 };
+
+expected<std::string, error> post(const nlohmann::json& data, std::string url) {
+    char errbuf[CURL_ERROR_SIZE];
+    errbuf[0] = 0;
+    auto str = data.dump();
+    CURL* h = curl_easy_init();
+    if (!h) {
+        return unexpected{
+            error{CURLE_FAILED_INIT, "unable to initialise curl"}};
+    }
+    auto _ = defer([h]() { curl_easy_cleanup(h); });
+
+    // Set up curl options...
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_URL, url.c_str()));
+    spdlog::trace("curl::post set url {}", url);
+    // ... other setup ...
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_POSTFIELDS, str.c_str()));
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE, str.size()));
+    spdlog::trace("curl::post set data {}", str);
+    // Headers
+    struct curl_slist* headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_HTTPHEADER, headers));
+
+    // Set callback function to capture response
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, memory_callback));
+    // we pass our 'chunk' struct to the callback function
+    std::vector<char> result;
+    // when this was written, calls to the jfrog API returned roughly 100k
+    // bytes
+    result.reserve(200000);
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEDATA, (void*)&result));
+    spdlog::trace("curl::post set memory target");
+    // Perform the request
+    CURL_EASY(curl_easy_perform(h));
+
+    spdlog::trace("curl::post finished and retrieved data of size {}",
+                  result.size());
+
+    return std::string{result.data(), result.data() + result.size()};
+}
 
 expected<std::string, error> get(std::string url) {
     char errbuf[CURL_ERROR_SIZE];

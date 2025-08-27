@@ -7,6 +7,7 @@
 #include <curl/curl.h>
 #include <curl/easy.h>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 
 namespace util {
 namespace curl {
@@ -17,6 +18,9 @@ struct error {
 };
 
 std::string curl_get(std::string url);
+
+expected<std::string, error> post(const nlohmann::json& data, std::string url);
+
 expected<std::string, error> get(std::string url);
 
 expected<std::string, error> upload(std::string url,

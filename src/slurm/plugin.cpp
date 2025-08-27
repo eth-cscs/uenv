@@ -19,6 +19,7 @@
 #include <util/envvars.h>
 
 #include "config.hpp"
+#include "elastic.h"
 #include "uenv/settings.h"
 
 extern "C" {
@@ -186,24 +187,11 @@ int slurm_spank_local_user_init(spank_t sp [[maybe_unused]], int ac [[maybe_unus
     // initialise logging
     // level warning to console
     // level info to syslog
-    uenv::init_log(spdlog::level::warn, spdlog::level::info);
     const auto calling_environment = envvars::state(environ);
-
-    auto slurm_stepid = calling_environment.get("SLURM_STEPID");
-    auto slurm_jobid = calling_environment.get("SLURM_JOBID");
-    if (slurm_stepid) {
-        spdlog::trace("stepid: {}", *slurm_stepid);
-        spdlog::trace("stepid: {}", *slurm_stepid);
-
-        // slurm_spank_log(fmt::format("step_id", *slurm_stepid).c_str());
-    } else {
-        spdlog::trace("stepid not defined");
-    }
-
-    if (slurm_jobid) {
-        spdlog::trace("jobid: {}", *slurm_jobid);
-    } else {
-        spdlog::trace("jobid not defined");
+    // initialise logging
+    if (calling_environment.get("UENV_MOUNT_LIST")) {
+        uenv::set_log_level(calling_environment);
+        uenv::elasticsearch_statistics(calling_environment);
     }
 
     return ESPANK_SUCCESS;
@@ -260,6 +248,20 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
 
     // initialise logging
     uenv::set_log_level(calling_environment);
+
+    auto slurm_stepid = calling_environment.get("SLURM_STEPID");
+    auto slurm_jobid = calling_environment.get("SLURM_JOBID");
+    if (slurm_stepid) {
+        spdlog::info("stepid: {}", *slurm_stepid);
+    } else {
+        spdlog::info("post_opt_local_allocator, stepid not defined");
+    }
+
+    if (slurm_jobid) {
+        spdlog::info("jobid: {}", *slurm_jobid);
+    } else {
+        spdlog::info("post_opt_local_allocator, jobid not defined");
+    }
 
     // check whether SLURM_UENV or SLURM_UENV_VIEW has been set
     // the arguments passed via --uenv and --view take precedence
