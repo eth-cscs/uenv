@@ -85,8 +85,8 @@ read_config_file(const std::filesystem::path& path,
 
 // read configuration from the user configuration file
 // the location of the config file is determined using XDG_CONFIG_HOME or HOME
-util::expected<config_base, std::string> load_user_config(
-        const envvars::state& calling_env) {
+util::expected<config_base, std::string>
+load_user_config(const envvars::state& calling_env) {
     namespace fs = std::filesystem;
 
     auto home_env = calling_env.get("HOME");
@@ -143,10 +143,11 @@ load_system_config(const envvars::state& calling_env) {
     const auto config_path = fs::path("/etc/uenv2/config");
 
     if (!fs::exists(config_path)) {
-        return util::unexpected(fmt::format("system config path {} doesn't exist", config_path));
+        return util::unexpected(
+            fmt::format("system config path {} doesn't exist", config_path));
     }
 
-    auto result =  impl::read_config_file(config_path, calling_env);
+    auto result = impl::read_config_file(config_path, calling_env);
     if (!result) {
         return util::unexpected{fmt::format(
             "error opening '{}': {}", config_path.string(), result.error())};
@@ -155,9 +156,8 @@ load_system_config(const envvars::state& calling_env) {
     return result;
 }
 
-config_base
-load_config(const uenv::config_base& cli_config,
-            const envvars::state& calling_env) {
+config_base load_config(const uenv::config_base& cli_config,
+                        const envvars::state& calling_env) {
     uenv::config_base user_config;
     if (auto x = uenv::load_user_config(calling_env)) {
         user_config = *x;
