@@ -249,20 +249,6 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // initialise logging
     uenv::set_log_level(calling_environment);
 
-    auto slurm_stepid = calling_environment.get("SLURM_STEPID");
-    auto slurm_jobid = calling_environment.get("SLURM_JOBID");
-    if (slurm_stepid) {
-        spdlog::info("stepid: {}", *slurm_stepid);
-    } else {
-        spdlog::info("post_opt_local_allocator, stepid not defined");
-    }
-
-    if (slurm_jobid) {
-        spdlog::info("jobid: {}", *slurm_jobid);
-    } else {
-        spdlog::info("post_opt_local_allocator, jobid not defined");
-    }
-
     // check whether SLURM_UENV or SLURM_UENV_VIEW has been set
     // the arguments passed via --uenv and --view take precedence
     std::optional<std::string> uenv_description =
