@@ -327,7 +327,7 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
                 return 1;
             } else if (r->size() > 1) {
                 term::error("the pattern {} matches more than one "
-                            "uenv:\n{}use a more specifc version",
+                            "uenv:\n{}use a more specific version",
                             U, format_record_set(*r));
                 return 1;
             } else {
