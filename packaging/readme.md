@@ -11,7 +11,7 @@ The binary rpm for uenv2 is built in a docker container using the same opensuse/
 
 2. Build the binary rpm inside the container
     ```bash
-    podman run -v $(pwd):/work:rw -w /work -it uenv2-rpmbuild:latest sh -c 'CXX=g++-12 CC=gcc-12 ./build.sh --ref=v8.1.0 --slurm-version=25.05.2'
+    podman run -v $(pwd):/work:rw -w /work -it uenv2-rpmbuild:latest sh -c 'CXX=g++-12 CC=gcc-12 ./build.sh --ref=main --slurm-version=25.05.2'
     ```
     After a successful build the `uenv-<version>-<slurm_version>.<uarch>.rpm` will be copied to the current directory. 
     See `./build.sh -h` for more options.
