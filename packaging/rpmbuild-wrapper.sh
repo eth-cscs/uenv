@@ -1,6 +1,6 @@
 #!/bin/bash
 
-usage="$(basename "$0") [-h] [-s,--skip-binary] [--slurm-version] dstdir
+usage="$(basename "$0") [-h] [-s,--skip-binary] [--slurm-version] srcdir dstdir
 
 Helper script to create a source and binary rpm of the project.
 
@@ -56,8 +56,13 @@ while true; do
   esac
 done
 
-# Remaining dstdir is in $1
-dstdir=$(realpath $1)
+# Remaining srcdir, dstdir
+if [ $# -ne 2 ]; then
+    echo "${usage}" >&2
+fi
+
+srcdir=$(realpath $1)
+dstdir=$(realpath $2)
 
 # Check if the positional argument was provided
 if [ -z "$dstdir" ]; then
@@ -75,10 +80,10 @@ set -euo pipefail
 # absolute path to this script (where the spec file is located)
 _scriptdir=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 
-# the project root directory
-_projectdir=$(realpath "${_scriptdir}/../")
+# the project root directory, where `build.sh` checked out the git repo
+_projectdir=${srcdir}
 
-SLURM_UENV_MOUNT_VERSION=$(sed 's/-.*//' "${_scriptdir}/../VERSION")
+SLURM_UENV_MOUNT_VERSION=$(sed 's/-.*//' "${_projectdir}/VERSION")
 
 rm -rf "${dstdir}"
 mkdir -p "${dstdir}"
@@ -93,7 +98,7 @@ tarball=uenv-"${SLURM_UENV_MOUNT_VERSION}".tar.gz
 
   mkdir -p BUILD BUILDROOT RPMS SOURCES SPECS SRPMS
 
-  source_prefix="uenv-${SLURM_UENV_MOUNT_VERSION}"
+  # source_prefix="uenv-${SLURM_UENV_MOUNT_VERSION}"
 
   (
     cd "${_projectdir}"

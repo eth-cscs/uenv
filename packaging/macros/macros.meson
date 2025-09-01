@@ -25,6 +25,7 @@
 	--localedir=%{_datadir}/locale \\\
 	-Dcli=true \\\
 	-Dslurm_plugin=true \\\
+  -Dsquashfs_mount=true \\\
 	%{nil}
 
 %meson_build \
