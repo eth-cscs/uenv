@@ -137,6 +137,7 @@ if uenv_cli
 endif
 
 if uenv_slurm_plugin
+    slurm_version = get_option('slurm_version')
     subdir('src/slurm')
 endif
 
