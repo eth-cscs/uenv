@@ -27,6 +27,9 @@ fi
 
 eval set -- "$TEMP"
 
+# default Slurm version is 0 -> use system slurm
+slurm_version="00.00.0"
+
 # Now go through all the options
 while true; do
     case "$1" in
@@ -38,6 +41,7 @@ while true; do
     --remote)
         shift
         remote="$1"
+        shift
         ;;
     --slurm-version)
         shift
@@ -73,34 +77,12 @@ fi
     cd $wd || exit 1
     git clone -b $git_ref $remote src
 
-    if [ ! -z ${slurm_version+x} ]; then
-        >&2 echo "download slurm headers"
-        IFS='.' read -r major minor patch <<<"$slurm_version"
-        curl -L https://download.schedmd.com/slurm/slurm-${slurm_version}.tar.bz2 |
-            tar -xj \
-                slurm-${slurm_version}/slurm/spank.h \
-                slurm-${slurm_version}/slurm/slurm_errno.h \
-                slurm-${slurm_version}/slurm/slurm_version.h.in
-
-        # The slurm version is hardcoded in the header in hexadecimal format, [major][minor][patch] (two digits each)
-        SLURM_VERSION_NUMBER=$(printf '0x%02x%02x%02x' $major $minor $patch)
-        echo "SLURM_VERSION_NUMBER: ${SLURM_VERSION_NUMBER}"
-
-        # Create slurm_version.h from .in
-        sed "s/^#undef SLURM_VERSION_NUMBER.*/#define SLURM_VERSION_NUMBER $SLURM_VERSION_NUMBER/" \
-            slurm-${slurm_version}/slurm/slurm_version.h.in >slurm-${slurm_version}/slurm/slurm_version.h
-        INCLUDE="-I$(realpath slurm-${slurm_version})"
-    else
-        >&2 echo "attempt to use slurm headers from the system"
-        INCLUDE=""
-    fi
-
     FLAGS="-O2 -fmessage-length=0 -D_FORTIFY_SOURCE=2 -fstack-protector"
     # Build RPM
     mkdir rpmbuild
     LDFLAGS="-Wl,--disable-new-dtags -Wl,-rpath,/lib64 -Wl,-rpath,/usr/lib64" \
-        CXXFLAGS="$INCLUDE $FLAGS" \
-        CFLAGS="$INCLUDE $FLAGS" \
+        CXXFLAGS="$FLAGS" \
+        CFLAGS="$FLAGS" \
         ${_scriptdir}/rpmbuild-wrapper.sh --slurm-version=$slurm_version ./src ./rpmbuild \
         2>${_scriptdir}/stderr.log 1>${_scriptdir}/stdout.log
 
