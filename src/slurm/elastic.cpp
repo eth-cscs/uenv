@@ -28,12 +28,12 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
         nlohmann::json data;
         auto slurm_stepid = calling_env.get("SLURM_STEPID");
         auto slurm_jobid = calling_env.get("SLURM_JOBID");
-        auto sha256 = calling_env.get("UENV_SHA256_LIST");
-        if (sha256) {
-            data["sha256"] = *sha256;
+        auto digect = calling_env.get("UENV_DIGEST_LIST");
+        if (digect) {
+            data["digest"] = *digect;
         } else {
             // the uenv has been started from file, skip sending stats
-            spdlog::warn("uenv sha256 not defined");
+            spdlog::warn("uenv digest not defined");
             exit(0);
         }
         const auto now = std::chrono::system_clock::now();

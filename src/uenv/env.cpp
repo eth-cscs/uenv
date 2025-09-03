@@ -285,7 +285,7 @@ concretise_env(const std::string& uenv_args,
         }
 
         uenvs[name] = concrete_uenv{.name = name,
-                                    .sha256 = uenv_sha,
+                                    .digest = uenv_sha,
                                     .mount_path = mount,
                                     .sqfs_path = sqfs_path,
                                     .meta_path = meta.path,
