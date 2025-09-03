@@ -23,7 +23,6 @@ slurm_patch = slurm_version_parts[2].to_int()
 
 # download the slurm source code if requested
 if slurm_major > 0
-  message('DOWNLOADING SLURM')
   slurm_path   = meson.current_build_dir()
   slurm_script = meson.project_source_root() +  '/meson-scripts/get-slurm.sh'
   slurm_headers = custom_target(

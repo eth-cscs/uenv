@@ -16,6 +16,8 @@ Options:
 # A temporary variable to hold the output of `getopt`
 TEMP=$(getopt -o r:h --long ref:,remote:,help,slurm-version: -- "$@")
 
+# default Slurm version is 0 -> use system slurm
+slurm_version="00.00.0"
 remote=https://github.com/eth-cscs/uenv2
 
 # If getopt has reported an error, exit script with an error
@@ -26,9 +28,6 @@ if [ $? != 0 ]; then
 fi
 
 eval set -- "$TEMP"
-
-# default Slurm version is 0 -> use system slurm
-slurm_version="00.00.0"
 
 # Now go through all the options
 while true; do
