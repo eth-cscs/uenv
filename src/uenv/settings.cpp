@@ -38,9 +38,9 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
             .color = lhs.color   ? lhs.color
                      : rhs.color ? rhs.color
                                  : std::nullopt,
-            .ec = lhs.ec   ? lhs.ec
-                  : rhs.ec ? rhs.ec
-                           : std::nullopt};
+            .elastic_config = lhs.elastic_config   ? lhs.elastic_config
+                              : rhs.elastic_config ? rhs.elastic_config
+                                                   : std::nullopt};
 }
 
 config_base default_config(const envvars::state& env) {
@@ -235,7 +235,7 @@ read_config_file(const std::filesystem::path& path,
                                 key, value));
             }
         } else if (key == "elasticsearch") {
-            config.ec = value;
+            config.elastic_config = value;
         } else {
             return util::unexpected(
                 fmt::format("invalid configuration parameter '{}'", key));

@@ -22,7 +22,7 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
         // fork failed
     } else if (pid == 0) {
         auto config = load_config(uenv::config_base{}, calling_env);
-        if (!config.ec) {
+        if (!config.elastic_config) {
             exit(0);
         }
         nlohmann::json data;
@@ -52,8 +52,8 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
             spdlog::warn("slurm jobid not defined");
         }
 
-        if (config.ec) {
-            auto reply = util::curl::post(data, *config.ec);
+        if (config.elastic_config) {
+            auto reply = util::curl::post(data, *config.elastic_config);
             if (reply) {
                 spdlog::trace("elastic reply {}", *reply);
             } else {

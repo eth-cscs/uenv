@@ -12,7 +12,7 @@ namespace uenv {
 struct config_base {
     std::optional<std::string> repo;
     std::optional<bool> color;
-    std::optional<std::string> ec;
+    std::optional<std::string> elastic_config;
 };
 
 // the result of parsing a line in a configuration file
@@ -36,7 +36,7 @@ config_base merge(const config_base& lhs, const config_base& rhs);
 
 struct configuration {
     std::optional<std::filesystem::path> repo;
-    std::optional<std::filesystem::path> ec;
+    std::optional<std::filesystem::path> elastic_config;
     bool color;
     configuration& operator=(const configuration&) = default;
 };
