@@ -28,9 +28,9 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
         nlohmann::json data;
         auto slurm_stepid = calling_env.get("SLURM_STEPID");
         auto slurm_jobid = calling_env.get("SLURM_JOBID");
-        auto digect = calling_env.get("UENV_DIGEST_LIST");
-        if (digect) {
-            data["digest"] = *digect;
+        auto digest = calling_env.get("UENV_DIGEST_LIST");
+        if (digest) {
+            data["digest"] = *digest;
         } else {
             // the uenv has been started from file, skip sending stats
             spdlog::warn("uenv digest not defined");
