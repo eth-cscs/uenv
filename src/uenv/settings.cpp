@@ -140,7 +140,7 @@ load_system_config(const envvars::state& calling_env) {
 
     namespace fs = std::filesystem;
 
-    const auto config_path = fs::path("/etc/uenv2/config");
+    const auto config_path = fs::path("/etc/uenv/config");
 
     if (!fs::exists(config_path)) {
         return util::unexpected(
