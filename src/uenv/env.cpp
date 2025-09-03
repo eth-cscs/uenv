@@ -131,7 +131,7 @@ concretise_env(const std::string& uenv_args,
     for (auto& desc : *uenv_descriptions) {
         // determine the sqfs_path
         fs::path sqfs_path;
-        std::string uenv_sha = "none";
+        std::optional<std::string> uenv_sha;
 
         // if a label was used to describe the uenv (e.g. "prgenv-gnu/24.7"
         // it has to be looked up in a repo.

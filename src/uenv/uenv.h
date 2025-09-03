@@ -144,7 +144,7 @@ struct concrete_uenv {
     /// the name of the uenv
     std::string name;
     /// digest
-    std::string digest;
+    std::optional<std::string> digest;
     /// the path where the uenv will be mounted
     std::filesystem::path mount_path;
     /// the path of the squashfs image to be mounted

@@ -331,7 +331,9 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         auto& u = e.second;
         uenv_mount_list.push_back(
             fmt::format("{}:{}", u.sqfs_path.string(), u.mount_path.string()));
-        uenv_digests.push_back(e.second.digest);
+        if (e.second.digest) {
+            uenv_digests.push_back(*e.second.digest);
+        }
     }
 
     std::string uenv_mount_list_value =

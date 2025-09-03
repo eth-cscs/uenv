@@ -26,27 +26,24 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
             exit(0);
         }
         nlohmann::json data;
-        auto slurm_stepid = calling_env.get("SLURM_STEPID");
-        auto slurm_jobid = calling_env.get("SLURM_JOBID");
-        auto digest = calling_env.get("UENV_DIGEST_LIST");
-        if (digest) {
+
+        if (auto digest = calling_env.get("UENV_DIGEST_LIST"); digest) {
             data["digest"] = *digest;
-        } else {
-            // the uenv has been started from file, skip sending stats
-            spdlog::warn("uenv digest not defined");
-            exit(0);
+        }
+        if (auto mount_list = calling_env.get("UENV_MOUNT_LIST"); mount_list) {
+            data["mount_list"] = *mount_list;
         }
         const auto now = std::chrono::system_clock::now();
         const std::time_t t_c = std::chrono::system_clock::to_time_t(now);
         auto time = std::ctime(&t_c);
         data["time"] = time;
 
-        if (slurm_stepid) {
+        if (auto slurm_stepid = calling_env.get("SLURM_STEPID"); slurm_stepid) {
             data["stepid"] = *slurm_stepid;
         } else {
             spdlog::warn("slurm stepid not defined");
         }
-        if (slurm_jobid) {
+        if (auto slurm_jobid = calling_env.get("SLURM_JOBID"); slurm_jobid) {
             data["jobid"] = *slurm_jobid;
         } else {
             spdlog::warn("slurm jobid not defined");
