@@ -114,7 +114,7 @@ tarball=uenv-"${SLURM_UENV_MOUNT_VERSION}".tar.gz
 
   if [ "${skip_bin}" -eq "0" ]; then
     # create binary rpm
-    rpmbuild -vv --nodeps --define "_topdir $(pwd)" \
+    rpmbuild -vv --nodeps --define "_topdir $(pwd)" --define "_slurm_version ${RPM_SLURM_VERSION}" \
              --rebuild SRPMS/uenv-*.src.rpm
   fi
 )

@@ -5,3 +5,5 @@ option('cli', type: 'boolean', value: true)
 option('squashfs_mount', type: 'boolean', value: false)
 
 option('oras_version', type: 'string', value: '1.2.0')
+#option('slurm_version', type: 'string', value: '24.05.0')
+option('slurm_version', type: 'string', value: '0.00.0')

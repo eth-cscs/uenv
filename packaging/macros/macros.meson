@@ -9,24 +9,25 @@
   FFLAGS="${FFLAGS:-%optflags}"; export FFLAGS; \
   FCFLAGS="${FCFLAGS:-%optflags}"; export FCFLAGS; \
   meson setup %{__sourcedir} %{__builddir}  \\\
-	--prefix=%{_prefix} \\\
-	--buildtype=release \\\
-	--bindir=%{_bindir} \\\
-	--sbindir=%{_sbindir} \\\
-	--libexecdir=/usr/libexec \\\
-	--libdir=%{_libdir} \\\
-	--localstatedir=%{_var} \\\
-	--sharedstatedir=%{_sharedstatedir} \\\
-	--includedir=%{_includedir} \\\
-	--datadir=%{_datadir} \\\
-	--sysconfdir=%{_sysconfdir} \\\
-	--mandir=%{_mandir} \\\
-	--infodir=%{_infodir} \\\
-	--localedir=%{_datadir}/locale \\\
-	-Dcli=true \\\
-	-Dslurm_plugin=true \\\
-  -Dsquashfs_mount=true \\\
-	%{nil}
+    --prefix=%{_prefix} \\\
+    --buildtype=release \\\
+    --bindir=%{_bindir} \\\
+    --sbindir=%{_sbindir} \\\
+    --libexecdir=/usr/libexec \\\
+    --libdir=%{_libdir} \\\
+    --localstatedir=%{_var} \\\
+    --sharedstatedir=%{_sharedstatedir} \\\
+    --includedir=%{_includedir} \\\
+    --datadir=%{_datadir} \\\
+    --sysconfdir=%{_sysconfdir} \\\
+    --mandir=%{_mandir} \\\
+    --infodir=%{_infodir} \\\
+    --localedir=%{_datadir}/locale \\\
+    -Dcli=true \\\
+    -Dslurm_plugin=true \\\
+    -Dsquashfs_mount=true \\\
+    -Dslurm_version=%{_slurm_version} \\\
+    %{nil}
 
 %meson_build \
 meson compile %_smp_mflags -C %{__builddir}
