@@ -326,22 +326,25 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     patch_slurm_environment(*env, calling_environment);
 
     std::vector<std::string> uenv_mount_list;
-    std::vector<std::string> uenv_digests;
+    std::vector<std::string> uenv_mount_digests;
     for (auto& e : env->uenvs) {
         auto& u = e.second;
         uenv_mount_list.push_back(
             fmt::format("{}:{}", u.sqfs_path.string(), u.mount_path.string()));
         if (e.second.digest) {
-            uenv_digests.push_back(*e.second.digest);
+            // store sqfs_path, mount_point, digest
+            uenv_mount_digests.push_back(fmt::format(
+                "{}:{}:{}", u.sqfs_path.string(), u.mount_path.string(),
+                e.second.digest ? *e.second.digest : "none"));
         }
     }
 
     std::string uenv_mount_list_value =
         fmt::format("{}", fmt::join(uenv_mount_list, ","));
     ::setenv("UENV_MOUNT_LIST", uenv_mount_list_value.c_str(), 1);
-    std::string uenv_sha256_list_value =
-        fmt::format("{}", fmt::join(uenv_digests, ","));
-    ::setenv("UENV_DIGEST_LIST", uenv_sha256_list_value.c_str(), 1);
+    std::string uenv_mount_digest_list_value =
+        fmt::format("{}", fmt::join(uenv_mount_digests, ","));
+    ::setenv("UENV_MOUNT_DIGEST_LIST", uenv_mount_digest_list_value.c_str(), 1);
     spdlog::info("setting UENV_DIGEST_LIST");
 
     return ESPANK_SUCCESS;
