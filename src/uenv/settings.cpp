@@ -166,7 +166,7 @@ config_base load_config(const uenv::config_base& cli_config,
     if (auto x = uenv::load_system_config(calling_env)) {
         system_config = *x;
     } else {
-        spdlog::warn("unable to open system config file: {}", x.error());
+        spdlog::trace("unable to open system config file: {}", x.error());
     }
     const auto default_config = uenv::default_config(calling_env);
     const auto full_config = uenv::merge(
