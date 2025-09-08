@@ -23,6 +23,18 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
     if (pid < 0) {
         // fork failed
     } else if (pid == 0) {
+        // Child process
+        int null_fd = open("/dev/null", O_RDWR); // Open once
+
+        if (null_fd != -1) {
+            dup2(null_fd, STDIN_FILENO);  // Redirect stdin to /dev/null
+            dup2(null_fd, STDOUT_FILENO); // Redirect stdout to /dev/null
+            dup2(null_fd, STDERR_FILENO); // Redirect stderr to /dev/null
+
+            if (null_fd > 2)
+                close(null_fd); // Close extra fd if not 0,1,2
+        }
+
         auto config = load_config(uenv::config_base{}, calling_env);
         if (!config.elastic_config) {
             exit(0);
@@ -40,10 +52,9 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
                     if (e.digest) {
                         entry["digest"] = *e.digest;
                     }
+                    data["mount_list_digest"].push_back(entry);
                 }
             }
-        } else {
-            spdlog::warn("UENV_MOUNT_DIGEST_LIST is not set");
         }
 
         const auto now = std::chrono::system_clock::now();
@@ -55,24 +66,15 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
             data["stepid"] = *slurm_stepid;
         } else {
             data["stepid"] = nullptr;
-            spdlog::warn("slurm stepid not defined");
         }
         if (auto slurm_jobid = calling_env.get("SLURM_JOBID"); slurm_jobid) {
             data["jobid"] = *slurm_jobid;
         } else {
             data["jobid"] = nullptr;
-            spdlog::warn("slurm jobid not defined");
         }
 
         if (config.elastic_config) {
-            auto reply = util::curl::post(data, *config.elastic_config);
-            if (reply) {
-                spdlog::trace("elastic reply {}", *reply);
-            } else {
-                spdlog::warn("curl post failed {} {}",
-                             static_cast<int>(reply.error().code),
-                             reply.error().message);
-            }
+            util::curl::post(data, *config.elastic_config);
         }
         exit(0);
     }
