@@ -11,8 +11,10 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <uenv/log.h>
+#include <uenv/parse.h>
 #include <unistd.h>
 #include <util/curl.h>
+#include <util/expected.h>
 
 namespace uenv {
 
@@ -27,9 +29,23 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
         }
         nlohmann::json data;
 
-        if (auto mount_list = calling_env.get("UENV_MOUNT_DIGEST_LIST"); mount_list) {
-            data["mount_list_digest"] = *mount_list;
+        if (auto mount_list = calling_env.get("UENV_MOUNT_DIGEST_LIST");
+            mount_list) {
+            data["mount_list_digest"] = nlohmann::json::array();
+            if (auto r = parse_elastic_entry(*mount_list); r) {
+                nlohmann::json entry;
+                for (auto e : *r) {
+                    entry["mountpoint"] = e.mount_point;
+                    entry["sqfs"] = e.sqfs;
+                    if (e.digest) {
+                        entry["digest"] = *e.digest;
+                    }
+                }
+            }
+        } else {
+            spdlog::warn("UENV_MOUNT_DIGEST_LIST is not set");
         }
+
         const auto now = std::chrono::system_clock::now();
         const std::time_t t_c = std::chrono::system_clock::to_time_t(now);
         auto time = std::ctime(&t_c);

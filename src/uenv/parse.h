@@ -14,6 +14,12 @@
 
 namespace uenv {
 
+struct elastic_entry {
+    std::string sqfs;
+    std::string mount_point;
+    std::optional<std::string> digest;
+};
+
 /// represents an error generated when parsing a string.
 ///
 /// stores the input string and the location (loc) in the string where the error
@@ -42,6 +48,9 @@ struct parse_error {
     }
     std::string message() const;
 };
+
+util::expected<std::vector<elastic_entry>, parse_error>
+parse_elastic_entry(const std::string& arg);
 
 util::expected<std::vector<view_description>, parse_error>
 parse_view_args(const std::string& arg);

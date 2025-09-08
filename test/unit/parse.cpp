@@ -377,6 +377,51 @@ TEST_CASE("parse registry entry", "[parse]") {
     }
 }
 
+TEST_CASE("parse elastic entry", "parse") {
+
+    const std::string sha =
+        "33a1a394db1f5b43cfc5e756d2717623ccbccb44c57b9b971f662cfb022b2380";
+    {
+        auto r = uenv::parse_elastic_entry(fmt::format("/path1:/path2:{}", sha));
+        REQUIRE(r);
+        REQUIRE(r->at(0).sqfs == "/path1");
+        REQUIRE(r->at(0).mount_point == "/path2");
+        REQUIRE(r->at(0).digest == sha);
+        REQUIRE(r->size() == 1);
+    }
+    {
+        auto r = uenv::parse_elastic_entry("/path1:/path2");
+        REQUIRE(r);
+        REQUIRE(r->at(0).sqfs == "/path1");
+        REQUIRE(r->at(0).mount_point == "/path2");
+        REQUIRE(!r->at(0).digest);
+        REQUIRE(r->size() == 1);
+    }
+    {
+        // check list of length 1 works
+        auto r =
+            uenv::parse_elastic_entry(fmt::format("/path1:/path2:{},", sha));
+        REQUIRE(r);
+        REQUIRE(r->at(0).sqfs == "/path1");
+        REQUIRE(r->at(0).mount_point == "/path2");
+        REQUIRE(r->at(0).digest == sha);
+        REQUIRE(r->size() == 1);
+    }
+    {
+        // check list of length 2 works
+        std::string elem = fmt::format("/path1:/path2:{}", sha);
+        auto r = uenv::parse_elastic_entry(fmt::format("{},{}", elem, elem));
+        REQUIRE(r);
+        REQUIRE(r->at(0).sqfs == "/path1");
+        REQUIRE(r->at(0).mount_point == "/path2");
+        REQUIRE(r->at(0).digest == sha);
+        REQUIRE(r->at(1).sqfs == "/path1");
+        REQUIRE(r->at(1).mount_point == "/path2");
+        REQUIRE(r->at(1).digest == sha);
+        REQUIRE(r->size() == 2);
+    }
+}
+
 TEST_CASE("date", "[parse]") {
     {
         auto in = "2024-12-3";
