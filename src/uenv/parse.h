@@ -50,7 +50,7 @@ struct parse_error {
 };
 
 util::expected<std::vector<elastic_entry>, parse_error>
-parse_elastic_entry(const std::string& arg);
+parse_elastic_entries(const std::string& arg);
 
 util::expected<std::vector<view_description>, parse_error>
 parse_view_args(const std::string& arg);

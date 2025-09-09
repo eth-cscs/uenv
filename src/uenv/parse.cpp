@@ -170,7 +170,6 @@ parse_view_description(lex::lexer& L) {
 util::expected<elastic_entry, parse_error> parse_elastic_entry(lex::lexer& L) {
     elastic_entry v;
     PARSE(L, path, v.sqfs);
-    spdlog::info("done parse PATH");
     if (const auto t = L.peek(); t.kind != lex::tok::colon) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
@@ -182,7 +181,6 @@ util::expected<elastic_entry, parse_error> parse_elastic_entry(lex::lexer& L) {
         return v;
     }
 
-    spdlog::info("Parse optional digest");
     // parse optional digest
     if (auto t = L.peek(); t.kind != lex::tok::colon) {
         return util::unexpected(parse_error{
@@ -375,7 +373,7 @@ parse_mount_description(lex::lexer& L) {
 
 // parse (sqfs_path, mountpoint, digest) from string (env variable)
 util::expected<std::vector<elastic_entry>, parse_error>
-parse_elastic_entry(const std::string& arg) {
+parse_elastic_entries(const std::string& arg) {
 
     spdlog::trace("parsing view args {}", arg);
     const std::string sanitised = util::strip(arg);

@@ -44,7 +44,7 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
         if (auto mount_list = calling_env.get("UENV_MOUNT_DIGEST_LIST");
             mount_list) {
             data["mount_list_digest"] = nlohmann::json::array();
-            if (auto r = parse_elastic_entry(*mount_list); r) {
+            if (auto r = parse_elastic_entries(*mount_list); r) {
                 nlohmann::json entry;
                 for (auto e : *r) {
                     entry["mountpoint"] = e.mount_point;
