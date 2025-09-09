@@ -1,5 +1,6 @@
 #include "elastic.h"
 #include "spdlog/common.h"
+#include "uenv/config.h"
 #include "uenv/settings.h"
 #include <chrono>
 #include <cstdlib>
@@ -25,7 +26,6 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
     } else if (pid == 0) {
         // Child process
         int null_fd = open("/dev/null", O_RDWR); // Open once
-
         if (null_fd != -1) {
             dup2(null_fd, STDIN_FILENO);  // Redirect stdin to /dev/null
             dup2(null_fd, STDOUT_FILENO); // Redirect stdout to /dev/null
@@ -61,6 +61,7 @@ void elasticsearch_statistics(const envvars::state& calling_env) {
         const std::time_t t_c = std::chrono::system_clock::to_time_t(now);
         auto time = std::ctime(&t_c);
         data["time"] = time;
+        data["uenv_version"] = UENV_VERSION;
 
         if (auto slurm_stepid = calling_env.get("SLURM_STEPID"); slurm_stepid) {
             data["stepid"] = *slurm_stepid;
