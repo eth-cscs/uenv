@@ -1,7 +1,6 @@
 #include <charconv>
 #include <optional>
 #include <string>
-#include <vector>
 
 #include <unistd.h>
 
@@ -20,7 +19,6 @@
 
 #include "config.hpp"
 #include "elastic.h"
-#include "uenv/settings.h"
 
 extern "C" {
 #include <slurm/slurm_errno.h>
@@ -111,8 +109,10 @@ struct arg_pack {
     std::optional<std::string> view_description;
     std::optional<std::string> repo_description;
 };
-
 static arg_pack args{};
+
+static std::optional<std::vector<uenv::telemetry_data>> telemetry =
+    std::nullopt;
 
 /// wrapper spank_getenv : for use in the remote context
 std::optional<std::string> getenv_wrapper(spank_t sp, const char* var) {
@@ -185,14 +185,19 @@ int slurm_spank_init(spank_t sp, int ac [[maybe_unused]],
 int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
                                 int ac [[maybe_unused]],
                                 char** av [[maybe_unused]]) {
-    // initialise logging
-    // level warning to console
-    // level info to syslog
     const auto calling_environment = envvars::state(environ);
-    // initialise logging
-    if (calling_environment.get("UENV_MOUNT_LIST")) {
-        uenv::set_log_level(calling_environment);
-        uenv::elasticsearch_statistics(calling_environment);
+    uenv::set_log_level(calling_environment);
+
+    // only log uenv if UENV_DIGEST_LIST was populated
+    if (telemetry) {
+        auto config = load_config(uenv::config_base{}, calling_environment);
+        if (config.elastic_config) {
+            if (auto payload = uenv::slurm_elastic_payload(
+                    telemetry.value(), calling_environment)) {
+                uenv::post_elastic(payload.value(),
+                                   config.elastic_config.value(), false);
+            }
+        }
     }
 
     return ESPANK_SUCCESS;
@@ -205,7 +210,8 @@ int init_post_opt_remote(spank_t sp) {
     // level info to syslog
     uenv::init_log(spdlog::level::warn, spdlog::level::info);
 
-    // parse environment variables to test whether there is anything to mount
+    // parse environment variables to test whether there is anything to
+    // mount
     auto mount_var = getenv_wrapper(sp, "UENV_MOUNT_LIST");
 
     // variable is not set - nothing to do here
@@ -238,13 +244,13 @@ int init_post_opt_remote(spank_t sp) {
 }
 
 /// parse and validate the CLI arguments
-/// set environment variables that are used in the remote context to mount the
-/// image set environment variables for all requested views
+/// set environment variables that are used in the remote context to mount
+/// the image set environment variables for all requested views
 int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // grab a snapshot of the calling environment
-    // this function is called in the local context (where srun and sbatch are
-    // called), where the standard setenv/getenv interface is used to access
-    // environment variables.
+    // this function is called in the local context (where srun and sbatch
+    // are called), where the standard setenv/getenv interface is used to
+    // access environment variables.
     const auto calling_environment = envvars::state(environ);
 
     // initialise logging
@@ -289,8 +295,8 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     }
 
     // if no repository was explicitly set using the --repo argument, check
-    // UENV_REPO_PATH environment variable, before using default in SCRATCH or
-    // HOME.
+    // UENV_REPO_PATH environment variable, before using default in SCRATCH
+    // or HOME.
     if (!args.repo_description) {
         args.repo_description = uenv::default_repo_path(calling_environment);
         if (!args.repo_description) {
@@ -326,26 +332,22 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     patch_slurm_environment(*env, calling_environment);
 
     std::vector<std::string> uenv_mount_list;
-    std::vector<std::string> uenv_mount_digests;
+    telemetry = std::vector<uenv::telemetry_data>{};
+
     for (auto& e : env->uenvs) {
         auto& u = e.second;
+        // build the UENV_MOUNT_LIST environment variable
         uenv_mount_list.push_back(
-            fmt::format("{}:{}", u.sqfs_path.string(), u.mount_path.string()));
-        if (e.second.digest) {
-            // store sqfs_path, mount_point, digest
-            uenv_mount_digests.push_back(fmt::format(
-                "{}:{}:{}", u.sqfs_path.string(), u.mount_path.string(),
-                e.second.digest ? *e.second.digest : "none"));
-        }
+            fmt::format("{}:{}", u.sqfs_path, u.mount_path));
+
+        // build the telemetry data
+        telemetry->push_back({.mount = u.mount_path.string(),
+                              .sqfs = u.sqfs_path.string(),
+                              .digest = u.digest});
     }
 
-    std::string uenv_mount_list_value =
-        fmt::format("{}", fmt::join(uenv_mount_list, ","));
-    ::setenv("UENV_MOUNT_LIST", uenv_mount_list_value.c_str(), 1);
-    std::string uenv_mount_digest_list_value =
-        fmt::format("{}", fmt::join(uenv_mount_digests, ","));
-    ::setenv("UENV_MOUNT_DIGEST_LIST", uenv_mount_digest_list_value.c_str(), 1);
-    spdlog::info("setting UENV_DIGEST_LIST");
+    ::setenv("UENV_MOUNT_LIST",
+             fmt::format("{}", fmt::join(uenv_mount_list, ",")).c_str(), 1);
 
     return ESPANK_SUCCESS;
 }
