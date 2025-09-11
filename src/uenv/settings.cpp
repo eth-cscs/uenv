@@ -139,8 +139,9 @@ util::expected<config_base, std::string>
 load_system_config(const envvars::state& calling_env) {
     namespace fs = std::filesystem;
 
-    const auto config_path = fs::path(calling_env.get("UENV_SYSTEM_CONFIG").value_or("/etc/uenv/config"));
-    spdlog::debug("load_system_config::using {config_path}", config_path.string());
+    const auto config_path = fs::path(
+        calling_env.get("UENV_SYSTEM_CONFIG").value_or("/etc/uenv/config"));
+    spdlog::debug("load_system_config::using {}", config_path.string());
 
     if (!fs::exists(config_path)) {
         return util::unexpected(
@@ -160,18 +161,16 @@ config_base load_config(const uenv::config_base& cli_config,
                         const envvars::state& calling_env) {
     auto config = uenv::default_config(calling_env);
     if (auto sys = uenv::load_system_config(calling_env)) {
-        config = util::merge(*sys, config);
-    }
-    else {
-        spdlog::warning("unable to open system config file: {}", sys.error());
+        config = merge(*sys, config);
+    } else {
+        spdlog::warn("unable to open system config file: {}", sys.error());
     }
     if (auto usr = uenv::load_user_config(calling_env)) {
-        config = util::merge(*usr, config);
+        config = merge(*usr, config);
+    } else {
+        spdlog::warn("unable to open user config file: {}", usr.error());
     }
-    else {
-        spdlog::warning("unable to open user config file: {}", usr.error());
-    }
-    return util::merge(cli_config, config);
+    return merge(cli_config, config);
 }
 
 namespace impl {
