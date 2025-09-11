@@ -7,7 +7,6 @@
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
-#include <nlohmann/json.hpp>
 #include <util/curl.h>
 #include <util/defer.h>
 #include <util/expected.h>
@@ -48,10 +47,9 @@ size_t memory_callback(void* source, size_t size, size_t n, void* target) {
     return realsize;
 };
 
-expected<std::string, error> post(const nlohmann::json& data, std::string url) {
+expected<std::string, error> post(const std::string& data, std::string url) {
     char errbuf[CURL_ERROR_SIZE];
     errbuf[0] = 0;
-    auto str = data.dump();
     CURL* h = curl_easy_init();
     if (!h) {
         return unexpected{
@@ -63,9 +61,9 @@ expected<std::string, error> post(const nlohmann::json& data, std::string url) {
     CURL_EASY(curl_easy_setopt(h, CURLOPT_URL, url.c_str()));
     spdlog::trace("curl::post set url {}", url);
     // ... other setup ...
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_POSTFIELDS, str.c_str()));
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE, str.size()));
-    spdlog::trace("curl::post set data {}", str);
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_POSTFIELDS, data.c_str()));
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE, data.size()));
+    spdlog::trace("curl::post set data {}", data);
     // Headers
     struct curl_slist* headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
