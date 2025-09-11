@@ -188,7 +188,7 @@ int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
     const auto calling_environment = envvars::state(environ);
     uenv::set_log_level(calling_environment);
 
-    // only log uenv if UENV_DIGEST_LIST was populated
+    // only log uenv if telemetry data was set
     if (telemetry) {
         auto config = load_config(uenv::config_base{}, calling_environment);
         if (config.elastic_config) {
