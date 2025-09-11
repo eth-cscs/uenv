@@ -167,41 +167,6 @@ parse_view_description(lex::lexer& L) {
     return view_description{{}, name1};
 }
 
-util::expected<elastic_entry, parse_error> parse_elastic_entry(lex::lexer& L) {
-    elastic_entry v;
-    PARSE(L, path, v.sqfs);
-    if (const auto t = L.peek(); t.kind != lex::tok::colon) {
-        return util::unexpected(parse_error{
-            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
-    }
-    L.next();
-    PARSE(L, path, v.mount_point);
-    if (L.current_kind() == lex::tok::end ||
-        L.current_kind() == lex::tok::comma) {
-        return v;
-    }
-
-    // parse optional digest
-    if (auto t = L.peek(); t.kind != lex::tok::colon) {
-        return util::unexpected(parse_error{
-            L.string(), fmt::format("unexpected symbol '{}", t.spelling), t});
-    }
-    L.next();
-    std::string digest;
-    auto sha = parse_string(L, "sha256", [](auto t) {
-        return t == lex::tok::integer || t == lex::tok::symbol;
-    });
-    if (!sha) {
-        return sha;
-    }
-    if (!util::is_sha(*sha)) {
-        return util::unexpected(
-            parse_error{L.string(), "unexpected symbol", L.peek()});
-    }
-    v.digest = *sha;
-    return v;
-}
-
 util::expected<uenv_label, parse_error> parse_uenv_label(lex::lexer& L) {
     uenv_label result;
 
@@ -370,40 +335,6 @@ parse_mount_description(lex::lexer& L) {
  * These are the high level functions for parsing raw strings passed to the
  * command line.
  */
-
-// parse (sqfs_path, mountpoint, digest) from string (env variable)
-util::expected<std::vector<elastic_entry>, parse_error>
-parse_elastic_entries(const std::string& arg) {
-
-    spdlog::trace("parsing view args {}", arg);
-    const std::string sanitised = util::strip(arg);
-    auto L = lex::lexer(sanitised);
-    std::vector<elastic_entry> elastic_entries;
-    while (true) {
-        elastic_entry v;
-        PARSE(L, elastic_entry, v);
-        elastic_entries.push_back(std::move(v));
-
-        if (L.current_kind() != lex::tok::comma) {
-            break;
-        }
-        // eat the comma
-        L.next();
-
-        // handle trailing comma elegantly
-        if (L.peek().kind == lex::tok::end) {
-            break;
-        }
-    }
-    // if parsing finished and the string has not been
-    // consumed, and invalid token was encountered
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
-        return util::unexpected(parse_error{
-            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
-    }
-
-    return elastic_entries;
-}
 
 // generate a list of view descriptions from a CLI argument,
 // e.g. prgenv-gnu:spack,modules

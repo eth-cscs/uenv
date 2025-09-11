@@ -5,6 +5,7 @@
 
 #include <util/expected.h>
 
+#include <uenv/elastic.h>
 #include <uenv/mount.h>
 #include <uenv/settings.h>
 #include <uenv/uenv.h>
@@ -13,12 +14,6 @@
 #include <util/semver.h>
 
 namespace uenv {
-
-struct elastic_entry {
-    std::string sqfs;
-    std::string mount_point;
-    std::optional<std::string> digest;
-};
 
 /// represents an error generated when parsing a string.
 ///
@@ -48,9 +43,6 @@ struct parse_error {
     }
     std::string message() const;
 };
-
-util::expected<std::vector<elastic_entry>, parse_error>
-parse_elastic_entries(const std::string& arg);
 
 util::expected<std::vector<view_description>, parse_error>
 parse_view_args(const std::string& arg);
