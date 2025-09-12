@@ -111,6 +111,11 @@ struct arg_pack {
 };
 static arg_pack args{};
 
+// telemetry is intialized with information about the mounted uenv images that
+// is to be sent to elastic logs when arguments are parsed in
+// init_post_opt_local_allocator. It is stored in this global variable for
+// logging in the later call to slurm_spank_local_user_init, when the slurm
+// jobid and stepid are known.
 static std::optional<std::vector<uenv::telemetry_data>> telemetry =
     std::nullopt;
 
@@ -243,9 +248,10 @@ int init_post_opt_remote(spank_t sp) {
     return ESPANK_SUCCESS;
 }
 
-/// parse and validate the CLI arguments
-/// set environment variables that are used in the remote context to mount
-/// the image set environment variables for all requested views
+/// * parse and validate the CLI arguments
+/// * set environment variables that are used in the remote context to mount
+///   the image
+/// * set environment variables for all requested views
 int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // grab a snapshot of the calling environment
     // this function is called in the local context (where srun and sbatch
