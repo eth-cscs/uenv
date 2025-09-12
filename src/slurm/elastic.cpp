@@ -51,7 +51,7 @@ slurm_elastic_payload(const std::vector<telemetry_data>& uenv_data,
         // over time, and setting an unset field to null would violate that.
         data["cluster"] = calling_env.get("CLUSTER_NAME").value_or("");
         data["user"] = calling_env.get("USER").value_or("");
-        data["host"] = calling_env.get("HOSTNAME").value_or("");
+        data["hostname"] = calling_env.get("HOSTNAME").value_or("");
         data["uenv_version"] = UENV_VERSION;
 
         std::vector<std::string> payloads;
