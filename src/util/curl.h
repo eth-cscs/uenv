@@ -1,12 +1,13 @@
 #pragma once
 
+#include <filesystem>
+#include <optional>
 #include <string>
 
 #include <util/expected.h>
 
 #include <curl/curl.h>
 #include <curl/easy.h>
-#include <filesystem>
 
 namespace util {
 namespace curl {
@@ -18,7 +19,10 @@ struct error {
 
 std::string curl_get(std::string url);
 
-expected<std::string, error> post(const std::string& data, std::string url);
+expected<std::string, error>
+post(const std::string& data, std::string url,
+     std::optional<std::string> content_type = std::nullopt,
+     long timeout_ms = 0);
 
 expected<std::string, error> get(std::string url);
 

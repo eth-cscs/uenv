@@ -35,7 +35,8 @@ void post_elastic(const std::vector<std::string>& payload,
 
             // send the telemetry payload to elastic
             for (auto& text : payload) {
-                if (!util::curl::post(text, url)) {
+                // use 10s timeout
+                if (!util::curl::post(text, url, "application/json", 10000)) {
                     break;
                 }
             }
@@ -47,10 +48,13 @@ void post_elastic(const std::vector<std::string>& payload,
                       fmt::join(payload, ","));
     } else {
         for (auto& text : payload) {
-            if (auto result = util::curl::post(text, url); !result) {
+            // use 5s timeout
+            if (auto result =
+                    util::curl::post(text, url, "application/json", 5000);
+                !result) {
                 spdlog::debug("unable to log to elastic: {}",
                               result.error().message);
-                continue;
+                break;
             }
             spdlog::debug("posted elastic telemetry {}", text);
         }
