@@ -107,29 +107,35 @@ load_user_config(const envvars::state& calling_env) {
         fid << config_file_default << std::endl;
     };
     if (!fs::exists(config_path)) {
-        spdlog::info("creating configuration path {}", config_path);
+        spdlog::debug("load_user_config:: creating configuration path {}",
+                      config_path);
         std::error_code ec;
         fs::create_directories(config_path, ec);
         if (ec) {
-            spdlog::error("unable to create config path: {}", ec.message());
+            spdlog::error("load_user_config::unable to create config path: {}",
+                          ec.message());
             return config_base{};
         }
-        spdlog::info("creating configuration file {}", config_file);
+        spdlog::debug("load_user_config::creating configuration file {}",
+                      config_file);
         create_config_file(config_file);
         return config_base{};
     } else if (!fs::exists(config_file)) {
-        spdlog::info("creating configuration file {}", config_file);
+        spdlog::debug("load_user_config::creating configuration file {}",
+                      config_file);
         create_config_file(config_file);
         return config_base{};
     }
 
-    spdlog::info("opening configuration file {}", config_file);
+    spdlog::debug("load_user_config:: opening {}", config_file);
     auto result = impl::read_config_file(config_file, calling_env);
 
     if (!result) {
         return util::unexpected{fmt::format(
             "error opening '{}': {}", config_file.string(), result.error())};
     }
+
+    spdlog::info("load_user_config:: loaded {}", config_path);
 
     return *result;
 }
@@ -141,19 +147,20 @@ load_system_config(const envvars::state& calling_env) {
 
     const auto config_path = fs::path(
         calling_env.get("UENV_SYSTEM_CONFIG").value_or("/etc/uenv/config"));
-    spdlog::debug("load_system_config::using {}", config_path.string());
+    spdlog::trace("load_system_config::using {}", config_path.string());
 
     if (!fs::exists(config_path)) {
-        return util::unexpected(
-            fmt::format("system config path {} doesn't exist", config_path));
+        return util::unexpected(fmt::format(
+            "load_system_config::path {} does not exist", config_path));
     }
 
     auto result = impl::read_config_file(config_path, calling_env);
     if (!result) {
         return util::unexpected{fmt::format(
-            "error opening '{}': {}", config_path.string(), result.error())};
+            "load_system_config::error reading config {}", result.error())};
     }
 
+    spdlog::info("load_system_config:: loaded {}", config_path);
     return result;
 }
 
@@ -163,12 +170,13 @@ config_base load_config(const uenv::config_base& cli_config,
     if (auto sys = uenv::load_system_config(calling_env)) {
         config = merge(*sys, config);
     } else {
-        spdlog::warn("unable to open system config file: {}", sys.error());
+        spdlog::info("load_config::did not load system config file: {}",
+                     sys.error());
     }
     if (auto usr = uenv::load_user_config(calling_env)) {
         config = merge(*usr, config);
     } else {
-        spdlog::warn("unable to open user config file: {}", usr.error());
+        spdlog::info("load_config::did not load user config: {}", usr.error());
     }
     return merge(cli_config, config);
 }
