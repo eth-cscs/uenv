@@ -480,6 +480,25 @@ TEST_CASE("config_line", "[parse]") {
         REQUIRE(!result);
     }
 }
+TEST_CASE("cluster", "[parse]") {
+    // parse_cluster_name(const std::string& in);
+    REQUIRE(uenv::parse_cluster_name("alps-eiger").value() == "eiger");
+    REQUIRE(uenv::parse_cluster_name("alps-daint").value() == "daint");
+    REQUIRE(uenv::parse_cluster_name("eiger").value() == "eiger");
+    REQUIRE(uenv::parse_cluster_name("daint").value() == "daint");
+    REQUIRE(uenv::parse_cluster_name("alps-eiger002").value() == "eiger002");
+    REQUIRE(uenv::parse_cluster_name("  eiger_ln002 ").value() ==
+            "eiger_ln002");
+    REQUIRE(uenv::parse_cluster_name("wombat-soup").value() == "soup");
+
+    REQUIRE(!uenv::parse_cluster_name("alps-,"));
+    REQUIRE(!uenv::parse_cluster_name("alps,"));
+    REQUIRE(!uenv::parse_cluster_name(""));
+
+    // maybe the following should be enabled in the future, i.e. strip alps- and
+    // glob remaining - into the cluster name
+    REQUIRE(!uenv::parse_cluster_name("alps-daint-ln002"));
+}
 
 TEST_CASE("semver", "[parse]") {
     for (std::string s : {"0.1", "1.2.1", "2.3.1", "2.3-dev-3+build-23"}) {

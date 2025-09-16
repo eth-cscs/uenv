@@ -16,6 +16,7 @@
 #include <uenv/settings.h>
 #include <util/curl.h>
 #include <util/expected.h>
+#include <util/fs.h>
 
 namespace uenv {
 
@@ -49,9 +50,15 @@ slurm_elastic_payload(const std::vector<telemetry_data>& uenv_data,
         // fields that can be "null" are set as empty strings.
         // this is because elastic does not like the types of fields to differ
         // over time, and setting an unset field to null would violate that.
-        data["cluster"] = calling_env.get("CLUSTER_NAME").value_or("");
+        // data["cluster"] = calling_env.get("CLUSTER_NAME").value_or("");
+        std::string cluster_name =
+            util::read_single_line_file("/etc/xthostname")
+                .value_or(calling_env.get("SLURM_CLUSTER_NAME").value_or(""));
+        data["cluster"] = parse_cluster_name(cluster_name).value_or("");
+        data["hostname"] =
+            util::read_single_line_file("/etc/hostname")
+                .value_or(calling_env.get("HOSTNAME").value_or(""));
         data["user"] = calling_env.get("USER").value_or("");
-        data["hostname"] = calling_env.get("HOSTNAME").value_or("");
         data["uenv_version"] = UENV_VERSION;
 
         std::vector<std::string> payloads;

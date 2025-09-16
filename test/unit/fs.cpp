@@ -59,3 +59,63 @@ TEST_CASE("unsquashfs", "[fs]") {
         }
     }
 }
+
+TEST_CASE("read_single_line_file", "[fs]") {
+    // file does not exist
+    REQUIRE(!util::read_single_line_file("/wombat/soup"));
+    REQUIRE(util::read_single_line_file("/etc/hostname"));
+
+    auto testdir = util::make_temp_dir();
+
+    // empty file
+    {
+        auto p = testdir / "empty";
+        std::ofstream(p).close();
+        REQUIRE(!util::read_single_line_file(p));
+    }
+
+    // file with a single space
+    {
+        auto p = testdir / "onespace";
+        (std::ofstream(p) << " ").close();
+        auto r = util::read_single_line_file(p);
+        REQUIRE(r);
+        REQUIRE(r.value() == " ");
+    }
+
+    // file with an empty line
+    {
+        auto p = testdir / "nilline";
+        (std::ofstream(p) << "\n").close();
+        auto r = util::read_single_line_file(p);
+        REQUIRE(r);
+        REQUIRE(r.value() == "");
+    }
+
+    // file with a single line and no new line
+    {
+        auto p = testdir / "oneline";
+        (std::ofstream(p) << "uenv v9.1.0-dev").close();
+        auto r = util::read_single_line_file(p);
+        REQUIRE(r);
+        REQUIRE(r.value() == "uenv v9.1.0-dev");
+    }
+
+    // file with a single line followed by new line
+    {
+        auto p = testdir / "onenewline";
+        (std::ofstream(p) << "uenv v9.1.0-dev\n").close();
+        auto r = util::read_single_line_file(p);
+        REQUIRE(r);
+        REQUIRE(r.value() == "uenv v9.1.0-dev");
+    }
+
+    // file with two non-trivial lines
+    {
+        auto p = testdir / "twoline";
+        (std::ofstream(p) << "hello world\nhoi stranger").close();
+        auto r = util::read_single_line_file(p);
+        REQUIRE(r);
+        REQUIRE(r.value() == "hello world");
+    }
+}

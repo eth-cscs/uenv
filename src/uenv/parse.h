@@ -69,6 +69,9 @@ parse_registry_entry(const std::string& in);
 util::expected<config_line, parse_error>
 parse_config_line(const std::string& arg);
 
+util::expected<std::string, parse_error>
+parse_cluster_name(const std::string& in);
+
 util::expected<util::semver, parse_error> parse_semver(const std::string& arg);
 
 } // namespace uenv
