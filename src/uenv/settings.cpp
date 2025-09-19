@@ -50,8 +50,7 @@ config_base default_config(const envvars::state& env) {
     };
 }
 
-util::expected<configuration, std::string>
-generate_configuration(const config_base& base) {
+configuration generate_configuration(const config_base& base) {
     configuration config;
 
     // set the repo path
@@ -72,6 +71,8 @@ generate_configuration(const config_base& base) {
 
     // toggle color output
     config.color = base.color.value_or(false);
+
+    config.elastic_config = base.elastic_config;
 
     return config;
 }

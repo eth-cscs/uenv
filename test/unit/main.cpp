@@ -35,7 +35,7 @@ static struct unit_init_log {
                 invalid_env = true;
             }
         }
-        uenv::init_log(log_level, spdlog::level::info);
+        uenv::init_log(log_level);
         if (invalid_env) {
             spdlog::warn(fmt::format("UENV_LOG_LEVEL invalid value '{}' -- "
                                      "expected a value between 0 and 3",

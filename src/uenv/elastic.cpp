@@ -9,36 +9,64 @@
 
 namespace uenv {
 
+namespace impl {
+
+void drop_file_descriptors(bool in, bool out) {
+    if (in || out) {
+        int null_fd = open("/dev/null", O_RDWR);
+
+        if (null_fd != -1) {
+            if (in) {
+                dup2(null_fd, STDIN_FILENO);
+            }
+            if (out) {
+                dup2(null_fd, STDOUT_FILENO);
+                dup2(null_fd, STDERR_FILENO);
+            }
+
+            if (null_fd > 2) {
+                close(null_fd);
+            }
+        }
+    }
+}
+
+} // namespace impl
+
 void post_elastic(const std::vector<std::string>& payload,
                   const std::string& url, bool subproc) {
     if (subproc) {
         // create a sub-process to asynchronously post the results
         if (fork() == 0) {
+            // always disable input
+            const bool drop_in = true;
+            // keep stdout/stderr if trace logging is enabled, so that it is
+            // still possble to get trace curl output.
+            const bool drop_out = spdlog::get_level() > spdlog::level::debug;
+
             // turn off logging
-            spdlog::set_level(spdlog::level::off);
-            spdlog::set_error_handler([](const std::string&) {});
+            if (drop_out) {
+                spdlog::set_level(spdlog::level::off);
+                spdlog::set_error_handler([](const std::string&) {});
+            }
 
             // do not use stderr/stdin/stdout from parent process because
             // this does not play nicely with Slurm, particularly with the
             // --pty flag and srun.
-            int null_fd = open("/dev/null", O_RDWR);
-            if (null_fd != -1) {
-                dup2(null_fd, STDIN_FILENO);
-                dup2(null_fd, STDOUT_FILENO);
-                dup2(null_fd, STDERR_FILENO);
-
-                if (null_fd > 2) {
-                    // close extra fd if not 0,1,2
-                    close(null_fd);
-                }
-            }
+            impl::drop_file_descriptors(drop_in, drop_out);
 
             // send the telemetry payload to elastic
             for (auto& text : payload) {
                 // use 10s timeout
-                if (!util::curl::post(text, url, "application/json", 10000)) {
+                if (auto result =
+                        util::curl::post(text, url, "application/json", 10000);
+                    !result) {
+                    spdlog::warn("post_elastic: {}", result.error().message);
                     break;
                 }
+                spdlog::debug(
+                    "posted elastic telemetry asynchronously to {} : {}", url,
+                    text);
             }
 
             // safer than exit()
