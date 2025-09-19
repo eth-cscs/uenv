@@ -90,9 +90,7 @@ int main(int argc, char** argv, char** envp) {
     } else if (verbosity >= 3) {
         console_log_level = spdlog::level::trace;
     }
-
-    // note: syslog uses level::info to capture key events
-    uenv::init_log(console_log_level, spdlog::level::info);
+    uenv::init_log(console_log_level);
 
     // get the uid before performing any updates to uid
     const uid_t uid = getuid();
