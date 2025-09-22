@@ -64,16 +64,14 @@ void post_elastic(const std::vector<std::string>& payload,
                     spdlog::warn("post_elastic: {}", result.error().message);
                     break;
                 }
-                spdlog::debug(
-                    "posted elastic telemetry asynchronously to {} : {}", url,
-                    text);
+                spdlog::debug("post_elastic telemetry asynchronously to {}: {}",
+                              url, text);
             }
 
             // safer than exit()
             _exit(0);
         }
-        spdlog::debug("posted elastic telemetry asynchronously {}",
-                      fmt::join(payload, ","));
+        spdlog::debug("post_elastic: posting logs asynchronously");
     } else {
         for (auto& text : payload) {
             // use 5s timeout

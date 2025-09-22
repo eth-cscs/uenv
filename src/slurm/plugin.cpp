@@ -320,16 +320,28 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     std::vector<std::string> uenv_mount_list;
     telemetry_g = {};
 
-    for (auto& e : env->uenvs) {
-        auto& u = e.second;
+    for (auto& [_, u] : env->uenvs) {
         // build the UENV_MOUNT_LIST environment variable
         uenv_mount_list.push_back(
             fmt::format("{}:{}", u.sqfs_path, u.mount_path));
 
+        // construct a list of views from this uenv that are used
+        std::vector<std::string> views;
+        for (const auto& v : env->views) {
+            if (v.uenv == u.name) {
+                views.push_back(v.name);
+            }
+        }
+
         // build the telemetry data
-        telemetry_g.push_back({.mount = u.mount_path.string(),
-                               .sqfs = u.sqfs_path.string(),
-                               .digest = u.digest});
+        telemetry_g.push_back(uenv::telemetry_data{
+            .mount = u.mount_path.string(),
+            .sqfs = u.sqfs_path.string(),
+            .digest = u.digest,
+            .views = views,
+            .label = u.label,
+            .name = u.name,
+        });
     }
 
     ::setenv("UENV_MOUNT_LIST",

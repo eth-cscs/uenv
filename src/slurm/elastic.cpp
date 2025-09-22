@@ -5,6 +5,7 @@
 
 #include <fmt/chrono.h>
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <nlohmann/json.hpp>
 #include <slurm/spank.h>
 #include <spdlog/spdlog.h>
@@ -68,6 +69,9 @@ slurm_elastic_payload(const std::vector<telemetry_data>& uenv_data,
             payload["mount"] = u.mount;
             payload["sqfs"] = u.sqfs;
             payload["digest"] = u.digest.value_or("");
+            payload["views"] = fmt::format("{}", fmt::join(u.views, ","));
+            payload["label"] = u.label.value_or("");
+            payload["name"] = u.name;
 
             payloads.push_back(payload.dump());
         }

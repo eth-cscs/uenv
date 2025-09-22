@@ -11,6 +11,9 @@ struct telemetry_data {
     std::string mount;
     std::string sqfs;
     std::optional<std::string> digest;
+    std::vector<std::string> views;
+    std::optional<std::string> label;
+    std::string name;
 };
 
 util::expected<std::vector<std::string>, std::string>
