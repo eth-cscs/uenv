@@ -15,6 +15,7 @@
 #include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/lustre.h>
 
 #include "add_remove.h"
 #include "build.h"
@@ -142,13 +143,25 @@ int main(int argc, char** argv) {
         // ignore any error - later attempts to use the repo can handle the
         // error
         default:
-            spdlog::info("the repo {} does not exist - creating",
-                         settings.config.repo.value());
-            if (auto result =
-                    uenv::create_repository(settings.config.repo.value());
-                !result) {
-                spdlog::warn("the repo {} was not created: {}",
-                             settings.config.repo.value(), result.error());
+            const auto repo_path = settings.config.repo.value();
+            spdlog::info("the repo {} does not exist - creating", repo_path);
+            if (auto result = uenv::create_repository(repo_path); !result) {
+                spdlog::warn("the repo {} was not created: {}", repo_path,
+                             result.error());
+            }
+            // apply lustre striping to repository
+            if (lustre::is_lustre(repo_path)) {
+                // NOTE: this call should be recursive (or have a recursive
+                // flag) to apply striping to the contents as well (the index.db
+                // was created in the call above, and won't be striped yet)
+                if (auto result = lustre::setstripe(
+                        repo_path,
+                        {.count = 8u, .size = (1024u * 1024u), .index = -1},
+                        settings.calling_environment);
+                    !result) {
+                    spdlog::warn("unable to apply lustre striping to {}",
+                                 repo_path);
+                }
             }
             break;
         }

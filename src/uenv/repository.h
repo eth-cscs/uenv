@@ -91,6 +91,9 @@ struct repository {
     // return true if the repository is in memory
     bool is_in_memory() const;
 
+    // is the repository not in memory and on a lustre file system
+    bool is_lustre() const;
+
     // return the paths that identify where the uenv image with sha256 and its
     // meta data would be stored in the repository if they were in the
     // repository. An image with sha256 does not need to be in the repository.
