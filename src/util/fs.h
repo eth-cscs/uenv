@@ -57,4 +57,10 @@ std::optional<std::filesystem::path> oras_path();
 enum class file_level { none = 0, readonly = 1, readwrite = 2 };
 file_level file_access_level(const std::filesystem::path& path);
 
+// parse a file that is expected to contain a single line of text
+// returns nullopt if the file does not exist, or contains no line.
+// content is stripped of newline.
+std::optional<std::string>
+read_single_line_file(const std::filesystem::path& path);
+
 } // namespace util

@@ -119,6 +119,11 @@ bool is_path_start_tok(lex::tok t) {
     return t == lex::tok::slash || t == lex::tok::dot;
 };
 
+// sha256
+bool is_sha(lex::tok t) {
+    return t == lex::tok::integer || t == lex::tok::symbol;
+}
+
 util::expected<std::string, parse_error> parse_path(lex::lexer& L) {
     if (!is_path_start_tok(L.current_kind())) {
         const auto t = L.peek();
@@ -554,6 +559,54 @@ unexpected_symbol:
     auto t = L.peek();
     return util::unexpected(parse_error{
         L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+}
+
+// system/cluster names are parsed from different inputs.
+// They come in two forms:
+//      alps-name: from /etc/xhostname and $SLURM_CLUSTER_NAME
+//                 e.g. alps-daint and alps-eiger
+//      name     : from $CLUSTER_NAME
+//                 e.g. daint and eiger
+
+// tokens that can appear in cluster names
+bool is_cluster_tok(lex::tok t) {
+    return t == lex::tok::symbol || t == lex::tok::integer;
+};
+
+util::expected<std::string, parse_error> parse_cluster_name(lex::lexer& L) {
+    if (const auto namestr = parse_string(L, "cluster", is_cluster_tok)) {
+        // succesfully parsed a cluster name in the 'name' format, e.g. 'daint'
+        // or 'eiger'
+        if (L == lex::tok::end) {
+            return namestr;
+        }
+    } else {
+        // return the error
+        return namestr;
+    }
+    // there is more to process: expect a long name with a dash
+    if (L != lex::tok::dash) {
+        return util::unexpected(
+            parse_error{L.string(), "expected a '-'", L.peek()});
+    }
+    L.next();
+    return parse_string(L, "cluster", is_cluster_tok);
+}
+
+util::expected<std::string, parse_error>
+parse_cluster_name(const std::string& in) {
+    const std::string sanitised = util::strip(in);
+    auto L = lex::lexer(sanitised);
+    const auto result = parse_cluster_name(L);
+    if (!result) {
+        return result;
+    }
+
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+    }
+    return result;
 }
 
 // tokens that can appear in configuration keys

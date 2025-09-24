@@ -131,6 +131,9 @@ concretise_env(const std::string& uenv_args,
     for (auto& desc : *uenv_descriptions) {
         // determine the sqfs_path
         fs::path sqfs_path;
+        std::optional<std::string> uenv_sha;
+
+        std::optional<std::string> label_string;
 
         // if a label was used to describe the uenv (e.g. "prgenv-gnu/24.7"
         // it has to be looked up in a repo.
@@ -175,6 +178,9 @@ concretise_env(const std::string& uenv_args,
             // set sqfs_path
             const auto& r = *results.begin();
             sqfs_path = store->uenv_paths(r.sha).squashfs;
+            uenv_sha = r.sha.string();
+
+            label_string = fmt::format("{}", r);
         }
         // otherwise an explicit filename was provided, e.g.
         // "/scratch/myimages/develp/store.squashfs"
@@ -282,8 +288,14 @@ concretise_env(const std::string& uenv_args,
             used_sqfs.insert(sqfs_path);
         }
 
-        uenvs[name] = concrete_uenv{name,      mount,       sqfs_path,
-                                    meta.path, description, std::move(views)};
+        uenvs[name] = concrete_uenv{.name = name,
+                                    .label = label_string,
+                                    .digest = uenv_sha,
+                                    .mount_path = mount,
+                                    .sqfs_path = sqfs_path,
+                                    .meta_path = meta.path,
+                                    .description = description,
+                                    .views = std::move(views)};
     }
 
     // A dictionary with view name as a key, and a list of uenv that provide

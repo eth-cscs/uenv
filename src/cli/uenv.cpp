@@ -82,8 +82,7 @@ int main(int argc, char** argv) {
     } else if (settings.verbose >= 3) {
         console_log_level = spdlog::level::trace;
     }
-    // note: syslog uses level::info to capture key events
-    uenv::init_log(console_log_level, spdlog::level::info);
+    uenv::init_log(console_log_level);
 
     if (auto bin = util::exe_path()) {
         spdlog::info("using uenv {}", bin->string());
@@ -100,20 +99,13 @@ int main(int argc, char** argv) {
 
     // set the configuration according to defaults, cli options and config
     // files.
-    uenv::config_base user_config;
-    if (auto x = uenv::load_user_config(settings.calling_environment)) {
-        user_config = *x;
-    }
-    const auto default_config =
-        uenv::default_config(settings.calling_environment);
-    const auto full_config =
-        uenv::merge(cli_config, uenv::merge(user_config, default_config));
-    if (auto merged_config = uenv::generate_configuration(full_config)) {
-        settings.config = merged_config.value();
-    } else {
-        term::error("an invalid configuration was provided: {}",
-                    merged_config.error());
-    }
+    auto full_config =
+        uenv::load_config(cli_config, settings.calling_environment);
+
+    // generate_configuration applies checks to ensure that paths in the config
+    // exist. If they don't it unsets them with warning messages.
+    settings.config = uenv::generate_configuration(full_config);
+
     if (!settings.config.repo) {
         term::warn("there is no valid repo - use the --repo flag or edit the "
                    "configuration to set a repo path");

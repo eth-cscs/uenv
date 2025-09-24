@@ -143,6 +143,10 @@ struct uenv_description {
 struct concrete_uenv {
     /// the name of the uenv
     std::string name;
+    /// the label string for the uenv (e.g. prgenv-gnu/24.11:v2@daint%gh200)
+    std::optional<std::string> label;
+    /// digest
+    std::optional<std::string> digest;
     /// the path where the uenv will be mounted
     std::filesystem::path mount_path;
     /// the path of the squashfs image to be mounted
@@ -221,6 +225,8 @@ template <> class fmt::formatter<uenv::concrete_uenv> {
                                    e.name, e.mount_path, e.sqfs_path);
         if (e.meta_path)
             return fmt::format_to(ctx_, ", meta={})", *e.meta_path);
+        if (e.label)
+            return fmt::format_to(ctx_, ", label={})", *e.label);
         return fmt::format_to(ctx_, "meta=none)");
     }
 };

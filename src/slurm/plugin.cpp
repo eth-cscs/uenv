@@ -1,7 +1,6 @@
 #include <charconv>
 #include <optional>
 #include <string>
-#include <vector>
 
 #include <unistd.h>
 
@@ -19,6 +18,7 @@
 #include <util/envvars.h>
 
 #include "config.hpp"
+#include "elastic.h"
 
 extern "C" {
 #include <slurm/slurm_errno.h>
@@ -52,7 +52,7 @@ void set_log_level(const envvars::state& env) {
             invalid_env = true;
         }
     }
-    uenv::init_log(log_level, spdlog::level::info);
+    uenv::init_log(log_level);
     if (invalid_env) {
         spdlog::warn(fmt::format("UENV_LOG_LEVEL invalid value '{}' -- "
                                  "expected a value between 0 and 3",
@@ -69,6 +69,7 @@ void set_log_level(const envvars::state& env) {
 namespace impl {
 int slurm_spank_init(spank_t sp, int ac, char** av);
 int slurm_spank_init_post_opt(spank_t sp, int ac, char** av);
+int slurm_spank_local_user_init(spank_t sp, int ac, char** av);
 } // namespace impl
 
 //
@@ -89,6 +90,10 @@ int slurm_spank_init(spank_t sp, int ac, char** av) {
     return impl::slurm_spank_init(sp, ac, av);
 }
 
+int slurm_spank_local_user_init(spank_t sp, int ac, char** av) {
+    return impl::slurm_spank_local_user_init(sp, ac, av);
+}
+
 int slurm_spank_init_post_opt(spank_t sp, int ac, char** av) {
     return impl::slurm_spank_init_post_opt(sp, ac, av);
 }
@@ -104,8 +109,17 @@ struct arg_pack {
     std::optional<std::string> view_description;
     std::optional<std::string> repo_description;
 };
-
 static arg_pack args{};
+
+// telemetry is intialized with information about the mounted uenv images that
+// is to be sent to elastic logs when arguments are parsed in
+// init_post_opt_local_allocator. It is stored in this global variable for
+// logging in the later call to slurm_spank_local_user_init, when the slurm
+// jobid and stepid are known.
+static std::vector<uenv::telemetry_data> telemetry_g;
+
+// configuration loaded from file
+static uenv::configuration config_g;
 
 /// wrapper spank_getenv : for use in the remote context
 std::optional<std::string> getenv_wrapper(spank_t sp, const char* var) {
@@ -175,14 +189,34 @@ int slurm_spank_init(spank_t sp, int ac [[maybe_unused]],
     return ESPANK_SUCCESS;
 }
 
+int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
+                                int ac [[maybe_unused]],
+                                char** av [[maybe_unused]]) {
+    const bool log_in_subprocess = true;
+
+    const auto calling_environment = envvars::state(environ);
+    uenv::set_log_level(calling_environment);
+
+    // only log to elastic if both telemetry data and the elastic target were
+    // set
+    if (!telemetry_g.empty() && config_g.elastic_config) {
+        if (auto payload =
+                uenv::slurm_elastic_payload(telemetry_g, calling_environment)) {
+            uenv::post_elastic(payload.value(), config_g.elastic_config.value(),
+                               log_in_subprocess);
+        }
+    }
+
+    return ESPANK_SUCCESS;
+}
+
 /// check if image, mountpoint is valid
 int init_post_opt_remote(spank_t sp) {
-    // initialise logging
-    // level warning to console
-    // level info to syslog
-    uenv::init_log(spdlog::level::warn, spdlog::level::info);
+    // initialise logging to be completely disabled
+    uenv::init_log(spdlog::level::off);
 
-    // parse environment variables to test whether there is anything to mount
+    // parse environment variables to test whether there is anything to
+    // mount
     auto mount_var = getenv_wrapper(sp, "UENV_MOUNT_LIST");
 
     // variable is not set - nothing to do here
@@ -214,14 +248,15 @@ int init_post_opt_remote(spank_t sp) {
     return ESPANK_SUCCESS;
 }
 
-/// parse and validate the CLI arguments
-/// set environment variables that are used in the remote context to mount the
-/// image set environment variables for all requested views
+/// * parse and validate the CLI arguments
+/// * set environment variables that are used in the remote context to mount
+///   the image
+/// * set environment variables for all requested views
 int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // grab a snapshot of the calling environment
-    // this function is called in the local context (where srun and sbatch are
-    // called), where the standard setenv/getenv interface is used to access
-    // environment variables.
+    // this function is called in the local context (where srun and sbatch
+    // are called), where the standard setenv/getenv interface is used to
+    // access environment variables.
     const auto calling_environment = envvars::state(environ);
 
     // initialise logging
@@ -265,32 +300,12 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         return ESPANK_SUCCESS;
     }
 
-    // if no repository was explicitly set using the --repo argument, check
-    // UENV_REPO_PATH environment variable, before using default in SCRATCH or
-    // HOME.
-    if (!args.repo_description) {
-        args.repo_description = uenv::default_repo_path(calling_environment);
-        if (!args.repo_description) {
-            slurm_error("unable to find a valid repo path");
-            return -ESPANK_ERROR;
-        }
-    }
-
-    // parse and validate the repo path if one is set
-    // - it is a valid path description
-    // - it is an absolute path
-    // - it exists
-    const auto r =
-        uenv::validate_repo_path(*args.repo_description, false, false);
-    if (!r) {
-        slurm_error("unable to find a valid repo path: %s", r.error().c_str());
-        return -ESPANK_ERROR;
-    }
-    std::optional<std::filesystem::path> repo_path = *r;
+    config_g = uenv::generate_configuration(uenv::load_config(
+        {.repo = args.repo_description}, calling_environment));
 
     const auto env =
         uenv::concretise_env(*args.uenv_description, args.view_description,
-                             repo_path, calling_environment);
+                             config_g.repo, calling_environment);
 
     if (!env) {
         slurm_error("%s", env.error().c_str());
@@ -300,18 +315,37 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // patch the environment variables in the calling environment: calls the
     // setenv and unsetenv to adjust the variables in the calling
     // environment.
-    patch_slurm_environment(*env, calling_environment);
+    uenv::patch_slurm_environment(*env, calling_environment);
 
     std::vector<std::string> uenv_mount_list;
-    for (auto& e : env->uenvs) {
-        auto& u = e.second;
+    telemetry_g = {};
+
+    for (auto& [_, u] : env->uenvs) {
+        // build the UENV_MOUNT_LIST environment variable
         uenv_mount_list.push_back(
-            fmt::format("{}:{}", u.sqfs_path.string(), u.mount_path.string()));
+            fmt::format("{}:{}", u.sqfs_path, u.mount_path));
+
+        // construct a list of views from this uenv that are used
+        std::vector<std::string> views;
+        for (const auto& v : env->views) {
+            if (v.uenv == u.name) {
+                views.push_back(v.name);
+            }
+        }
+
+        // build the telemetry data
+        telemetry_g.push_back(uenv::telemetry_data{
+            .mount = u.mount_path.string(),
+            .sqfs = u.sqfs_path.string(),
+            .digest = u.digest,
+            .views = views,
+            .label = u.label,
+            .name = u.name,
+        });
     }
 
-    std::string uenv_mount_list_value =
-        fmt::format("{}", fmt::join(uenv_mount_list, ","));
-    ::setenv("UENV_MOUNT_LIST", uenv_mount_list_value.c_str(), 1);
+    ::setenv("UENV_MOUNT_LIST",
+             fmt::format("{}", fmt::join(uenv_mount_list, ",")).c_str(), 1);
 
     return ESPANK_SUCCESS;
 }

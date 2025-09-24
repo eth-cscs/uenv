@@ -5,13 +5,13 @@
 #include <string>
 
 #include <util/envvars.h>
-#include <util/expected.h>
 
 namespace uenv {
 
 struct config_base {
     std::optional<std::string> repo;
     std::optional<bool> color;
+    std::optional<std::string> elastic_config;
 };
 
 // the result of parsing a line in a configuration file
@@ -24,10 +24,9 @@ struct config_line {
     }
 };
 
-// read configuration from the user configuration file
-// the location of the config file is determined using XDG_CONFIG_HOME or HOME
-util::expected<config_base, std::string>
-load_user_config(const envvars::state&);
+// load config
+config_base load_config(const uenv::config_base&,
+                        const envvars::state& calling_env);
 
 // get the default configuration
 config_base default_config(const envvars::state& calling_env);
@@ -37,10 +36,11 @@ config_base merge(const config_base& lhs, const config_base& rhs);
 struct configuration {
     std::optional<std::filesystem::path> repo;
     bool color;
+    std::optional<std::string> elastic_config;
     configuration& operator=(const configuration&) = default;
 };
 
-util::expected<configuration, std::string>
-generate_configuration(const config_base& base);
+// performs additional validation on parsed user and config file inputs
+configuration generate_configuration(const config_base& base);
 
 } // namespace uenv

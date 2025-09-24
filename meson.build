@@ -42,6 +42,7 @@ libmount_dep = dependency('mount')
 # and the slurm plugin.
 lib_src = [
         'src/site/site.cpp',
+        'src/uenv/elastic.cpp',
         'src/uenv/env.cpp',
         'src/uenv/log.cpp',
         'src/uenv/meta.cpp',

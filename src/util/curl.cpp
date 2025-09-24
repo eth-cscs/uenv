@@ -47,6 +47,59 @@ size_t memory_callback(void* source, size_t size, size_t n, void* target) {
     return realsize;
 };
 
+expected<std::string, error> post(const std::string& data, std::string url,
+                                  std::optional<std::string> content_type,
+                                  long timeout_ms) {
+    char errbuf[CURL_ERROR_SIZE];
+    errbuf[0] = 0;
+    spdlog::trace("curl::post enter");
+
+    CURL* h = curl_easy_init();
+    if (!h) {
+        return unexpected{
+            error{CURLE_FAILED_INIT, "unable to initialise curl"}};
+    }
+    auto _ = defer([h]() { curl_easy_cleanup(h); });
+    spdlog::trace("curl::upload easy init");
+
+    // configure error message buffer
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_ERRORBUFFER, errbuf));
+    // Set up curl options...
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_URL, url.c_str()));
+    spdlog::trace("curl::post set url {}", url);
+    // ... other setup ...
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_POSTFIELDS, data.c_str()));
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE, data.size()));
+    spdlog::trace("curl::post set data {}", data);
+    // Headers
+    if (content_type) {
+        struct curl_slist* headers = NULL;
+        headers = curl_slist_append(
+            headers, fmt::format("Content-Type: {}", *content_type).c_str());
+        CURL_EASY(curl_easy_setopt(h, CURLOPT_HTTPHEADER, headers));
+    }
+
+    // Set callback function to capture response
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, memory_callback));
+    // we pass our 'chunk' struct to the callback function
+    std::vector<char> result;
+    result.reserve(200000);
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEDATA, (void*)&result));
+    spdlog::trace("curl::post set memory target");
+
+    // set timeouts
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_TIMEOUT_MS, timeout_ms));
+    spdlog::trace("curl::get set timeout");
+
+    // Perform the request
+    CURL_EASY(curl_easy_perform(h));
+
+    spdlog::trace("curl::post finished and retrieved data of size {}",
+                  result.size());
+
+    return std::string{result.data(), result.data() + result.size()};
+}
+
 expected<std::string, error> get(std::string url) {
     char errbuf[CURL_ERROR_SIZE];
     errbuf[0] = 0;
@@ -113,9 +166,11 @@ expected<std::string, error> upload(std::string url,
             error{CURLE_FAILED_INIT, "Unable to initialize curl."}};
     }
     auto _ = defer([h]() { curl_easy_cleanup(h); });
-
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_ERRORBUFFER, errbuf));
     spdlog::trace("curl::upload easy init");
+
+    // configure error message buffer
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_ERRORBUFFER, errbuf));
+
     // Configure curl options
     CURL_EASY(curl_easy_setopt(h, CURLOPT_URL, url.c_str()));
     spdlog::trace("curl::upload set url {}", url);

@@ -233,4 +233,17 @@ file_level file_access_level(const std::filesystem::path& path) {
     return lvl;
 }
 
+std::optional<std::string>
+read_single_line_file(const std::filesystem::path& path) {
+    if (std::filesystem::exists(path)) {
+        if (auto file = std::ifstream{path}) {
+            std::string line;
+            if (std::getline(file, line)) {
+                return line;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 } // namespace util

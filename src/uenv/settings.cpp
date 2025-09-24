@@ -1,3 +1,4 @@
+#include "util/expected.h"
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -31,14 +32,15 @@ const std::string config_file_default =
 // merge two config_base items
 // if both have the same field set, choose the lhs value
 config_base merge(const config_base& lhs, const config_base& rhs) {
-    return {
-        .repo = lhs.repo   ? lhs.repo
-                : rhs.repo ? rhs.repo
-                           : std::nullopt,
-        .color = lhs.color   ? lhs.color
-                 : rhs.color ? rhs.color
-                             : std::nullopt,
-    };
+    return {.repo = lhs.repo   ? lhs.repo
+                    : rhs.repo ? rhs.repo
+                               : std::nullopt,
+            .color = lhs.color   ? lhs.color
+                     : rhs.color ? rhs.color
+                                 : std::nullopt,
+            .elastic_config = lhs.elastic_config   ? lhs.elastic_config
+                              : rhs.elastic_config ? rhs.elastic_config
+                                                   : std::nullopt};
 }
 
 config_base default_config(const envvars::state& env) {
@@ -48,8 +50,7 @@ config_base default_config(const envvars::state& env) {
     };
 }
 
-util::expected<configuration, std::string>
-generate_configuration(const config_base& base) {
+configuration generate_configuration(const config_base& base) {
     configuration config;
 
     // set the repo path
@@ -71,6 +72,8 @@ generate_configuration(const config_base& base) {
     // toggle color output
     config.color = base.color.value_or(false);
 
+    config.elastic_config = base.elastic_config;
+
     return config;
 }
 
@@ -81,6 +84,8 @@ read_config_file(const std::filesystem::path& path,
                  const envvars::state& calling_env);
 }
 
+// read configuration from the user configuration file
+// the location of the config file is determined using XDG_CONFIG_HOME or HOME
 util::expected<config_base, std::string>
 load_user_config(const envvars::state& calling_env) {
     namespace fs = std::filesystem;
@@ -103,23 +108,27 @@ load_user_config(const envvars::state& calling_env) {
         fid << config_file_default << std::endl;
     };
     if (!fs::exists(config_path)) {
-        spdlog::info("creating configuration path {}", config_path);
+        spdlog::debug("load_user_config:: creating configuration path {}",
+                      config_path);
         std::error_code ec;
         fs::create_directories(config_path, ec);
         if (ec) {
-            spdlog::error("unable to create config path: {}", ec.message());
+            spdlog::error("load_user_config::unable to create config path: {}",
+                          ec.message());
             return config_base{};
         }
-        spdlog::info("creating configuration file {}", config_file);
+        spdlog::debug("load_user_config::creating configuration file {}",
+                      config_file);
         create_config_file(config_file);
         return config_base{};
     } else if (!fs::exists(config_file)) {
-        spdlog::info("creating configuration file {}", config_file);
+        spdlog::debug("load_user_config::creating configuration file {}",
+                      config_file);
         create_config_file(config_file);
         return config_base{};
     }
 
-    spdlog::info("opening configuration file {}", config_file);
+    spdlog::debug("load_user_config:: opening {}", config_file);
     auto result = impl::read_config_file(config_file, calling_env);
 
     if (!result) {
@@ -127,7 +136,50 @@ load_user_config(const envvars::state& calling_env) {
             "error opening '{}': {}", config_file.string(), result.error())};
     }
 
+    spdlog::info("load_user_config:: loaded {}", config_path);
+
     return *result;
+}
+
+// read configuration from /etc
+util::expected<config_base, std::string>
+load_system_config(const envvars::state& calling_env) {
+    namespace fs = std::filesystem;
+
+    const auto config_path = fs::path(
+        calling_env.get("UENV_SYSTEM_CONFIG").value_or("/etc/uenv/config"));
+    spdlog::trace("load_system_config::using {}", config_path.string());
+
+    if (!fs::exists(config_path)) {
+        return util::unexpected(fmt::format(
+            "load_system_config::path {} does not exist", config_path));
+    }
+
+    auto result = impl::read_config_file(config_path, calling_env);
+    if (!result) {
+        return util::unexpected{fmt::format(
+            "load_system_config::error reading config {}", result.error())};
+    }
+
+    spdlog::info("load_system_config:: loaded {}", config_path);
+    return result;
+}
+
+config_base load_config(const uenv::config_base& cli_config,
+                        const envvars::state& calling_env) {
+    auto config = uenv::default_config(calling_env);
+    if (auto sys = uenv::load_system_config(calling_env)) {
+        config = merge(*sys, config);
+    } else {
+        spdlog::info("load_config::did not load system config file: {}",
+                     sys.error());
+    }
+    if (auto usr = uenv::load_user_config(calling_env)) {
+        config = merge(*usr, config);
+    } else {
+        spdlog::info("load_config::did not load user config: {}", usr.error());
+    }
+    return merge(cli_config, config);
 }
 
 namespace impl {
@@ -189,6 +241,8 @@ read_config_file(const std::filesystem::path& path,
                                 "muste be true or false",
                                 key, value));
             }
+        } else if (key == "elasticsearch") {
+            config.elastic_config = value;
         } else {
             return util::unexpected(
                 fmt::format("invalid configuration parameter '{}'", key));

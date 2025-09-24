@@ -139,7 +139,6 @@ void state::clear() {
 }
 
 void state::apply_patch(const patch& p, expand_delim mode) {
-    // todo: handle unset scalars
     for (const auto& [k, v] : p.scalars()) {
         // the value is an optional -> if the optional is null it implies that
         // the variable is to be uset
