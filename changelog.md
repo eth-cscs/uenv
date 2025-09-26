@@ -8,3 +8,5 @@
 - #91 [fix] Add `--json` option to `image ls` and `image find`.
 - #93 [fix] a bug where the `--only-meta` flag was ignored on `image pull`.
 - #96 [improvement] for unsquashfs to use a single thread when unpacking meta data.
+- #97 [improvement] reimplement squashfs-mount in the main repository
+- #104 [feature] elastic logging.
