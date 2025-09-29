@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,7 @@ void status_args::add_cli(CLI::App& cli,
         "status", "print information about the currently loaded uenv");
     status_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::status; });
+    status_cli->add_flag("--short", use_short);
 
     status_cli->footer(status_footer);
 }
@@ -40,7 +42,10 @@ int status([[maybe_unused]] const status_args& args,
     spdlog::info("uenv status");
 
     if (!in_uenv_session(settings.calling_environment)) {
-        term::msg("there is no uenv loaded");
+        // --short is silent if no uenv is loaded
+        if (!args.use_short) {
+            term::msg("there is no uenv loaded");
+        }
         return 0;
     }
 
@@ -79,6 +84,11 @@ int status([[maybe_unused]] const status_args& args,
     if (!env) {
         term::error("could not interpret environment: {}", env.error());
         return 1;
+    }
+
+    if (args.use_short) {
+        term::msg("{}", fmt::join(env->uenvs | std::views::keys, ","));
+        return 0;
     }
 
     for (auto& [name, E] : env->uenvs) {
