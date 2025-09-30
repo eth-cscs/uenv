@@ -88,16 +88,16 @@ int status([[maybe_unused]] const status_args& args,
     }
 
     if (args.use_short) {
-        std::unordered_map<std::string, std::vector<std::string>> entries;
+        std::unordered_map<std::string, std::vector<std::string>> uenv_views;
         for (auto x : env->views) {
-            entries.try_emplace(x.uenv, std::vector<std::string>{});
-            entries[x.uenv].push_back(x.name);
+            uenv_views.try_emplace(x.uenv, std::vector<std::string>{});
+            uenv_views[x.uenv].push_back(x.name);
         }
-        auto name_views = entries | std::views::transform([](const auto& pair) {
-          const auto& [name, views] = pair;
-                              return fmt::format("{}:{}", name,
-                                                 fmt::join(views, ","));
-                          });
+        auto name_views =
+            uenv_views | std::views::transform([](const auto& pair) {
+                const auto& [name, views] = pair;
+                return fmt::format("{}:{}", name, fmt::join(views, ","));
+            });
         term::msg("{}", fmt::join(name_views, "|"));
         return 0;
     }
