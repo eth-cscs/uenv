@@ -4,6 +4,7 @@
 #include <optional>
 #include <ranges>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <fmt/core.h>
@@ -87,7 +88,17 @@ int status([[maybe_unused]] const status_args& args,
     }
 
     if (args.use_short) {
-        term::msg("{}", fmt::join(env->uenvs | std::views::keys, ","));
+        std::unordered_map<std::string, std::vector<std::string>> entries;
+        for (auto x : env->views) {
+            entries.try_emplace(x.uenv, std::vector<std::string>{});
+            entries[x.uenv].push_back(x.name);
+        }
+        auto name_views = entries | std::views::transform([](const auto& pair) {
+          const auto& [name, views] = pair;
+                              return fmt::format("{}:{}", name,
+                                                 fmt::join(views, ","));
+                          });
+        term::msg("{}", fmt::join(name_views, "|"));
         return 0;
     }
 
