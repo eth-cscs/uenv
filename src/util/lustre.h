@@ -9,8 +9,11 @@
 namespace lustre {
 
 struct status {
-    std::uint64_t count = 1u;
+    // number of OSTs to stripe over (-1 -> all)
+    std::int64_t count = -1;
+    // number of bytes per stripe
     std::uint64_t size = 1024u * 1024u;
+    // OST index of first stripe (-1 -> default)
     std::int64_t index = -1;
 };
 

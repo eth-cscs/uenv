@@ -3,6 +3,10 @@
 
 #include <sys/vfs.h>
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+#include <spdlog/spdlog.h>
+
 #include <util/envvars.h>
 #include <util/expected.h>
 #include <util/lustre.h>
@@ -30,7 +34,11 @@ bool is_lustre(const std::filesystem::path& p) {
     return false;
 }
 
-std::optional<std::int64_t> run_lfs(const std::vector<std::string> args) {
+// Call lfs and parse the output to stdout.
+// Output is expected to be a signed integer.
+// used to facilitate calls to 'lfs getstripe', which return a single value to
+// the terminal.
+std::optional<std::int64_t> query_lfs(const std::vector<std::string> args) {
     auto result = util::run(args);
 
     if (!result) {
@@ -70,7 +78,7 @@ util::expected<status, error> getstripe(const std::filesystem::path& p,
     status s;
 
     // lfs getstripe --stripe-count $path
-    if (const auto value = run_lfs(
+    if (const auto value = query_lfs(
             {lfs->string(), "getstripe", "--stripe-count", p.string()})) {
         s.count = *value;
     } else {
@@ -78,7 +86,7 @@ util::expected<status, error> getstripe(const std::filesystem::path& p,
     }
 
     // lfs getstripe --stripe-size $path
-    if (const auto value = run_lfs(
+    if (const auto value = query_lfs(
             {lfs->string(), "getstripe", "--stripe-size", p.string()})) {
         s.size = *value;
     } else {
@@ -86,7 +94,7 @@ util::expected<status, error> getstripe(const std::filesystem::path& p,
     }
 
     // lfs getstripe --stripe-index $path
-    if (const auto value = run_lfs(
+    if (const auto value = query_lfs(
             {lfs->string(), "getstripe", "--stripe-size", p.string()})) {
         s.index = *value;
     } else {
@@ -96,7 +104,83 @@ util::expected<status, error> getstripe(const std::filesystem::path& p,
     return s;
 }
 
-bool setstripe(const std::filesystem::path& p, const status&,
-               const envvars::state& env);
+namespace impl {
+// recursively apply lustre striping to a directory and its contents.
+// iterates over each sub directory, and applies striping to every file and path
+// in the directory
+bool setstripe(const std::filesystem::path& path, const status& config,
+               const std::filesystem::path& lfs) {
+
+    spdlog::trace("lfs setstripe {}", path.string());
+
+    std::error_code ec;
+
+    std::filesystem::directory_iterator dir_it{path, ec};
+    if (ec) {
+        return false;
+    }
+
+    for (const auto& p : dir_it) {
+        if (p.is_directory(ec)) {
+            if (!ec) {
+                // lfs setstripe $path
+                //      --size config.size
+                //      --index config.index
+                //      --count config.count
+                std::vector<std::string> cmd = {
+                    lfs.string(),
+                    "setstripe",
+                    p.path().string(),
+                    fmt::format("--size={}", config.size),
+                    fmt::format("--index={}", config.index),
+                    fmt::format("--count={}", config.count)};
+                if (auto result = util::run(cmd); !result || !result->wait()) {
+                    spdlog::trace("error running '{}'", fmt::join(cmd, " "));
+                    return false;
+                }
+                spdlog::trace("{}", fmt::join(cmd, " "));
+                setstripe(p.path(), config, lfs);
+            }
+        } else if (p.is_regular_file(ec)) {
+            if (!ec) {
+                // lfs migrate $path
+                //      --size config.size
+                //      --index config.index
+                //      --count config.count
+                std::vector<std::string> cmd = {
+                    lfs.string(),
+                    "migrate",
+                    p.path().string(),
+                    fmt::format("--size={}", config.size),
+                    fmt::format("--index={}", config.index),
+                    fmt::format("--count={}", config.count)};
+                if (auto result = util::run(cmd); !result || !result->wait()) {
+                    spdlog::trace("error running '{}'", fmt::join(cmd, " "));
+                    return false;
+                }
+                spdlog::trace("{}", fmt::join(cmd, " "));
+            }
+        }
+    }
+    return false;
+}
+} // namespace impl
+
+bool setstripe(const std::filesystem::path& p, const status& config,
+               const envvars::state& env) {
+    // check that the path is a directory on a lustre file system
+    if (!is_lustre(p) || !std::filesystem::is_directory(p)) {
+        spdlog::trace("lfs setstripe skipping: {} is not a lustre directory",
+                      p.string());
+        return false;
+    }
+
+    if (auto lfs = util::which("lfs", env.get("PATH").value_or(""))) {
+        return impl::setstripe(p, config, lfs.value());
+    }
+    spdlog::trace("lfs setstripe skipping: lfs not found");
+
+    return false;
+}
 
 } // namespace lustre
