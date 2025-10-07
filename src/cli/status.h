@@ -8,7 +8,7 @@
 namespace uenv {
 
 struct status_args {
-    bool use_short{false};
+    std::string format;
     void add_cli(CLI::App&, global_settings& settings);
 };
 

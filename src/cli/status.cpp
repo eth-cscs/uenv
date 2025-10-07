@@ -19,6 +19,7 @@
 #include <util/expected.h>
 #include <util/strings.h>
 
+#include "CLI/Validators.hpp"
 #include "help.h"
 #include "status.h"
 #include "terminal.h"
@@ -33,7 +34,10 @@ void status_args::add_cli(CLI::App& cli,
         "status", "print information about the currently loaded uenv");
     status_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::status; });
-    status_cli->add_flag("--short", use_short);
+    // status_cli->add_flag("--short", use_short);
+    status_cli->add_option("--format", format, "desc")
+        ->transform(CLI::IsMember({"short", "full", "views"}, CLI::ignore_case))
+        ->default_val("full");
 
     status_cli->footer(status_footer);
 }
@@ -44,7 +48,7 @@ int status([[maybe_unused]] const status_args& args,
 
     if (!in_uenv_session(settings.calling_environment)) {
         // --short is silent if no uenv is loaded
-        if (!args.use_short) {
+        if (!(args.format == "short")) {
             term::msg("there is no uenv loaded");
         }
         return 0;
@@ -87,7 +91,29 @@ int status([[maybe_unused]] const status_args& args,
         return 1;
     }
 
-    if (args.use_short) {
+    if (args.format == "full") {
+        for (auto& [name, E] : env->uenvs) {
+            term::msg("{}:{}", color::cyan(name), color::white(E.mount_path));
+            if (E.description) {
+                term::msg("  {}", *E.description);
+            }
+            if (!E.views.empty()) {
+                term::msg("  {}:", color::white("views"));
+                for (auto& [name, view] : E.views) {
+                    const bool loaded =
+                        std::ranges::find_if(
+                            env->views, [name, uenv = E.name](auto& p) {
+                                return p.name == name && p.uenv == uenv;
+                            }) != env->views.end();
+                    std::string status =
+                        loaded ? color::yellow(" (loaded)") : "";
+                    term::msg("    {}{}: {}", color::cyan(name), status,
+                              view.description);
+                }
+            }
+        }
+    } else if (args.format == "views") {
+        // print `<name1>:<view1>|..|<nameN>:<viewN>`
         std::unordered_map<std::string, std::vector<std::string>> uenv_views;
         for (auto x : env->views) {
             uenv_views.try_emplace(x.uenv, std::vector<std::string>{});
@@ -100,26 +126,18 @@ int status([[maybe_unused]] const status_args& args,
             });
         term::msg("{}", fmt::join(name_views, "|"));
         return 0;
-    }
+    } else if (args.format == "short") {
+        // print `<name1>|..|<nameN>`
+        term::msg(
+            "{}",
+            fmt::join(env->uenvs | std::views::transform([](const auto& pair) {
+                          return fmt::format("{}", pair.first);
+                      }),
+                      "|"));
 
-    for (auto& [name, E] : env->uenvs) {
-        term::msg("{}:{}", color::cyan(name), color::white(E.mount_path));
-        if (E.description) {
-            term::msg("  {}", *E.description);
-        }
-        if (!E.views.empty()) {
-            term::msg("  {}:", color::white("views"));
-            for (auto& [name, view] : E.views) {
-                const bool loaded =
-                    std::ranges::find_if(
-                        env->views, [name, uenv = E.name](auto& p) {
-                            return p.name == name && p.uenv == uenv;
-                        }) != env->views.end();
-                std::string status = loaded ? color::yellow(" (loaded)") : "";
-                term::msg("    {}{}: {}", color::cyan(name), status,
-                          view.description);
-            }
-        }
+    } else {
+        term::msg("Unknown argument to --format={}", args.format);
+        return 1;
     }
 
     return 0;
