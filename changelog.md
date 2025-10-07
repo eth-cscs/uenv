@@ -9,4 +9,5 @@
 - #93 [fix] a bug where the `--only-meta` flag was ignored on `image pull`.
 - #96 [improvement] for unsquashfs to use a single thread when unpacking meta data.
 - #97 [improvement] reimplement squashfs-mount in the main repository
+- #99 [improvement] improve file name completion in bash.
 - #104 [feature] elastic logging.
