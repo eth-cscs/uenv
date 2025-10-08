@@ -71,16 +71,21 @@ in the following os containers
 - `suse-5.6`
 
 ```bash
-for slurm in 25.05.0 24.05.4 23.02.7
+
+arch=$(uname -m)
+for os in sles15.5 sles15.6
 do
-    arch=$(uname -m)
-    for os in 5.5 5.6
+    podman build -f ./dockerfiles/$os . -t uenv-$os
+    for slurm in 25.05.0 24.05.4 23.02.7
     do
-        podman run -v $(pwd):/work:rw -w /work -it uenv-rpmbuild-${os}:latest \
-            sh -c "CXX=g++-12 CC=gcc-12 ./build.sh --ref=main --slurm-version=$slurm"
+        podman run -v $(pwd):/work:rw -w /work \
+                   -v $(realpath ..):/source:rw \
+                   -it uenv-$os:latest \
+                   sh -c "./suse-build.sh --slurm-version=$slurm --ref=HEAD"
+
         curl -u$USER:$TOKEN -XPUT \
             https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-${os}/uenv/${arch}/uenv-9.0.0-${slurm}.rpm \
-            --upload-file uenv-9.0.0-${slurm}.rpm
+            --upload-file rpms/${arch}/uenv-9.0.0-${slurm}.rpm
     done
     push image
 done
