@@ -57,9 +57,10 @@ The following slurm versions were detected on the clusters
           daint   24.05.4
           eiger   24.05.4
          santis   24.05.4
+          zinal   24.05.8
 ```
 
-I.e. we have the following versions: `[25.05.0 24.05.4 23.02.7]`
+I.e. we have the following versions: `[25.05.0 24.05.4 24.05.8 23.02.7]`
 
 run the following script on each of os:
 - `x86_64`
@@ -95,6 +96,8 @@ each build container contains the script that is required to
 
 ```
 ./package --os=sles-15.5 --slurm=25.05.4
+
+# uses the container uenv-sles-15.5
 ```
 
 will generate

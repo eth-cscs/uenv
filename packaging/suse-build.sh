@@ -67,6 +67,8 @@ done
 
 scriptdir=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 
+arch=$(uname -m)
+
 workdir=$(mktemp -d)
 builddir=$workdir/rpmbuild
 
@@ -95,6 +97,7 @@ echo "uenv_version   $uenv_version"
 echo "slurm_version  $slurm_version"
 echo "scriptdir      $scriptdir"
 echo "branch         $git_ref"
+echo "arch           $arch"
 echo '======================================================='
 
 tarball=uenv-"${uenv_version}".tar.gz
@@ -128,7 +131,13 @@ tarball=uenv-"${uenv_version}".tar.gz
 
 # todo: copy the RPM, whatever it was named by the build too, to a generic name
 # that a caller can then copy into a full spec path
+
+rpm_builddir=$builddir/RPMS
+rpm_name=uenv-${uenv_version}-${slurm_version}.${arch}.rpm
+rpm_fullpath=$rpm_builddir/$arch/$rpm_name
+
+mkdir -p ${scriptdir}/rpms/$arch
 set -x
-find $builddir/RPMS -iname '*.rpm' -exec cp {} ${scriptdir} \;
-set +x
+echo "==== copying rpms/$arch/uenv-${uenv_version}-${slurm_version}.rpm"
+cp $rpm_fullpath ${scriptdir}/rpms/$arch/uenv-${uenv_version}-${slurm_version}.rpm
 
