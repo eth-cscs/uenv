@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-rm -rf ./artifacts
+#rm -rf ./artifacts
 
 arch=$(uname -m)
 for os in 15.5 15.6
