@@ -4,19 +4,22 @@ The binary rpm for uenv2 is built in a docker container using the same opensuse/
 
 ## Docker
 
-1. Build the base container
-    ```bash
-    podman build -f sles15sp5/docker/Dockerfile . -t uenv2-rpmbuild
-    ```
+```bash
+# build the base containers
 
-2. Build the binary rpm inside the container
-    ```bash
-    podman run -v $(pwd):/work:rw -w /work -it uenv2-rpmbuild:latest sh -c 'CXX=g++-12 CC=gcc-12 ./build.sh --ref=main --slurm-version=25.05.2'
-    ```
-    After a successful build the `uenv-<version>-<slurm_version>.<uarch>.rpm` will be copied to the current directory. 
-    See `./build.sh -h` for more options.
-    **NOTE** The rpm spec file and scripts will be used from the current branch, not from the release/gitref that is specified in `--ref`. In 2. the current directory is bind-mounted, standard out/error from the rpm build process are redirected to `stdout|err.log`.
-    **NOTE** meson setup options are hardcoded in [macros/macros.meson](./macros/macros.meson).
+podman build -f ./dockerfiles/sles15.5 . -t uenv-sles15.5
+podman build -f ./dockerfiles/sles15.6 . -t uenv-sles15.6
+
+# build the rpm
+podman run -v $(pwd):/work:rw -w /work -it uenv-rpmbuild-15.5:latest sh -c 'CXX=g++-12 CC=gcc-12 ./build.sh --ref=main --slurm-version=25.05.2'
+```
+
+After a successful build the `uenv-<version>-<slurm_version>.<uarch>.rpm` will be copied to the current directory. 
+See `./build.sh -h` for more options.
+
+**NOTE** The rpm spec file and scripts will be used from the current branch, not from the release/gitref that is specified in `--ref`. In 2. the current directory is bind-mounted, standard out/error from the rpm build process are redirected to `stdout|err.log`.
+
+**NOTE** meson setup options are hardcoded in [macros/macros.meson](./macros/macros.meson).
 
 ### CSCS podman config
 
@@ -44,7 +47,6 @@ in the generated RPM.
 
 **NOTE**: building RPMs is fiddly business - it isn't you, it is `rpmbuild`. Contact
 Ben or Simon for help instead of trying to find good docs on RPMs (they don't exist).
-
 
 ### macros.meson
 
