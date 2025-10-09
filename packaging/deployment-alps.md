@@ -73,22 +73,29 @@ in the following os containers
 ```bash
 
 arch=$(uname -m)
-for os in sles15.5 sles15.6
+for os in 15.5 15.6
 do
-    podman build -f ./dockerfiles/$os . -t uenv-$os
+    podman build -f ./dockerfiles/sles$os . -t uenv-sles$os
     for slurm in 25.05.0 24.05.4 23.02.7
     do
         podman run -v $(pwd):/work:rw -w /work \
                    -v $(realpath ..):/source:rw \
-                   -it uenv-$os:latest \
+                   -it uenv-sles$os:latest \
                    sh -c "./suse-build.sh --slurm-version=$slurm --ref=HEAD"
 
         curl -u$USER:$TOKEN -XPUT \
-            https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-${os}/uenv/${arch}/uenv-9.0.0-${slurm}.rpm \
+            https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-${os}-rpm/uenv/${arch}/uenv-9.0.0-${slurm}.rpm \
             --upload-file rpms/${arch}/uenv-9.0.0-${slurm}.rpm
     done
     push image
 done
+```
+
+```
+export arch=x86_64
+export os=15.5
+export slurm=24.05.8
+echo curl -u$USER:$TOKEN -XPUT https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-${os}-rpm/uenv/${arch}/uenv-9.0.0-${slurm}.rpm --upload-file rpms/${arch}/uenv-9.0.0-${slurm}.rpm
 ```
 
 ## workflow
@@ -112,4 +119,7 @@ packages/suse15.5/$arch/
 ```
 
 
+        curl -u$USER:$TOKEN -XPUT \
+            https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-${os}/uenv/${arch}/uenv-9.0.0-${slurm}.rpm \
+            --upload-file rpms/${arch}/uenv-9.0.0-${slurm}.rpm
 

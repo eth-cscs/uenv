@@ -11,14 +11,17 @@ Options:
 -r,--ref           git reference (default HEAD implies use the current source)
 --remote           uenv github repo (defaults to eth-cscs/uenv2)
 --slurm-version    slurm version to use
+--os               the suse version (one of 15.5 or 15.6)
 "
 
 # A temporary variable to hold the output of `getopt`
-TEMP=$(getopt -o r:h --long ref:,remote:,help,slurm-version: -- "$@")
+TEMP=$(getopt -o r:h --long ref:,remote:,help,os:,slurm-version: -- "$@")
 
 # default Slurm version is 0 -> use system slurm
 slurm_version="00.00.0"
 git_remote=https://github.com/eth-cscs/uenv2
+git_ref="HEAD"
+rpm_os="unset"
 
 # If getopt has reported an error, exit script with an error
 if [ $? != 0 ]; then
@@ -28,8 +31,6 @@ if [ $? != 0 ]; then
 fi
 
 eval set -- "$TEMP"
-
-git_ref=HEAD
 
 # Now go through all the options
 while true; do
@@ -49,6 +50,11 @@ while true; do
         slurm_version="$1"
         shift
         ;;
+    --os)
+        shift
+        rpm_os="$1"
+        shift
+        ;;
     -h | --help)
         shift
         echo "${usage}"
@@ -64,6 +70,13 @@ while true; do
         ;;
     esac
 done
+
+if [[ "unset" == "$rpm_os" ]]; then
+    echo "error: the --os option must be set"
+    echo
+    echo "${usage}" >&2
+    exit 1
+fi
 
 scriptdir=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 
@@ -135,9 +148,10 @@ tarball=uenv-"${uenv_version}".tar.gz
 rpm_builddir=$builddir/RPMS
 rpm_name=uenv-${uenv_version}-${slurm_version}.${arch}.rpm
 rpm_fullpath=$rpm_builddir/$arch/$rpm_name
+rpm_installpath=${scriptdir}/artifacts/opensuse-${rpm_os}/${arch}
 
-mkdir -p ${scriptdir}/rpms/$arch
 set -x
-echo "==== copying rpms/$arch/uenv-${uenv_version}-${slurm_version}.rpm"
-cp $rpm_fullpath ${scriptdir}/rpms/$arch/uenv-${uenv_version}-${slurm_version}.rpm
+echo "==== copying $rpm_name to $rpm_installpath"
+mkdir -p $rpm_installpath
+cp $rpm_fullpath $rpm_installpath
 
