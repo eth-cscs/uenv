@@ -41,7 +41,7 @@ x86_64    aarch64
 
 Move the location to a more central location, in order to 
 
-https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-$(os)-rpm/uenv/$(arch)/uenv-(version)-(slurm).rpm
+https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-$(os)-rpm/uenv/$(arch)/uenv-$(version)-$(slurm).$(arch).rpm
 
 where `os` is one of `[15.5, 15.6]`,  and `arch` is one of `[x86_64, aarch64]`
 
@@ -62,64 +62,15 @@ The following slurm versions were detected on the clusters
 
 I.e. we have the following versions: `[25.05.0 24.05.4 24.05.8 23.02.7]`
 
-run the following script on each of os:
-- `x86_64`
-- `aarch64`
+The script `create-rpms.sh` will create the RPMs for sles15.5 and sles15.6 in the `artifacts` directory, for each of the supported Slurm versions.
 
-in the following os containers
-- `suse-5.5`
-- `suse-5.6`
+## uploading
+
+Create a token for JFrog, and set it in the `TOKEN` environment variable.
 
 ```bash
-
-arch=$(uname -m)
-for os in 15.5 15.6
-do
-    podman build -f ./dockerfiles/sles$os . -t uenv-sles$os
-    for slurm in 25.05.0 24.05.4 23.02.7
-    do
-        podman run -v $(pwd):/work:rw -w /work \
-                   -v $(realpath ..):/source:rw \
-                   -it uenv-sles$os:latest \
-                   sh -c "./suse-build.sh --slurm-version=$slurm --ref=HEAD"
-
-        curl -u$USER:$TOKEN -XPUT \
-            https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-${os}-rpm/uenv/${arch}/uenv-9.0.0-${slurm}.rpm \
-            --upload-file rpms/${arch}/uenv-9.0.0-${slurm}.rpm
-    done
-    push image
-done
+curl -u$USER:$TOKEN -XPUT \
+    https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-${os}/uenv/${arch}/uenv-9.0.0-${slurm}.rpm \
+    --upload-file artifacts/${arch}/uenv-9.0.0-${slurm}.rpm
 ```
-
-```
-export arch=x86_64
-export os=15.5
-export slurm=24.05.8
-echo curl -u$USER:$TOKEN -XPUT https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-${os}-rpm/uenv/${arch}/uenv-9.0.0-${slurm}.rpm --upload-file rpms/${arch}/uenv-9.0.0-${slurm}.rpm
-```
-
-## workflow
-
-Create a new script that merges both build.sh and rpmbuild-wrapper.sh
-
-build-rpm.sh (can we add this to the container image?)
-
-each build container contains the script that is required to
-
-```
-./package --os=sles-15.5 --slurm=25.05.4
-
-# uses the container uenv-sles-15.5
-```
-
-will generate
-
-```
-packages/suse15.5/$arch/
-```
-
-
-        curl -u$USER:$TOKEN -XPUT \
-            https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-${os}/uenv/${arch}/uenv-9.0.0-${slurm}.rpm \
-            --upload-file rpms/${arch}/uenv-9.0.0-${slurm}.rpm
 
