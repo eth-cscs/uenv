@@ -19,6 +19,7 @@
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
+#include <util/color.h>
 #include <util/envvars.h>
 #include <util/fs.h>
 #include <util/subprocess.h>
@@ -162,7 +163,13 @@ concretise_env(const std::string& uenv_args,
             const auto results = *result;
 
             if (results.empty()) {
-                return unexpected(fmt::format("no uenv matches '{}'", *label));
+                return unexpected(fmt::format(
+                    "no uenv matches '{}' in the repo '{}'.\n"
+                    "See available uenv using {}.\n"
+                    "Use {} and {} to download images before using them.",
+                    *label, *repo_arg, color::yellow("uenv image ls"),
+                    color::yellow("uenv image find"),
+                    color::yellow("uenv image pull")));
             }
 
             // ensure that all results share a unique sha
