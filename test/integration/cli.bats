@@ -132,7 +132,7 @@ function teardown() {
     assert_success
     assert_line --index 0 "there is no uenv loaded"
 
-    run uenv --repo=$RP status --format=name
+    run uenv --repo=$RP status --format=short
     assert_success
     run uenv --repo=$RP status --format=views
     assert_success
