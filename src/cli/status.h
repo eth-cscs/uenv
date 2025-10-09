@@ -7,7 +7,12 @@
 
 namespace uenv {
 
+enum class status_format { name, full, views };
+
 struct status_args {
+    status_format format = status_format::full;
+    // return nonzero value when no uenv is loaded
+    bool error_if_unset = false;
     void add_cli(CLI::App&, global_settings& settings);
 };
 
