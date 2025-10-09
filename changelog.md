@@ -11,3 +11,5 @@
 - #97 [improvement] reimplement squashfs-mount in the main repository
 - #99 [improvement] improve file name completion in bash.
 - #104 [feature] elastic logging.
+- #111 [feature] add --format flag to uenv status
+- #112 [fix] add hints to error message when uenv is not found
