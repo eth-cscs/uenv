@@ -115,6 +115,10 @@ int status([[maybe_unused]] const status_args& args,
     } else if (args.format == "views") {
         // print `<name1>:<view1>|..|<nameN>:<viewN>`
         std::unordered_map<std::string, std::vector<std::string>> uenv_views;
+        // make sure there is an empty list for a mounted uenv without activated view
+        for (auto x : env->uenvs) {
+          uenv_views.try_emplace(x.first, std::vector<std::string>{});
+        }
         for (auto x : env->views) {
             uenv_views.try_emplace(x.uenv, std::vector<std::string>{});
             uenv_views[x.uenv].push_back(x.name);
