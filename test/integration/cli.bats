@@ -125,6 +125,22 @@ function teardown() {
     assert_equal "$jq_output" "0"
 }
 
+@test "status" {
+    export RP=$REPOS/apptool
+
+    run uenv --repo=$RP status
+    assert_success
+    assert_line --index 0 "there is no uenv loaded"
+
+    run uenv --repo=$RP status --format=name
+    assert_success
+    run uenv --repo=$RP status --format=views
+    assert_success
+
+    run uenv --repo=$RP status --error-if-unset
+    assert_failure
+}
+
 @test "repo status" {
     export RP=$REPOS/apptool
 

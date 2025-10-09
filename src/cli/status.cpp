@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <CLI/Validators.hpp>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
@@ -19,7 +20,6 @@
 #include <util/expected.h>
 #include <util/strings.h>
 
-#include "CLI/Validators.hpp"
 #include "help.h"
 #include "status.h"
 #include "terminal.h"
@@ -32,12 +32,17 @@ void status_args::add_cli(CLI::App& cli,
                           [[maybe_unused]] global_settings& settings) {
     auto* status_cli = cli.add_subcommand(
         "status", "print information about the currently loaded uenv");
+    status_cli->add_flag("--error-if-unset", error_if_unset,
+                         "return a nonzero error code if no uenv is loaded");
     status_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::status; });
-    // status_cli->add_flag("--short", use_short);
-    status_cli->add_option("--format", format, "desc")
-        ->transform(CLI::IsMember({"short", "full", "views"}, CLI::ignore_case))
-        ->default_val("full");
+    status_cli
+        ->add_option("--format", format, "one of {full (default), name, views}")
+        ->transform(CLI::CheckedTransformer(
+            std::unordered_map<std::string, status_format>{
+                {"short", status_format::name},
+                {"full", status_format::full},
+                {"views", status_format::views}}));
 
     status_cli->footer(status_footer);
 }
@@ -45,13 +50,14 @@ void status_args::add_cli(CLI::App& cli,
 int status([[maybe_unused]] const status_args& args,
            [[maybe_unused]] const global_settings& settings) {
     spdlog::info("uenv status");
+    using enum status_format;
 
     if (!in_uenv_session(settings.calling_environment)) {
-        // --short is silent if no uenv is loaded
-        if (args.format == "full") {
+        // only print output in full mode
+        if (args.format == full) {
             term::msg("there is no uenv loaded");
         }
-        return 0;
+        return args.error_if_unset ? 1 : 0;
     }
 
     // assume that the environment variables have been set, because this is
@@ -91,7 +97,7 @@ int status([[maybe_unused]] const status_args& args,
         return 1;
     }
 
-    if (args.format == "full") {
+    if (args.format == full) {
         for (auto& [name, E] : env->uenvs) {
             term::msg("{}:{}", color::cyan(name), color::white(E.mount_path));
             if (E.description) {
@@ -112,7 +118,7 @@ int status([[maybe_unused]] const status_args& args,
                 }
             }
         }
-    } else if (args.format == "views") {
+    } else if (args.format == views) {
         // print `<name1>:<view1>|..|<nameN>:<viewN>`
         std::unordered_map<std::string, std::vector<std::string>> uenv_views;
         // make sure there is an entry also for a mounted uenv without activated
@@ -130,22 +136,18 @@ int status([[maybe_unused]] const status_args& args,
                 if (views.size() == 0) {
                     return fmt::format("{}", name);
                 }
-                return fmt::format("{}:{}", name, fmt::join(views, ","));
+                return fmt::format("{}:[{}]", name, fmt::join(views, ","));
             });
-        term::msg("{}", fmt::join(name_views, "|"));
+        term::msg("{}", fmt::join(name_views, ","));
         return 0;
-    } else if (args.format == "short") {
+    } else if (args.format == name) {
         // print `<name1>|..|<nameN>`
         term::msg(
             "{}",
             fmt::join(env->uenvs | std::views::transform([](const auto& pair) {
                           return fmt::format("{}", pair.first);
                       }),
-                      "|"));
-
-    } else {
-        term::msg("Unknown argument to --format={}", args.format);
-        return 1;
+                      ","));
     }
 
     return 0;
@@ -161,6 +163,13 @@ std::string status_footer() {
         help::block{code,   "uenv status"},
         help::linebreak{},
         help::block{note, "if no uenv is loaded, the message 'there is no no uenv loaded' will be printed"},
+        help::block{xmpl, "control the formatting of the output:"},
+        help::block{code,   "uenv status --format=full  # verbose output (default)"},
+        help::block{code,   "uenv status --format=short # comma-separated list of uenv name"},
+        help::block{code,   "uenv status --format=views # comma-separated list of uenv:[views]"},
+        help::linebreak{},
+        help::block{note, "the 'name' and 'views' options print no output if no uenv is running.",
+                          "These options are useful for scripting and setting command line prompts."},
         // clang-format on
     };
 
