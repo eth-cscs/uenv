@@ -48,7 +48,7 @@ int status([[maybe_unused]] const status_args& args,
 
     if (!in_uenv_session(settings.calling_environment)) {
         // --short is silent if no uenv is loaded
-        if (!(args.format == "full")) {
+        if (args.format == "full") {
             term::msg("there is no uenv loaded");
         }
         return 0;
