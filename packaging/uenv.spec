@@ -1,6 +1,6 @@
 Name:           uenv
-Version:        UENVMNT_VERSION
-Release:        RPM_SLURM_VERSION
+Version:        UENV_VERSION
+Release:        SLURM_VERSION
 Summary:        UENV cli and Slurm spank plugin.
 Prefix:         /usr
 
@@ -11,7 +11,7 @@ Source0:        %{name}-%{version}.tar.gz
 %define _build_id_links none
 
 %description
-UENV cli and Slurm spank plugin.
+uenv cli, uenv Slurm spank plugin and squashfs-mount.
 
 %prep
 %autosetup -c

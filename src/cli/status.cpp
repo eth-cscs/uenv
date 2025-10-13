@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <optional>
+#include <ranges>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
+#include <CLI/Validators.hpp>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
@@ -29,8 +32,17 @@ void status_args::add_cli(CLI::App& cli,
                           [[maybe_unused]] global_settings& settings) {
     auto* status_cli = cli.add_subcommand(
         "status", "print information about the currently loaded uenv");
+    status_cli->add_flag("--error-if-unset", error_if_unset,
+                         "return a nonzero error code if no uenv is loaded");
     status_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::status; });
+    status_cli
+        ->add_option("--format", format, "one of {full (default), name, views}")
+        ->transform(CLI::CheckedTransformer(
+            std::unordered_map<std::string, status_format>{
+                {"short", status_format::name},
+                {"full", status_format::full},
+                {"views", status_format::views}}));
 
     status_cli->footer(status_footer);
 }
@@ -38,10 +50,14 @@ void status_args::add_cli(CLI::App& cli,
 int status([[maybe_unused]] const status_args& args,
            [[maybe_unused]] const global_settings& settings) {
     spdlog::info("uenv status");
+    using enum status_format;
 
     if (!in_uenv_session(settings.calling_environment)) {
-        term::msg("there is no uenv loaded");
-        return 0;
+        // only print output in full mode
+        if (args.format == full) {
+            term::msg("there is no uenv loaded");
+        }
+        return args.error_if_unset ? 1 : 0;
     }
 
     // assume that the environment variables have been set, because this is
@@ -81,24 +97,57 @@ int status([[maybe_unused]] const status_args& args,
         return 1;
     }
 
-    for (auto& [name, E] : env->uenvs) {
-        term::msg("{}:{}", color::cyan(name), color::white(E.mount_path));
-        if (E.description) {
-            term::msg("  {}", *E.description);
-        }
-        if (!E.views.empty()) {
-            term::msg("  {}:", color::white("views"));
-            for (auto& [name, view] : E.views) {
-                const bool loaded =
-                    std::ranges::find_if(
-                        env->views, [name, uenv = E.name](auto& p) {
-                            return p.name == name && p.uenv == uenv;
-                        }) != env->views.end();
-                std::string status = loaded ? color::yellow(" (loaded)") : "";
-                term::msg("    {}{}: {}", color::cyan(name), status,
-                          view.description);
+    if (args.format == full) {
+        for (auto& [name, E] : env->uenvs) {
+            term::msg("{}:{}", color::cyan(name), color::white(E.mount_path));
+            if (E.description) {
+                term::msg("  {}", *E.description);
+            }
+            if (!E.views.empty()) {
+                term::msg("  {}:", color::white("views"));
+                for (auto& [name, view] : E.views) {
+                    const bool loaded =
+                        std::ranges::find_if(
+                            env->views, [name, uenv = E.name](auto& p) {
+                                return p.name == name && p.uenv == uenv;
+                            }) != env->views.end();
+                    std::string status =
+                        loaded ? color::yellow(" (loaded)") : "";
+                    term::msg("    {}{}: {}", color::cyan(name), status,
+                              view.description);
+                }
             }
         }
+    } else if (args.format == views) {
+        // print `<name1>:<view1>|..|<nameN>:<viewN>`
+        std::unordered_map<std::string, std::vector<std::string>> uenv_views;
+        // make sure there is an entry also for a mounted uenv without activated
+        // view
+        for (auto x : env->uenvs) {
+            uenv_views.try_emplace(x.first, std::vector<std::string>{});
+        }
+        for (auto x : env->views) {
+            uenv_views.try_emplace(x.uenv, std::vector<std::string>{});
+            uenv_views[x.uenv].push_back(x.name);
+        }
+        auto name_views =
+            uenv_views | std::views::transform([](const auto& pair) {
+                const auto& [name, views] = pair;
+                if (views.size() == 0) {
+                    return fmt::format("{}", name);
+                }
+                return fmt::format("{}:[{}]", name, fmt::join(views, ","));
+            });
+        term::msg("{}", fmt::join(name_views, ","));
+        return 0;
+    } else if (args.format == name) {
+        // print `<name1>|..|<nameN>`
+        term::msg(
+            "{}",
+            fmt::join(env->uenvs | std::views::transform([](const auto& pair) {
+                          return fmt::format("{}", pair.first);
+                      }),
+                      ","));
     }
 
     return 0;
@@ -114,6 +163,13 @@ std::string status_footer() {
         help::block{code,   "uenv status"},
         help::linebreak{},
         help::block{note, "if no uenv is loaded, the message 'there is no no uenv loaded' will be printed"},
+        help::block{xmpl, "control the formatting of the output:"},
+        help::block{code,   "uenv status --format=full  # verbose output (default)"},
+        help::block{code,   "uenv status --format=short # comma-separated list of uenv name"},
+        help::block{code,   "uenv status --format=views # comma-separated list of uenv:[views]"},
+        help::linebreak{},
+        help::block{note, "the 'name' and 'views' options print no output if no uenv is running.",
+                          "These options are useful for scripting and setting command line prompts."},
         // clang-format on
     };
 

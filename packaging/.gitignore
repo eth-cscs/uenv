@@ -1,0 +1,4 @@
+artifacts
+*.rpm
+*.srpm
+log*
