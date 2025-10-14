@@ -154,6 +154,7 @@ int main(int argc, char** argv) {
                 // NOTE: this call should be recursive (or have a recursive
                 // flag) to apply striping to the contents as well (the index.db
                 // was created in the call above, and won't be striped yet)
+                /*
                 if (auto result = lustre::setstripe(
                         repo_path,
                         {.count = 8u, .size = (1024u * 1024u), .index = -1},
@@ -162,6 +163,7 @@ int main(int argc, char** argv) {
                     spdlog::warn("unable to apply lustre striping to {}",
                                  repo_path);
                 }
+                */
             }
             break;
         }

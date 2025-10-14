@@ -10,11 +10,31 @@ namespace lustre {
 
 struct status {
     // number of OSTs to stripe over (-1 -> all)
+    // >=1 when the output of getstripe
+    // can equal -1 when used as an input to setstripe
     std::int64_t count = -1;
+
     // number of bytes per stripe
     std::uint64_t size = 1024u * 1024u;
+
     // OST index of first stripe (-1 -> default)
+    // >=0 when the output of getstripe on a file
+    // may be -1 as ain input, or the result of getstripe on a directory
     std::int64_t index = -1;
+};
+
+// manages the configuration
+struct lpath {
+    status config;
+    std::filesystem::path path;
+    std::filesystem::path lfs;
+
+    bool is_regular_file() const {
+        return std::filesystem::is_regular_file(path);
+    }
+    bool is_directory() const {
+        return std::filesystem::is_directory(path);
+    }
 };
 
 // types of error that can be generated when making lustre calls
@@ -25,6 +45,10 @@ enum class error {
     lfs,        // there was an error calling lfs
     other,      // ...
 };
+
+util::expected<lpath, error> loadpath(const std::filesystem::path& p,
+                                      const envvars::state& env);
+bool is_striped(const lpath& p);
 
 // return true if p is a regular file or directory in a lustre filesystem
 // return false under all other circumstances

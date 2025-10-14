@@ -81,41 +81,40 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
     }
     auto status = validate_repository(*path);
     if (status == readonly) {
-        fmt::print("the repository at {} is read only\n", *path);
+        term::msg("the repository at {} is read only\n", *path);
     }
     if (status == readwrite) {
-        fmt::print("the repository at {} is read-write\n", *path);
+        term::msg("the repository at {} is read-write\n", *path);
     }
     if (status == no_exist) {
-        fmt::print("no repository at {}\n", *path);
+        term::msg("no repository at {}\n", *path);
     }
     if (status == invalid) {
-        fmt::print("the repository at {} is in invalid state\n", *path);
+        term::msg("the repository at {} is in invalid state\n", *path);
     }
 
     // check for lustre striping
     if (status != invalid) {
-        // apply lustre striping to repository
-        if (lustre::is_lustre(*path)) {
-            if (auto status =
-                    lustre::getstripe(*path, settings.calling_environment)) {
-                fmt::print("striping: {}\n", *status);
+        if (auto p = lustre::loadpath(*path, settings.calling_environment)) {
+            if (!lustre::is_striped(*p)) {
+                term::msg("the repository is on a lustre file system and is "
+                          "not striped");
             } else {
-                spdlog::warn(
-                    "unable to evaluate lustre striping of the repository: {}.",
-                    status.error());
+                term::msg("the repository is a striped lustre file system");
             }
+        } else {
+            term::msg("the repository is not a lustre file system");
         }
 
+        /*
         // NOTE: this call should be recursive (or have a recursive
         // flag) to apply striping to the contents as well (the index.db
         // was created in the call above, and won't be striped yet)
-        /*
         if (auto result = lustre::setstripe(
-                *path, {.count = 8u, .size = (1024u * 1024u), .index =
-        -1}, settings.calling_environment); !result) {
-            spdlog::warn("unable to apply lustre striping to {}",
-        *path);
+                *path, {.count = 8u, .size = (1024u * 1024u), .index = -1},
+                settings.calling_environment);
+            !result) {
+            spdlog::warn("unable to apply lustre striping to {}", *path);
         }
         */
     }

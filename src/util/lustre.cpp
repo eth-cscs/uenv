@@ -39,7 +39,6 @@ bool is_lustre(const std::filesystem::path& p) {
 // used to facilitate calls to 'lfs getstripe', which return a single value to
 // the terminal.
 std::optional<std::int64_t> query_lfs(const std::vector<std::string> args) {
-    spdlog::trace("lustre::lfs: {}", fmt::join(args, " "));
     auto result = util::run(args);
 
     if (!result) {
@@ -52,7 +51,6 @@ std::optional<std::int64_t> query_lfs(const std::vector<std::string> args) {
     }
 
     auto line = result->out.getline();
-    spdlog::trace("lustre::lfs: -> ", *line);
     if (!line) {
         return std::nullopt;
     }
@@ -62,32 +60,21 @@ std::optional<std::int64_t> query_lfs(const std::vector<std::string> args) {
         std::from_chars(line->data(), line->data() + line->size(), value);
 
     if (ec == std::errc()) {
+        spdlog::trace("lustre::lfs: {} -> {}", fmt::join(args, " "), value);
         return value;
     }
 
+    spdlog::trace("lustre::lfs: {} -> error", fmt::join(args, " "));
     return std::nullopt;
 }
 
 util::expected<status, error> getstripe(const std::filesystem::path& p,
-                                        const envvars::state& env) {
-    spdlog::trace("lustre::getstripe {}", p.string());
-
-    if (!is_lustre(p)) {
-        return util::unexpected{error::not_lustre};
-    }
-    spdlog::trace("lustre::getstripe {} is a lustre fileystem", p.string());
-
-    auto lfs = util::which("lfs", env.get("PATH").value_or(""));
-    if (!lfs) {
-        return util::unexpected{error::no_lfs};
-    }
-    spdlog::trace("lustre::getstripe found lfs {}", lfs.value().string());
-
+                                        const std::filesystem::path& lfs) {
     status s;
 
     // lfs getstripe --stripe-count $path
     if (const auto value = query_lfs(
-            {lfs->string(), "getstripe", "--stripe-count", p.string()})) {
+            {lfs.string(), "getstripe", "--stripe-count", p.string()})) {
         s.count = *value;
     } else {
         return util::unexpected{error::lfs};
@@ -95,7 +82,7 @@ util::expected<status, error> getstripe(const std::filesystem::path& p,
 
     // lfs getstripe --stripe-size $path
     if (const auto value = query_lfs(
-            {lfs->string(), "getstripe", "--stripe-size", p.string()})) {
+            {lfs.string(), "getstripe", "--stripe-size", p.string()})) {
         s.size = *value;
     } else {
         return util::unexpected{error::lfs};
@@ -103,29 +90,37 @@ util::expected<status, error> getstripe(const std::filesystem::path& p,
 
     // lfs getstripe --stripe-index $path
     if (const auto value = query_lfs(
-            {lfs->string(), "getstripe", "--stripe-index", p.string()})) {
+            {lfs.string(), "getstripe", "--stripe-index", p.string()})) {
         s.index = *value;
     } else {
         return util::unexpected{error::lfs};
     }
 
+    spdlog::debug("lustre::getstripe {} -> {}", p.string(), s);
+
     return s;
 }
 
 namespace impl {
+
 // recursively apply lustre striping to a directory and its contents.
 // iterates over each sub directory, and applies striping to every file and path
 // in the directory
+/*
 bool setstripe(const std::filesystem::path& path, const status& config,
-               const std::filesystem::path& lfs) {
-
-    spdlog::trace("lfs setstripe {}", path.string());
-
+               const std::filesystem::path& lfs, bool recursive,
+               bool migrate_files) {
     std::error_code ec;
 
     std::filesystem::directory_iterator dir_it{path, ec};
     if (ec) {
         return false;
+    }
+
+    // return after applying changes to the directory if no recursion is
+    // requested
+    if (!recursive) {
+        return true;
     }
 
     for (const auto& p : dir_it) {
@@ -147,9 +142,9 @@ bool setstripe(const std::filesystem::path& path, const status& config,
                     return false;
                 }
                 spdlog::trace("{}", fmt::join(cmd, " "));
-                setstripe(p.path(), config, lfs);
+                setstripe(p.path(), config, lfs, recursive, migrate_files);
             }
-        } else if (p.is_regular_file(ec)) {
+        } else if (p.is_regular_file(ec) && migrate_files) {
             if (!ec) {
                 // lfs migrate $path
                 //      --size config.size
@@ -172,10 +167,12 @@ bool setstripe(const std::filesystem::path& path, const status& config,
     }
     return false;
 }
+*/
 } // namespace impl
 
+/*
 bool setstripe(const std::filesystem::path& p, const status& config,
-               const envvars::state& env) {
+               const envvars::state& env, bool recursive, bool apply_to_files) {
     // check that the path is a directory on a lustre file system
     if (!is_lustre(p) || !std::filesystem::is_directory(p)) {
         spdlog::trace("lfs setstripe skipping: {} is not a lustre directory",
@@ -184,11 +181,41 @@ bool setstripe(const std::filesystem::path& p, const status& config,
     }
 
     if (auto lfs = util::which("lfs", env.get("PATH").value_or(""))) {
-        return impl::setstripe(p, config, lfs.value());
+        return impl::setstripe(p, config, lfs.value(), recursive,
+                               apply_to_files);
     }
     spdlog::trace("lfs setstripe skipping: lfs not found");
 
     return false;
+}
+*/
+
+util::expected<lpath, error> loadpath(const std::filesystem::path& p,
+                                      const envvars::state& env) {
+    if (!is_lustre(p)) {
+        return util::unexpected{error::not_lustre};
+    }
+
+    // get lustre status of p
+    auto lfs = util::which("lfs", env.get("PATH").value_or(""));
+    if (!lfs) {
+        return util::unexpected{error::no_lfs};
+    }
+
+    const auto config = getstripe(p, *lfs);
+    if (!config) {
+        return util::unexpected{config.error()};
+    }
+
+    return lpath{.config = *config, .path = p, .lfs = *lfs};
+}
+
+bool is_striped(const lpath& p) {
+    return
+        // files always have an explicit count >= 1
+        (p.is_regular_file() && p.config.count > 1) ||
+        // count==-1 on a directory implies "stripe contents over all OST"
+        (p.is_directory() && (p.config.count < 0 || p.config.count > 1));
 }
 
 } // namespace lustre
