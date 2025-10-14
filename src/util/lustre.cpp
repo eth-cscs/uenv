@@ -39,16 +39,20 @@ bool is_lustre(const std::filesystem::path& p) {
 // used to facilitate calls to 'lfs getstripe', which return a single value to
 // the terminal.
 std::optional<std::int64_t> query_lfs(const std::vector<std::string> args) {
+    spdlog::trace("lustre::lfs: {}", fmt::join(args, " "));
     auto result = util::run(args);
 
     if (!result) {
+        spdlog::trace("lustre::lfs: error calling lfs ", result.error());
         return std::nullopt;
     }
-    if (!result->wait()) {
+    if (result->wait() != 0) {
+        spdlog::trace("lustre::lfs: error waiting for lfs ", result->rvalue());
         return std::nullopt;
     }
 
     auto line = result->out.getline();
+    spdlog::trace("lustre::lfs: -> ", *line);
     if (!line) {
         return std::nullopt;
     }
@@ -66,14 +70,18 @@ std::optional<std::int64_t> query_lfs(const std::vector<std::string> args) {
 
 util::expected<status, error> getstripe(const std::filesystem::path& p,
                                         const envvars::state& env) {
+    spdlog::trace("lustre::getstripe {}", p.string());
+
     if (!is_lustre(p)) {
         return util::unexpected{error::not_lustre};
     }
+    spdlog::trace("lustre::getstripe {} is a lustre fileystem", p.string());
 
     auto lfs = util::which("lfs", env.get("PATH").value_or(""));
     if (!lfs) {
         return util::unexpected{error::no_lfs};
     }
+    spdlog::trace("lustre::getstripe found lfs {}", lfs.value().string());
 
     status s;
 
@@ -95,7 +103,7 @@ util::expected<status, error> getstripe(const std::filesystem::path& p,
 
     // lfs getstripe --stripe-index $path
     if (const auto value = query_lfs(
-            {lfs->string(), "getstripe", "--stripe-size", p.string()})) {
+            {lfs->string(), "getstripe", "--stripe-index", p.string()})) {
         s.index = *value;
     } else {
         return util::unexpected{error::lfs};

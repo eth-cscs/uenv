@@ -8,6 +8,7 @@
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
+#include <util/lustre.h>
 
 #include "repo.h"
 #include "terminal.h"
@@ -90,6 +91,33 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
     }
     if (status == invalid) {
         fmt::print("the repository at {} is in invalid state\n", *path);
+    }
+
+    // check for lustre striping
+    if (status != invalid) {
+        // apply lustre striping to repository
+        if (lustre::is_lustre(*path)) {
+            if (auto status =
+                    lustre::getstripe(*path, settings.calling_environment)) {
+                fmt::print("striping: {}\n", *status);
+            } else {
+                spdlog::warn(
+                    "unable to evaluate lustre striping of the repository: {}.",
+                    status.error());
+            }
+        }
+
+        // NOTE: this call should be recursive (or have a recursive
+        // flag) to apply striping to the contents as well (the index.db
+        // was created in the call above, and won't be striped yet)
+        /*
+        if (auto result = lustre::setstripe(
+                *path, {.count = 8u, .size = (1024u * 1024u), .index =
+        -1}, settings.calling_environment); !result) {
+            spdlog::warn("unable to apply lustre striping to {}",
+        *path);
+        }
+        */
     }
 
     return 0;

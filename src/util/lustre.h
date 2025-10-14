@@ -38,3 +38,43 @@ bool setstripe(const std::filesystem::path& p, const status&,
                const envvars::state& env);
 
 } // namespace lustre
+
+template <> class fmt::formatter<lustre::status> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(lustre::status const& s, FmtContext& ctx) const {
+        return fmt::format_to(ctx.out(), "(count={}, size={}, index={})",
+                              s.count, s.size, s.index);
+    }
+};
+
+template <> class fmt::formatter<lustre::error> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(lustre::error const& e, FmtContext& ctx) const {
+        using enum lustre::error;
+        switch (e) {
+        case okay:
+            return format_to(ctx.out(), "unset");
+        case not_lustre:
+            return format_to(ctx.out(), "not a lustre filesystem");
+        case no_lfs:
+            return format_to(ctx.out(), "lfs is not available");
+        case lfs:
+            return format_to(ctx.out(), "internal lfs error");
+        case other:
+            return format_to(ctx.out(), "unknonwn");
+        }
+        return format_to(ctx.out(), "unknonwn");
+    }
+};
