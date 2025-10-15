@@ -23,7 +23,11 @@ struct status {
     std::int64_t index = -1;
 };
 
-// manages the configuration
+constexpr status default_striping{
+    .count = -1, .size = 4 * 1024 * 1024, .index = -1};
+
+// contains information about a lustre path (regular file or directory)
+// created using load_path
 struct lpath {
     status config;
     std::filesystem::path path;
@@ -46,20 +50,40 @@ enum class error {
     other,      // ...
 };
 
-util::expected<lpath, error> loadpath(const std::filesystem::path& p,
-                                      const envvars::state& env);
-bool is_striped(const lpath& p);
+struct stripe_stats {
+    struct stripe_count {
+        unsigned yes = 0;
+        unsigned no = 0;
+    };
+
+    stripe_count files;
+    stripe_count directories;
+
+    operator bool() const {
+        return (files.no + directories.no) == 0u;
+    }
+};
+
+util::expected<lpath, error> load_path(const std::filesystem::path& p,
+                                       const envvars::state& env);
+
+stripe_stats is_striped(const lpath& p);
 
 // return true if p is a regular file or directory in a lustre filesystem
 // return false under all other circumstances
 bool is_lustre(const std::filesystem::path& p);
 
-// get striping information about a file or path
-util::expected<status, error> getstripe(const std::filesystem::path& p,
-                                        const envvars::state& env);
+void set_striping(const lpath& path, const status& config);
 
-bool setstripe(const std::filesystem::path& p, const status&,
-               const envvars::state& env);
+bool setstripe(const lpath& p, const status&);
+
+using lpath_apply =
+    std::function<util::expected<void, std::string>(const lpath&)>;
+using lpath_reduction =
+    std::function<util::expected<bool, std::string>(const lpath&)>;
+
+util::expected<void, std::string> apply(const lpath& path, lpath_apply f,
+                                        bool recursive = true);
 
 } // namespace lustre
 
@@ -74,6 +98,19 @@ template <> class fmt::formatter<lustre::status> {
     constexpr auto format(lustre::status const& s, FmtContext& ctx) const {
         return fmt::format_to(ctx.out(), "(count={}, size={}, index={})",
                               s.count, s.size, s.index);
+    }
+};
+
+template <> class fmt::formatter<lustre::lpath> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(lustre::lpath const& p, FmtContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}:{}", p.path.string(), p.config);
     }
 };
 
@@ -100,5 +137,24 @@ template <> class fmt::formatter<lustre::error> {
             return format_to(ctx.out(), "unknonwn");
         }
         return format_to(ctx.out(), "unknonwn");
+    }
+};
+
+template <> class fmt::formatter<lustre::stripe_stats> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(lustre::stripe_stats const& s,
+                          FmtContext& ctx) const {
+        auto ctx_ = ctx.out();
+        ctx_ = fmt::format_to(ctx_, "       striped unstriped\n");
+        ctx_ =
+            fmt::format_to(ctx_, "sqfs  {:8}  {:8}\n", s.files.yes, s.files.no);
+        return fmt::format_to(ctx_, "dirs  {:8}  {:8}", s.directories.yes,
+                              s.directories.no);
     }
 };

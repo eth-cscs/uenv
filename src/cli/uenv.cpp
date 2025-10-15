@@ -204,6 +204,8 @@ int main(int argc, char** argv) {
         return uenv::repo_create(repo.create_args, settings);
     case settings.repo_status:
         return uenv::repo_status(repo.status_args, settings);
+    case settings.repo_update:
+        return uenv::repo_update(repo.status_args, settings);
     case settings.status:
         return uenv::status(stat, settings);
     case settings.build:

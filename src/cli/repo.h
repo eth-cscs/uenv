@@ -27,5 +27,6 @@ struct repo_args {
 
 int repo_create(const repo_create_args& args, const global_settings& settings);
 int repo_status(const repo_status_args& args, const global_settings& settings);
+int repo_update(const repo_status_args& args, const global_settings& settings);
 
 } // namespace uenv
