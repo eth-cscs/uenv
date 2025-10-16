@@ -54,6 +54,26 @@ std::optional<std::int64_t> query_lfs(const std::vector<std::string> args) {
     return std::nullopt;
 }
 
+util::expected<void, std::string>
+call_lfs(const std::vector<std::string>& args) {
+    spdlog::trace("{}", fmt::join(args, " "));
+
+    auto result = util::run(args);
+
+    if (!result) {
+        return util::unexpected{result.error()};
+    }
+    if (auto r = result->wait(); r != 0) {
+        auto line = result->err.getline();
+        if (line) {
+            return util::unexpected(*line);
+        }
+        return util::unexpected(fmt::format("lfs error code {}", r));
+    }
+
+    return {};
+}
+
 } // namespace impl
 
 bool is_lustre(const std::filesystem::path& p) {
@@ -72,10 +92,11 @@ bool is_lustre(const std::filesystem::path& p) {
     }
 
     // not a file or directory
+    // striping is only applied to regular files and directories
     return false;
 }
 
-#define LFS(ARGS, X)                                                           \
+#define QUERY_LFS(ARGS, X)                                                     \
     {                                                                          \
         if (const auto rval__ = lustre::impl::query_lfs ARGS)                  \
             X = *rval__;                                                       \
@@ -87,9 +108,12 @@ util::expected<status, error> getstripe(const std::filesystem::path& p,
                                         const std::filesystem::path& lfs) {
     status s;
 
-    LFS(({lfs.string(), "getstripe", "--stripe-count", p.string()}), s.count);
-    LFS(({lfs.string(), "getstripe", "--stripe-size", p.string()}), s.size);
-    LFS(({lfs.string(), "getstripe", "--stripe-index", p.string()}), s.index);
+    QUERY_LFS(({lfs.string(), "getstripe", "--stripe-count", p.string()}),
+              s.count);
+    QUERY_LFS(({lfs.string(), "getstripe", "--stripe-size", p.string()}),
+              s.size);
+    QUERY_LFS(({lfs.string(), "getstripe", "--stripe-index", p.string()}),
+              s.index);
 
     spdlog::debug("lustre::getstripe {} -> {}", p.string(), s);
 
@@ -165,26 +189,6 @@ util::expected<void, std::string> print(const lpath& path) {
     return {};
 }
 
-util::expected<void, std::string>
-call_lfs(const std::vector<std::string>& args) {
-    spdlog::trace("{}", fmt::join(args, " "));
-
-    auto result = util::run(args);
-
-    if (!result) {
-        return util::unexpected{result.error()};
-    }
-    if (auto r = result->wait(); r != 0) {
-        auto line = result->err.getline();
-        if (line) {
-            return util::unexpected(*line);
-        }
-        return util::unexpected(fmt::format("lfs error code {}", r));
-    }
-
-    return {};
-}
-
 void set_striping(const lpath& path, const status& config) {
     namespace bk = barkeep;
     using namespace std::chrono_literals;
@@ -229,7 +233,7 @@ void set_striping(const lpath& path, const status& config) {
                         p.lfs.string(), "migrate", p.path.string(),
                         fmt::format("--stripe-size={}", config.size),
                         fmt::format("--stripe-count={}", config.count)};
-                    if (auto result = call_lfs(cmd); !result) {
+                    if (auto result = impl::call_lfs(cmd); !result) {
                         spdlog::error(result.error());
                     }
                     ++total_files;
@@ -237,14 +241,13 @@ void set_striping(const lpath& path, const status& config) {
             } else if (p.is_directory()) {
                 if (p.config.count == 1) {
                     spdlog::debug("lustre::set_striping {}", p.path.string());
-                    // lfs setstripe
-                    // path --size={} --count={}
+                    // lfs setstripe path --size={} --count={}
                     std::vector<std::string> cmd = {
                         p.lfs.string(), "setstripe", p.path.string(),
                         fmt::format("--stripe-size={}", config.size),
                         fmt::format("--stripe-count={}", config.count)};
                     spdlog::trace("{}", fmt::join(cmd, " "));
-                    if (auto result = call_lfs(cmd); !result) {
+                    if (auto result = impl::call_lfs(cmd); !result) {
                         spdlog::error(result.error());
                     }
                     ++total_dirs;

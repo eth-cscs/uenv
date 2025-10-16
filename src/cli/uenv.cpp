@@ -148,32 +148,20 @@ int main(int argc, char** argv) {
             if (auto result = uenv::create_repository(repo_path); !result) {
                 spdlog::warn("the repo {} was not created: {}", repo_path,
                              result.error());
-            }
-            // apply lustre striping to repository
-            if (lustre::is_lustre(repo_path)) {
-                // NOTE: this call should be recursive (or have a recursive
-                // flag) to apply striping to the contents as well (the index.db
-                // was created in the call above, and won't be striped yet)
-                /*
-                if (auto result = lustre::setstripe(
-                        repo_path,
-                        {.count = 8u, .size = (1024u * 1024u), .index = -1},
-                        settings.calling_environment);
-                    !result) {
-                    spdlog::warn("unable to apply lustre striping to {}",
-                                 repo_path);
+            } else {
+                // apply lustre striping to repository
+                if (lustre::is_lustre(repo_path)) {
+                    if (auto p = lustre::load_path(
+                            repo_path, settings.calling_environment)) {
+                        if (!lustre::is_striped(*p)) {
+                            lustre::set_striping(*p, lustre::default_striping);
+                        }
+                    }
                 }
-                */
             }
             break;
         }
     }
-
-    // util::expected<repository, std::string>
-    // create_repository(const fs::path& repo_path) {
-    // using enum repo_state;
-
-    // auto abs_repo_path = fs::absolute(repo_path);
 
     spdlog::info("{}", settings);
 
