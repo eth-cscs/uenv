@@ -189,7 +189,7 @@ util::expected<void, std::string> print(const lpath& path) {
     return {};
 }
 
-void set_striping(const lpath& path, const status& config) {
+void set_striping(const lpath& path, const status& config, bool verbose) {
     namespace bk = barkeep;
     using namespace std::chrono_literals;
 
@@ -220,7 +220,9 @@ void set_striping(const lpath& path, const status& config) {
                                            .show = false,
                                        })},
                       "\n");
-    bars->show();
+    if (verbose) {
+        bars->show();
+    }
 
     apply(
         path,

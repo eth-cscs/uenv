@@ -150,7 +150,7 @@ int repo_update(const repo_status_args& args, const global_settings& settings) {
         if (!lustre::is_striped(*p)) {
             term::msg("{} is on a lustre file system and is not striped",
                       p->path.string());
-            lustre::set_striping(*p, lustre::default_striping);
+            lustre::set_striping(*p, lustre::default_striping, true);
         }
     }
 

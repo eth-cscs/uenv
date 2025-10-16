@@ -73,7 +73,8 @@ stripe_stats is_striped(const lpath& p);
 // return false under all other circumstances
 bool is_lustre(const std::filesystem::path& p);
 
-void set_striping(const lpath& path, const status& config);
+void set_striping(const lpath& path, const status& config,
+                  bool verbose = false);
 
 bool setstripe(const lpath& p, const status&);
 
