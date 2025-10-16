@@ -90,16 +90,16 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
 
     auto status = validate_repository(*path);
     if (status == readonly) {
-        term::msg("the repository at {} is read only\n", *path);
+        term::msg("the repository at {} is read only", *path);
     }
     if (status == readwrite) {
-        term::msg("the repository at {} is read-write\n", *path);
+        term::msg("the repository at {} is read-write", *path);
     }
     if (status == no_exist) {
-        term::msg("no repository at {}\n", *path);
+        term::msg("no repository at {}", *path);
     }
     if (status == invalid) {
-        term::msg("the repository at {} is in invalid state\n", *path);
+        term::msg("the repository at {} is in invalid state", *path);
     }
 
     // check for lustre striping
@@ -107,16 +107,21 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
         if (auto p = lustre::load_path(*path, settings.calling_environment)) {
             auto state = lustre::is_striped(*p);
             if (!state) {
-                term::msg("the repository is on a lustre file system and is "
-                          "not striped");
+                term::msg(
+                    "the repository at {} is on a lustre file system and is "
+                    "not striped",
+                    *path);
                 term::msg("\n{}", state);
                 term::msg("\nrun '{}' to apply striping to the repository",
                           color::yellow("uenv repo update"));
             } else {
-                term::msg("the repository is a striped lustre file system");
+                term::msg(
+                    "the repository at {} is a striped lustre file system",
+                    *path);
             }
         } else {
-            term::msg("the repository is not a lustre file system");
+            term::msg("the repository at {} is not a lustre file system",
+                      *path);
         }
     }
 
