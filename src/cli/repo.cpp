@@ -177,13 +177,6 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
     }
 
     auto status = validate_repository(path.value());
-    if (!(status == readonly || status == readwrite)) {
-        if (args.json) {
-        } else {
-            term::msg("the repository {} {}.", path.value(),
-                      status == invalid ? "is invalid" : "does not exist");
-        }
-    }
 
     const bool valid_repo = status == readonly || status == readwrite;
     bool update = false;
@@ -242,7 +235,11 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
     }
     // output the results in human readable form (the default)
     else {
-        term::msg("the repository {} is\n  - {}", path.value(), status);
+        if (status == no_exist) {
+            term::msg("{} is not a repository", path.value());
+        } else {
+            term::msg("the repository {} is {}", path.value(), status);
+        }
         if (lustre_state) {
             if (!lustre_state.value()) {
                 term::msg("  - is on a lustre file system that is not striped",
