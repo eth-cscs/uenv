@@ -15,6 +15,7 @@ struct repo_create_args {
 };
 struct repo_status_args {
     std::optional<std::string> path;
+    bool json = false;
 };
 
 void repo_help();
