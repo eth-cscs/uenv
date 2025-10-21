@@ -112,3 +112,27 @@ create_repository(const std::filesystem::path& repo_path);
 util::expected<repository, std::string> create_repository();
 
 } // namespace uenv
+
+template <> class fmt::formatter<uenv::repo_state> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(uenv::repo_state const& e, FmtContext& ctx) const {
+        using enum uenv::repo_state;
+        switch (e) {
+        case readonly:
+            return format_to(ctx.out(), "readonly");
+        case readwrite:
+            return format_to(ctx.out(), "readwrite");
+        case no_exist:
+            return format_to(ctx.out(), "no_exist");
+        case invalid:
+            return format_to(ctx.out(), "invalid");
+        }
+        return format_to(ctx.out(), "unknonwn");
+    }
+};

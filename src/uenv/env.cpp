@@ -138,7 +138,9 @@ concretise_env(const std::string& uenv_args,
 
         // if a label was used to describe the uenv (e.g. "prgenv-gnu/24.7"
         // it has to be looked up in a repo.
+        bool from_label = false;
         if (auto label = desc.label()) {
+            from_label = true;
             if (!repo_arg) {
                 return unexpected("a repo needs to be provided either "
                                   "using the --repo flag "
@@ -197,9 +199,16 @@ concretise_env(const std::string& uenv_args,
 
         sqfs_path = fs::absolute(sqfs_path);
         if (!fs::exists(sqfs_path) || !fs::is_regular_file(sqfs_path)) {
-            return unexpected(
-                fmt::format("the uenv image {} does not exist or is not a file",
-                            sqfs_path));
+            if (from_label) {
+                return unexpected(fmt::format(
+                    "the uenv image {} does not exist or is not a file. Run "
+                    "'uenv repo status' to check the health of the repo.",
+                    sqfs_path));
+            } else {
+                return unexpected(fmt::format(
+                    "the uenv image {} does not exist or is not a file",
+                    sqfs_path));
+            }
         }
         spdlog::info("{} squashfs image {}", desc, sqfs_path.string());
 

@@ -76,8 +76,6 @@ bool is_lustre(const std::filesystem::path& p);
 void set_striping(const lpath& path, const status& config,
                   bool verbose = false);
 
-bool setstripe(const lpath& p, const status&);
-
 using lpath_apply =
     std::function<util::expected<void, std::string>(const lpath&)>;
 using lpath_reduction =
