@@ -58,7 +58,6 @@ lib_src = [
         'src/util/envvars.cpp',
         'src/util/fs.cpp',
         'src/util/lex.cpp',
-        'src/util/lustre.cpp',
         'src/util/semver.cpp',
         'src/util/shell.cpp',
         'src/util/signal.cpp',
