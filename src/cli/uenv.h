@@ -24,6 +24,7 @@ enum class cli_mode : std::uint32_t {
     image_rm,
     repo_create,
     repo_status,
+    repo_update,
     run,
     start,
     status,
@@ -91,6 +92,8 @@ template <> class fmt::formatter<uenv::cli_mode> {
             return format_to(ctx.out(), "repo-create");
         case repo_status:
             return format_to(ctx.out(), "repo-status");
+        case repo_update:
+            return format_to(ctx.out(), "repo-update");
         case status:
             return format_to(ctx.out(), "status");
         case build:

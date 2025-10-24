@@ -402,7 +402,8 @@ struct AnimationConfig {
     bool show = true; ///< show the animation immediately after construction
 };
 
-Duration as_duration(std::variant<Duration, double> interval) {
+[[maybe_unused]] static Duration
+as_duration(std::variant<Duration, double> interval) {
     if (std::holds_alternative<Duration>(interval)) {
         return std::get<Duration>(interval);
     } else {
@@ -464,7 +465,7 @@ class AnimationDisplay : public BaseDisplay {
 
 /// Convenience factory function to create a shared_ptr to AnimationDisplay.
 /// Prefer this to constructing AnimationDisplay directly.
-auto Animation(const AnimationConfig& cfg = {}) {
+[[maybe_unused]] static auto Animation(const AnimationConfig& cfg = {}) {
     return std::make_shared<AnimationDisplay>(cfg);
 }
 
@@ -517,7 +518,7 @@ class StatusDisplay : public AnimationDisplay {
 
 /// Convenience factory function to create a shared_ptr to StatusDisplay.
 /// Prefer this to constructing StatusDisplay directly.
-auto Status(const AnimationConfig& cfg = {}) {
+[[maybe_unused]] static auto Status(const AnimationConfig& cfg = {}) {
     return std::make_shared<StatusDisplay>(cfg);
 }
 
@@ -1073,14 +1074,15 @@ class CompositeDisplay : public BaseDisplay {
 
 /// Convenience factory function to create a shared_ptr to CompositeDisplay.
 /// Prefer this to constructing CompositeDisplay directly.
-auto Composite(const std::vector<std::shared_ptr<BaseDisplay>>& displays,
-               std::string delim = " ") {
+[[maybe_unused]] static auto
+Composite(const std::vector<std::shared_ptr<BaseDisplay>>& displays,
+          std::string delim = " ") {
     return std::make_shared<CompositeDisplay>(displays, std::move(delim));
 }
 
 /// Pipe operator can be used to combine two displays into a Composite.
-auto operator|(std::shared_ptr<BaseDisplay> left,
-               std::shared_ptr<BaseDisplay> right) {
+[[maybe_unused]] static auto operator|(std::shared_ptr<BaseDisplay> left,
+                                       std::shared_ptr<BaseDisplay> right) {
     return std::make_shared<CompositeDisplay>(
         std::vector{std::move(left), std::move(right)});
 }
