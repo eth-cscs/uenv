@@ -142,7 +142,9 @@ int main(int argc, char** argv, char** envp) {
             // variables that do not have valid POSIX compliant names.
             // In this context we need to tolerate all possible names to fully
             // reproduce the calling environment.
-            // For example: bash function exports do not follow the POSIX standard.
+            // For example: bash function exports do not follow the POSIX
+            // standard.
+
             runtime_env.forward(name, v);
         }
     }

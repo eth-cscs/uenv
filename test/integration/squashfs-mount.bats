@@ -49,6 +49,18 @@ function teardown() {
     assert_output "LD_LIBRARY_PATH=foo"
 }
 
+@test "fwd_non_posix_envvars" {
+    # check that exported bash functions (which have non-posix names) are forwarded correctly
+    hello() { echo "hello world $1"; }
+    export -f hello
+    run squashfs-mount -- bash -c 'hello hpc'
+    assert_output "hello world hpc"
+
+    # check that non-posix names are forwarded
+    run env 'SCRATCH.OLD=/capstor/scratch/robert' squashfs-mount -- printenv 'SCRATCH.OLD'
+    assert_output "/capstor/scratch/robert"
+}
+
 @test "mount_single_image" {
     SQFS_PATH=$SQFS_LIB/apptool/standalone
     run squashfs-mount --sqfs=$SQFS_PATH/app42.squashfs:/user-environment -- /user-environment/env/app/bin/app
