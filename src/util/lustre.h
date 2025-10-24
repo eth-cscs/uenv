@@ -60,6 +60,8 @@ struct stripe_stats {
     stripe_count directories;
 
     operator bool() const {
+        // the path is striped if it contains no files or directories that
+        // are not striped
         return (files.no + directories.no) == 0u;
     }
 };

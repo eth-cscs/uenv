@@ -190,7 +190,7 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
         if (auto p =
                 lustre::load_path(path.value(), settings.calling_environment)) {
             lustre_state = lustre::is_striped(*p);
-            update |= lustre_state.value();
+            update |= !lustre_state.value();
         }
 
         // check for inconsistencies between stored images and the database
@@ -212,10 +212,10 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
         json json_out;
         json_out["path"] = path.value();
         json_out["fstype"] = lustre_state ? "lustre" : "unknown";
+        json_out["updates"] = json::array();
         if (lustre_state && !lustre_state.value()) {
             json_out["updates"].push_back("lustre-striping");
         }
-        json_out["updates"] = json::array();
         json_out["digest-remove"] = json::array();
         json_out["status"] = fmt::format("{}", status);
         if (store_state) {
