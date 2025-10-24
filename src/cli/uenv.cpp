@@ -15,6 +15,7 @@
 #include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/lustre.h>
 
 #include "add_remove.h"
 #include "build.h"
@@ -142,23 +143,25 @@ int main(int argc, char** argv) {
         // ignore any error - later attempts to use the repo can handle the
         // error
         default:
-            spdlog::info("the repo {} does not exist - creating",
-                         settings.config.repo.value());
-            if (auto result =
-                    uenv::create_repository(settings.config.repo.value());
-                !result) {
-                spdlog::warn("the repo {} was not created: {}",
-                             settings.config.repo.value(), result.error());
+            const auto repo_path = settings.config.repo.value();
+            spdlog::info("the repo {} does not exist - creating", repo_path);
+            if (auto result = uenv::create_repository(repo_path); !result) {
+                spdlog::warn("the repo {} was not created: {}", repo_path,
+                             result.error());
+            } else {
+                // apply lustre striping to repository
+                if (lustre::is_lustre(repo_path)) {
+                    if (auto p = lustre::load_path(
+                            repo_path, settings.calling_environment)) {
+                        if (!lustre::is_striped(*p)) {
+                            lustre::set_striping(*p, lustre::default_striping);
+                        }
+                    }
+                }
             }
             break;
         }
     }
-
-    // util::expected<repository, std::string>
-    // create_repository(const fs::path& repo_path) {
-    // using enum repo_state;
-
-    // auto abs_repo_path = fs::absolute(repo_path);
 
     spdlog::info("{}", settings);
 
@@ -189,6 +192,8 @@ int main(int argc, char** argv) {
         return uenv::repo_create(repo.create_args, settings);
     case settings.repo_status:
         return uenv::repo_status(repo.status_args, settings);
+    case settings.repo_update:
+        return uenv::repo_update(repo.status_args, settings);
     case settings.status:
         return uenv::status(stat, settings);
     case settings.build:
