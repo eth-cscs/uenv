@@ -124,6 +124,16 @@ function teardown() {
     unset TOOLCONFLICT
 }
 
+@test "fwd_non_posix_envvars" {
+    export RP=$REPOS/apptool
+
+    # check that exported bash functions (which have non-posix names) are forwarded correctly
+    hello() { echo "hello world $1"; }
+    export -f hello
+    run_srun_unchecked --repo=$RP --uenv=app/42.0 --view=app bash -c 'hello hpc'
+    assert_output "hello world hpc"
+}
+
 # check for invalid arguments passed to --uenv
 @test "faulty --uenv argument" {
     export RP=$REPOS/apptool
@@ -239,3 +249,4 @@ echo "should not get here"
 EOF
     [ "${status}" -eq "1" ]
 }
+

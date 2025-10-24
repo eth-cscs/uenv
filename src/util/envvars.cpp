@@ -84,6 +84,21 @@ void state::set(const std::string_view name, std::string_view value) {
     }
 }
 
+// similar to set(), however loose validation is applied to the env. var. name,
+// which is useful for forwarding all standard and non-standard env. var. names
+// in contexts that require it (e.g. forwarding exported bash functions).
+void state::forward(const std::string_view name, std::string_view value) {
+    // we still have to check to ensure that the name is not empty or
+    // contains '='
+    if (validate_name(name, false)) {
+        variables_[std::string(name)] = value;
+    } else {
+        spdlog::warn("envvars::state::forward skipping the invalid "
+                     "environment variable name '{}'",
+                     name);
+    }
+}
+
 std::optional<std::string> state::get(std::string_view name) const {
     if (validate_name(name)) {
         auto it = variables_.find(std::string(name));
@@ -128,6 +143,7 @@ char** state::c_env() const {
         ev[i] = (char*)malloc(len * sizeof(char));
         fmt::format_to_n(ev[i], len - 1, "{}={}", p.first, p.second);
         ev[i][len - 1] = 0;
+        spdlog::trace("envvars::state::c_env forwarding {}", ev[i]);
         ++i;
     }
 

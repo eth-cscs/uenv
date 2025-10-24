@@ -138,13 +138,23 @@ int main(int argc, char** argv, char** envp) {
     // forward all environment variables not prefixed with SQFSMNT_FWD_
     for (auto& [name, v] : calling_env.variables()) {
         if (!name.starts_with("SQFSMNT_FWD_")) {
-            runtime_env.set(name, v);
+            // use forward instead of set, becase set drops environment
+            // variables that do not have valid POSIX compliant names.
+            // In this context we need to tolerate all possible names to fully
+            // reproduce the calling environment.
+            // For example: bash function exports do not follow the POSIX
+            // standard.
+
+            runtime_env.forward(name, v);
         }
     }
     // add the forwarded variables in a second loop, in case a variable with the
     // same name was already in the calling environment.
     for (auto& [name, v] : calling_env.variables()) {
         if (name.starts_with("SQFSMNT_FWD_")) {
+            // use set, which will still drop environment variables with invalid
+            // names, because an invalid name in this context is certainly a bug
+            // in the caller.
             runtime_env.set(name.substr(12), v);
         }
     }
