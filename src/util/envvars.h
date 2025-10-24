@@ -55,6 +55,7 @@ class state {
     state(const state&) = default;
 
     void set(std::string_view name, std::string_view value);
+    void forward(std::string_view name, std::string_view value);
     void unset(std::string_view name);
     std::optional<std::string> get(std::string_view name) const;
 
