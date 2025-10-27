@@ -354,7 +354,7 @@ std::string repo_footer() {
         block{none, "  - it is read-only or read-write."},
         block{none, "  - it is on a lustre file system."},
         block{none, "  - image files have been deleted without updating the database,"},
-        block{none, "    e.g. by scratch cleaup policies."},
+        block{none, "    e.g. by scratch cleanup policies."},
         block{none, "  - lustre striping has been applied to its contents."},
         block{none, "See the repo update command to synchronise the database or apply striping on lustre."},
         linebreak{},
