@@ -43,11 +43,18 @@ class record_set {
 /// - use $HOME/.uenv/images
 std::optional<std::string> default_repo_path(const envvars::state&);
 
+// used to validate whether a string represents a valid path for a repo.
+// parses the string, then performs additional optional checks for whether the
+// path is absolute / already exists.
+// e.g. validate_repository("/home/bob/.uenv", true, false);
+// - the path is valid and absolute
+// - so it will return true always (because no check for existance is performed)
 util::expected<std::filesystem::path, std::string>
 validate_repo_path(const std::string& path, bool is_absolute = true,
                    bool exists = true);
 
 enum class repo_state { readonly, readwrite, no_exist, invalid };
+// assumes that repo_path satisfies valide_repo_path()
 repo_state validate_repository(const std::filesystem::path& repo_path);
 
 enum class repo_mode : std::uint8_t { readonly, readwrite };
@@ -59,6 +66,8 @@ struct repository {
 
   public:
     struct pathset {
+        std::filesystem::path root;
+        std::filesystem::path store_root;
         std::filesystem::path store;
         std::filesystem::path meta;
         std::filesystem::path squashfs;

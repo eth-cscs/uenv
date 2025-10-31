@@ -515,14 +515,15 @@ repository::pathset repository_impl::uenv_paths(sha256 sha) const {
     namespace fs = std::filesystem;
 
     const auto lit = sha.string();
-    repository::pathset paths{};
 
-    fs::path repo_root = path ? *path : fs::path(".");
-    paths.store = repo_root / "images" / lit;
-    paths.meta = paths.store / "meta";
-    paths.squashfs = paths.store / "store.squashfs";
+    const fs::path repo_root = path ? *path : fs::path(".");
+    const fs::path repo_store_root = repo_root / "images";
 
-    return paths;
+    return {.root = repo_root,
+            .store_root = repo_store_root,
+            .store = repo_store_root / lit,
+            .meta = repo_store_root / lit / "meta",
+            .squashfs = repo_store_root / lit / "store.squashfs"};
 }
 
 util::expected<void, std::string>
