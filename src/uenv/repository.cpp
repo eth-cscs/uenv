@@ -11,6 +11,7 @@
 #include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/lustre.h>
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
@@ -443,6 +444,15 @@ create_repository(const fs::path& repo_path) {
         if (ec) {
             spdlog::error("unable to create repository path: {}", ec.message());
             return unexpected("unable to create repository");
+        }
+    }
+
+    // apply lustre striping to repository
+    if (lustre::is_lustre(abs_repo_path)) {
+        if (auto p = lustre::load_path(abs_repo_path, {})) {
+            if (!lustre::is_striped(*p)) {
+                lustre::set_striping(*p, lustre::default_striping);
+            }
         }
     }
 

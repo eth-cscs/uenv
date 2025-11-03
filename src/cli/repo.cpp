@@ -439,6 +439,7 @@ int repo_migrate(const repo_migrate_args& args,
             term::error("the repo {} is inconsistent: run {}", source,
                         color::yellow(fmt::format(
                             "uenv repo update --no-lustre {}", source)));
+            return 1;
         }
 
         // create/open the destination repo
@@ -478,7 +479,6 @@ int repo_migrate(const repo_migrate_args& args,
             &files_copied,
             {
                 .total = std::max(1, num_copies), // avoid divide-by-zero
-                //.message = "",
                 .style = bk::Rich,
                 .no_tty = !isatty(fileno(stdout)),
                 .show = false,
@@ -503,7 +503,8 @@ int repo_migrate(const repo_migrate_args& args,
                 spdlog::debug("copying {} to {}", src_paths.store,
                               dst_paths.store);
 
-                fs::copy(src_paths.store, dst_paths.store, recursive, ec);
+                fs::copy(src_paths.store, dst_paths.store,
+                        recursive|overwrite_existing, ec);
                 if (ec) {
                     term::error("unable to copy {}: {}", src_paths.store,
                                 ec.message());
