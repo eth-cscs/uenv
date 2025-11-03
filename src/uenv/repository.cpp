@@ -74,7 +74,8 @@ default_repo_path(const envvars::state& env, bool exists) {
         const path_pair iopstor{fs::path("/iopstor/scratch/cscs") / *user,
                                 ".uenv-images"};
 
-        if (auto cluster = env.get("CLUSTER").value_or(""); cluster == "") {
+        if (auto cluster = env.get("CLUSTER_NAME").value_or("");
+            cluster == "") {
             spdlog::debug("default_repo_path: using default search");
             search_paths = {ritom, capstor, iopstor};
             // grab SCRATCH and prepend it: catch the MCH systems, which still
