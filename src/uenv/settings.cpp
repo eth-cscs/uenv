@@ -54,11 +54,10 @@ config_base default_config(const envvars::state& env) {
     // NOTE: the backend library code is not supposed to print to the terminal,
     // but we make an exception in this case to get this feature in place.
     if (rexist && (rexist != ravail)) {
-        fmt::print(stderr, "\n{}: the default uenv repo location is being used. Please migrate your uenv images with:\n{}\n\n",
-                color::yellow("warning"),
-                color::cyan(
-                    fmt::format("uenv repo migrate {}",
-                        ravail.value())));
+        fmt::print(stderr,
+                   "\n{}: the default uenv repo location is being used. Please "
+                   "migrate your uenv repo with:\n  uenv repo migrate {}\n\n",
+                   color::yellow("warning"), ravail.value());
     }
     return {
         .repo = rexist ? rexist : ravail,
