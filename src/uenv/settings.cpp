@@ -44,8 +44,19 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
 }
 
 config_base default_config(const envvars::state& env) {
+    // find whether a repo exists in the list of possible default repo loations
+    auto rexist = default_repo_path(env, true);
+    // find the recommended repo location (if one is available)
+    auto ravail = default_repo_path(env, false);
+
+    // if the default repository is not at the recommended location, print a
+    // warning and suggestion that the user upgrade to a new uenv
+    if (rexist && (rexist != ravail)) {
+        spdlog::warn("consider migrating", color::yellow("uenv repo migrate"));
+    }
     return {
-        .repo = default_repo_path(env),
+        //.repo = default_repo_path(env),
+        .repo = rexist ? rexist : ravail,
         .color = color::default_color(env),
     };
 }

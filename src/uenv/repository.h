@@ -41,14 +41,17 @@ class record_set {
 /// get the default location for the user's repository.
 /// - use $SCRATCH/.uenv-images if $SCRATCH is set
 /// - use $HOME/.uenv/images
-std::optional<std::string> default_repo_path(const envvars::state&);
+// std::optional<std::string> default_repo_path(const envvars::state&);
+std::optional<std::filesystem::path>
+default_repo_path(const envvars::state& env, bool exists = false);
 
 // used to validate whether a string represents a valid path for a repo.
-// parses the string, then performs additional optional checks for whether the
-// path is absolute / already exists.
-// e.g. validate_repository("/home/bob/.uenv", true, false);
+// parses the string, then performs additional optional checks for whether
+// the path is absolute / already exists. e.g.
+// validate_repository("/home/bob/.uenv", true, false);
 // - the path is valid and absolute
-// - so it will return true always (because no check for existance is performed)
+// - so it will return true always (because no check for existance is
+// performed)
 util::expected<std::filesystem::path, std::string>
 validate_repo_path(const std::string& path, bool is_absolute = true,
                    bool exists = true);
@@ -100,9 +103,10 @@ struct repository {
     // return true if the repository is in memory
     bool is_in_memory() const;
 
-    // return the paths that identify where the uenv image with sha256 and its
-    // meta data would be stored in the repository if they were in the
-    // repository. An image with sha256 does not need to be in the repository.
+    // return the paths that identify where the uenv image with sha256 and
+    // its meta data would be stored in the repository if they were in the
+    // repository. An image with sha256 does not need to be in the
+    // repository.
     pathset uenv_paths(sha256) const;
 
     ~repository();

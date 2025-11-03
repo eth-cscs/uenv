@@ -34,27 +34,8 @@ use repo
 
 ### status
 
-debugging a final issue.
+TODO:
 
-`uenv repo migrat --sync` is not copying a uenv `prgenv-gnu`
-
-```
-$ ./uenv image ls prgenv-gnu
-uenv                  arch   system  id                size(MB)  date
-prgenv-gnu/25.06:rc3  gh200  daint   dc97bbdd859092e4   5,455    2025-06-06
-prgenv-gnu/25.6:v2    zen2   eiger   724fb61dbdb04006     592    2025-09-15
-
-$ ./uenv --repo=$HOME/tmp/.uenv image ls prgenv-gnu
-uenv                  arch   system  id                size(MB)  date
-prgenv-gnu/25.06:rc3  gh200  daint   dc97bbdd859092e4   5,455    2025-06-06
-
-$ ./uenv repo migrate --sync $HOME/tmp/.uenv
-migrate repo from /home/bcumming/.uenv/repo to /home/bcumming/tmp/.uenv
-migration finished sucessfully
-```
-
-observation:
-- the missing uenv path for `724fb61dbdb04006` is not copied
-- the logs say that the record for the uenv is added
-- but `image ls` draws a big blank on the destination repo
+- update calculation of the default repo
+- add hint to uenv repo migrate that shows how to update config file
 
