@@ -71,7 +71,7 @@ default_repo_path(const envvars::state& env, bool exists) {
                               ".uenv-images"};
         const path_pair capstor{fs::path("/capstor/scratch/cscs") / *user,
                                 ".uenv-images"};
-        const path_pair iopstor{fs::path("/iopstor/scratch/cscs") / *user,
+        const path_pair iopstor{fs::path("/iopsstor/scratch/cscs") / *user,
                                 ".uenv-images"};
 
         if (auto cluster = env.get("CLUSTER_NAME").value_or("");

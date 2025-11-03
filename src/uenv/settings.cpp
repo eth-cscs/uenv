@@ -51,11 +51,16 @@ config_base default_config(const envvars::state& env) {
 
     // if the default repository is not at the recommended location, print a
     // warning and suggestion that the user upgrade to a new uenv
+    // NOTE: the backend library code is not supposed to print to the terminal,
+    // but we make an exception in this case to get this feature in place.
     if (rexist && (rexist != ravail)) {
-        spdlog::warn("consider migrating", color::yellow("uenv repo migrate"));
+        fmt::print(stderr, "\n{}: the default uenv repo location is being used. Please migrate your uenv images with:\n{}\n\n",
+                color::yellow("warning"),
+                color::cyan(
+                    fmt::format("uenv repo migrate {}",
+                        ravail.value())));
     }
     return {
-        //.repo = default_repo_path(env),
         .repo = rexist ? rexist : ravail,
         .color = color::default_color(env),
     };
