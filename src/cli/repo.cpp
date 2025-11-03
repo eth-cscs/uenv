@@ -175,6 +175,8 @@ get_record_map(const repository& store) {
         term::error("unable to query database: {}", query.error());
         return {};
     }
+    for (auto& r : *query)
+        spdlog::debug("source record: {}::{}", r.sha, r);
 
     std::unordered_map<sha256, std::vector<uenv_record>> out;
     for (auto& r : *query) {
@@ -383,6 +385,12 @@ int repo_migrate(const repo_migrate_args& args,
     using enum repo_state;
     namespace fs = std::filesystem;
 
+    // set up the source and destination repo paths based on positional
+    // arguments.
+    // 1 positional argument provided:
+    //   use it as the destination and use the default repo as the source.
+    // 2 positiinal arguments provided:
+    //   source=first, destination=second.
     fs::path source;
     if (auto src =
             resolve_repo_path(args.path1 ? args.path0 : args.path1, settings)) {
@@ -391,7 +399,7 @@ int repo_migrate(const repo_migrate_args& args,
         term::error("unable to determine source repository {}", src.error());
         return 1;
     }
-    auto destination =
+    const auto destination =
         fs::path(args.path1 ? args.path1.value() : args.path0.value());
 
     // validate that the source repo exists and is a valid repo
@@ -401,23 +409,32 @@ int repo_migrate(const repo_migrate_args& args,
         return 1;
     }
 
-    // validate the destination repo does not exist
-    auto dest_status = validate_repository(destination);
+    // validate the destination repo either does not exist,
+    // or is writable if the sync option is enabled.
+    const auto dest_status = validate_repository(destination);
     if (args.sync && !(dest_status == no_exist || dest_status == readwrite)) {
-        term::error("destination repo {} not synchronized because it is {}",
-                    destination, dest_status);
+        term::error("destination repo {} can not synced because it is {}.",
+                    destination,
+                    (dest_status == readonly ? "read only" : "invalid"));
         return 1;
     }
     if (!args.sync && dest_status != no_exist) {
-        term::error("destination repo {} can not synchronized because it is {}",
-                    destination, dest_status);
+        if (dest_status == readwrite) {
+            term::error("destination repo {} can not be migrated to because it "
+                        "already exists: use the --sync flag if you are trying "
+                        "to update the destination.",
+                        destination);
+        } else {
+            term::error("destination repo {} can not updated because it is {}.",
+                        destination,
+                        (dest_status == readonly ? "read only" : "invalid"));
+        }
         return 1;
     }
 
-    if (auto src_store =
+    if (const auto src_store =
             uenv::open_repository(source, uenv::repo_mode::readonly)) {
-        // source repository has entries in database that are missing on the
-        // FS
+        // source repo has entries in database with missing files
         if (!impl::check_repo_consistency(*src_store)) {
             term::error("the repo {} is inconsistent: run {}", source,
                         color::yellow(fmt::format(
@@ -425,9 +442,10 @@ int repo_migrate(const repo_migrate_args& args,
         }
 
         // create/open the destination repo
-        auto dst_store = dest_status == no_exist
-                             ? create_repository(destination)
-                             : open_repository(source, repo_mode::readwrite);
+        auto dst_store =
+            dest_status == no_exist
+                ? create_repository(destination)
+                : open_repository(destination, repo_mode::readwrite);
 
         // create the images path inside the target repo
         std::error_code ec;
@@ -441,30 +459,31 @@ int repo_migrate(const repo_migrate_args& args,
         const auto record_map = impl::get_record_map(*src_store);
         int num_copies{0};
         for (const auto& [digest, _] : record_map) {
-            if (dst_store->query(uenv_label{.name = digest.string()})
-                    ->empty()) {
+            const auto match =
+                dst_store->query(uenv_label{.name = digest.string()});
+            if (match->empty()) {
+                spdlog::debug("mark {} for migration", digest);
                 ++num_copies;
             }
         }
 
-        term::msg("migrate repo from {} to {}", source, destination);
+        term::msg("migrate repo from {} to {} (copying {} images)", source,
+                  destination, num_copies);
 
+        // create a simple progress bar
         namespace bk = barkeep;
         using namespace std::chrono_literals;
-
         int files_copied{0u};
         auto bar = bk::ProgressBar(
             &files_copied,
             {
-                // barkeep divides by zero for without non-zero total
-                .total = std::max(1, num_copies),
-                .message = "Images   ",
-                .speed = 0,
-                .speed_unit = "images/s",
+                .total = std::max(1, num_copies), // avoid divide-by-zero
+                //.message = "",
                 .style = bk::Rich,
                 .no_tty = !isatty(fileno(stdout)),
                 .show = false,
             });
+        // only show the bar if there are squashfs files to migrate
         if (num_copies > 0) {
             bar->show();
         }
@@ -481,7 +500,6 @@ int repo_migrate(const repo_migrate_args& args,
 
             // copy the underlying image if it is not in the target
             if (matches->empty()) {
-                // term::msg("copying digest {}", digest);
                 spdlog::debug("copying {} to {}", src_paths.store,
                               dst_paths.store);
 
@@ -492,12 +510,13 @@ int repo_migrate(const repo_migrate_args& args,
                     return 1;
                 }
                 ++files_copied;
-            } else {
-                // term::msg("existing digest {}", digest);
             }
             for (auto r : records) {
                 spdlog::debug("adding record {}", r);
-                // term::msg("  {}", r);
+                // add every record unconditionally.
+                // Records already in the destination DB are a noop, and it is
+                // possible that new records can added to images that already
+                // exist in the destination.
                 if (auto result = dst_store->add(r); !result) {
                     term::error("unable to add record {}", r);
                     return 1;
