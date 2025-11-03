@@ -64,16 +64,42 @@ default_repo_path(const envvars::state& env, bool exists) {
     };
     std::vector<path_pair> search_paths;
 
+    // Where to look first? That depends on the platform.
+    // This is a bit ugly, and edeally would be in per-cluster/platform config.
     if (const auto user = env.get("USER")) {
-        // It would be nice to set the default repo location to be .uenv/repo
-        // instead of .uenv-images
-        // However,
-        search_paths.push_back(
-            {fs::path("/ritom/scratch/cscs") / *user, ".uenv-images"});
-        search_paths.push_back(
-            {fs::path("/capstor/scratch/cscs") / *user, ".uenv-images"});
-        search_paths.push_back(
-            {fs::path("/iopstor/scratch/cscs") / *user, ".uenv-images"});
+        const path_pair ritom{fs::path("/ritom/scratch/cscs") / *user,
+                              ".uenv-images"};
+        const path_pair capstor{fs::path("/capstor/scratch/cscs") / *user,
+                                ".uenv-images"};
+        const path_pair iopstor{fs::path("/iopstor/scratch/cscs") / *user,
+                                ".uenv-images"};
+
+        if (auto cluster = env.get("CLUSTER").value_or(""); cluster == "") {
+            spdlog::debug("default_repo_path: using default search");
+            search_paths = {ritom, capstor, iopstor};
+            // grab SCRATCH and prepend it: catch the MCH systems, which still
+            // do things "old school"
+            if (auto scratch = env.get("SCRATCH")) {
+                search_paths.insert(search_paths.begin(),
+                                    {*scratch, ".uenv-images"});
+            }
+        }
+        // HPCP
+        else if (cluster == "daint" || cluster == "eiger" ||
+                 cluster == "pilatus") {
+            search_paths = {ritom, capstor, iopstor};
+            spdlog::debug("default_repo_path: using HPCP search");
+        }
+        // MLP
+        else if (cluster == "clariden" || cluster == "bristen") {
+            search_paths = {iopstor, capstor};
+            spdlog::debug("default_repo_path: using MLP search");
+        }
+        // CWP
+        else if (cluster == "santis" || cluster == "balfrin") {
+            search_paths = {capstor, iopstor};
+            spdlog::debug("default_repo_path: using CWP search");
+        }
     };
     if (auto home = env.get("HOME")) {
         search_paths.push_back({*home, ".uenv/repo"});
