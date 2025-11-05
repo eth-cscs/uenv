@@ -504,7 +504,7 @@ int repo_migrate(const repo_migrate_args& args,
                               dst_paths.store);
 
                 fs::copy(src_paths.store, dst_paths.store,
-                        recursive|overwrite_existing, ec);
+                         recursive | overwrite_existing, ec);
                 if (ec) {
                     term::error("unable to copy {}: {}", src_paths.store,
                                 ec.message());
