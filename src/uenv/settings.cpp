@@ -63,7 +63,7 @@ config_base default_config(const envvars::state& env) {
             "Migrate your repo, while the old location is still available, with this command:\n"
             "  {}\n"
             "  {}\n"
-            "Migration can take over 10 minutes, and must be completed fully after it has\n"
+            "Migration can take over 30 minutes, and must be completed fully after it has\n"
             "been started for all of the original images to be available. If interrupted,\n"
             "migration can be resumed using the same command.\n"
             "{}: uenv will continue using the old location and printing this warning until\n"
