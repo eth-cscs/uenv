@@ -190,10 +190,12 @@ int main(int argc, char** argv) {
         return uenv::image_push(image.push_args, settings);
     case settings.repo_create:
         return uenv::repo_create(repo.create_args, settings);
+    case settings.repo_migrate:
+        return uenv::repo_migrate(repo.migrate_args, settings);
     case settings.repo_status:
         return uenv::repo_status(repo.status_args, settings);
     case settings.repo_update:
-        return uenv::repo_update(repo.status_args, settings);
+        return uenv::repo_update(repo.update_args, settings);
     case settings.status:
         return uenv::status(stat, settings);
     case settings.build:

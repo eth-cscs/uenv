@@ -11,6 +11,7 @@
 #include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/lustre.h>
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
@@ -28,31 +29,98 @@ template <typename T> using hopefully = util::expected<T, std::string>;
 
 using util::unexpected;
 
-/// get the default location for the user's repository.
-/// - use the environment variable UENV_REPO_PATH if it is set
-/// - use $SCRATCH/.uenv/repo if $SCRATCH is set
-/// - use $HOME/.uenv/repo if $HOME is set
-///
-/// returns nullopt if no environment variables were set.
-/// returns error if
-/// - the provided path is not absolute
-/// - the path string was not valid
-///
-/// returns error if it a path is set, but it is invalid
-std::optional<std::string> default_repo_path(const envvars::state& env) {
-    std::optional<std::string> path_string;
-    if (auto p = env.get("SCRATCH")) {
-        spdlog::trace(fmt::format("default_repo_path: found SCRATCH={}", p));
-        path_string = std::string(p.value()) + "/.uenv-images";
-    } else {
-        if (auto p = env.get("HOME")) {
-            spdlog::trace(fmt::format("default_repo_path: found HOME={}", p));
-            path_string = std::string(p.value()) + "/.uenv/repo";
-        } else {
-            spdlog::trace("default_repo_path: no default location found");
+// Returns the default location for the uenv repository
+//
+// searches through scratch locations, then in home.
+//
+// The exists parameter controls how the search is performed
+// - exists==true  -> find the first "default location" that exists.
+// - exists==false -> find the first "default location" where it is possible to
+//                    create a repository.
+std::optional<std::filesystem::path>
+default_repo_path(const envvars::state& env, bool exists) {
+    namespace fs = std::filesystem;
+    struct path_pair {
+        fs::path base;
+        fs::path repo;
+        fs::path join() const {
+            return base / repo;
+        };
+        bool exists() const {
+            return fs::is_directory(join()) &&
+                   fs::is_regular_file(join() / "index.db");
+        }
+        bool writeable() const {
+            auto canwrite = [](const fs::path& path) -> bool {
+                std::error_code ec;
+                auto p = fs::status(path, ec).permissions();
+                return !ec &&
+                       ((p & fs::perms::owner_write) != fs::perms::none ||
+                        (p & fs::perms::group_write) != fs::perms::none ||
+                        (p & fs::perms::others_write) != fs::perms::none);
+            };
+            return canwrite(base) && (exists() ? canwrite(join()) : true);
+        }
+    };
+    std::vector<path_pair> search_paths;
+
+    // Where to look first? That depends on the platform.
+    // This is a bit ugly, and edeally would be in per-cluster/platform config.
+    if (const auto user = env.get("USER")) {
+        const path_pair ritom{fs::path("/ritom/scratch/cscs") / *user,
+                              ".uenv-images"};
+        const path_pair capstor{fs::path("/capstor/scratch/cscs") / *user,
+                                ".uenv-images"};
+        const path_pair iopstor{fs::path("/iopsstor/scratch/cscs") / *user,
+                                ".uenv-images"};
+
+        if (auto cluster = env.get("CLUSTER_NAME").value_or("");
+            cluster == "") {
+            spdlog::debug("default_repo_path: using default search");
+            search_paths = {ritom, capstor, iopstor};
+            // grab SCRATCH and prepend it: catch the MCH systems, which still
+            // do things "old school"
+            if (auto scratch = env.get("SCRATCH")) {
+                search_paths.insert(search_paths.begin(),
+                                    {*scratch, ".uenv-images"});
+            }
+        }
+        // HPCP
+        else if (cluster == "daint" || cluster == "eiger" ||
+                 cluster == "pilatus") {
+            search_paths = {ritom, capstor, iopstor};
+            spdlog::debug("default_repo_path: using HPCP search");
+        }
+        // MLP
+        else if (cluster == "clariden" || cluster == "bristen") {
+            search_paths = {iopstor, capstor};
+            spdlog::debug("default_repo_path: using MLP search");
+        }
+        // CWP
+        else if (cluster == "santis" || cluster == "balfrin") {
+            search_paths = {capstor, iopstor};
+            spdlog::debug("default_repo_path: using CWP search");
+        }
+    };
+    if (auto home = env.get("HOME")) {
+        search_paths.push_back({*home, ".uenv/repo"});
+    }
+
+    for (const auto& p : search_paths) {
+        spdlog::trace("default_repo_path: checking {}", p.join());
+        if (p.exists() && p.writeable()) {
+            spdlog::debug("default_repo_path: found existing repo {}",
+                          p.join());
+            return p.join();
+        } else if (!exists && p.writeable()) {
+            spdlog::debug("default_repo_path: found writeable repo location {}",
+                          p.join());
+            return p.join();
         }
     }
-    return path_string;
+
+    spdlog::trace("default_repo_path: no default location found");
+    return std::nullopt;
 }
 
 util::expected<std::filesystem::path, std::string>
@@ -122,7 +190,8 @@ hopefully<sqlite_database> open_sqlite_database(const fs::path path,
     }
     spdlog::info("open_sqlite_database: {}", path);
 
-    // double check that the database can be written if in readwrite mode
+    // double check that the database can be written if in readwrite
+    // mode
     if (mode == readwrite && sqlite3_db_readonly(db, "main") == 1) {
         spdlog::error("open_sqlite_database: {} was opened read only.", path);
         // close the database before returning an error
@@ -446,6 +515,15 @@ create_repository(const fs::path& repo_path) {
         }
     }
 
+    // apply lustre striping to repository
+    if (lustre::is_lustre(abs_repo_path)) {
+        if (auto p = lustre::load_path(abs_repo_path, {})) {
+            if (!lustre::is_striped(*p)) {
+                lustre::set_striping(*p, lustre::default_striping);
+            }
+        }
+    }
+
     auto db_path = abs_repo_path / "index.db";
 
     // open the sqlite database
@@ -515,14 +593,15 @@ repository::pathset repository_impl::uenv_paths(sha256 sha) const {
     namespace fs = std::filesystem;
 
     const auto lit = sha.string();
-    repository::pathset paths{};
 
-    fs::path repo_root = path ? *path : fs::path(".");
-    paths.store = repo_root / "images" / lit;
-    paths.meta = paths.store / "meta";
-    paths.squashfs = paths.store / "store.squashfs";
+    const fs::path repo_root = path ? *path : fs::path(".");
+    const fs::path repo_store_root = repo_root / "images";
 
-    return paths;
+    return {.root = repo_root,
+            .store_root = repo_store_root,
+            .store = repo_store_root / lit,
+            .meta = repo_store_root / lit / "meta",
+            .squashfs = repo_store_root / lit / "store.squashfs"};
 }
 
 util::expected<void, std::string>
@@ -549,15 +628,15 @@ repository_impl::add(const uenv::uenv_record& r) {
         }
     }
 
-    // Retrieve the version_id of the system/uarch/name/version identifier
-    // This requires a SELECT query to get the correct version_id whether or not
-    // a new row was added in the last INSERT
+    // Retrieve the version_id of the system/uarch/name/version
+    // identifier This requires a SELECT query to get the correct
+    // version_id whether or not a new row was added in the last INSERT
     std::int64_t version_id;
     {
-        auto stmt = fmt::format(
-            "SELECT version_id FROM uenv WHERE system = '{}' AND uarch = '{}' "
-            "AND name = '{}' AND version = '{}'",
-            r.system, r.uarch, r.name, r.version);
+        auto stmt = fmt::format("SELECT version_id FROM uenv WHERE "
+                                "system = '{}' AND uarch = '{}' "
+                                "AND name = '{}' AND version = '{}'",
+                                r.system, r.uarch, r.name, r.version);
         auto result = create_query(stmt, db);
         result->step();
 
@@ -566,9 +645,9 @@ repository_impl::add(const uenv::uenv_record& r) {
 
     bool tag_exists;
     {
-        auto stmt = fmt::format(
-            "SELECT tag FROM tags WHERE version_id = '{}' AND tag = '{}'",
-            version_id, r.tag);
+        auto stmt = fmt::format("SELECT tag FROM tags WHERE version_id "
+                                "= '{}' AND tag = '{}'",
+                                version_id, r.tag);
 
         auto result = create_query(stmt, db);
         tag_exists = result->step();

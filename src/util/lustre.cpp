@@ -126,7 +126,8 @@ util::expected<lpath, error> load_path(const std::filesystem::path& p,
     }
 
     // get lustre status of p
-    auto lfs = util::which("lfs", env.get("PATH").value_or(""));
+    auto lfs =
+        util::which("lfs", env.get("PATH").value_or("/usr/bin:/usr/local/bin"));
     if (!lfs) {
         return util::unexpected{error::no_lfs};
     }
@@ -202,8 +203,6 @@ void set_striping(const lpath& path, const status& config, bool verbose) {
                                        {
                                            .total = stats.files.no,
                                            .message = "Files      ",
-                                           .speed = 0,
-                                           .speed_unit = "files/s",
                                            .style = bk::Rich,
                                            .no_tty = !isatty(fileno(stdout)),
                                            .show = false,
@@ -212,8 +211,6 @@ void set_striping(const lpath& path, const status& config, bool verbose) {
                                        {
                                            .total = stats.directories.no,
                                            .message = "Directories",
-                                           .speed = 0,
-                                           .speed_unit = "directories/s",
                                            .style = bk::Rich,
                                            .no_tty = !isatty(fileno(stdout)),
                                            .show = false,

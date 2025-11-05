@@ -501,8 +501,6 @@ util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg) {
     auto L = lex::lexer(sanitised);
     uenv_date date;
 
-    spdlog::trace("parsing uenv_date {}", arg);
-
     PARSE(L, uint64, date.year);
     if (L.peek().kind != lex::tok::dash) {
         goto unexpected_symbol;
