@@ -126,7 +126,8 @@ util::expected<lpath, error> load_path(const std::filesystem::path& p,
     }
 
     // get lustre status of p
-    auto lfs = util::which("lfs", env.get("PATH").value_or("/usr/bin:/usr/local/bin"));
+    auto lfs =
+        util::which("lfs", env.get("PATH").value_or("/usr/bin:/usr/local/bin"));
     if (!lfs) {
         return util::unexpected{error::no_lfs};
     }
