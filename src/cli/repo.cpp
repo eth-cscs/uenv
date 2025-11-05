@@ -175,8 +175,9 @@ get_record_map(const repository& store) {
         term::error("unable to query database: {}", query.error());
         return {};
     }
-    for (auto& r : *query)
+    for (auto& r : *query) {
         spdlog::debug("source record: {}::{}", r.sha, r);
+    }
 
     std::unordered_map<sha256, std::vector<uenv_record>> out;
     for (auto& r : *query) {

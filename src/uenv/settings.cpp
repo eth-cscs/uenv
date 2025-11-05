@@ -72,8 +72,8 @@ config_base default_config(const envvars::state& env) {
             "--------------------------------------------------------------------------------\n",
             color::yellow("warning"),
             color::cyan(ravail->string()),
-            color::cyan(fmt::format("uenv repo migrate --sync {} \\", *rexist)),
-            color::cyan(fmt::format("                         {}",  *ravail)),
+            color::cyan(fmt::format("uenv repo migrate {} \\", *rexist)),
+            color::cyan(fmt::format("                  {}",  *ravail)),
             color::yellow("note"));
         // clang-format on
     }

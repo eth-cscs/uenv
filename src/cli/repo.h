@@ -29,7 +29,7 @@ struct repo_migrate_args {
     // so we take two unnamed arguments, and determine them later
     std::optional<std::string> path0;
     std::optional<std::string> path1;
-    bool sync = false;
+    bool sync = true;
 };
 
 void repo_help();
