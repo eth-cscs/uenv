@@ -53,11 +53,29 @@ config_base default_config(const envvars::state& env) {
     // warning and suggestion that the user upgrade to a new uenv
     // NOTE: the backend library code is not supposed to print to the terminal,
     // but we make an exception in this case to get this feature in place.
-    if (rexist && (rexist != ravail)) {
-        fmt::print(stderr,
-                   "\n{}: the default uenv repo location is being used. Please "
-                   "migrate your uenv repo with:\n  uenv repo migrate {}\n\n",
-                   color::yellow("warning"), ravail.value());
+    if (rexist && (rexist != ravail) && !env.get("UENV_WARN_MIGRATE")) {
+        // clang-format off
+        fmt::print(
+            stderr,
+            "--------------------------------------------------------------------------------\n"
+            "{}: the default uenv repo on this system has moved to a new location:\n"
+            "  {}\n"
+            "Migrate your repo, while the old location is still available, with this command:\n"
+            "  {}\n"
+            "  {}\n"
+            "Migration can take over 10 minutes, and must be completed fully after it has\n"
+            "been started for all of the original images to be available. If interrupted,\n"
+            "migration can be resumed using the same command.\n"
+            "{}: uenv will continue using the old location and printing this warning until\n"
+            "the migration is performed.\n"
+            "Set the environment variable UENV_WARN_MIGRATE to silence this warning.\n"
+            "--------------------------------------------------------------------------------\n",
+            color::yellow("warning"),
+            color::cyan(ravail->string()),
+            color::cyan(fmt::format("uenv repo migrate --sync {} \\", *rexist)),
+            color::cyan(fmt::format("                         {}",  *ravail)),
+            color::yellow("note"));
+        // clang-format on
     }
     return {
         .repo = rexist ? rexist : ravail,
