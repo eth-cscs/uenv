@@ -55,7 +55,7 @@ slurm_elastic_payload(const std::vector<telemetry_data>& uenv_data,
         std::string cluster_name =
             util::read_single_line_file("/etc/xthostname")
                 .value_or(calling_env.get("SLURM_CLUSTER_NAME").value_or(""));
-        data["cluster"] = parse_cluster_name(cluster_name).value_or("");
+        data["vcluster"] = parse_cluster_name(cluster_name).value_or("");
         data["hostname"] =
             util::read_single_line_file("/etc/hostname")
                 .value_or(calling_env.get("HOSTNAME").value_or(""));
