@@ -177,7 +177,7 @@ std::string start_footer() {
                                       "    alongside PE and applications"},
         linebreak{},
         block{xmpl, "example of using the full specification:"},
-        block{code,   "uenv start prgenv-gnu/24.7:v3:/user-environemnt,editors/24.7:v1:user-tools \\",
+        block{code,   "uenv start prgenv-gnu/24.7:v3:/user-environemnt,editors/24.7:v1:/user-tools \\",
                       "           --view=prgenv-gnu:default,editors:modules"},
         linebreak{},
         block{xmpl, "run a uenv using a squashfs file:"},
