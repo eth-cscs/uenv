@@ -136,7 +136,7 @@ int status([[maybe_unused]] const status_args& args,
                 if (views.size() == 0) {
                     return fmt::format("{}", name);
                 }
-                return fmt::format("{}:[{}]", name, fmt::join(views, ","));
+                return fmt::format("{}[{}]", name, fmt::join(views, ","));
             });
         term::msg("{}", fmt::join(name_views, ","));
         return 0;
