@@ -24,7 +24,7 @@ struct status {
 };
 
 constexpr status default_striping{
-    .count = -1, .size = 4 * 1024 * 1024, .index = -1};
+    .count = 32, .size = 4 * 1024 * 1024, .index = -1};
 
 // contains information about a lustre path (regular file or directory)
 // created using load_path
