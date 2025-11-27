@@ -68,6 +68,8 @@ std::string format_record_set_json(const record_set& records) {
     for (auto& r : records) {
         jrecords.push_back(json{
             {"name", r.name},
+            {"version", r.version},
+            {"tag", r.tag},
             {"system", r.system},
             {"uarch", r.uarch},
             {"id", r.id.string()},
