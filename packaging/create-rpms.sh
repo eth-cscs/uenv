@@ -5,7 +5,7 @@ set -euo pipefail
 #rm -rf ./artifacts
 
 oslist='15.5 15.6'
-slurmlist='23.02.7 24.05.4 24.05.8 25.05.4'
+slurmlist='23.02.7 24.05.4 25.05.4'
 
 echo "==== creating RPMS for uenv $(cat ../VERSION)"
 arch=$(uname -m)

@@ -104,9 +104,11 @@ else
 fi
 
 uenv_version=$(sed 's/-.*//' "${srcdir}/VERSION")
+uenv_release=slurm$(echo $slurm_version | sed 's|\.[0-9]\+$||; s|\.||')
 
 echo '======================================================='
 echo "uenv_version   $uenv_version"
+echo "uenv_release   $uenv_release"
 echo "slurm_version  $slurm_version"
 echo "scriptdir      $scriptdir"
 echo "branch         $git_ref"
@@ -125,7 +127,7 @@ tarball=uenv-"${uenv_version}".tar.gz
   # configure the RPM spec file
   cp "${scriptdir}/uenv.spec" SPECS/
   sed -i "s|UENV_VERSION|${uenv_version}|g" SPECS/uenv.spec
-  sed -i "s|SLURM_VERSION|${slurm_version}|g" SPECS/uenv.spec
+  sed -i "s|UENV_RELEASE|${uenv_release}|g" SPECS/uenv.spec
 
   flags="-O2 -fmessage-length=0 -D_FORTIFY_SOURCE=2 -fstack-protector"
   export LDFLAGS="-Wl,--disable-new-dtags -Wl,-rpath,/lib64 -Wl,-rpath,/usr/lib64"
@@ -146,7 +148,7 @@ tarball=uenv-"${uenv_version}".tar.gz
 # that a caller can then copy into a full spec path
 
 rpm_builddir=$builddir/RPMS
-rpm_name=uenv-${uenv_version}-${slurm_version}.${arch}.rpm
+rpm_name=uenv-${uenv_version}-${uenv_release}.${arch}.rpm
 rpm_fullpath=$rpm_builddir/$arch/$rpm_name
 rpm_installpath=${scriptdir}/artifacts/opensuse-${rpm_os}/${arch}
 

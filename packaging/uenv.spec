@@ -1,6 +1,6 @@
 Name:           uenv
 Version:        UENV_VERSION
-Release:        SLURM_VERSION
+Release:        UENV_RELEASE
 Summary:        UENV cli and Slurm spank plugin.
 Prefix:         /usr
 
