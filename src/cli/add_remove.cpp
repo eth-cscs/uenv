@@ -7,6 +7,7 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
+#include <uenv/env.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -77,7 +78,19 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
     spdlog::info("image_add: label {}", *label);
 
-    auto sqfs = uenv::validate_squashfs_image(args.squashfs);
+    const auto env =
+        concretise_env(args.squashfs, {},
+                       settings.config.repo, settings.calling_environment);
+    if (!env) {
+        term::error("{}", env.error());
+        return 1;
+    }
+    if (env->uenvs.size() != 1) {
+        term::error("Too many arguments provided for source squashfs file");
+        return 1;
+    }
+
+    auto sqfs = uenv::validate_squashfs_image(env->uenvs.begin()->second.sqfs_path);
     if (!sqfs) {
         term::error("invalid squashfs file {}: {}", args.squashfs,
                     sqfs.error());
@@ -144,67 +157,70 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     }
 
     const auto uenv_paths = store->uenv_paths(sqfs->hash);
-
-    //
-    // create the path inside the repo
-    //
-    std::error_code ec;
-    // if the path exists, delete it, as it might contain a partial download
-    if (fs::exists(uenv_paths.store)) {
-        spdlog::debug("image_add: remove the target path {} before copying",
-                      uenv_paths.store.string());
-        fs::remove_all(uenv_paths.store);
-    }
     uenv::uenv_date date{*util::file_creation_date(sqfs->sqfs)};
 
-    fs::create_directories(uenv_paths.store, ec);
-    if (ec) {
-        spdlog::error("unable to create path {}: {}", uenv_paths.store.string(),
-                      ec.message());
-        term::error("unable to add the uenv");
-        return 1;
-    }
-
-    //
-    // copy the meta data into the repo
-    //
-    if (sqfs->meta) {
-        fs::copy_options options{};
-        options |= fs::copy_options::recursive;
-        fs::copy(sqfs->meta.value(), uenv_paths.meta, options, ec);
-        if (ec) {
-            spdlog::error("unable to copy meta data to {}: {}",
-                          uenv_paths.meta.string(), ec.message());
-            term::error("unable to add the uenv");
-            return 1;
+    // fs::equivalent only works on existing files, check first if path even exists, and only then for equivalence
+    if (!fs::exists(uenv_paths.squashfs) || !fs::equivalent(uenv_paths.squashfs, sqfs->sqfs)) {
+        //
+        // create the path inside the repo
+        //
+        std::error_code ec;
+        // if the path exists, delete it, as it might contain a partial download
+        if (fs::exists(uenv_paths.store)) {
+            spdlog::debug("image_add: remove the target path {} before copying",
+                          uenv_paths.store.string());
+            fs::remove_all(uenv_paths.store);
         }
-    }
 
-    // copy or move the
-    if (!args.move) {
-        fs::copy_file(sqfs->sqfs, uenv_paths.squashfs, ec);
+        fs::create_directories(uenv_paths.store, ec);
         if (ec) {
-            spdlog::error("unable to copy squashfs image {} to {}: {}",
-                          sqfs->sqfs.string(), uenv_paths.squashfs.string(),
+            spdlog::error("unable to create path {}: {}", uenv_paths.store.string(),
                           ec.message());
             term::error("unable to add the uenv");
             return 1;
         }
-    } else {
-        fs::rename(sqfs->sqfs, uenv_paths.squashfs, ec);
-        if (ec) {
-            spdlog::error("unable to move squashfs image {} to {}: {}",
-                          sqfs->sqfs.string(), uenv_paths.squashfs.string(),
-                          ec.message());
-            term::error(
-                "unable to add the uenv\n{}",
-                help::item{help::block{
-                    help::block::admonition::note,
-                    fmt::format(
-                        "check that the file {} is on the same filesystem as "
-                        "the repository, and that you have write access to it.",
-                        sqfs->sqfs.string())}});
-            return 1;
+
+        //
+        // copy the meta data into the repo
+        //
+        if (sqfs->meta) {
+            fs::copy_options options{};
+            options |= fs::copy_options::recursive;
+            fs::copy(sqfs->meta.value(), uenv_paths.meta, options, ec);
+            if (ec) {
+                spdlog::error("unable to copy meta data to {}: {}",
+                              uenv_paths.meta.string(), ec.message());
+                term::error("unable to add the uenv");
+                return 1;
+            }
+        }
+
+        // copy or move the
+        if (!args.move) {
+            fs::copy_file(sqfs->sqfs, uenv_paths.squashfs, ec);
+            if (ec) {
+                spdlog::error("unable to copy squashfs image {} to {}: {}",
+                              sqfs->sqfs.string(), uenv_paths.squashfs.string(),
+                              ec.message());
+                term::error("unable to add the uenv");
+                return 1;
+            }
+        } else {
+            fs::rename(sqfs->sqfs, uenv_paths.squashfs, ec);
+            if (ec) {
+                spdlog::error("unable to move squashfs image {} to {}: {}",
+                              sqfs->sqfs.string(), uenv_paths.squashfs.string(),
+                              ec.message());
+                term::error(
+                    "unable to add the uenv\n{}",
+                    help::item{help::block{
+                        help::block::admonition::note,
+                        fmt::format(
+                            "check that the file {} is on the same filesystem as "
+                            "the repository, and that you have write access to it.",
+                            sqfs->sqfs.string())}});
+                return 1;
+            }
         }
     }
 
