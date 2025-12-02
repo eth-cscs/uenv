@@ -78,9 +78,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
     spdlog::info("image_add: label {}", *label);
 
-    const auto env =
-        concretise_env(args.squashfs, {},
-                       settings.config.repo, settings.calling_environment);
+    const auto env = concretise_env(args.squashfs, {}, settings.config.repo,
+                                    settings.calling_environment);
     if (!env) {
         term::error("{}", env.error());
         return 1;
@@ -90,7 +89,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         return 1;
     }
 
-    auto sqfs = uenv::validate_squashfs_image(env->uenvs.begin()->second.sqfs_path);
+    auto sqfs =
+        uenv::validate_squashfs_image(env->uenvs.begin()->second.sqfs_path);
     if (!sqfs) {
         term::error("invalid squashfs file {}: {}", args.squashfs,
                     sqfs.error());
@@ -159,8 +159,10 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     const auto uenv_paths = store->uenv_paths(sqfs->hash);
     uenv::uenv_date date{*util::file_creation_date(sqfs->sqfs)};
 
-    // fs::equivalent only works on existing files, check first if path even exists, and only then for equivalence
-    if (!fs::exists(uenv_paths.squashfs) || !fs::equivalent(uenv_paths.squashfs, sqfs->sqfs)) {
+    // fs::equivalent only works on existing files, check first if path even
+    // exists, and only then for equivalence
+    if (!fs::exists(uenv_paths.squashfs) ||
+        !fs::equivalent(uenv_paths.squashfs, sqfs->sqfs)) {
         //
         // create the path inside the repo
         //
@@ -174,8 +176,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
         fs::create_directories(uenv_paths.store, ec);
         if (ec) {
-            spdlog::error("unable to create path {}: {}", uenv_paths.store.string(),
-                          ec.message());
+            spdlog::error("unable to create path {}: {}",
+                          uenv_paths.store.string(), ec.message());
             term::error("unable to add the uenv");
             return 1;
         }
@@ -211,14 +213,14 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                 spdlog::error("unable to move squashfs image {} to {}: {}",
                               sqfs->sqfs.string(), uenv_paths.squashfs.string(),
                               ec.message());
-                term::error(
-                    "unable to add the uenv\n{}",
-                    help::item{help::block{
-                        help::block::admonition::note,
-                        fmt::format(
-                            "check that the file {} is on the same filesystem as "
-                            "the repository, and that you have write access to it.",
-                            sqfs->sqfs.string())}});
+                term::error("unable to add the uenv\n{}",
+                            help::item{help::block{
+                                help::block::admonition::note,
+                                fmt::format("check that the file {} is on the "
+                                            "same filesystem as "
+                                            "the repository, and that you have "
+                                            "write access to it.",
+                                            sqfs->sqfs.string())}});
                 return 1;
             }
         }
