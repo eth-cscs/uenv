@@ -119,3 +119,26 @@ TEST_CASE("read_single_line_file", "[fs]") {
         REQUIRE(r.value() == "hello world");
     }
 }
+
+TEST_CASE("is_child", "[fs]") {
+    // direct child
+    {
+        const std::filesystem::path child = "/path/to/child";
+        const std::filesystem::path parent = "/path/to";
+        REQUIRE(util::is_child(child, parent));
+    }
+
+    // indirect child
+    {
+        const std::filesystem::path child = "/path/to/child";
+        const std::filesystem::path parent = "/path";
+        REQUIRE(util::is_child(child, parent));
+    }
+
+    // not a child
+    {
+        const std::filesystem::path child = "/path/to/child";
+        const std::filesystem::path parent = "/tmp";
+        REQUIRE(!util::is_child(child, parent));
+    }
+}
