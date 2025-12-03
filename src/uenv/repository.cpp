@@ -65,7 +65,7 @@ default_repo_path(const envvars::state& env, bool exists) {
     std::vector<path_pair> search_paths;
 
     // Where to look first? That depends on the platform.
-    // This is a bit ugly, and edeally would be in per-cluster/platform config.
+    // This is a bit ugly, and ideally would be in per-cluster/platform config.
     if (const auto user = env.get("USER")) {
         const path_pair ritom{fs::path("/ritom/scratch/cscs") / *user,
                               ".uenv-images"};
@@ -74,20 +74,9 @@ default_repo_path(const envvars::state& env, bool exists) {
         const path_pair iopstor{fs::path("/iopsstor/scratch/cscs") / *user,
                                 ".uenv-images"};
 
-        if (auto cluster = env.get("CLUSTER_NAME").value_or("");
-            cluster == "") {
-            spdlog::debug("default_repo_path: using default search");
-            search_paths = {ritom, capstor, iopstor};
-            // grab SCRATCH and prepend it: catch the MCH systems, which still
-            // do things "old school"
-            if (auto scratch = env.get("SCRATCH")) {
-                search_paths.insert(search_paths.begin(),
-                                    {*scratch, ".uenv-images"});
-            }
-        }
+        const auto cluster = env.get("CLUSTER_NAME").value_or("");
         // HPCP
-        else if (cluster == "daint" || cluster == "eiger" ||
-                 cluster == "pilatus") {
+        if (cluster == "daint" || cluster == "eiger" || cluster == "pilatus") {
             search_paths = {ritom, capstor, iopstor};
             spdlog::debug("default_repo_path: using HPCP search");
         }
@@ -97,9 +86,20 @@ default_repo_path(const envvars::state& env, bool exists) {
             spdlog::debug("default_repo_path: using MLP search");
         }
         // CWP
-        else if (cluster == "santis" || cluster == "balfrin") {
+        else if (cluster == "santis") {
             search_paths = {capstor, iopstor};
             spdlog::debug("default_repo_path: using CWP search");
+        }
+        // use default search location
+        else {
+            spdlog::debug("default_repo_path: using default search");
+            search_paths = {ritom, capstor, iopstor};
+            // grab SCRATCH and append it: catch the MCH systems and other
+            // systems that have a scratch path outside of the "big 3" storage.
+            if (auto scratch = env.get("SCRATCH")) {
+                search_paths.insert(search_paths.end(),
+                                    {*scratch, ".uenv-images"});
+            }
         }
     };
     if (auto home = env.get("HOME")) {
