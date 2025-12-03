@@ -159,10 +159,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     const auto uenv_paths = store->uenv_paths(sqfs->hash);
     uenv::uenv_date date{*util::file_creation_date(sqfs->sqfs)};
 
-    // fs::equivalent only works on existing files, check first if path even
-    // exists, and only then for equivalence
-    if (!fs::exists(uenv_paths.squashfs) ||
-        !fs::equivalent(uenv_paths.squashfs, sqfs->sqfs)) {
+    bool source_in_repo = util::is_child(sqfs->sqfs, settings.config.repo.value());
+    if (!source_in_repo) {
         //
         // create the path inside the repo
         //

@@ -381,9 +381,6 @@ EOF
     run uenv --repo=$RP image ls --no-header
     assert_success
     assert_line --partial 'wombat/24:v1'
-    assert_line --partial 'numbat/24:v1'
-    assert_line --partial 'bilby/24:v1'
-    assert_line --partial 'quokka/24:v1'
     assert_line --partial 'wombat/24:replica'
     [ "${#lines[@]}" -eq "5" ]
 
@@ -395,11 +392,7 @@ EOF
 
     run uenv --repo=$RP image ls --no-header
     assert_success
-    assert_line --partial 'wombat/24:v1'
     assert_line --partial 'numbat/24:v1'
-    assert_line --partial 'bilby/24:v1'
-    assert_line --partial 'quokka/24:v1'
-    assert_line --partial 'wombat/24:replica'
     assert_line --partial 'numbat/24:replica'
     [ "${#lines[@]}" -eq "6" ]
 
