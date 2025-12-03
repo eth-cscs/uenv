@@ -372,6 +372,30 @@ EOF
     assert_line --partial 'quokka/24:v1'
     [ "${#lines[@]}" -eq "4" ]
 
+    # trying to add the same image with a different label pointing to an SQFS file inside the repo should generate a warning
+    run uenv --repo=$RP image add wombat/24:replica@arapiles%zen3 $(uenv --repo=$RP image inspect --format='{sqfs}' wombat/24:v1@arapiles%zen3)
+    assert_success
+    assert_output --partial "warning"
+    assert_output --partial "a uenv with the same sha"
+
+    run uenv --repo=$RP image ls --no-header
+    assert_success
+    assert_line --partial 'wombat/24:v1'
+    assert_line --partial 'wombat/24:replica'
+    [ "${#lines[@]}" -eq "5" ]
+
+    # trying to add the same image by label
+    run uenv --repo=$RP image add numbat/24:replica@arapiles%zen3 numbat/24:v1
+    assert_success
+    assert_output --partial "warning"
+    assert_output --partial "a uenv with the same sha"
+
+    run uenv --repo=$RP image ls --no-header
+    assert_success
+    assert_line --partial 'numbat/24:v1'
+    assert_line --partial 'numbat/24:replica'
+    [ "${#lines[@]}" -eq "6" ]
+
     # TODO:
     # - check a read-only repo
 }
