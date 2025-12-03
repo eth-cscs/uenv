@@ -246,7 +246,8 @@ read_single_line_file(const std::filesystem::path& path) {
     return std::nullopt;
 }
 
-bool is_child(const std::filesystem::path& child, const std::filesystem::path& parent) {
+bool is_child(const std::filesystem::path& child,
+              const std::filesystem::path& parent) {
     auto rel = child.lexically_relative(parent);
     return !rel.empty() && *rel.begin() != "..";
 }

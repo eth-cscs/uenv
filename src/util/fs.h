@@ -64,6 +64,7 @@ std::optional<std::string>
 read_single_line_file(const std::filesystem::path& path);
 
 // return if a path is inside a directory, i.e. direct or indirect child
-bool is_child(const std::filesystem::path& child, const std::filesystem::path& parent);
+bool is_child(const std::filesystem::path& child,
+              const std::filesystem::path& parent);
 
 } // namespace util
