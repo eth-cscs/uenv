@@ -89,12 +89,21 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         return 1;
     }
 
-    auto sqfs =
-        uenv::validate_squashfs_image(env->uenvs.begin()->second.sqfs_path);
-    if (!sqfs) {
-        term::error("invalid squashfs file {}: {}", args.squashfs,
-                    sqfs.error());
-        return 1;
+    auto concrete_uenv = env->uenvs.begin()->second;
+    bool from_label = concrete_uenv.label.has_value();
+
+    util::expected<squashfs_image, std::string> sqfs;
+    if (from_label) {
+        sqfs.emplace(concrete_uenv.sqfs_path, concrete_uenv.meta_path,
+                     concrete_uenv.digest.value());
+    } else {
+        sqfs =
+            uenv::validate_squashfs_image(env->uenvs.begin()->second.sqfs_path);
+        if (!sqfs) {
+            term::error("invalid squashfs file {}: {}", args.squashfs,
+                        sqfs.error());
+            return 1;
+        }
     }
     spdlog::info("image_add: squashfs {}", sqfs.value());
 
@@ -161,6 +170,17 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
     bool source_in_repo =
         util::is_child(sqfs->sqfs, settings.config.repo.value());
+
+    // If an sqfs file is already in repo, and it was pulled from a repository
+    // then there is a digest mismatch. Do not try to add this image
+    // Such images should be retaged with the command:
+    // uenv image add <new-label> <existing-label>
+    if (source_in_repo && !existing_hash) {
+        term::error("image_add: Trying to add a squashfs file which is already "
+                    "in the repository, but the hashes do not match");
+        return 1;
+    }
+
     if (!source_in_repo) {
         //
         // create the path inside the repo
