@@ -1,5 +1,10 @@
 # Changelog
 
+## 9.1.2
+
+- #125 extend `uenv image add` to support adding uenv that are already in a repo
+- #126 fix bug looking up the default repository location on non-production systems at CSCS
+
 ## 9.1.1
 
 - #120 rename cluster field in elastic logs to avoid name conflict
