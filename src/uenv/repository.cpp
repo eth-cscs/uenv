@@ -97,7 +97,7 @@ default_repo_path(const envvars::state& env, bool exists) {
             // grab SCRATCH and prepend it: catch the MCH systems and other
             // systems that have a scratch path outside of the "big 3" storage.
             if (auto scratch = env.get("SCRATCH")) {
-                search_paths.insert(search_paths.begin(),
+                search_paths.insert(search_paths.end(),
                                     {*scratch, ".uenv-images"});
             }
         }
