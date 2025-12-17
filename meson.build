@@ -29,6 +29,8 @@ json_dep = subproject('nlohmann_json', default_options: ['werror=false', 'warnin
 spdlog_dep   = subproject('spdlog', default_options: ['werror=false', 'warning_level=0','std_format=disabled','external_fmt=enabled']).get_variable('spdlog_dep')
 sqlite3_dep = subproject('sqlite3', default_options: ['werror=false', 'warning_level=0']).get_variable('sqlite3_dep')
 subproject('curl', default_options: ['werror=false', 'warning_level=0', 'tests=disabled', 'unittests=disabled', 'tool=disabled'])
+#toml_dep = subproject('tomlplusplus', default_options: ['werror=false', 'warning_level=0', 'build_lib=true', 'default_library=static']).get_variable('tomlplusplus_dep')
+toml_dep = subproject('tomlplusplus', default_options: ['werror=false', 'warning_level=0']).get_variable('tomlplusplus_dep')
 
 curl_dep = dependency('libcurl', required: true)
 barkeep_dep = declare_dependency(
