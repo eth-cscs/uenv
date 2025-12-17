@@ -10,7 +10,8 @@
 namespace uenv {
 
 struct image_inspect_args {
-    std::string label;
+    std::string uenv;
+    bool json = false;
     // clang-format off
     std::string format =
         "name:    {name}\n"

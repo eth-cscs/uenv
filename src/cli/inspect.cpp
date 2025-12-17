@@ -25,6 +25,7 @@ void image_inspect_args::add_cli(CLI::App& cli,
     auto* inspect_cli =
         cli.add_subcommand("inspect", "print information about a uenv.");
     inspect_cli->add_option("--format", format, "the format string.");
+    inspect_cli->add_option("--json", json, "format output as JSON.");
     inspect_cli->add_option("uenv", label, "the uenv to inspect.")->required();
     inspect_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_inspect; });
@@ -36,6 +37,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
                   [[maybe_unused]] const global_settings& settings) {
     spdlog::info("image inspect {}", args.label);
 
+    /*
     // get the repo and handle errors if it does not exist
     if (!settings.config.repo) {
         term::error("a repo needs to be provided either using the --repo flag "
@@ -87,6 +89,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
     }
 
     const auto r = *result->begin();
+
     auto paths = store->uenv_paths(r.sha);
 
     try {
@@ -114,6 +117,22 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         term::error("unable to read uenv meta data", e.what());
         return 1;
     }
+    */
+
+    const auto env =
+        concretise_env(args.uenv_description, std::nullopt,
+                       globals.config.repo, globals.calling_environment);
+
+    // inspect the concretised information to ensure that one
+    // and only one uenv was passed, and no mount point was provided
+    // i.e., reject specs like "prgenv-gnu/24.7:/user-environment" which
+    // concretise_env will happily consume
+    if (!env) {
+        term::errror("unable to find uenv: {}", env.error());
+        return 1;
+    }
+
+
 
     return 0;
 }
@@ -144,6 +163,7 @@ std::string image_inspect_footer() {
         help::block{info, "including name, tag and sqfs, the following variables can be printed in a"},
         help::block{none, "format string passed to the --format option:"},
         help::block{none, "    name:    name"},
+        help::block{none, "    views:   the viewsand their descriptions"},
         help::block{none, "    version: version"},
         help::block{none, "    tag:     tag"},
         help::block{none, "    id:      the 16 digit image id"},
