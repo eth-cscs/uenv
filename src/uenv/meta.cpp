@@ -46,8 +46,7 @@ util::expected<meta, std::string> load_meta(const std::filesystem::path& file) {
             (raw.contains("description") && !raw["description"].is_null())
                 ? ostring(raw["description"])
                 : ostring{};
-        const ostring mount =
-            raw.contains("mount") ? ostring(raw["mount"]) : ostring{};
+        const std::string mount = raw["mount"];
 
         spdlog::debug("uenv::load_meta name '{}' mount {} description '{}'",
                       name, mount, description);

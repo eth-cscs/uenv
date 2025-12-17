@@ -46,6 +46,21 @@ void clear_temp_dirs() {
     tmp_dir_cache.clear();
 }
 
+bool is_temp_dir(const std::filesystem::path& path) {
+    for (const auto& p : tmp_dir_cache) {
+        // bool is_child(const std::filesystem::path& child,
+        // const std::filesystem::path& parent) {
+        if (is_child(path, p.path)) {
+            spdlog::info("is_temp_dir: {} is in temporary path {}", path,
+                         p.path);
+            return true;
+        }
+        spdlog::info("is_temp_dir: {} is not in temporary path {}", path,
+                     p.path);
+    }
+    return false;
+}
+
 std::filesystem::path make_temp_dir() {
     namespace fs = std::filesystem;
     auto tmp_template =

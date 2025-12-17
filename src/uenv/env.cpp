@@ -102,6 +102,117 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
     return meta;
 }
 
+util::expected<uenv_info, std::string>
+resolve_uenv_info(const uenv_description& desc,
+                  std::optional<std::filesystem::path> repo_arg,
+                  const envvars::state& calling_env) {
+    namespace fs = std::filesystem;
+
+    uenv_info info;
+
+    // determine the sqfs_path
+    fs::path sqfs_path;
+    std::optional<std::string> label_string;
+
+    // if a label was used to describe the uenv (e.g. "prgenv-gnu/24.7")
+    // it has to be looked up in a repo.
+    bool from_label = false;
+    if (auto label = desc.label()) {
+        from_label = true;
+        if (!repo_arg) {
+            return unexpected("a repo needs to be provided either "
+                              "using the --repo flag "
+                              "or by setting the UENV_REPO_PATH "
+                              "environment variable");
+        }
+        auto store = uenv::open_repository(*repo_arg);
+        if (!store) {
+            return unexpected(
+                fmt::format("unable to open repo: {}", store.error()));
+        }
+
+        // set label->system to the current cluster name if it has not
+        // already been set.
+        label->system = site::get_system_name(label->system, calling_env);
+
+        // search for label in the repo
+        const auto result = store->query(*label);
+        if (!result) {
+            return unexpected(fmt::format("{}", store.error()));
+        }
+        const auto results = *result;
+
+        if (results.empty()) {
+            return unexpected(fmt::format(
+                "no uenv matches '{}' in the repo '{}'.\n"
+                "See available uenv using {}.\n"
+                "Use {} and {} to download images before using them.",
+                *label, *repo_arg, color::yellow("uenv image ls"),
+                color::yellow("uenv image find"),
+                color::yellow("uenv image pull")));
+        }
+
+        // ensure that all results share a unique sha
+        if (!results.unique_sha()) {
+            auto errmsg =
+                fmt::format("more than one uenv matches the uenv description "
+                            "'{}':\n",
+                            desc.label().value());
+            errmsg += format_record_set(results);
+            return unexpected(errmsg);
+        }
+
+        // set sqfs_path and digest
+        const auto& r = *results.begin();
+        sqfs_path = store->uenv_paths(r.sha).squashfs;
+        info.record = r;
+        label_string = fmt::format("{}", r);
+    }
+    // otherwise an explicit filename was provided, e.g.
+    // "/scratch/myimages/develop/store.squashfs"
+    else {
+        sqfs_path = fs::path(*desc.filename());
+    }
+
+    sqfs_path = fs::absolute(sqfs_path);
+    if (!fs::exists(sqfs_path) || !fs::is_regular_file(sqfs_path)) {
+        if (from_label) {
+            return unexpected(fmt::format(
+                "the uenv image {} does not exist or is not a file. Run "
+                "'uenv repo status' to check the health of the repo.",
+                sqfs_path));
+        } else {
+            return unexpected(
+                fmt::format("the uenv image {} does not exist or is not a file",
+                            sqfs_path));
+        }
+    }
+    spdlog::info("{} squashfs image {}", desc, sqfs_path.string());
+
+    info.sqfs_path = sqfs_path;
+    // info.label = label_string;
+
+    // if meta/env.json exists, parse the json therein
+    auto meta = find_meta_path(sqfs_path);
+    info.meta_path = meta.path;
+
+    if (meta.env) {
+        if (const auto result = uenv::load_meta(*(meta.env))) {
+            info.meta = result.value();
+            spdlog::info("{}: loaded meta (name {}, mount {})", desc,
+                         info.meta->name, info.meta->mount);
+        } else {
+            spdlog::warn("{} opening the uenv meta data {}: {}", desc,
+                         meta.env->string(), result.error());
+        }
+    } else {
+        spdlog::warn("{} no meta file available for {}", desc,
+                     sqfs_path.string());
+    }
+
+    return info;
+}
+
 util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
                std::optional<std::string> view_args,
@@ -130,129 +241,39 @@ concretise_env(const std::string& uenv_args,
     std::set<fs::path> used_mounts;
     std::set<fs::path> used_sqfs;
     for (auto& desc : *uenv_descriptions) {
-        // determine the sqfs_path
-        fs::path sqfs_path;
-        std::optional<std::string> uenv_sha;
-
-        std::optional<std::string> label_string;
-
-        // if a label was used to describe the uenv (e.g. "prgenv-gnu/24.7"
-        // it has to be looked up in a repo.
-        bool from_label = false;
-        if (auto label = desc.label()) {
-            from_label = true;
-            if (!repo_arg) {
-                return unexpected("a repo needs to be provided either "
-                                  "using the --repo flag "
-                                  "or by setting the UENV_REPO_PATH "
-                                  "environment variable");
-            }
-            auto store = uenv::open_repository(*repo_arg);
-            if (!store) {
-                return unexpected(
-                    fmt::format("unable to open repo: {}", store.error()));
-            }
-
-            // set label->system to the current cluster name if it has not
-            // already been set.
-            label->system = site::get_system_name(label->system, calling_env);
-
-            // search for label in the repo
-            const auto result = store->query(*label);
-            if (!result) {
-                return unexpected(fmt::format("{}", store.error()));
-            }
-            const auto results = *result;
-
-            if (results.empty()) {
-                return unexpected(fmt::format(
-                    "no uenv matches '{}' in the repo '{}'.\n"
-                    "See available uenv using {}.\n"
-                    "Use {} and {} to download images before using them.",
-                    *label, *repo_arg, color::yellow("uenv image ls"),
-                    color::yellow("uenv image find"),
-                    color::yellow("uenv image pull")));
-            }
-
-            // ensure that all results share a unique sha
-            if (!results.unique_sha()) {
-                auto errmsg = fmt::format(
-                    "more than one uenv matches the uenv description "
-                    "'{}':\n",
-                    desc.label().value());
-                errmsg += format_record_set(results);
-                return unexpected(errmsg);
-            }
-
-            // set sqfs_path
-            const auto& r = *results.begin();
-            sqfs_path = store->uenv_paths(r.sha).squashfs;
-            uenv_sha = r.sha.string();
-
-            label_string = fmt::format("{}", r);
+        // Resolve uenv information (squashfs path, metadata, etc.)
+        auto info_result = resolve_uenv_info(desc, repo_arg, calling_env);
+        if (!info_result) {
+            return unexpected(info_result.error());
         }
-        // otherwise an explicit filename was provided, e.g.
-        // "/scratch/myimages/develp/store.squashfs"
-        else {
-            sqfs_path = fs::path(*desc.filename());
-        }
+        auto& info = *info_result;
 
-        sqfs_path = fs::absolute(sqfs_path);
-        if (!fs::exists(sqfs_path) || !fs::is_regular_file(sqfs_path)) {
-            if (from_label) {
-                return unexpected(fmt::format(
-                    "the uenv image {} does not exist or is not a file. Run "
-                    "'uenv repo status' to check the health of the repo.",
-                    sqfs_path));
-            } else {
-                return unexpected(fmt::format(
-                    "the uenv image {} does not exist or is not a file",
-                    sqfs_path));
-            }
-        }
-        spdlog::info("{} squashfs image {}", desc, sqfs_path.string());
-
-        // create a default "anonymous" name for the uenv that will be
-        // overwritten if meta data is provided.
-        std::string name = "anonymous";
-        unsigned name_idx = 0;
-        while (uenvs.count(name)) {
-            name = fmt::format("anonymous{}", name_idx);
-            ++name_idx;
-        }
-        std::string description = "";
-        std::optional<std::string> mount_meta;
-        std::unordered_map<std::string, concrete_view> views;
-
-        // if meta/env.json exists, parse the json therein
-        auto meta = find_meta_path(sqfs_path);
-        if (meta.env) {
-            if (const auto result = uenv::load_meta(*(meta.env))) {
-                name = std::move(result->name);
-                description = result->description.value_or("");
-                mount_meta = result->mount;
-                views = std::move(result->views);
-                spdlog::info("{}: loaded meta (name {}, mount {})", desc, name,
-                             mount_meta);
-            } else {
-                spdlog::warn("{} opening the uenv meta data {}: {}", desc,
-                             meta.env->string(), result.error());
-            }
+        // Determine the name for this uenv
+        // If metadata provided a name, use it
+        // Otherwise generate an anonymous name (ensuring uniqueness)
+        std::string name;
+        if (info.meta) {
+            name = info.meta->name;
         } else {
-            spdlog::warn("{} no meta file available for {}", desc,
-                         sqfs_path.string());
+            name = "anonymous";
+            unsigned name_idx = 0;
+            while (uenvs.count(name)) {
+                name = fmt::format("anonymous{}", name_idx);
+                ++name_idx;
+            }
+        }
+
+        // handle the case where no mount point was provided by the CLI or
+        // meta data
+        if (!desc.mount() && !info.meta) {
+            return unexpected(
+                fmt::format("no mount point provided for {}", desc));
         }
 
         // if an explicit mount point was provided, use that
         // otherwise use the mount point provided in the meta data
-        auto mount_string = desc.mount() ? desc.mount() : mount_meta;
-
-        // handle the case where no mount point was provided by the CLI or
-        // meta data
-        if (!mount_string) {
-            return unexpected(
-                fmt::format("no mount point provided for {}", desc));
-        }
+        const std::string mount_string =
+            desc.mount().value_or(info.meta->mount);
 
         // TODO: hand off validation to the mount.cpp implementation:
         // For now leave this as is - it is working and well-tested.
@@ -263,7 +284,7 @@ concretise_env(const std::string& uenv_args,
         // - NOTE: add the unique mount point test to mount.cpp
 
         fs::path mount;
-        if (auto p = parse_path(*mount_string)) {
+        if (auto p = parse_path(mount_string)) {
             mount = *p;
             if (!fs::exists(mount)) {
                 return unexpected(fmt::format(
@@ -296,22 +317,28 @@ concretise_env(const std::string& uenv_args,
             }
             used_mounts.insert(mount);
 
-            sqfs_path = fs::canonical(sqfs_path);
-            if (used_sqfs.count(sqfs_path)) {
+            auto canonical_sqfs = fs::canonical(info.sqfs_path);
+            if (used_sqfs.count(canonical_sqfs)) {
                 return unexpected(fmt::format(
-                    "the '{}' uenv is mounted more than once", sqfs_path));
+                    "the '{}' uenv is mounted more than once", canonical_sqfs));
             }
-            used_sqfs.insert(sqfs_path);
+            used_sqfs.insert(canonical_sqfs);
         }
 
-        uenvs[name] = concrete_uenv{.name = name,
-                                    .label = label_string,
-                                    .digest = uenv_sha,
-                                    .mount_path = mount,
-                                    .sqfs_path = sqfs_path,
-                                    .meta_path = meta.path,
-                                    .description = description,
-                                    .views = std::move(views)};
+        const bool has_meta = (bool)info.meta;
+        const bool has_record = (bool)info.meta;
+
+        uenvs[name] = concrete_uenv{
+            .name = name,
+            .label = has_record ? fmt::format("{}", info.record) : "",
+            .digest = has_record ? fmt::format("{}", info.record->sha)
+                                 : decltype(concrete_uenv::digest){},
+            .mount_path = mount,
+            .sqfs_path = info.sqfs_path,
+            .meta_path = info.meta_path,
+            .description = has_meta ? info.meta->description.value_or("") : "",
+            .views =
+                has_meta ? info.meta->views : decltype(concrete_uenv::views){}};
     }
 
     // A dictionary with view name as a key, and a list of uenv that provide

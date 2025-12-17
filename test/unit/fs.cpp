@@ -13,6 +13,13 @@ TEST_CASE("make_temp_dir", "[fs]") {
     REQUIRE(fs::is_directory(dir1));
     auto dir2 = util::make_temp_dir();
     REQUIRE(dir1 != dir2);
+
+    REQUIRE(util::is_temp_dir(dir1));
+    REQUIRE(util::is_temp_dir(dir1 / "meta"));
+    REQUIRE(util::is_temp_dir(dir2));
+    REQUIRE(util::is_temp_dir(dir2 / "wombat"));
+    REQUIRE(!util::is_temp_dir(dir2 / ".."));
+    REQUIRE(!util::is_temp_dir("/scratch/bar"));
 }
 
 TEST_CASE("unsquashfs", "[fs]") {
