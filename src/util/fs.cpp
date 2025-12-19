@@ -46,6 +46,15 @@ void clear_temp_dirs() {
     tmp_dir_cache.clear();
 }
 
+bool is_temp_dir(const std::filesystem::path& path) {
+    for (const auto& p : tmp_dir_cache) {
+        if (is_child(path, p.path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::filesystem::path make_temp_dir() {
     namespace fs = std::filesystem;
     auto tmp_template =

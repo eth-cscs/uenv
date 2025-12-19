@@ -10,18 +10,9 @@
 namespace uenv {
 
 struct image_inspect_args {
-    std::string label;
-    // clang-format off
-    std::string format =
-        "name:    {name}\n"
-        "version: {version}\n"
-        "tag:     {tag}\n"
-        "system:  {system}\n"
-        "uarch:   {uarch}\n"
-        "id:      {id}\n"
-        "sha:     {sha256}\n"
-        "date:    {date}";
-    // clang-format on
+    std::string uenv;
+    bool json = false;
+    std::optional<std::string> format;
     void add_cli(CLI::App&, global_settings& settings);
 };
 
@@ -42,6 +33,6 @@ template <> class fmt::formatter<uenv::image_inspect_args> {
     template <typename FmtContext>
     constexpr auto format(uenv::image_inspect_args const& opts,
                           FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "{{uenv: '{}'}}", opts.label);
+        return fmt::format_to(ctx.out(), "{{uenv: '{}'}}", opts.uenv);
     }
 };
