@@ -190,7 +190,6 @@ resolve_uenv_info(const uenv_description& desc,
     spdlog::info("{} squashfs image {}", desc, sqfs_path.string());
 
     info.sqfs_path = sqfs_path;
-    // info.label = label_string;
 
     // if meta/env.json exists, parse the json therein
     auto meta = find_meta_path(sqfs_path);
@@ -248,11 +247,14 @@ concretise_env(const std::string& uenv_args,
         }
         auto& info = *info_result;
 
-        // Determine the name for this uenv
-        // If metadata provided a name, use it
-        // Otherwise generate an anonymous name (ensuring uniqueness)
+        // Determine the name for this uenv:
+        // - use the name from the repo database if the image is in a database
+        // - else fall back to the name set in the uenv meta-data
+        // - else generate an anonymous name (ensuring uniqueness)
         std::string name;
-        if (info.meta) {
+        if (info.record) {
+            name = info.record->name;
+        } else if (info.meta) {
             name = info.meta->name;
         } else {
             name = "anonymous";
