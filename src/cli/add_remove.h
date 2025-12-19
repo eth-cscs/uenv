@@ -13,14 +13,14 @@ void image_add_help();
 void image_rm_help();
 
 struct image_add_args {
-    std::string uenv_description;
-    std::string squashfs;
+    std::string label;
+    std::string source;
     bool move = false;
     void add_cli(CLI::App&, global_settings& settings);
 };
 
 struct image_rm_args {
-    std::string uenv_description;
+    std::string label;
     void add_cli(CLI::App&, global_settings& settings);
 };
 
@@ -39,8 +39,8 @@ template <> class fmt::formatter<uenv::image_add_args> {
     template <typename FmtContext>
     constexpr auto format(uenv::image_add_args const& opts,
                           FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "{{uenv: '{}'}}",
-                              opts.uenv_description);
+        return fmt::format_to(ctx.out(), "{{source: '{}', label: '{}'}}",
+                              opts.source, opts.label);
     }
 };
 
@@ -56,7 +56,6 @@ template <> class fmt::formatter<uenv::image_rm_args> {
     template <typename FmtContext>
     constexpr auto format(uenv::image_rm_args const& opts,
                           FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "{{uenv: '{}'}}",
-                              opts.uenv_description);
+        return fmt::format_to(ctx.out(), "{{uenv: '{}'}}", opts.label);
     }
 };

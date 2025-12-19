@@ -40,29 +40,18 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
                   [[maybe_unused]] const global_settings& globals) {
     spdlog::info("image inspect {}", args.uenv);
 
-    // Parse input as either a label or a file path
+    // parse input as either a label or a file path
     uenv_description desc;
-
-    // Try parsing as a label first
-    auto label_result = parse_uenv_label(args.uenv);
-    if (label_result) {
-        desc = uenv_description(*label_result);
-    }
-    // If not a valid label, try as a file path
-    else if (auto path_result = parse_path(args.uenv)) {
-        desc = uenv_description(args.uenv);
-    }
-
-    // If neither works, report the label parsing error
-    else {
-        term::error("invalid uenv specification: {}",
-                    label_result.error().message());
+    if (const auto parse = parse_uenv_description(args.uenv); !parse) {
+        term::error("invalid uenv specification: {}", parse.error().message());
         return 1;
+    } else {
+        desc = parse.value();
     }
 
     // Resolve the uenv to get full information including metadata
-    auto info_result = resolve_uenv_info(desc, globals.config.repo,
-                                         globals.calling_environment);
+    auto info_result =
+        resolve_uenv(desc, globals.config.repo, globals.calling_environment);
     if (!info_result) {
         term::error("unable to resolve uenv: {}", info_result.error());
         return 1;

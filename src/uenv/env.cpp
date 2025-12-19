@@ -103,10 +103,12 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
 }
 
 util::expected<uenv_info, std::string>
-resolve_uenv_info(const uenv_description& desc,
-                  std::optional<std::filesystem::path> repo_arg,
-                  const envvars::state& calling_env) {
+resolve_uenv(const uenv_description& desc,
+             std::optional<std::filesystem::path> repo_arg,
+             const envvars::state& calling_env) {
     namespace fs = std::filesystem;
+
+    spdlog::info("resolve_uenv: {}", desc);
 
     uenv_info info;
 
@@ -241,7 +243,7 @@ concretise_env(const std::string& uenv_args,
     std::set<fs::path> used_sqfs;
     for (auto& desc : *uenv_descriptions) {
         // Resolve uenv information (squashfs path, metadata, etc.)
-        auto info_result = resolve_uenv_info(desc, repo_arg, calling_env);
+        auto info_result = resolve_uenv(desc, repo_arg, calling_env);
         if (!info_result) {
             return unexpected(info_result.error());
         }

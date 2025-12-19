@@ -30,12 +30,15 @@ void image_add_args::add_cli(CLI::App& cli,
     auto* add_cli =
         cli.add_subcommand("add", "add a uenv image to a repository");
     add_cli
-        ->add_option("label", uenv_description,
-                     "the label, of the form name/version:tag@system%uarch")
+        ->add_option("label", label,
+                     "the label of the uenv created in the repo, of the form "
+                     "name/version:tag@system%uarch")
         ->required();
     add_cli->add_flag("--move", move,
                       "move the squahfs image instead of copying it.");
-    add_cli->add_option("squashfs", squashfs, "the squashfs file to add.")
+    add_cli
+        ->add_option("source", source,
+                     "the label or squashfs file to add to the repo.")
         ->required();
     add_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_add; });
@@ -47,8 +50,7 @@ void image_rm_args::add_cli([[maybe_unused]] CLI::App& cli,
                             [[maybe_unused]] global_settings& settings) {
     auto* rm_cli =
         cli.add_subcommand("rm", "delete a uenv image from a repository");
-    rm_cli->add_option("label", uenv_description, "the uenv to remove.")
-        ->required();
+    rm_cli->add_option("label", label, "the uenv to remove.")->required();
     rm_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_rm; });
 
@@ -57,55 +59,57 @@ void image_rm_args::add_cli([[maybe_unused]] CLI::App& cli,
 
 int image_add(const image_add_args& args, const global_settings& settings) {
     namespace fs = std::filesystem;
+    spdlog::info("image_add: trying to add uenv {} with label {} ... {}",
+                 args.source, args.label, args);
 
     //
     // parse the cli args
     //
-    // - the squashfs file
-    // - the label
-    auto label = uenv::parse_uenv_label(args.uenv_description);
+    auto label = uenv::parse_uenv_label(args.label);
     if (!label) {
-        term::error("the label {} is not valid: {}", args.uenv_description,
+        term::error("the label {} is not valid: {}", args.label,
                     label.error().message());
         return 1;
     }
     if (!label->fully_qualified()) {
         term::error(
             "the label {} must provide at name/version:tag@system%uarch",
-            args.uenv_description);
+            args.label);
         return 1;
     }
 
-    spdlog::info("image_add: label {}", *label);
+    // parse input as either a label or a file path
+    uenv_description source;
+    if (const auto parse = parse_uenv_description(args.source); !parse) {
+        term::error("invalid uenv specification: {}", parse.error().message());
+        return 1;
+    } else {
+        source = parse.value();
+    }
 
-    const auto env = concretise_env(args.squashfs, {}, settings.config.repo,
-                                    settings.calling_environment);
+    auto env = resolve_uenv(source, settings.config.repo,
+                            settings.calling_environment);
     if (!env) {
         term::error("{}", env.error());
         return 1;
     }
-    if (env->uenvs.size() != 1) {
-        term::error("Too many arguments provided for source squashfs file");
-        return 1;
-    }
 
-    auto concrete_uenv = env->uenvs.begin()->second;
-    bool from_label = concrete_uenv.label.has_value();
+    const bool from_label = (bool)env->record;
 
     util::expected<squashfs_image, std::string> sqfs;
     if (from_label) {
-        sqfs.emplace(concrete_uenv.sqfs_path, concrete_uenv.meta_path,
-                     concrete_uenv.digest.value());
+        sqfs = squashfs_image{env->sqfs_path, env->meta_path,
+                              fmt::format("{}", env->record->sha)};
     } else {
-        sqfs =
-            uenv::validate_squashfs_image(env->uenvs.begin()->second.sqfs_path);
+        sqfs = uenv::validate_squashfs_image(env->sqfs_path);
         if (!sqfs) {
-            term::error("invalid squashfs file {}: {}", args.squashfs,
-                        sqfs.error());
+            term::error("invalid source {}: {}", args.source, sqfs.error());
             return 1;
         }
     }
-    spdlog::info("image_add: squashfs {}", sqfs.value());
+
+    spdlog::info("image_add: trying to add uenv {} with label {}", args.source,
+                 *label);
 
     //
     // Open the repository
@@ -277,7 +281,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
 int image_rm([[maybe_unused]] const image_rm_args& args,
              [[maybe_unused]] const global_settings& settings) {
-    spdlog::info("image rm {}", args.uenv_description);
+    spdlog::info("image rm {}", args.label);
 
     // open the repo
     if (!settings.config.repo) {
@@ -304,7 +308,7 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
 
     std::optional<sha256> sha;
     std::optional<uenv_record> record;
-    auto U = args.uenv_description;
+    auto U = args.label;
 
     // check if the CLI argument is a sha256
     if (is_sha(U, 64)) {

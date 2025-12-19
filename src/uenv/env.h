@@ -41,9 +41,9 @@ struct uenv_info {
 /// Does NOT handle mount point resolution from CLI - returns only the mount
 /// from metadata.
 util::expected<uenv_info, std::string>
-resolve_uenv_info(const uenv_description& desc,
-                  std::optional<std::filesystem::path> repo_arg,
-                  const envvars::state& calling_env);
+resolve_uenv(const uenv_description& desc,
+             std::optional<std::filesystem::path> repo_arg,
+             const envvars::state& calling_env);
 
 util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
