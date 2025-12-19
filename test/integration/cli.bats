@@ -385,7 +385,7 @@ EOF
     [ "${#lines[@]}" -eq "5" ]
 
     # trying to add the same image by label
-    run uenv -vvv --repo=$RP image add numbat/24:replica@arapiles%zen3 numbat/24:v1
+    run uenv --repo=$RP image add numbat/24:replica@arapiles%zen3 numbat/24:v1
     assert_success
     assert_output --partial "warning"
     assert_output --partial "a uenv with the same sha"
