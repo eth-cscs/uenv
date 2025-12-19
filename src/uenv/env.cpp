@@ -328,11 +328,12 @@ concretise_env(const std::string& uenv_args,
         }
 
         const bool has_meta = (bool)info.meta;
-        const bool has_record = (bool)info.meta;
+        const bool has_record = (bool)info.record;
 
         uenvs[name] = concrete_uenv{
             .name = name,
-            .label = has_record ? fmt::format("{}", info.record) : "",
+            .label = has_record ? fmt::format("{}", info.record)
+                                : decltype(concrete_uenv::label){},
             .digest = has_record ? fmt::format("{}", info.record->sha)
                                  : decltype(concrete_uenv::digest){},
             .mount_path = mount,
