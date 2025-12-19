@@ -256,8 +256,12 @@ concretise_env(const std::string& uenv_args,
         std::string name;
         if (info.record) {
             name = info.record->name;
+            spdlog::debug("concretise_env: setting name {} based on record",
+                          name);
         } else if (info.meta) {
             name = info.meta->name;
+            spdlog::debug("concretise_env: setting name {} based on metadata",
+                          name);
         } else {
             name = "anonymous";
             unsigned name_idx = 0;
@@ -265,6 +269,7 @@ concretise_env(const std::string& uenv_args,
                 name = fmt::format("anonymous{}", name_idx);
                 ++name_idx;
             }
+            spdlog::debug("concretise_env: setting name {}", name);
         }
 
         // handle the case where no mount point was provided by the CLI or

@@ -97,6 +97,13 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         j["meta"] = info.meta_path->string();
     }
 
+    // the name given to the uenv is the name from the databse (record) if the
+    // image is from a repo.
+    // otherwise use the meta data name, if it was provided
+    if (info.record || info.meta) {
+        j["name"] = info.record ? info.record->name : info.meta->name;
+    }
+
     if (info.record) {
         const auto& r = info.record.value();
         j["version"] = r.version;
@@ -109,7 +116,6 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
     }
 
     if (info.meta) {
-        j["name"] = info.meta->name;
         j["description"] = value_or_none(info.meta->description);
         j["mount"] = info.meta->mount;
         // TODO: only set meta path if it was not temporarily expanded
