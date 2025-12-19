@@ -206,7 +206,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
             }
         } else {
             fmt::print(
-                "{} can be mounted, but it has no set mount point or views",
+                "{} can be mounted, but it has no set mount point or views\n",
                 label_str);
         }
     }

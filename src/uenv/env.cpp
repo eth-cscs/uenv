@@ -281,8 +281,8 @@ concretise_env(const std::string& uenv_args,
 
         // if an explicit mount point was provided, use that
         // otherwise use the mount point provided in the meta data
-        const std::string mount_string =
-            desc.mount().value_or(info.meta->mount);
+        std::string mount_string =
+            desc.mount() ? desc.mount().value() : info.meta->mount;
 
         // TODO: hand off validation to the mount.cpp implementation:
         // For now leave this as is - it is working and well-tested.
