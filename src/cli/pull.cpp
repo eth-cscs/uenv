@@ -121,7 +121,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         std::string errmsg =
             fmt::format("more than one uenv found that matches '{}':\n",
                         args.uenv_description);
-        errmsg += format_record_set(*remote_matches);
+        errmsg += format_record_set_table(*remote_matches);
         term::error("{}", errmsg);
         return 1;
     }

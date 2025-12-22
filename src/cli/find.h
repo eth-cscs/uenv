@@ -13,6 +13,8 @@ struct image_find_args {
     std::optional<std::string> uenv_description;
     bool no_header = false;
     bool json = false;
+    bool list = false;
+    bool no_partials = false;
     bool build = false;
     void add_cli(CLI::App&, global_settings& settings);
 };

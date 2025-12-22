@@ -3,13 +3,14 @@
 #include <fmt/std.h>
 #include <nlohmann/json.hpp>
 
+#include <uenv/print.h>
 #include <uenv/repository.h>
 #include <uenv/uenv.h>
 #include <util/color.h>
 
 namespace uenv {
 
-std::string format_record_set(const record_set& records, bool no_header) {
+std::string format_record_set_table(const record_set& records, bool no_header) {
     if (!no_header && records.empty()) {
         if (!no_header) {
             return "no matching uenv\n";
@@ -62,6 +63,16 @@ std::string format_record_set(const record_set& records, bool no_header) {
     return result;
 }
 
+std::string format_record_set_list(const record_set& records) {
+    std::string result;
+    for (auto& r : records) {
+        result += fmt::format("{}/{}:{}@{}%{}\n", r.name, r.version, r.tag,
+                              r.system, r.uarch);
+    }
+
+    return result;
+}
+
 std::string format_record_set_json(const record_set& records) {
     using nlohmann::json;
     std::vector<json> jrecords;
@@ -79,9 +90,21 @@ std::string format_record_set_json(const record_set& records) {
     return json{{"records", jrecords}}.dump();
 }
 
-void print_record_set(const record_set& records, bool no_header, bool json) {
-    fmt::print("{}", json ? format_record_set_json(records)
-                          : format_record_set(records, no_header));
+void print_record_set(const record_set& records, record_set_format f) {
+    switch (f) {
+    case record_set_format::json:
+        fmt::print("{}", format_record_set_json(records));
+        return;
+    case record_set_format::list:
+        fmt::print("{}", format_record_set_list(records));
+        return;
+    case record_set_format::table:
+        fmt::print("{}", format_record_set_table(records, false));
+        return;
+    case record_set_format::table_no_header:
+        fmt::print("{}", format_record_set_table(records, true));
+        return;
+    }
 }
 
 } // namespace uenv
