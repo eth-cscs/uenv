@@ -89,7 +89,10 @@ struct repository {
     std::optional<std::filesystem::path> path() const;
 
     util::expected<record_set, std::string>
-    query(const uenv_label& label) const;
+    // search for all records that match a label.
+    // the partial_name parameter toggles on partial matches on the
+    // label.name field, which is useful for `image ls`  `image find` searches.
+    query(const uenv_label& label, bool partial_name = false) const;
 
     bool contains(const uenv_record&) const;
 

@@ -13,6 +13,8 @@ struct image_ls_args {
     std::optional<std::string> uenv_description;
     bool no_header = false;
     bool json = false;
+    bool list = false;
+    bool no_partials = false;
     void add_cli(CLI::App&, global_settings& settings);
 };
 
@@ -32,7 +34,9 @@ template <> class fmt::formatter<uenv::image_ls_args> {
     template <typename FmtContext>
     constexpr auto format(uenv::image_ls_args const& opts,
                           FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "{{uenv: '{}'}}",
-                              opts.uenv_description);
+        return fmt::format_to(
+            ctx.out(),
+            "{{uenv: '{}', json: {}, no_partials: {}, no_header: {}}}",
+            opts.uenv_description, opts.json, opts.no_partials, opts.no_header);
     }
 };

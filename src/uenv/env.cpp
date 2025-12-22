@@ -160,7 +160,7 @@ resolve_uenv(const uenv_description& desc,
                 fmt::format("more than one uenv matches the uenv description "
                             "'{}':\n",
                             desc.label().value());
-            errmsg += format_record_set(results);
+            errmsg += format_record_set_table(results);
             return unexpected(errmsg);
         }
 

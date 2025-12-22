@@ -369,7 +369,7 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
             } else if (r->size() > 1) {
                 term::error("the pattern {} matches more than one "
                             "uenv:\n{}use a more specific version",
-                            U, format_record_set(*r));
+                            U, format_record_set_list(*r));
                 return 1;
             } else {
                 // check whether there are more than one tag attached to sha
@@ -411,7 +411,7 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
     } else {
         term::msg("the following uenv {} removed:",
                   (removed.size() > 1 ? "were" : "was"));
-        print_record_set(removed, true);
+        print_record_set(removed, record_set_format::list);
     }
 
     return 0;

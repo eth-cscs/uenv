@@ -396,7 +396,7 @@ struct repository_impl {
     std::optional<fs::path> path;
 
     util::expected<std::vector<uenv_record>, std::string>
-    query(const uenv_label&) const;
+    query(const uenv_label&, bool partial_name = false) const;
     repository::pathset uenv_paths(sha256) const;
 
     bool contains(const uenv_record&) const;
@@ -675,7 +675,7 @@ repository_impl::add(const uenv::uenv_record& r) {
 
 util::expected<record_set, std::string>
 repository_impl::remove(const sha256& sha) {
-    auto matches = query({.name = sha.string()});
+    auto matches = query(uenv_label{.name = sha.string()});
     std::vector<std::string> statements{
         // begin the transaction
         "PRAGMA foreign_keys = ON", "BEGIN",
@@ -740,12 +740,16 @@ WHERE sha256='{}' AND tag='{}' AND version_id IN (
 }
 
 util::expected<std::vector<uenv_record>, std::string>
-repository_impl::query(const uenv_label& label) const {
+repository_impl::query(const uenv_label& label, bool partial_name) const {
     std::vector<uenv_record> results;
 
     std::vector<std::string> query_terms;
     if (label.name) {
-        query_terms.push_back(fmt::format("name  = '{}'", *label.name));
+        if (partial_name) {
+            query_terms.push_back(fmt::format("name  LIKE '{}%'", *label.name));
+        } else {
+            query_terms.push_back(fmt::format("name  = '{}'", *label.name));
+        }
     }
     if (label.tag) {
         query_terms.push_back(fmt::format("tag  = '{}'", *label.tag));
@@ -953,8 +957,8 @@ std::optional<fs::path> repository::path() const {
 }
 
 util::expected<record_set, std::string>
-repository::query(const uenv_label& label) const {
-    return impl_->query(label);
+repository::query(const uenv_label& label, bool partial_name) const {
+    return impl_->query(label, partial_name);
 }
 
 util::expected<void, std::string> repository::add(const uenv_record& r) {

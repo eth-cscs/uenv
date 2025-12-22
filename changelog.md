@@ -1,5 +1,6 @@
 # Changelog
 
+- #129 [feature] `uenv image find` and `uenv image ls` do partial match on uenv names
 - #127 [feature] find views, mount point, etc. information using `uenv image inspect` without opening a uenv.
 
 ## 9.1.2
