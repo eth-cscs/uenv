@@ -105,8 +105,14 @@ if uenv_cli
             'src/cli/completion.cpp',
     ]
 
+    completion_bash_dep = custom_target(
+        'completion-bash-dep',
+        input: 'src/cli/completion.bash',
+        output: 'completion.bash.h',
+        command: ['xxd', '-i', '-n', 'completion_bash_main', '@INPUT@', '@OUTPUT@'])
+
     cli = executable('uenv',
-            sources: cli_src,
+            sources: cli_src + completion_bash_dep,
             dependencies: [uenv_dep, sqlite3_dep, fmt_dep, spdlog_dep, cli11_dep, barkeep_dep],
             c_args: [
               '-DVERSION="@0@"'.format(version),
