@@ -369,7 +369,9 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
             } else if (r->size() > 1) {
                 term::error("the pattern {} matches more than one "
                             "uenv:\n{}use a more specific version",
-                            U, format_record_set_list(*r));
+                            U,
+                            format_record_set_format(
+                                *r, "{name}/{version}:{tag}@{system}%{uarch}"));
                 return 1;
             } else {
                 // check whether there are more than one tag attached to sha

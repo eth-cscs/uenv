@@ -30,9 +30,9 @@ void image_ls_args::add_cli(CLI::App& cli,
                      "print only the matching records, with no header.");
     ls_cli->add_flag("--json", json,
                      "format output as JSON (incompatible with --list).");
-    ls_cli->add_flag("--list", list,
-                     "list the full specs of matching records with no header "
-                     "(incompatible with --json).");
+    ls_cli->add_option(
+        "--format", format,
+        "optional format specification (incompatible with --json).");
     ls_cli->add_flag("--no-partials", no_partials,
                      "do not match partial names when searching.");
     ls_cli->callback(
@@ -49,9 +49,11 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
         return 1;
     }
 
-    auto format = get_record_set_format(args.no_header, args.json, args.list);
+    auto format =
+        get_record_set_format(args.no_header, args.json, (bool)args.format);
     if (!format) {
         term::error("{}", format.error());
+        return 1;
     }
 
     // open the repo
@@ -84,7 +86,9 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
         return 1;
     }
 
-    print_record_set(*result, *format);
+    print_record_set(
+        result.value(), format.value(),
+        format.value() == record_set_format::list ? args.format.value() : "");
 
     return 0;
 }
