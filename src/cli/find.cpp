@@ -31,10 +31,10 @@ void image_find_args::add_cli(CLI::App& cli,
     find_cli->add_flag("--no-header", no_header,
                        "print only the matching records, with no header.");
     find_cli->add_flag("--json", json,
-                       "format output as JSON (incompatible with --list).");
-    find_cli->add_flag("--list", list,
-                       "list the full specs of matching records with no header "
-                       "(incompatible with --json).");
+                       "format output as JSON (incompatible with --format).");
+    find_cli->add_option(
+        "--format", format,
+        "optional format specification (incompatible with --json).");
     find_cli->add_flag("--no-partials", no_partials,
                        "do not match partial names when searching.");
     find_cli->callback(
@@ -54,9 +54,11 @@ int image_find([[maybe_unused]] const image_find_args& args,
         return 1;
     }
 
-    auto format = get_record_set_format(args.no_header, args.json, args.list);
+    auto format =
+        get_record_set_format(args.no_header, args.json, (bool)args.format);
     if (!format) {
         term::error("{}", format.error());
+        return 1;
     }
 
     // find the search term that was provided by the user
@@ -90,7 +92,9 @@ int image_find([[maybe_unused]] const image_find_args& args,
         return 1;
     }
 
-    print_record_set(*result, *format);
+    print_record_set(
+        result.value(), format.value(),
+        format.value() == record_set_format::list ? args.format.value() : "");
 
     return 0;
 }
@@ -139,22 +143,6 @@ std::string image_find_footer() {
     };
 
     return fmt::format("{}", fmt::join(items, "\n"));
-}
-
-util::expected<record_set_format, std::string>
-get_record_set_format(bool no_header, bool json, bool list) {
-    if (json && list) {
-        return util::unexpected(
-            "the --json and --list options are incompatible and can not be "
-            "used at the same time");
-    }
-
-    if (!json && !list) {
-        return no_header ? record_set_format::table_no_header
-                         : record_set_format::table;
-    }
-
-    return json ? record_set_format::json : record_set_format::list;
 }
 
 } // namespace uenv
