@@ -1,6 +1,6 @@
 # For building RPMs.
 
-The binary rpm for uenv2 is built in a docker container using the same opensuse/leap version as the target cluster.
+The binary rpm for uenv is built in a docker container using the same opensuse/leap version as the target cluster.
 
 ## Docker
 
