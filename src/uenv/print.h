@@ -9,8 +9,9 @@ namespace uenv {
 
 enum class record_set_format { table, table_no_header, json, list };
 
-void print_record_set(const record_set& result, record_set_format format,
-                      std::string_view fmtstring = "");
+void print_record_set(
+    const record_set& result, record_set_format format,
+    std::string_view fmtstring = "{name}/{version}:{tag}@{system}%{uarch}");
 
 std::string format_record_set_table(const record_set& records,
                                     bool no_header = true);
