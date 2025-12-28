@@ -116,7 +116,7 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
         std::string errmsg =
             fmt::format("more than one uenv found that matches '{}':\n",
                         args.src_uenv_description);
-        errmsg += format_record_set(*src_matches);
+        errmsg += format_record_set_table(*src_matches);
         term::error("{}", errmsg);
         return 1;
     }

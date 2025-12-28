@@ -102,7 +102,7 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
         std::string errmsg =
             fmt::format("more than one sha found that matches '{}':\n",
                         args.uenv_description);
-        errmsg += format_record_set(*matches);
+        errmsg += format_record_set_table(*matches);
         term::error("{}", errmsg);
         return 1;
     }

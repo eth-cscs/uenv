@@ -5,7 +5,7 @@ Summary:        UENV cli and Slurm spank plugin.
 Prefix:         /usr
 
 License:        BSD3
-URL:            https://github.com/eth-cscs/uenv2
+URL:            https://github.com/eth-cscs/uenv
 Source0:        %{name}-%{version}.tar.gz
 
 %define _build_id_links none

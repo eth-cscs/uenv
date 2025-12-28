@@ -11,8 +11,10 @@ namespace uenv {
 
 struct image_find_args {
     std::optional<std::string> uenv_description;
+    std::optional<std::string> format;
     bool no_header = false;
     bool json = false;
+    bool no_partials = false;
     bool build = false;
     void add_cli(CLI::App&, global_settings& settings);
 };

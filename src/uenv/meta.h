@@ -15,8 +15,9 @@ namespace uenv {
 // squashfs.
 struct meta {
     std::string name;
+    // the description is optional: it can be set as null in env.json
     std::optional<std::string> description;
-    std::optional<std::string> mount;
+    std::string mount;
     std::unordered_map<std::string, concrete_view> views;
 };
 

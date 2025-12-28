@@ -1,15 +1,35 @@
+#include <string>
+#include <string_view>
+
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <nlohmann/json.hpp>
 
+#include <uenv/print.h>
 #include <uenv/repository.h>
 #include <uenv/uenv.h>
 #include <util/color.h>
 
 namespace uenv {
 
-std::string format_record_set(const record_set& records, bool no_header) {
+util::expected<record_set_format, std::string>
+get_record_set_format(bool no_header, bool json, bool list) {
+    if (json && list) {
+        return util::unexpected(
+            "the --json and --list options are incompatible and can not be "
+            "used at the same time");
+    }
+
+    if (!json && !list) {
+        return no_header ? record_set_format::table_no_header
+                         : record_set_format::table;
+    }
+
+    return json ? record_set_format::json : record_set_format::list;
+}
+
+std::string format_record_set_table(const record_set& records, bool no_header) {
     if (!no_header && records.empty()) {
         if (!no_header) {
             return "no matching uenv\n";
@@ -62,26 +82,75 @@ std::string format_record_set(const record_set& records, bool no_header) {
     return result;
 }
 
+std::string format_record_set_list(const record_set& records) {
+    std::string result;
+    for (auto& r : records) {
+        result += fmt::format("{}/{}:{}@{}%{}\n", r.name, r.version, r.tag,
+                              r.system, r.uarch);
+    }
+
+    return result;
+}
+
+std::string format_record_set_format(const record_set& records,
+                                     std::string_view fmtstring) {
+    std::string result;
+    for (auto& r : records) {
+        // clang-format off
+        result += fmt::format(
+            fmt::runtime(fmtstring),
+            fmt::arg("name",    r.name),
+            fmt::arg("version", r.version),
+            fmt::arg("tag",     r.tag),
+            fmt::arg("system",  r.system),
+            fmt::arg("uarch",   r.uarch),
+            fmt::arg("id",      r.id),
+            fmt::arg("digest",  r.sha),
+            fmt::arg("size",    r.size_byte),
+            fmt::arg("date",    r.date)
+        );
+        // clang-format on
+        result += "\n";
+    }
+
+    return result;
+}
+
 std::string format_record_set_json(const record_set& records) {
     using nlohmann::json;
     std::vector<json> jrecords;
     for (auto& r : records) {
         jrecords.push_back(json{
             {"name", r.name},
+            {"version", r.version},
+            {"tag", r.tag},
             {"system", r.system},
             {"uarch", r.uarch},
             {"id", r.id.string()},
+            {"digest", r.sha.string()},
             {"size", r.size_byte},
             {"date", fmt::format("{}", r.date)},
-            {"digest", r.sha.string()},
         });
     }
     return json{{"records", jrecords}}.dump();
 }
 
-void print_record_set(const record_set& records, bool no_header, bool json) {
-    fmt::print("{}", json ? format_record_set_json(records)
-                          : format_record_set(records, no_header));
+void print_record_set(const record_set& records, record_set_format f,
+                      std::string_view fmtstring) {
+    switch (f) {
+    case record_set_format::json:
+        fmt::print("{}", format_record_set_json(records));
+        return;
+    case record_set_format::list:
+        fmt::print("{}", format_record_set_format(records, fmtstring));
+        return;
+    case record_set_format::table:
+        fmt::print("{}", format_record_set_table(records, false));
+        return;
+    case record_set_format::table_no_header:
+        fmt::print("{}", format_record_set_table(records, true));
+        return;
+    }
 }
 
 } // namespace uenv

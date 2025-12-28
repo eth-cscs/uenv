@@ -30,9 +30,13 @@ void image_find_args::add_cli(CLI::App& cli,
     find_cli->add_option("uenv", uenv_description, "search term");
     find_cli->add_flag("--no-header", no_header,
                        "print only the matching records, with no header.");
-    find_cli->add_flag("--json", json, "format output as JSON.");
-    find_cli->add_flag("--build", build,
-                       "invalid: replaced with 'build::' prefix on uenv label");
+    find_cli->add_flag("--json", json,
+                       "format output as JSON (incompatible with --format).");
+    find_cli->add_option(
+        "--format", format,
+        "optional format specification (incompatible with --json).");
+    find_cli->add_flag("--no-partials", no_partials,
+                       "do not match partial names when searching.");
     find_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_find; });
 
@@ -47,6 +51,13 @@ int image_find([[maybe_unused]] const image_find_args& args,
             "the --build flag has been removed.\nSpecify the build namespace "
             "as part of the uenv description, e.g.\n{}",
             color::yellow(fmt::format("uenv image find build::{}", descr)));
+        return 1;
+    }
+
+    auto format =
+        get_record_set_format(args.no_header, args.json, (bool)args.format);
+    if (!format) {
+        term::error("{}", format.error());
         return 1;
     }
 
@@ -75,14 +86,15 @@ int image_find([[maybe_unused]] const image_find_args& args,
     }
 
     // search db for matching records
-    const auto result = store->query(label);
+    const auto result = store->query(label, !args.no_partials);
     if (!result) {
         term::error("invalid search term: {}", store.error());
         return 1;
     }
 
-    // pass results to print
-    print_record_set(*result, args.no_header, args.json);
+    print_record_set(
+        result.value(), format.value(),
+        format.value() == record_set_format::list ? args.format.value() : "");
 
     return 0;
 }

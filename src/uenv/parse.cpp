@@ -405,6 +405,28 @@ parse_uenv_args(const std::string& arg) {
     return uenvs;
 }
 
+util::expected<uenv_description, parse_error>
+parse_uenv_description(const std::string& in) {
+    spdlog::trace("parsing uenv description {}", in);
+
+    const std::string sanitised = util::strip(in);
+    auto L = lex::lexer(sanitised);
+
+    auto result = parse_uenv_description(L);
+    if (!result) {
+        return result;
+    }
+
+    // if parsing finished and the string has not been consumed,
+    // and invalid token was encountered
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+    }
+
+    return result;
+}
+
 util::expected<std::vector<mount_description>, parse_error>
 parse_mount_list(const std::string& arg) {
     const std::string sanitised = util::strip(arg);

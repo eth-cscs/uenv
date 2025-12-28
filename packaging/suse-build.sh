@@ -9,7 +9,7 @@ Helper script downloads required slurm headers and calls rpmbuild-wrapper.sh.
 Options:
 -h,--help          show this help text
 -r,--ref           git reference (default HEAD implies use the current source)
---remote           uenv github repo (defaults to eth-cscs/uenv2)
+--remote           uenv github repo (defaults to eth-cscs/uenv)
 --slurm-version    slurm version to use
 --os               the suse version (one of 15.5 or 15.6)
 "
@@ -19,7 +19,7 @@ TEMP=$(getopt -o r:h --long ref:,remote:,help,os:,slurm-version: -- "$@")
 
 # default Slurm version is 0 -> use system slurm
 slurm_version="00.00.0"
-git_remote=https://github.com/eth-cscs/uenv2
+git_remote=https://github.com/eth-cscs/uenv
 git_ref="HEAD"
 rpm_os="unset"
 

@@ -10,6 +10,8 @@ namespace util {
 
 std::filesystem::path make_temp_dir();
 
+bool is_temp_dir(const std::filesystem::path& path);
+
 util::expected<std::filesystem::path, std::string>
 unsquashfs_tmp(const std::filesystem::path& sqfs,
                const std::filesystem::path& contents);

@@ -1,29 +1,19 @@
-# UENV 2
+# UENV
 
-Documentation for uenv2 is available on the [new cscs documentation](https://eth-cscs.github.io/cscs-docs/software/uenv/).
-
-A rewrite of uenv in C++:
-* deployed as static binaries
-* no longer supports modification of the environment in the calling shell
-* bring the CLI and Slurm plugin under one roof, with a common library
-
-Some old features are gone:
-* `uenv view` and `uenv modules` have been removed - the tool can no longer modify the environment of the calling shell
-    * all views must be loaded with the `--view` flag on `uenv run` and `uenv start`
-    * or using the `--view` flag of `srun` and `sbatch`.
+Documentation for uenv is available on the [CSCS documentation](https://eth-cscs.github.io/cscs-docs/software/uenv/).
 
 ## Alps quickstart
 
 > Before running the build script, install [uv](https://docs.astral.sh/uv/getting-started/installation/), which is used to provide meson and ninja for the build.
 
-To take uenv2 for a test drive on alps,
+To take uenv for a test drive on alps,
 
 ```
-git clone https://github.com/eth-cscs/uenv2.git
+git clone https://github.com/eth-cscs/uenv.git
 
-cd uenv2
+cd uenv
 
-# this script will build uenv2, and install it in $HOME/.local/$(uname -m)/bin
+# this script will build uenv, and install it in $HOME/.local/$(uname -m)/bin
 ./install-alps-local.sh
 ```
 
@@ -55,7 +45,7 @@ There are 4 main components that can be enabled/disabled
 
 
 ```bash
-cd uenv2
+cd uenv
 
 # make a build directory
 mkdir build
@@ -77,7 +67,7 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) to use app
 
 The following will build the cli, and run tests, on an Alps system:
 ```bash
-# from a build directory inside the uenv2 repository
+# from a build directory inside the uenv repository
 alias e="uvx --with meson,ninja"
 CXX=g++-12 e meson setup -Dtests=enabled ..
 e meson compile
@@ -134,7 +124,7 @@ meson test unit
 Running the `squashfs-mount` tests requires an additional step, because it has to be installed as [setuid](https://en.wikipedia.org/wiki/Setuid).
 
 ```bash
-cd uenv2
+cd uenv
 
 # make a build directory
 mkdir build
