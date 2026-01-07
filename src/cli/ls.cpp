@@ -25,6 +25,7 @@ void image_ls_args::add_cli(CLI::App& cli,
                             [[maybe_unused]] global_settings& settings) {
     auto* ls_cli =
         cli.add_subcommand("ls", "search for uenv that are available to run");
+    // TODO we should distinguish this from uenv_label
     ls_cli->add_option("uenv", uenv_description, "search term");
     ls_cli->add_flag("--no-header", no_header,
                      "print only the matching records, with no header.");

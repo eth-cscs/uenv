@@ -1,7 +1,9 @@
 // vim: ts=4 sts=4 sw=4 et
 
+#include <list>
 #include <ranges>
 #include <string>
+#include <string_view>
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
@@ -57,41 +59,55 @@ int completion(const completion_args& args) {
 namespace impl {
 
 struct completion_item {
-    std::vector<std::string> command;
-    std::vector<std::string> completions;
-    bool file_completion = false;
+    // call stack for command (stack base = uenv)
+    std::list<std::string> call_stack;
+    // list of subcommands for this command
+    std::list<std::string> subcommands;
+    // whether this command accepts a uenv label as positional argument
+    bool uenv_label = false;
+    // list of nonpositional options/flags for this command
+    std::list<std::string> nonpositionals;
 };
-
-typedef std::vector<completion_item> completion_list;
+typedef std::list<completion_item> completion_list;
 
 // Recursively traverse tree of subcommands created by CLI11
 // Creates list of completions for every subcommand
 void traverse_subcommand_tree(completion_list& cl, CLI::App* cli,
-                              const std::vector<std::string>& stack) {
+                              const std::list<std::string>& stack) {
     if (cli == nullptr) {
         return;
     }
 
-    const auto subcommands = cli->get_subcommands({});
-    bool file_completion = false;
+    auto get_posarg = [&cli]() -> std::vector<CLI::Option*> {
+        return cli->get_options([](const CLI::Option* opt) -> bool {
+            return opt->get_positional();
+        });
+    };
 
-    std::vector<std::string> completions;
-    for (const auto& cmd : subcommands) {
-        completions.push_back(cmd->get_name());
+    auto get_nonpos = [&cli]() -> std::vector<CLI::Option*> {
+        return cli->get_options([](const CLI::Option* opt) -> bool {
+            return opt->nonpositional();
+        });
+    };
+
+    completion_item comp_item;
+    comp_item.call_stack = stack;
+    const auto subcommands = cli->get_subcommands({});
+    for (const auto* subcmd : subcommands) {
+        comp_item.subcommands.push_back(subcmd->get_name());
     }
-    for (const auto& option :
-         cli->get_options([](auto* o) { return o->nonpositional(); })) {
-        completions.push_back(option->get_name());
-    }
-    for (const auto& option :
-         cli->get_options([](auto* o) { return o->get_positional(); })) {
-        if (option->get_name() == "uenv") {
-            file_completion = true;
+    for (const auto* posarg : get_posarg()) {
+        if (posarg->get_name() == "uenv") {
+            comp_item.uenv_label = true;
+            break;
         };
     }
+    for (const auto* nonpos : get_nonpos()) {
+        comp_item.nonpositionals.push_back(nonpos->get_name());
+    }
+    cl.push_back(std::move(comp_item));
 
-    cl.push_back({stack, completions, file_completion});
-
+    // recurse into subcommands
     for (auto& cmd : subcommands) {
         auto cmd_stack = stack;
         cmd_stack.push_back(cmd->get_name());
@@ -111,80 +127,28 @@ completion_list create_completion_list(CLI::App* cli, const std::string& name) {
 std::string bash_completion(CLI::App* cli, const std::string& name) {
     completion_list cl = create_completion_list(cli, name);
 
+    // generates bash function for each possible command/subcommand branch
     auto gen_bash_function = [](completion_item item) {
         return fmt::format(R"(_{}()
 {{
-    UENV_OPTS="{}"
-    FILE_COMPLETION="{}"
+    UENV_SUBCMDS="{}"
+    UENV_NONPOSITIONALS="{}"
+    UENV_ACCEPT_LABEL="{}"
 }}
 
 )",
-                           fmt::join(item.command, "_"),
-                           fmt::join(item.completions, " "),
-                           item.file_completion ? "true" : "false");
+                           fmt::join(item.call_stack, "_"),
+                           fmt::join(item.subcommands, " "),
+                           fmt::join(item.nonpositionals, " "),
+                           item.uenv_label ? "true" : "false");
     };
 
-    std::string main_functions = R"(
-_uenv_completions()
-{
-    local cur prefix func_name UENV_OPTS
-
-    local -a COMP_WORDS_NO_FLAGS
-    local index=0
-    while [[ "$index" -lt "$COMP_CWORD" ]]
-    do
-        if [[ "${COMP_WORDS[$index]}" == [a-z]* ]]
-        then
-            COMP_WORDS_NO_FLAGS+=("${COMP_WORDS[$index]}")
-        fi
-        let index++
-    done
-    COMP_WORDS_NO_FLAGS+=("${COMP_WORDS[$COMP_CWORD]}")
-    local COMP_CWORD_NO_FLAGS=$((${#COMP_WORDS_NO_FLAGS[@]} - 1))
-
-    cur="${COMP_WORDS_NO_FLAGS[COMP_CWORD_NO_FLAGS]}"
-    prefix="_${COMP_WORDS_NO_FLAGS[*]:0:COMP_CWORD_NO_FLAGS}"
-    func_name="${prefix// /_}"
-    func_name="${func_name//-/_}"
-
-    local UENV_OPTS=""
-    local FILE_COMPLETION="false"
-    if typeset -f $func_name >/dev/null
-    then
-        $func_name
-    fi
-
-    local SUBCOMMAND_OPTS=$(compgen -W "${UENV_OPTS}" -- "${cur}")
-    local FILE_OPTS=""
-    local FILE_OPTS_FORMATED=""
-    if [ "${FILE_COMPLETION}" = "true" ]; then
-        FILE_OPTS=$(compgen -f -- "${cur}")
-        for item in $FILE_OPTS; do
-            if [[ -d "${item}" ]]; then
-                FILE_OPTS_FORMATED+="${item}/ "
-            else
-                FILE_OPTS_FORMATED+="${item} "
-            fi
-        done
-    fi
-
-    # Do not add space after suggestion if completing a directory
-    local DIRS=$(compgen -d -- "${cur}")
-    if [[ -n "${DIRS}" ]]; then
-        compopt -o nospace
-    else
-        compopt +o nospace
-    fi
-
-    COMPREPLY=(${SUBCOMMAND_OPTS} ${FILE_OPTS_FORMATED})
-}
-
-complete -F _uenv_completions uenv
-)";
+#include "completion.bash.h"
 
     return fmt::format(
         "{}{}", fmt::join(std::views::transform(cl, gen_bash_function), ""),
-        main_functions);
+        std::string_view(reinterpret_cast<const char*>(completion_bash_main),
+                         completion_bash_main_len));
 }
 } // namespace impl
 
