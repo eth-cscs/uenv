@@ -35,7 +35,7 @@ struct oras_output {
 };
 
 constexpr auto generic_error_message =
-    "unknown error - rerun with the -vvv flag and send an error report to the "
+    "unknown error - rerun with the -vv flag and send an error report to the "
     "CSCS service desk.";
 
 error generic_error(std::string err) {
@@ -75,6 +75,13 @@ error create_error(const oras_output& result) {
         contains(err, "Error response from registry")) {
         return {403, result.stderr,
                 "Invalid username was provided. Check the --username flag."};
+    }
+    if (contains(err, "Token failed verification: revoked") &&
+        contains(err, "Error response from registry")) {
+        return {403, result.stderr,
+                "The registry token has been revoked. Create a new token, and "
+                "either pass it as an input file, or update the entry in "
+                "~/.docker/config.json."};
     }
     if (contains(err, "unauthorized") &&
         contains(err, "Error response from registry")) {
