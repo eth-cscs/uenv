@@ -4,6 +4,8 @@
 #include <optional>
 #include <string>
 
+#include <fmt/format.h>
+
 #include <util/envvars.h>
 
 namespace uenv {
@@ -15,23 +17,28 @@ struct config_base {
 };
 
 // the result of parsing a line in a configuration file
+// TODO: This was used in the original configuration file format.
+//       Remove once all clusters have been upgraded to use a version of uenv
+//       with TOML configuration files.
 struct config_line {
     std::string key;
     std::string value;
-    // evaluates to false -> an empty or comment line
     operator bool() const {
         return !key.empty();
     }
 };
 
-// load config
-config_base load_config(const uenv::config_base&,
+// holds an error message and line number from parsing a TOML configuration.
+struct config_error {
+    std::string message;
+    std::uint32_t line;
+};
+
+// find the final configuration
+// loads system and user configurations and merges them with the cli
+// arguments and default settngs.
+config_base load_config(const uenv::config_base& cli_config,
                         const envvars::state& calling_env);
-
-// get the default configuration
-config_base default_config(const envvars::state& calling_env);
-
-config_base merge(const config_base& lhs, const config_base& rhs);
 
 struct configuration {
     std::optional<std::filesystem::path> repo;
@@ -44,3 +51,16 @@ struct configuration {
 configuration generate_configuration(const config_base& base);
 
 } // namespace uenv
+
+template <> class fmt::formatter<uenv::config_error> {
+  public:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+
+    template <typename FmtContext>
+    constexpr auto format(uenv::config_error const& err,
+                          FmtContext& ctx) const {
+        return fmt::format_to(ctx.out(), "(line {}) {}", err.line, err.message);
+    }
+};

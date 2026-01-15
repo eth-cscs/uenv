@@ -1,0 +1,8 @@
+# this file should not create any errors
+color=true
+
+[[repositories]]
+path = "/home/repo"
+
+[elastic]
+url = "https://url/elastic:3000"

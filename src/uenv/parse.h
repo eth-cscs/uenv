@@ -62,13 +62,13 @@ util::expected<uenv_label, parse_error> parse_uenv_label(const std::string& in);
 util::expected<uenv_description, parse_error>
 parse_uenv_description(const std::string& in);
 
-// pares a namespacesd uenv label
 util::expected<uenv_nslabel, parse_error>
 parse_uenv_nslabel(const std::string& in);
 
 util::expected<uenv_registry_entry, parse_error>
 parse_registry_entry(const std::string& in);
 
+// TODO: deprecate as soon as the old config file format is dropped
 util::expected<config_line, parse_error>
 parse_config_line(const std::string& arg);
 

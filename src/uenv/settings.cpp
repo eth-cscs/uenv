@@ -1,4 +1,3 @@
-#include "util/expected.h"
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -6,28 +5,36 @@
 #include <fmt/format.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
+#include <toml++/toml.hpp>
 
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <uenv/settings.h>
 #include <util/color.h>
 #include <util/envvars.h>
+#include <util/expected.h>
 #include <util/strings.h>
 
 namespace uenv {
 
 const std::string config_file_default =
-    R"(
-# uenv configuration file
-# lines starting with '#' are comments
-
-# set the path to the local uenv repository
-#repo = /users/bobsmith/uenv
+    R"(# uenv configuration file
+# in TOML v1.0 format, see https://toml.io
 
 # by default uenv will choose whether to use color based on your environment.
-#color=true
-#color=false
+#color = true
+#color = false
+
+# set the path to the local uenv repository
+#[[repositories]]
+#path = /users/bobsmith/uenv
 )";
+
+util::unexpected<config_error> make_config_error(std::string message,
+                                                 std::uint32_t line) {
+    return util::unexpected{
+        config_error{.message = std::move(message), .line = line}};
+}
 
 // merge two config_base items
 // if both have the same field set, choose the lhs value
@@ -44,15 +51,17 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
 }
 
 config_base default_config(const envvars::state& env) {
-    // find whether a repo exists in the list of possible default repo loations
+    // find whether a repo exists in the list of possible default repo
+    // loations
     auto rexist = default_repo_path(env, true);
     // find the recommended repo location (if one is available)
     auto ravail = default_repo_path(env, false);
 
     // if the default repository is not at the recommended location, print a
     // warning and suggestion that the user upgrade to a new uenv
-    // NOTE: the backend library code is not supposed to print to the terminal,
-    // but we make an exception in this case to get this feature in place.
+    // NOTE: the backend library code is not supposed to print to the
+    // terminal, but we make an exception in this case to get this feature
+    // in place.
     if (rexist && (rexist != ravail) && !env.get("UENV_WARN_MIGRATE")) {
         // clang-format off
         fmt::print(
@@ -102,7 +111,7 @@ configuration generate_configuration(const config_base& base) {
         }
     }
 
-    // toggle color output
+    // disable color output if it has not be enabled/disabled
     config.color = base.color.value_or(false);
 
     config.elastic_config = base.elastic_config;
@@ -111,14 +120,21 @@ configuration generate_configuration(const config_base& base) {
 }
 
 // forward declare implementation
-namespace impl {
+namespace impl::v1 {
+util::expected<config_base, std::string>
+read_config_file(const std::filesystem::path& path,
+                 const envvars::state& calling_env);
+}
+
+namespace impl::v2 {
 util::expected<config_base, std::string>
 read_config_file(const std::filesystem::path& path,
                  const envvars::state& calling_env);
 }
 
 // read configuration from the user configuration file
-// the location of the config file is determined using XDG_CONFIG_HOME or HOME
+// the location of the config file is determined using XDG_CONFIG_HOME or
+// HOME
 util::expected<config_base, std::string>
 load_user_config(const envvars::state& calling_env) {
     namespace fs = std::filesystem;
@@ -134,7 +150,7 @@ load_user_config(const envvars::state& calling_env) {
     const auto config_path =
         xdg_env ? (fs::path(xdg_env.value()) / "uenv")
                 : (fs::path(home_env.value()) / ".config/uenv");
-    const auto config_file = config_path / "config";
+    const auto config_file = config_path / "config.toml";
 
     auto create_config_file = [](const auto& path) {
         auto fid = std::ofstream(path);
@@ -162,7 +178,7 @@ load_user_config(const envvars::state& calling_env) {
     }
 
     spdlog::debug("load_user_config:: opening {}", config_file);
-    auto result = impl::read_config_file(config_file, calling_env);
+    auto result = impl::v2::read_config_file(config_file, calling_env);
 
     if (!result) {
         return util::unexpected{fmt::format(
@@ -179,23 +195,41 @@ util::expected<config_base, std::string>
 load_system_config(const envvars::state& calling_env) {
     namespace fs = std::filesystem;
 
-    const auto config_path = fs::path(
-        calling_env.get("UENV_SYSTEM_CONFIG").value_or("/etc/uenv/config"));
-    spdlog::trace("load_system_config::using {}", config_path.string());
+    spdlog::debug("load_system_config");
 
-    if (!fs::exists(config_path)) {
-        return util::unexpected(fmt::format(
-            "load_system_config::path {} does not exist", config_path));
+    const auto config_root = fs::path{"/etc/uenv"};
+    if (const auto config_path = config_root / "config.toml";
+        fs::exists(config_path)) {
+        auto result = impl::v2::read_config_file(config_path, calling_env);
+        if (!result) {
+            return util::unexpected{fmt::format(
+                "load_system_config::error reading config {}", result.error())};
+        }
+        spdlog::info("load_system_config:: loaded {}", config_path);
+        return result;
     }
-
-    auto result = impl::read_config_file(config_path, calling_env);
-    if (!result) {
-        return util::unexpected{fmt::format(
-            "load_system_config::error reading config {}", result.error())};
+    // TODO: remove this fall back to the old parser when /etc/uenv/config is no
+    // longer used
+    else if (const auto config_path = config_root / "config";
+             fs::exists(config_path)) {
+        spdlog::warn(
+            "load_system_config:: loading v1 configuration in {} instead of "
+            "new toml format",
+            config_path);
+        auto result = impl::v1::read_config_file(config_path, calling_env);
+        if (!result) {
+            return util::unexpected{fmt::format(
+                "load_system_config::error reading config {}", result.error())};
+        }
+        spdlog::info("load_system_config:: loaded {}", config_path);
+        return result;
+    } else {
+        spdlog::info("load_system_config:: no configuration file found",
+                     config_path);
+        return util::unexpected(
+            fmt::format("load_system_config::path {} does not exist",
+                        config_root / "config.toml"));
     }
-
-    spdlog::info("load_system_config:: loaded {}", config_path);
-    return result;
 }
 
 config_base load_config(const uenv::config_base& cli_config,
@@ -204,18 +238,19 @@ config_base load_config(const uenv::config_base& cli_config,
     if (auto sys = uenv::load_system_config(calling_env)) {
         config = merge(*sys, config);
     } else {
-        spdlog::info("load_config::did not load system config file: {}",
+        spdlog::warn("load_config::did not load system config file: {}",
                      sys.error());
     }
     if (auto usr = uenv::load_user_config(calling_env)) {
         config = merge(*usr, config);
     } else {
-        spdlog::info("load_config::did not load user config: {}", usr.error());
+        spdlog::warn("load_config::did not load user config: {}", usr.error());
     }
     return merge(cli_config, config);
 }
 
-namespace impl {
+namespace impl::v1 {
+
 util::expected<config_base, std::string>
 read_config_file(const std::filesystem::path& path,
                  const envvars::state& calling_env) {
@@ -241,10 +276,10 @@ read_config_file(const std::filesystem::path& path,
         if (const auto result = parse_config_line(line)) {
             if (*result) {
                 if (settings.contains(result->key)) {
-                    spdlog::warn(
-                        "the configuration parameter {} is defined more than "
-                        "once (line {})",
-                        result->key, lineno);
+                    spdlog::warn("the configuration parameter {} is "
+                                 "defined more than "
+                                 "once (line {})",
+                                 result->key, lineno);
                 }
                 settings[result->key] = result->value;
             }
@@ -284,6 +319,153 @@ read_config_file(const std::filesystem::path& path,
 
     return config;
 }
-} // namespace impl
+
+} // namespace impl::v1
+
+namespace impl::v2 {
+
+util::expected<std::string, config_error>
+parse_repository_array(const toml::node& input,
+                       const envvars::state& calling_env) {
+    const auto arr = input.as_array();
+    if (!arr || arr->size() != 1u) {
+        return make_config_error("repositories is not an array with 1 entry",
+                                 input.source().begin.line);
+    }
+
+    // the nested loop is overkill when we only expect a single
+    std::optional<std::string> result{};
+    for (const auto& element : *arr) {
+        if (const auto tbl = element.as_table()) {
+            for (const auto& entry : *tbl) {
+                std::string_view key = entry.first.str();
+                const auto& value = entry.second;
+                if (key == "path") {
+                    if (auto v = value.value<std::string>()) {
+                        result = calling_env.expand(
+                            v.value(), envvars::expand_delim::curly);
+                    } else {
+                        return make_config_error(
+                            "repository.path must be a string",
+                            value.source().begin.line);
+                    }
+                } else {
+                    return make_config_error(
+                        fmt::format("unexpected key '{}'", key),
+                        value.source().begin.line);
+                }
+            }
+            if (!result) {
+                return make_config_error("repository does not define a path",
+                                         element.source().begin.line);
+            }
+        } else {
+            return make_config_error("repositories is not a table",
+                                     element.source().begin.line);
+        }
+    }
+
+    return *result;
+}
+
+util::expected<std::string, config_error>
+parse_elastic(const toml::node& input) {
+    const auto tbl = input.as_table();
+    if (!tbl) {
+        return make_config_error("elastic configuration is not a table",
+                                 input.source().begin.line);
+    }
+
+    std::optional<std::string> url{};
+
+    // the nested loop is overkill when we only expect a single
+    for (const auto& entry : *tbl) {
+        std::string_view key = entry.first.str();
+        const auto& value = entry.second;
+        if (key == "url") {
+            if (auto v = value.value<std::string>()) {
+                url = v.value();
+            } else {
+                return make_config_error("elastic.url must be a string",
+                                         value.source().begin.line);
+            }
+        } else {
+            return make_config_error(fmt::format("unexpected key '{}'", key),
+                                     value.source().begin.line);
+        }
+    }
+    if (!url) {
+        return make_config_error("elastic.url is not defined",
+                                 input.source().begin.line);
+    }
+
+    return url.value();
+}
+
+util::expected<config_base, config_error>
+parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
+    // build a config from the key value
+    config_base config;
+
+    for (const auto& entry : input) {
+        std::string_view key = entry.first.str();
+        const auto& value = entry.second;
+        if (key == "color") {
+            if (auto v = value.value<bool>()) {
+                config.color = v;
+            } else {
+                return make_config_error(
+                    "color field must be boolean (true/false)",
+                    value.source().begin.line);
+            }
+        } else if (key == "elastic") {
+            if (auto v = parse_elastic(value)) {
+                config.elastic_config = v.value();
+            } else {
+                return v;
+            }
+        } else if (key == "repositories") {
+            if (const auto v = parse_repository_array(value, calling_env)) {
+                config.repo = v.value();
+            } else {
+                return v;
+            }
+        } else {
+            return make_config_error(fmt::format("unexpected key '{}'", key),
+                                     value.source().begin.line);
+        }
+    }
+
+    return config;
+}
+
+util::expected<config_base, std::string>
+read_config_file(const std::filesystem::path& path,
+                 [[maybe_unused]] const envvars::state& calling_env) {
+    namespace fs = std::filesystem;
+
+    if (!fs::exists(path) || !std::filesystem::is_regular_file(path)) {
+        return util::unexpected{"file does not exist or is not a regular file"};
+    }
+
+    const auto result = toml::parse_file(path.string());
+    if (!result) {
+        spdlog::warn("read_config_file: error parsing {}: {}", path.string(),
+                     result.error().description());
+        return util::unexpected(
+            fmt::format("unable to open configuration file {}: {}",
+                        path.string(), result.error().description()));
+    }
+
+    const auto config = parse_config_toml(result.table(), calling_env);
+
+    if (!config) {
+        return util::unexpected{
+            fmt::format("{}: {}", path.string(), config.error())};
+    }
+    return config.value();
+}
+
+} // namespace impl::v2
 
 } // namespace uenv

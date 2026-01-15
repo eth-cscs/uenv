@@ -1,0 +1,6 @@
+color = true
+
+[elastic]
+
+# an error because url should be a string
+url = false

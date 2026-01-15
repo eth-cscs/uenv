@@ -25,13 +25,15 @@ add_global_arguments('-Wno-missing-field-initializers', language : 'cpp')
 # will be propogated to each dependency, for a statically linked executable.
 cli11_dep = subproject('cli11', default_options: ['werror=false', 'warning_level=0']).get_variable('CLI11_dep')
 fmt_dep   = subproject('fmt', default_options: ['werror=false', 'warning_level=0']).get_variable('fmt_dep')
-json_dep = subproject('nlohmann_json', default_options: ['werror=false', 'warning_level=0']).get_variable('nlohmann_json_dep')
-spdlog_dep   = subproject('spdlog', default_options: ['werror=false', 'warning_level=0','std_format=disabled','external_fmt=enabled']).get_variable('spdlog_dep')
+json_dep  = subproject('nlohmann_json', default_options: ['werror=false', 'warning_level=0']).get_variable('nlohmann_json_dep')
+spdlog_dep  = subproject('spdlog', default_options: ['werror=false', 'warning_level=0','std_format=disabled','external_fmt=enabled']).get_variable('spdlog_dep')
 sqlite3_dep = subproject('sqlite3', default_options: ['werror=false', 'warning_level=0']).get_variable('sqlite3_dep')
+toml_base = subproject('tomlplusplus', default_options: ['werror=false', 'warning_level=0', 'build_lib=false']).get_variable('tomlplusplus_dep')
+toml_dep = declare_dependency(
+  dependencies: toml_base,
+  compile_args: ['-DTOML_EXCEPTIONS=0', '-DTOML_HEADER_ONLY=0'],
+)
 subproject('curl', default_options: ['werror=false', 'warning_level=0', 'tests=disabled', 'unittests=disabled', 'tool=disabled'])
-#toml_dep = subproject('tomlplusplus', default_options: ['werror=false', 'warning_level=0', 'build_lib=true', 'default_library=static']).get_variable('tomlplusplus_dep')
-toml_dep = subproject('tomlplusplus', default_options: ['werror=false', 'warning_level=0']).get_variable('tomlplusplus_dep')
-
 curl_dep = dependency('libcurl', required: true)
 barkeep_dep = declare_dependency(
         include_directories: 'extern/barkeep',
@@ -66,6 +68,7 @@ lib_src = [
         'src/util/signal.cpp',
         'src/util/strings.cpp',
         'src/util/subprocess.cpp',
+        'src/util/toml.cpp',
 ]
 lib_inc = include_directories('src')
 
@@ -73,12 +76,12 @@ lib_uenv = static_library(
         'uenv',
         lib_src,
         include_directories: lib_inc,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep],
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
 )
 
 uenv_dep = declare_dependency(
         link_with: lib_uenv,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep],
+        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep, toml_dep],
         include_directories: lib_inc
 )
 

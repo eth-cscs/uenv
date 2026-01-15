@@ -29,7 +29,7 @@ namespace uenv {
 
 void set_log_level(const envvars::state& env) {
     // use warn as the default log level
-    auto log_level = spdlog::level::warn;
+    auto log_level = spdlog::level::off;
     bool invalid_env = false;
 
     // check the environment variable UENV_LOG_LEVEL

@@ -650,6 +650,7 @@ util::expected<std::string, parse_error> parse_key(lex::lexer& L) {
     return parse_string(L, "key", is_key_tok);
 }
 
+// TODO: deprecate as soon as the old config file format is dropped
 util::expected<config_line, parse_error>
 parse_config_line(const std::string& arg) {
     const auto line = util::strip(arg);
