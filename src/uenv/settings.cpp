@@ -27,7 +27,8 @@ const std::string config_file_default =
 
 # set the path to the local uenv repository
 #[[repositories]]
-#path = /users/bobsmith/uenv
+#name = team
+#path = /store/g123/uenv/repo
 )";
 
 util::unexpected<config_error> make_config_error(std::string message,
@@ -39,9 +40,9 @@ util::unexpected<config_error> make_config_error(std::string message,
 // merge two config_base items
 // if both have the same field set, choose the lhs value
 config_base merge(const config_base& lhs, const config_base& rhs) {
-    return {.repo = lhs.repo   ? lhs.repo
-                    : rhs.repo ? rhs.repo
-                               : std::nullopt,
+    auto repos = lhs.repos;
+    repos.insert(repos.end(), rhs.repos.begin(), rhs.repos.end());
+    return {.repos = repos,
             .color = lhs.color   ? lhs.color
                      : rhs.color ? rhs.color
                                  : std::nullopt,
@@ -86,8 +87,15 @@ config_base default_config(const envvars::state& env) {
             color::yellow("note"));
         // clang-format on
     }
+
+    if (rexist || ravail) {
+        return {
+            .repos = {{.name = "user", .path = (rexist ? *rexist : *ravail)}},
+            .color = color::default_color(env),
+        };
+    }
+
     return {
-        .repo = rexist ? rexist : ravail,
         .color = color::default_color(env),
     };
 }
@@ -98,8 +106,11 @@ configuration generate_configuration(const config_base& base) {
     // set the repo path
     // initialise to unset
     config.repo = {};
-    if (base.repo) {
-        if (auto path = parse_path(base.repo.value())) {
+    // TODO here we convert from the input list to a validated repo path
+    // - create a validated list
+    // - sort by priority
+    if (!base.repos.empty()) {
+        if (auto path = parse_path(base.repos[0].path)) {
             if (auto rpath =
                     uenv::validate_repo_path(path.value(), false, false)) {
                 config.repo = path.value();
@@ -296,8 +307,13 @@ read_config_file(const std::filesystem::path& path,
     config_base config;
     for (auto [key, value] : settings) {
         if (key == "repo") {
+            /*
             config.repo =
                 calling_env.expand(value, envvars::expand_delim::curly);
+            */
+            config.repos = {{.name = "default",
+                             .path = calling_env.expand(
+                                 value, envvars::expand_delim::curly)}};
         } else if (key == "color") {
             if (value == "true") {
                 config.color = true;
@@ -324,7 +340,7 @@ read_config_file(const std::filesystem::path& path,
 
 namespace impl::v2 {
 
-util::expected<std::string, config_error>
+util::expected<std::vector<repo_description>, config_error>
 parse_repository_array(const toml::node& input,
                        const envvars::state& calling_env) {
     const auto arr = input.as_array();
@@ -334,20 +350,41 @@ parse_repository_array(const toml::node& input,
     }
 
     // the nested loop is overkill when we only expect a single
-    std::optional<std::string> result{};
+    std::vector<repo_description> result;
+    result.reserve(arr->size());
     for (const auto& element : *arr) {
+        std::optional<std::string> path{};
+        std::optional<std::string> name{};
+        auto priority = repo_description::default_priority;
         if (const auto tbl = element.as_table()) {
             for (const auto& entry : *tbl) {
                 std::string_view key = entry.first.str();
                 const auto& value = entry.second;
                 if (key == "path") {
                     if (auto v = value.value<std::string>()) {
-                        result = calling_env.expand(
+                        std::string expanded = calling_env.expand(
                             v.value(), envvars::expand_delim::curly);
+                        if (parse_path(expanded)) {
+                            path = std::move(expanded);
+                        } else {
+                            return make_config_error(
+                                "repository.path must be a string describing a "
+                                "valid path",
+                                value.source().begin.line);
+                        }
                     } else {
                         return make_config_error(
-                            "repository.path must be a string",
+                            "repository.path must be a string describing a "
+                            "valid path",
                             value.source().begin.line);
+                    }
+                } else if (key == "name") {
+                    if (auto v = value.value<std::string>();
+                        v && parse_repo_name(v.value())) {
+                        name = v.value();
+                    } else {
+                        return make_config_error("repository.name is not valid",
+                                                 value.source().begin.line);
                     }
                 } else {
                     return make_config_error(
@@ -355,17 +392,25 @@ parse_repository_array(const toml::node& input,
                         value.source().begin.line);
                 }
             }
-            if (!result) {
-                return make_config_error("repository does not define a path",
+            if (!name) {
+                return make_config_error("repository.name is not defined",
                                          element.source().begin.line);
             }
+            if (!path) {
+                return make_config_error("repository.path is not defined",
+                                         element.source().begin.line);
+            }
+            // TODO: validate the inputs here
+            result.push_back({.name = std::move(name.value()),
+                              .path = std::move(path.value()),
+                              .priority = priority});
         } else {
             return make_config_error("repositories is not a table",
                                      element.source().begin.line);
         }
     }
 
-    return *result;
+    return result;
 }
 
 util::expected<std::string, config_error>
@@ -422,13 +467,13 @@ parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
             if (auto v = parse_elastic(value)) {
                 config.elastic_config = v.value();
             } else {
-                return v;
+                return util::unexpected{v.error()};
             }
         } else if (key == "repositories") {
             if (const auto v = parse_repository_array(value, calling_env)) {
-                config.repo = v.value();
+                config.repos = v.value();
             } else {
-                return v;
+                return util::unexpected{v.error()};
             }
         } else {
             return make_config_error(fmt::format("unexpected key '{}'", key),

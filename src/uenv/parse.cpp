@@ -629,6 +629,65 @@ parse_cluster_name(const std::string& in) {
     return result;
 }
 
+// tokens that can appear in repo names
+bool is_repo_tok(lex::tok t) {
+    return t == lex::tok::symbol || t == lex::tok::integer ||
+           t == lex::tok::dash;
+};
+
+util::expected<std::string, parse_error> parse_repo_name(lex::lexer& L) {
+    const auto start = L.peek().loc;
+    if (L != lex::tok::symbol) {
+        return util::unexpected(parse_error{
+            L.string(), "name must start with letter or underscore", L.peek()});
+    }
+    while (is_repo_tok(L.peek().kind)) {
+        L.next();
+    }
+    return std::string{L.string().data() + start,
+                       L.string().data() + L.peek().loc};
+}
+
+util::expected<std::string, parse_error>
+parse_repo_name(const std::string& in) {
+    const std::string sanitised = util::strip(in);
+    auto L = lex::lexer(sanitised);
+    const auto result = parse_repo_name(L);
+    if (!result) {
+        return result;
+    }
+
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+    }
+    return result;
+}
+
+// TODO: this simply passes a single directory/path and converts it into a
+// repo_description with name "cli".
+// This will want to be rejigged to parse a list, and will probably have to
+// return a different type that can contain a list of either name, path, or a
+// named path.
+util::expected<std::vector<repo_description>, parse_error>
+parse_repo_list(const std::string& in) {
+    const std::string sanitised = util::strip(in);
+    auto L = lex::lexer(sanitised);
+    const auto result = parse_path(L);
+
+    if (!result) {
+        return util::unexpected{result.error()};
+    }
+
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+    }
+
+    return std::vector<repo_description>{
+        {.name = "cli", .path = result.value(), .priority = 0}};
+}
+
 // tokens that can appear in configuration keys
 bool is_key_tok(lex::tok t) {
     return t == lex::tok::symbol || t == lex::tok::dash ||

@@ -2,6 +2,7 @@
 color=true
 
 [[repositories]]
+name = "main"
 path = "/home/repo"
 
 [elastic]

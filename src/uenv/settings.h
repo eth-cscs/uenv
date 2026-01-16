@@ -3,15 +3,17 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <fmt/format.h>
 
+#include <uenv/repository.h>
 #include <util/envvars.h>
 
 namespace uenv {
 
 struct config_base {
-    std::optional<std::string> repo;
+    std::vector<repo_description> repos;
     std::optional<bool> color;
     std::optional<std::string> elastic_config;
 };

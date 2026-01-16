@@ -35,6 +35,11 @@ struct parse_error {
         : input(std::move(input)), detail(std::move(detail)), loc(tok.loc),
           width(tok.spelling.length()) {
     }
+    parse_error(std::string_view input, std::string detail,
+                const lex::token& tok)
+        : input(input), detail(std::move(detail)), loc(tok.loc),
+          width(tok.spelling.length()) {
+    }
     parse_error(std::string input, std::string description, std::string detail,
                 const lex::token& tok)
         : input(std::move(input)), description(std::move(description)),
@@ -74,6 +79,11 @@ parse_config_line(const std::string& arg);
 
 util::expected<std::string, parse_error>
 parse_cluster_name(const std::string& in);
+
+util::expected<std::string, parse_error> parse_repo_name(const std::string& in);
+
+util::expected<std::vector<repo_description>, parse_error>
+parse_repo_list(const std::string& in);
 
 util::expected<util::semver, parse_error> parse_semver(const std::string& arg);
 

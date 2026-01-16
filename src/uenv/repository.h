@@ -10,6 +10,14 @@
 
 namespace uenv {
 
+struct repo_description {
+    static constexpr std::uint32_t default_priority = 10;
+
+    std::string name;
+    std::string path;
+    std::uint32_t priority = default_priority;
+};
+
 class record_set {
     std::vector<uenv_record> records_;
 

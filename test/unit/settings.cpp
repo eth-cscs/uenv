@@ -148,6 +148,7 @@ url = "https://my-elastic")"sv;
     {
         const std::string_view input = R"(
 [[repositories]]
+name = "therepo"
 path = "/home/bobsmith/.uenvrepo")"sv;
         auto result = parse_config_toml(toml::parse(input), {});
         REQUIRE(result);
@@ -160,10 +161,13 @@ path = "/home/bobsmith/.uenvrepo")"sv;
     {
         const std::string_view input = R"(
 [[repositories]]
+name = "envrepo"
 path = "${REPO}")"sv;
         auto env = envvars::state{};
         env.set("REPO", "/repopath");
         auto result = parse_config_toml(toml::parse(input), env);
+        if (!result)
+            fmt::println("***************************** {}", result.error());
         REQUIRE(result);
         REQUIRE(result->repo);
         REQUIRE(result->repo.value() == "/repopath");

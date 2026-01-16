@@ -39,6 +39,8 @@ int main(int argc, char** argv) {
     uenv::config_base cli_config;
     uenv::global_settings settings;
     bool print_version = false;
+    // holds the string
+    std::optional<std::string> cli_repo{};
 
     CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
@@ -49,7 +51,9 @@ int main(int argc, char** argv) {
         "--color", [&cli_config]() -> void { cli_config.color = true; },
         "enable color output");
     cli.add_flag("--version", print_version, "print version");
-    cli.add_option("--repo", cli_config.repo, "the uenv repository");
+    // TODO
+    // cli.add_option("--repo", cli_config.repo, "the uenv repository");
+    cli.add_option("--repo", cli_repo, "the uenv repository");
 
     cli.footer(help_footer);
 
@@ -96,6 +100,17 @@ int main(int argc, char** argv) {
     if (print_version) {
         term::msg("{}", UENV_VERSION);
         return 0;
+    }
+
+    // parse the repo flag if it was passed
+    if (cli_repo) {
+        if (const auto result = uenv::parse_repo_list(cli_repo.value())) {
+            cli_config.repos = result.value();
+        } else {
+            term::error("invalide --repo argument: {}",
+                        result.error().description);
+            return 1;
+        }
     }
 
     // set the configuration according to defaults, cli options and config

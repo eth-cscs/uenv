@@ -21,8 +21,8 @@ Doing this in a single PR might be advisable, because at the end of Task 1 the i
 + create test input files and write unit tests
 + write toml config parser
     * do it alongside the existing parser or simply detect config exists but config.toml does not and print a warning
-- fall back to old config file if new one is not detected
-    - generate a `config.toml` file to replace `config` for user configs
++ fall back to old config file if new one is not detected
+    + generate a `config.toml` file to replace `config` for user configs
 
 ### Step 2: support multiple repositories
 

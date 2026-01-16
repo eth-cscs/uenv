@@ -480,6 +480,7 @@ TEST_CASE("config_line", "[parse]") {
         REQUIRE(!result);
     }
 }
+
 TEST_CASE("cluster", "[parse]") {
     // parse_cluster_name(const std::string& in);
     REQUIRE(uenv::parse_cluster_name("alps-eiger").value() == "eiger");
@@ -498,6 +499,20 @@ TEST_CASE("cluster", "[parse]") {
     // maybe the following should be enabled in the future, i.e. strip alps- and
     // glob remaining - into the cluster name
     REQUIRE(!uenv::parse_cluster_name("alps-daint-ln002"));
+}
+
+TEST_CASE("repo_name", "[parse]") {
+    REQUIRE(uenv::parse_repo_name("repo").value() == "repo");
+    REQUIRE(uenv::parse_repo_name("main").value() == "main");
+    REQUIRE(uenv::parse_repo_name("main2").value() == "main2");
+    REQUIRE(uenv::parse_repo_name("main-2").value() == "main-2");
+    REQUIRE(uenv::parse_repo_name("foo_bar").value() == "foo_bar");
+    REQUIRE(uenv::parse_repo_name("_").value() == "_");
+
+    REQUIRE(!uenv::parse_repo_name(""));
+    REQUIRE(!uenv::parse_repo_name("-main"));
+    REQUIRE(!uenv::parse_repo_name("2"));
+    REQUIRE(!uenv::parse_repo_name("main?"));
 }
 
 TEST_CASE("semver", "[parse]") {
