@@ -32,22 +32,22 @@ TEST_CASE("read config files v1", "[settings]") {
     {
         auto result = read_config_file(config_root / "empty", {});
         REQUIRE(result);
-        REQUIRE(!result->repo);
+        REQUIRE(result->repos.empty());
         REQUIRE(!result->color);
     }
     {
         auto result = read_config_file(config_root / "all", {});
         REQUIRE(result);
-        REQUIRE(result->repo);
-        REQUIRE(result->repo.value() == "/path/to/config");
+        REQUIRE(!result->repos.empty());
+        REQUIRE(result->repos.front().path == "/path/to/config");
         REQUIRE(result->color);
         REQUIRE(result->color.value() == false);
     }
     {
         auto result = read_config_file(config_root / "set-repo", {});
         REQUIRE(result);
-        REQUIRE(result->repo);
-        REQUIRE(result->repo.value() == "/path/to/config");
+        REQUIRE(!result->repos.empty());
+        REQUIRE(result->repos.front().path == "/path/to/config");
         REQUIRE(!result->color);
     }
     {
@@ -55,22 +55,22 @@ TEST_CASE("read config files v1", "[settings]") {
         env.set("HOME", "/users/wombat");
         auto result = read_config_file(config_root / "set-repo-envvar", env);
         REQUIRE(result);
-        REQUIRE(result->repo);
-        REQUIRE(result->repo.value() == "/users/wombat/.uenv");
+        REQUIRE(!result->repos.empty());
+        REQUIRE(result->repos.front().path == "/users/wombat/.uenv");
         REQUIRE(!result->color);
     }
 
     {
         auto result = read_config_file(config_root / "set-color-true", {});
         REQUIRE(result);
-        REQUIRE(!result->repo);
+        REQUIRE(result->repos.empty());
         REQUIRE(result->color);
         REQUIRE(result->color.value() == true);
     }
     {
         auto result = read_config_file(config_root / "set-color-false", {});
         REQUIRE(result);
-        REQUIRE(!result->repo);
+        REQUIRE(result->repos.empty());
         REQUIRE(result->color);
         REQUIRE(result->color.value() == false);
     }
@@ -97,15 +97,17 @@ TEST_CASE("read config toml", "[settings]") {
     {
         auto result = read_config_file(config_root / "empty.toml", {});
         REQUIRE(result);
-        REQUIRE(!result->repo);
+        REQUIRE(result->repos.empty());
         REQUIRE(!result->color);
         REQUIRE(!result->elastic_config);
     }
     {
         auto result = read_config_file(config_root / "all.toml", {});
         REQUIRE(result);
-        REQUIRE(result->repo);
-        REQUIRE(result->repo.value() == "/home/repo");
+        REQUIRE(!result->repos.empty());
+        const auto& repo = result->repos.front();
+        REQUIRE(repo.path == "/home/repo");
+        REQUIRE(repo.name == "main");
         REQUIRE(result->color);
         REQUIRE(result->color.value() == true);
         REQUIRE(result->elastic_config);
@@ -117,7 +119,7 @@ TEST_CASE("read config toml", "[settings]") {
         const auto input = toml::parse("color = true");
         auto result = uenv::impl::v2::parse_config_toml(input, {});
         REQUIRE(result);
-        REQUIRE(!result->repo);
+        REQUIRE(result->repos.empty());
         REQUIRE(result->color);
         REQUIRE(result->color.value() == true);
         REQUIRE(!result->elastic_config);
@@ -126,7 +128,7 @@ TEST_CASE("read config toml", "[settings]") {
         const auto input = toml::parse("color = false");
         auto result = parse_config_toml(input, {});
         REQUIRE(result);
-        REQUIRE(!result->repo);
+        REQUIRE(result->repos.empty());
         REQUIRE(result->color);
         REQUIRE(result->color.value() == false);
         REQUIRE(!result->elastic_config);
@@ -139,7 +141,7 @@ color=true
 url = "https://my-elastic")"sv;
         auto result = parse_config_toml(toml::parse(input), {});
         REQUIRE(result);
-        REQUIRE(!result->repo);
+        REQUIRE(result->repos.empty());
         REQUIRE(result->color);
         REQUIRE(result->color.value() == true);
         REQUIRE(result->elastic_config);
@@ -152,25 +154,27 @@ name = "therepo"
 path = "/home/bobsmith/.uenvrepo")"sv;
         auto result = parse_config_toml(toml::parse(input), {});
         REQUIRE(result);
-        REQUIRE(result->repo);
-        REQUIRE(result->repo.value() == "/home/bobsmith/.uenvrepo");
+        REQUIRE(result->repos.size() == 1u);
+        REQUIRE(result->repos[0].path == "/home/bobsmith/.uenvrepo");
+        REQUIRE(result->repos[0].name == "therepo");
         REQUIRE(!result->color);
         REQUIRE(!result->elastic_config);
     }
+
     // check variable expansion in repository path
     {
         const std::string_view input = R"(
 [[repositories]]
 name = "envrepo"
-path = "${REPO}")"sv;
+path = "${REPO}/.uenv")"sv;
         auto env = envvars::state{};
         env.set("REPO", "/repopath");
         auto result = parse_config_toml(toml::parse(input), env);
-        if (!result)
-            fmt::println("***************************** {}", result.error());
         REQUIRE(result);
-        REQUIRE(result->repo);
-        REQUIRE(result->repo.value() == "/repopath");
+        REQUIRE(result->repos.size() == 1u);
+        const auto& repo = result->repos.front();
+        REQUIRE(repo.path == "/repopath/.uenv");
+        REQUIRE(repo.name == "envrepo");
     }
 
     // check error reporting
