@@ -82,7 +82,7 @@ parse_cluster_name(const std::string& in);
 
 util::expected<std::string, parse_error> parse_repo_name(const std::string& in);
 
-util::expected<std::vector<repo_description>, parse_error>
+util::expected<std::vector<repo_label>, parse_error>
 parse_repo_list(const std::string& in);
 
 util::expected<util::semver, parse_error> parse_semver(const std::string& arg);

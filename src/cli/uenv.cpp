@@ -39,8 +39,8 @@ int main(int argc, char** argv) {
     uenv::config_base cli_config;
     uenv::global_settings settings;
     bool print_version = false;
-    // holds the string
     std::optional<std::string> cli_repo{};
+    std::optional<std::vector<uenv::repo_label>> cli_repo_labels{};
 
     CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
     cli.add_flag("--version", print_version, "print version");
     // TODO
     // cli.add_option("--repo", cli_config.repo, "the uenv repository");
-    cli.add_option("--repo", cli_repo, "the uenv repository");
+    cli.add_option("--repo", cli_repo, "the uenv repository description");
 
     cli.footer(help_footer);
 
@@ -104,23 +104,39 @@ int main(int argc, char** argv) {
 
     // parse the repo flag if it was passed
     if (cli_repo) {
+        // TODO:
+        // - parse the list
+        // - then validate that each one exists: it should be a hard error for
+        //   an explicitly requested repo to not exist
         if (const auto result = uenv::parse_repo_list(cli_repo.value())) {
-            cli_config.repos = result.value();
+            cli_repo_labels = result.value();
         } else {
-            term::error("invalide --repo argument: {}",
+            term::error("invalid --repo argument: {}",
                         result.error().description);
             return 1;
         }
     }
 
+    // TODO: adding support for more than one repo has surfaced the problem with
+    // automatically creating the user's default repository: we are trying to
+    // generate any repos in the repo list that have not been created.
+    // Revisit the behavior:
+    // - we could only create any repo named "default"
+    // - we could only create repos that are explicitly provided using --repo
+    // I prefer the first option, so that users do not "accidentally" create new
+    // repos when they have a typo
+
     // set the configuration according to defaults, cli options and config
     // files.
-    auto full_config =
-        uenv::load_config(cli_config, settings.calling_environment);
-
-    // generate_configuration applies checks to ensure that paths in the config
-    // exist. If they don't it unsets them with warning messages.
-    settings.config = uenv::generate_configuration(full_config);
+    if (auto full_config = uenv::load_config(cli_config, cli_repo_labels,
+                                             settings.calling_environment)) {
+        // generate_configuration applies checks to ensure that paths in the
+        // config exist. If they don't it unsets them with warning messages.
+        settings.config = uenv::generate_configuration(full_config.value());
+    } else {
+        term::error("{}", full_config.error());
+        return 1;
+    }
 
     if (!settings.config.repo) {
         term::warn("there is no valid repo - use the --repo flag or edit the "

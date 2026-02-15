@@ -664,28 +664,67 @@ parse_repo_name(const std::string& in) {
     return result;
 }
 
+// TODO: repo_description is not suitable here, because it should really be a
+// discriminated union of [name, path]
+util::expected<repo_label, parse_error> parse_repo_label(lex::lexer& L) {
+    // check whether the description starts with a name
+    if (auto name = parse_repo_name(L)) {
+        // check whether the label is of the form name=path
+        if (L == lex::tok::equals) {
+            // eat the leading '=' token
+            L.next();
+            if (auto path = parse_path(L)) {
+
+                return repo_description{.name = name.value(),
+                                        .path = path.value()};
+            } else {
+                return util::unexpected{path.error()};
+            }
+        }
+        return name.value();
+    } else if (auto path = parse_path(L)) {
+        return std::filesystem::path(path.value());
+    }
+    return util::unexpected{
+        parse_error{L.string(), "expected a name or a path", L.peek()}};
+}
+
 // TODO: this simply passes a single directory/path and converts it into a
 // repo_description with name "cli".
 // This will want to be rejigged to parse a list, and will probably have to
-// return a different type that can contain a list of either name, path, or a
-// named path.
-util::expected<std::vector<repo_description>, parse_error>
+// return a different type that can contain a list of either name, path, or
+// a named path.
+util::expected<std::vector<repo_label>, parse_error>
 parse_repo_list(const std::string& in) {
     const std::string sanitised = util::strip(in);
     auto L = lex::lexer(sanitised);
-    const auto result = parse_path(L);
 
-    if (!result) {
-        return util::unexpected{result.error()};
+    std::vector<repo_label> labels;
+    while (true) {
+        if (auto label = parse_repo_label(L)) {
+            labels.push_back(std::move(label.value()));
+        } else {
+            return util::unexpected{label.error()};
+        }
+
+        if (L.peek().kind != lex::tok::comma) {
+            break;
+        }
+        L.next();
+
+        // handle trailing comma elegantly
+        if (L.peek().kind == lex::tok::end) {
+            break;
+        }
     }
-
+    // if parsing finished and the string has not been consumed,
+    // and invalid token was encountered
     if (const auto t = L.peek(); t.kind != lex::tok::end) {
         return util::unexpected(parse_error{
-            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+            L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
     }
 
-    return std::vector<repo_description>{
-        {.name = "cli", .path = result.value(), .priority = 0}};
+    return labels;
 }
 
 // tokens that can appear in configuration keys

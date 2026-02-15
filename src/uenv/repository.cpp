@@ -148,6 +148,50 @@ validate_repo_path(const std::string& path, bool is_absolute, bool exists) {
     return fs::absolute(p);
 }
 
+//
+// repo_label implementation
+//
+
+bool repo_label::is_name() const {
+    return value_.index() == 0u;
+}
+
+bool repo_label::is_path() const {
+    return value_.index() == 1u;
+}
+
+bool repo_label::is_description() const {
+    return value_.index() == 2u;
+}
+
+const std::string& repo_label::as_name() const {
+    return get<0>(value_);
+}
+
+const std::filesystem::path& repo_label::as_path() const {
+    return get<1>(value_);
+}
+
+const repo_description& repo_label::as_description() const {
+    return get<2>(value_);
+}
+
+//
+// repo_list implementation
+//
+
+repo_list::repo_list(std::vector<repo_description> R) : repos(std::move(R)) {
+    std::stable_sort(repos.begin(), repos.end(),
+                     [](const auto& lhs, const auto& rhs) {
+                         return lhs.priority < rhs.priority;
+                     });
+}
+
+// a repo list evaluates to true if there is at least one.
+repo_list::operator bool() const {
+    return repos.size() > 0u;
+}
+
 // A thin wrapper around sqlite3*
 // A shared pointer with a custom destructor that calls the sqlite3 C
 // API descructor is used to manage the lifetime of the sqlite3* object.

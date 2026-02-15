@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include <fmt/format.h>
+
 #include <uenv/uenv.h>
 #include <util/envvars.h>
 #include <util/expected.h>
@@ -16,6 +18,31 @@ struct repo_description {
     std::string name;
     std::string path;
     std::uint32_t priority = default_priority;
+};
+
+class repo_label {
+  public:
+    template <typename T> repo_label(T value) : value_{std::move(value)} {};
+
+    bool is_name() const;
+    bool is_path() const;
+    bool is_description() const;
+    const std::string& as_name() const;
+    const std::filesystem::path& as_path() const;
+    const repo_description& as_description() const;
+
+  private:
+    std::variant<std::string, std::filesystem::path, repo_description> value_;
+};
+
+struct repo_list {
+    repo_list(std::vector<repo_description>);
+    repo_list() = default;
+    // void append(const repo_list& other);
+
+    operator bool() const;
+
+    std::vector<repo_description> repos;
 };
 
 class record_set {
@@ -158,5 +185,21 @@ template <> class fmt::formatter<uenv::repo_state> {
             return format_to(ctx.out(), "invalid");
         }
         return format_to(ctx.out(), "unknonwn");
+    }
+};
+
+template <> class fmt::formatter<uenv::repo_description> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(uenv::repo_description const& d,
+                          FmtContext& ctx) const {
+        // return format_to(ctx.out(), "[{}: path={}]", d.priority, d.path);
+        return fmt::format_to(ctx.out(), "[name={}, path={}, priority={}]",
+                              d.name, d.name, d.priority);
     }
 };

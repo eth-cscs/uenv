@@ -103,7 +103,7 @@ function teardown() {
 
     run uenv --repo=/wombat image ls --no-header
     assert_failure
-    assert_output --partial "the repository /wombat does not exist"
+    assert_output --partial "the repository '/wombat' does not exist"
 
     run uenv --repo=$REPOS/apptool image ls --no-header
     assert_success

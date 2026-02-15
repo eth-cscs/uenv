@@ -16,6 +16,7 @@ parse_uenv_description(lex::lexer&);
 util::expected<view_description, parse_error>
 parse_view_description(lex::lexer& L);
 util::expected<mount_description, parse_error> parse_mount_entry(lex::lexer& L);
+util::expected<repo_label, parse_error> parse_repo_label(lex::lexer& L);
 } // namespace uenv
 
 TEST_CASE("parse names", "[parse]") {
@@ -515,6 +516,50 @@ TEST_CASE("repo_name", "[parse]") {
     REQUIRE(!uenv::parse_repo_name("main?"));
 }
 
+TEST_CASE("parse repo label", "[parse]") {
+    {
+        auto L = lex::lexer("wombat");
+        auto result = uenv::parse_repo_label(L);
+        REQUIRE(result);
+        REQUIRE(result.value().is_name());
+        REQUIRE(!result.value().is_path());
+        REQUIRE(!result.value().is_description());
+        REQUIRE(result.value().as_name() == "wombat");
+    }
+    {
+        auto L = lex::lexer("/path/to/repo");
+        auto result = uenv::parse_repo_label(L);
+        REQUIRE(result);
+        REQUIRE(!result.value().is_name());
+        REQUIRE(result.value().is_path());
+        REQUIRE(!result.value().is_description());
+        REQUIRE(result.value().as_path() == "/path/to/repo");
+    }
+    {
+        auto L = lex::lexer("wombat=/the/burrow");
+        auto result = uenv::parse_repo_label(L);
+        REQUIRE(result);
+        REQUIRE(!result.value().is_name());
+        REQUIRE(!result.value().is_path());
+        REQUIRE(result.value().is_description());
+        auto d = result.value().as_description();
+        REQUIRE(d.name == "wombat");
+        REQUIRE(d.path == "/the/burrow");
+    }
+    {
+        auto L = lex::lexer(",");
+        auto result = uenv::parse_repo_label(L);
+        REQUIRE(!result);
+        REQUIRE(result.error().detail == "expected a name or a path");
+    }
+    {
+        auto L = lex::lexer("wombat=x");
+        auto result = uenv::parse_repo_label(L);
+        REQUIRE(!result);
+        REQUIRE(result.error().detail.starts_with("expected a path"));
+    }
+}
+
 TEST_CASE("semver", "[parse]") {
     for (std::string s : {"0.1", "1.2.1", "2.3.1", "2.3-dev-3+build-23"}) {
         REQUIRE(uenv::parse_semver(s));
@@ -580,9 +625,9 @@ TEST_CASE("semver", "[parse]") {
     // examples from semver spec
 
     // https://semver.org/#spec-item-10
-    //  note we don't enforce that numbers following points can't have leading
-    //  zeros so we parse invalid semver, however valid semver are parsed
-    //  correctly
+    //  note we don't enforce that numbers following points can't have
+    //  leading zeros so we parse invalid semver, however valid semver are
+    //  parsed correctly
     for (std::string s :
          {"1.0.0-alpha+001", "1.0.0+20130313144700",
           "1.0.0-beta+exp.sha.5114f85", "1.0.0+21AF26D3----117B344092BD"}) {

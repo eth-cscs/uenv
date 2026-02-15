@@ -39,8 +39,13 @@ struct config_error {
 // find the final configuration
 // loads system and user configurations and merges them with the cli
 // arguments and default settngs.
-config_base load_config(const uenv::config_base& cli_config,
-                        const envvars::state& calling_env);
+//
+// the repos list is the list of repository labels provided using the --repo
+// flag
+util::expected<config_base, std::string>
+load_config(const uenv::config_base& cli_config,
+            const std::optional<std::vector<repo_label>>& repos,
+            const envvars::state& calling_env);
 
 struct configuration {
     std::optional<std::filesystem::path> repo;

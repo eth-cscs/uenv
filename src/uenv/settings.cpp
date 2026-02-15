@@ -1,8 +1,10 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <set>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 #include <toml++/toml.hpp>
@@ -27,8 +29,8 @@ const std::string config_file_default =
 
 # set the path to the local uenv repository
 #[[repositories]]
-#name = team
-#path = /store/g123/uenv/repo
+#name = 'team'
+#path = '/store/g123/uenv/repo'
 )";
 
 util::unexpected<config_error> make_config_error(std::string message,
@@ -90,7 +92,8 @@ config_base default_config(const envvars::state& env) {
 
     if (rexist || ravail) {
         return {
-            .repos = {{.name = "user", .path = (rexist ? *rexist : *ravail)}},
+            .repos = {{.name = "default",
+                       .path = (rexist ? *rexist : *ravail)}},
             .color = color::default_color(env),
         };
     }
@@ -243,20 +246,87 @@ load_system_config(const envvars::state& calling_env) {
     }
 }
 
-config_base load_config(const uenv::config_base& cli_config,
-                        const envvars::state& calling_env) {
+util::expected<config_base, std::string>
+load_config(const uenv::config_base& cli_config,
+            const std::optional<std::vector<repo_label>>& repos,
+            const envvars::state& calling_env) {
     auto config = uenv::default_config(calling_env);
+
     if (auto sys = uenv::load_system_config(calling_env)) {
         config = merge(*sys, config);
     } else {
         spdlog::warn("load_config::did not load system config file: {}",
                      sys.error());
     }
+
     if (auto usr = uenv::load_user_config(calling_env)) {
         config = merge(*usr, config);
     } else {
         spdlog::warn("load_config::did not load user config: {}", usr.error());
     }
+
+    if (repos) {
+        std::set<std::string> reserved_names;
+        auto unique_name = [&reserved_names]() -> std::string {
+            int idx = 0;
+            while (reserved_names.count(fmt::format("anon{}", idx))) {
+                ++idx;
+            }
+            return fmt::format("anon{}", idx);
+        };
+
+        for (const auto& r : config.repos) {
+            reserved_names.insert(r.name);
+        }
+        std::vector<repo_description> descriptions{};
+        for (const auto& r : repos.value()) {
+            repo_description description;
+            if (r.is_name()) {
+                const auto name = r.as_name();
+
+                if (auto pos = std::find_if(
+                        config.repos.begin(), config.repos.end(),
+                        [&name](const auto& rd) { return name == rd.name; });
+                    pos != config.repos.end()) {
+                    // do not copy directly from pos so that priority of the
+                    // repo is reset to the default. This matters because the
+                    // order of repos listed in the --repo command line should
+                    // be preserved.
+                    description = {.name = pos->name, .path = pos->path};
+                } else {
+                    return util::unexpected{fmt::format(
+                        "there is no repo with the name {}", r.as_name())};
+                }
+            } else if (r.is_path()) {
+                description = {.name = unique_name(),
+                               .path = r.as_path().string()};
+            } else {
+                const auto& d = r.as_description();
+                description = {.name = d.name, .path = d.path};
+                reserved_names.insert(d.name);
+            }
+
+            // check that the path points to a valid repo
+            if (auto result = validate_repo_path(description.path, false, true);
+                !result) {
+                return util::unexpected{
+                    fmt::format("the repository {}", result.error())};
+            }
+
+            descriptions.push_back(std::move(description));
+        }
+
+        // delete all repos in the accumulate config
+        config.repos = {};
+
+        // make a copy of cli_config and replace its repos with the cli-provided
+        // list
+        auto modified_cli_config = cli_config;
+        modified_cli_config.repos = descriptions;
+
+        return merge(modified_cli_config, config);
+    }
+
     return merge(cli_config, config);
 }
 
@@ -307,10 +377,6 @@ read_config_file(const std::filesystem::path& path,
     config_base config;
     for (auto [key, value] : settings) {
         if (key == "repo") {
-            /*
-            config.repo =
-                calling_env.expand(value, envvars::expand_delim::curly);
-            */
             config.repos = {{.name = "default",
                              .path = calling_env.expand(
                                  value, envvars::expand_delim::curly)}};
@@ -349,7 +415,6 @@ parse_repository_array(const toml::node& input,
                                  input.source().begin.line);
     }
 
-    // the nested loop is overkill when we only expect a single
     std::vector<repo_description> result;
     result.reserve(arr->size());
     for (const auto& element : *arr) {
@@ -368,7 +433,8 @@ parse_repository_array(const toml::node& input,
                             path = std::move(expanded);
                         } else {
                             return make_config_error(
-                                "repository.path must be a string describing a "
+                                "repository.path must be a string "
+                                "describing a "
                                 "valid path",
                                 value.source().begin.line);
                         }
@@ -401,6 +467,9 @@ parse_repository_array(const toml::node& input,
                                          element.source().begin.line);
             }
             // TODO: validate the inputs here
+            // this should only generate warnings if an invalid repo is
+            // specified, because an invalid description read from a system
+            // configuration can't be modified by the user.
             result.push_back({.name = std::move(name.value()),
                               .path = std::move(path.value()),
                               .priority = priority});
@@ -457,6 +526,7 @@ parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
         const auto& value = entry.second;
         if (key == "color") {
             if (auto v = value.value<bool>()) {
+                spdlog::debug("parse_config_yaml: added color {}", v.value());
                 config.color = v;
             } else {
                 return make_config_error(
@@ -465,19 +535,24 @@ parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
             }
         } else if (key == "elastic") {
             if (auto v = parse_elastic(value)) {
+                spdlog::debug("parse_config_yaml: added elastic {}", v.value());
                 config.elastic_config = v.value();
             } else {
                 return util::unexpected{v.error()};
             }
         } else if (key == "repositories") {
             if (const auto v = parse_repository_array(value, calling_env)) {
+                spdlog::debug("parse_config_yaml: added repo {}",
+                              *(v.value().begin()));
+                // fmt::join(v.value(), ","));
                 config.repos = v.value();
             } else {
                 return util::unexpected{v.error()};
             }
         } else {
-            return make_config_error(fmt::format("unexpected key '{}'", key),
-                                     value.source().begin.line);
+            const auto error = fmt::format("unexpected key '{}'", key);
+            spdlog::error("parse_config_toml: {}", error);
+            return make_config_error(error, value.source().begin.line);
         }
     }
 
