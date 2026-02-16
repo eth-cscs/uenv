@@ -19,6 +19,11 @@ conf_data = configuration_data()
 
 add_global_arguments('-Wno-missing-field-initializers', language : 'cpp')
 
+# fixes warnings generated when building curl and sqlite3
+# that started to occur with gcc 15.2.1
+# Note that we only apply this to C, so it should not be applied to the C++ code
+add_global_arguments('-Wno-discarded-qualifiers', language : 'c')
+
 # configure the dependencies
 
 # use meson wrap to provide the dependencies, because the 'default_library=static' option
