@@ -108,6 +108,23 @@ resolve_repo_path(std::optional<std::string> path,
     return util::unexpected("no repo path provided");
 }
 
+util::expected<std::vector<uenv::repo_description>, std::string>
+resolve_repo_list(std::optional<std::string> repo_arg,
+                  const global_settings& settings) {
+    if (repo_arg) {
+        /*
+        if (auto result = parse_path(*path); !result) {
+            return util::unexpected(result.error().message());
+        }
+        return *path;
+        */
+    }
+    if (settings.config.repo) {
+        return settings.config.repo.value();
+    }
+    return util::unexpected("no repo path provided");
+}
+
 struct repo_consistency {
     // a list of all digests that have missing squashfs or store paths
     std::unordered_map<uenv::sha256, std::vector<uenv::uenv_record>> no_storage;

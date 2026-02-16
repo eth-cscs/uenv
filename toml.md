@@ -65,11 +65,13 @@ We might want two behaviors:
     + sorting of repos
     + overwriting the final list based on repo
 + update CLI parsing to parse args like `--repo=$HOME/myrepo,site`
+- store repos as a list e2e (with validated list of repos inside the global)
+    - raise the search code to a single interface that is used by all sites (ls, run, start, etc)
+    - initially simply search the first repo in the list to reproduce current behavior
+- update `uenv repo` command to handle multi-repo case
 - implement validation and initialization of input repos
     - this includes logic for creating default repo in a logical way
-- update `uenv repo` command to handle multi-repo case
-- search repos in order
-    - raise this to a single interface used by all methods that search/find in a repo
+- implement multi-repo search
 - update vservice to take an argument that points to a cluster-specific repo
 
 ## toml spec
