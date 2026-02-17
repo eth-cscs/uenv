@@ -110,11 +110,12 @@ if uenv_cli
             'src/cli/completion.cpp',
     ]
 
+    xxd = find_program('xxd', required : true)
     completion_bash_dep = custom_target(
         'completion-bash-dep',
         input: 'src/cli/completion.bash',
         output: 'completion.bash.h',
-        command: ['xxd', '-i', '-n', 'completion_bash_main', '@INPUT@', '@OUTPUT@'])
+        command: [xxd, '-i', '-n', 'completion_bash_main', '@INPUT@', '@OUTPUT@'])
 
     cli = executable('uenv',
             sources: cli_src + completion_bash_dep,
