@@ -19,6 +19,11 @@ conf_data = configuration_data()
 
 add_global_arguments('-Wno-missing-field-initializers', language : 'cpp')
 
+# fixes warnings generated when building curl and sqlite3
+# that started to occur with gcc 15.2.1
+# Note that we only apply this to C, so it should not be applied to the C++ code
+add_global_arguments('-Wno-discarded-qualifiers', language : 'c')
+
 # configure the dependencies
 
 # use meson wrap to provide the dependencies, because the 'default_library=static' option
@@ -110,8 +115,15 @@ if uenv_cli
             'src/cli/completion.cpp',
     ]
 
+    xxd = find_program('xxd', required : true)
+    completion_bash_dep = custom_target(
+        'completion-bash-dep',
+        input: 'src/cli/completion.bash',
+        output: 'completion.bash.h',
+        command: [xxd, '-i', '-n', 'completion_bash_main', '@INPUT@', '@OUTPUT@'])
+
     cli = executable('uenv',
-            sources: cli_src,
+            sources: cli_src + completion_bash_dep,
             dependencies: [uenv_dep, sqlite3_dep, fmt_dep, spdlog_dep, cli11_dep, barkeep_dep],
             c_args: [
               '-DVERSION="@0@"'.format(version),
