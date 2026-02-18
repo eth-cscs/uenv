@@ -246,6 +246,61 @@ load_system_config(const envvars::state& calling_env) {
     }
 }
 
+util::expected<std::vector<repo_description>, std::string>
+filter_repo_list(const std::vector<repo_label>& labels,
+                 const std::vector<repo_description>& descriptions) {
+    std::set<std::string> reserved_names;
+    auto unique_name = [&reserved_names]() -> std::string {
+        int idx = 0;
+        while (reserved_names.count(fmt::format("anon{}", idx))) {
+            ++idx;
+        }
+        return fmt::format("anon{}", idx);
+    };
+
+    for (const auto& r : descriptions) {
+        reserved_names.insert(r.name);
+    }
+    std::vector<repo_description> output{};
+    for (const auto& r : labels) {
+        repo_description description;
+        if (r.is_name()) {
+            const auto name = r.as_name();
+
+            if (auto pos = std::find_if(
+                    descriptions.begin(), descriptions.end(),
+                    [&name](const auto& rd) { return name == rd.name; });
+                pos != descriptions.end()) {
+                // do not copy directly from pos so that priority of the
+                // repo is reset to the default. This matters because the
+                // order of repos listed in the --repo command line should
+                // be preserved.
+                description = {.name = pos->name, .path = pos->path};
+            } else {
+                return util::unexpected{fmt::format(
+                    "there is no repo with the name {}", r.as_name())};
+            }
+        } else if (r.is_path()) {
+            description = {.name = unique_name(), .path = r.as_path().string()};
+        } else {
+            const auto& d = r.as_description();
+            description = {.name = d.name, .path = d.path};
+            reserved_names.insert(d.name);
+        }
+
+        // check that the path points to a valid repo
+        if (auto result = validate_repo_path(description.path, false, true);
+            !result) {
+            return util::unexpected{
+                fmt::format("the repository {}", result.error())};
+        }
+
+        output.push_back(std::move(description));
+    }
+
+    return output;
+}
+
 util::expected<config_base, std::string>
 load_config(const uenv::config_base& cli_config,
             const std::optional<std::vector<repo_label>>& repos,
@@ -289,9 +344,9 @@ load_config(const uenv::config_base& cli_config,
                         [&name](const auto& rd) { return name == rd.name; });
                     pos != config.repos.end()) {
                     // do not copy directly from pos so that priority of the
-                    // repo is reset to the default. This matters because the
-                    // order of repos listed in the --repo command line should
-                    // be preserved.
+                    // repo is reset to the default. This matters because
+                    // the order of repos listed in the --repo command line
+                    // should be preserved.
                     description = {.name = pos->name, .path = pos->path};
                 } else {
                     return util::unexpected{fmt::format(
@@ -319,8 +374,8 @@ load_config(const uenv::config_base& cli_config,
         // delete all repos in the accumulate config
         config.repos = {};
 
-        // make a copy of cli_config and replace its repos with the cli-provided
-        // list
+        // make a copy of cli_config and replace its repos with the
+        // cli-provided list
         auto modified_cli_config = cli_config;
         modified_cli_config.repos = descriptions;
 
