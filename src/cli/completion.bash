@@ -71,7 +71,6 @@ _uenv_completions()
     # flags are shown just if user started writing a dash '-'. in case, suggest flags only.
     -*)
       COMPREPLY=($(compgen -W "${UENV_NONPOSITIONALS}" -- "${cur}"))
-      return 0
       ;;
     *)
       # add sub-commands to list of suggestions (compatible with user hint)
@@ -81,7 +80,6 @@ _uenv_completions()
       # TODO skip if uenv label has been specified
       # if the command accepts a uenv label add also available uenvs labels
       if [ "${UENV_ACCEPT_LABEL}" = "true" ]; then
-
         local -a UENVS_LOCAL=$(_uenv_helper_images_ls)
         COMPREPLY+=($(compgen -W "${UENVS_LOCAL[*]}" -- "${cur}"))
 
@@ -92,20 +90,11 @@ _uenv_completions()
 
         # if hint looks like a path, or there is no other option, show file completions
         if [[ $cur == ./* || $cur == /* || ${#COMPREPLY[@]} -eq 0 ]]; then
-          # show dirs + *.squashfs files
-          local -a FILE_OPTS=($(compgen -o plusdirs -f -X!*.squashfs -- "${cur}"))
+          local -a FILE_OPTS=($(compgen -f -X!*.squashfs -- "${cur}"))
+          local -a DIRS_OPTS=($(compgen -d -- "${cur}"))
 
-          # disable automatic space after hints, so we can manage it as we like:
-          # - no space after dirs: we want to keep completing this part until a file is selected
-          # - add space after file: a file is a valid uenv label, so accept and pass to next part
-          compopt -o nospace
-          for item in "${FILE_OPTS[@]}"; do
-            if [[ -d "${item}" ]]; then
-              COMPREPLY+=("${item}/")
-            else
-              COMPREPLY+=("${item} ")
-            fi
-          done
+          COMPREPLY=(${FILE_OPTS[@]} ${DIRS_OPTS[@]})
+          compopt -o filenames
         fi
       fi
       ;;
