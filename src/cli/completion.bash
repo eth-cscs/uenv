@@ -54,7 +54,7 @@ _uenv_completions()
   # Create CMD_PARTS as an array of words (mainly commands and sub-commands, but not only)
   # where flags are filtered (i.e. words starting with - and -- are ignored)
   local -a CMD_PARTS
-  for cmd_part in "${words[@]}"; do
+  for cmd_part in "${words[@]::$cword}"; do
     if [[ $cmd_part != -* && $cmd_part != --* ]]; then
       CMD_PARTS+=("${cmd_part}")
     fi
