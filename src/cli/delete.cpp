@@ -31,7 +31,7 @@ void image_delete_args::add_cli(CLI::App& cli,
     auto* delete_cli =
         cli.add_subcommand("delete", "delete a uenv from a remote registry");
     delete_cli
-        ->add_option("uenv", uenv_description,
+        ->add_option("uenv-from-registry", uenv_description,
                      "either name/version:tag, sha256 or id")
         ->required();
     delete_cli
