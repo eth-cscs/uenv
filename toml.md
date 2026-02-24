@@ -90,3 +90,28 @@ priority = uint32
 
 url = string
 ```
+
+## search function
+
+```cpp
+// find a uenv based on description that might be a concrete squashfs path OR a label
+// - run, start
+resolve_uenv(string description, [repo_description] repos) -> [uenv_info]
+
+// search for a label in a list of repos
+// - return error if repos is empty: lower all that checking to the function, instead of replicating in all call sites
+// - image ls
+// - todo: uenv_label might need to be populated with system name _before_
+resolve_uenv(uenv_label label, [repo_description] repos) -> [uenv_info]
+
+// search an individual repo
+// maybe this is not needed, if we can call the database routine below
+resolve_uenv(uenv_label label, repo_description repo) -> [uenv_info]
+
+// search through open database
+// - image find
+resolve_uenv(uenv_label label, database store) -> [uenv_info]
+````
+
+The current `resolve_uenv` function takes as its input a label and a repo path
+- it 

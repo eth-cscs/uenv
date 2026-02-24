@@ -18,6 +18,8 @@ struct repo_description {
     std::string name;
     std::string path;
     std::uint32_t priority = default_priority;
+    friend bool operator<(const repo_description& lhs,
+                          const repo_description& rhs);
 };
 
 class repo_label {
@@ -35,6 +37,8 @@ class repo_label {
     std::variant<std::string, std::filesystem::path, repo_description> value_;
 };
 
+// TODO: replace std::vector<repo_descritption> with repo_list everywhere
+// - think about how and when sorting should be applied
 struct repo_list {
     repo_list(std::vector<repo_description>);
     repo_list() = default;
@@ -44,6 +48,11 @@ struct repo_list {
 
     std::vector<repo_description> repos;
 };
+
+util::expected<std::vector<repo_description>, std::string>
+filter_repo_list(const std::vector<repo_label>& labels,
+                 const std::vector<repo_description>& descriptions,
+                 bool validate = true);
 
 class record_set {
     std::vector<uenv_record> records_;
@@ -198,8 +207,7 @@ template <> class fmt::formatter<uenv::repo_description> {
     template <typename FmtContext>
     constexpr auto format(uenv::repo_description const& d,
                           FmtContext& ctx) const {
-        // return format_to(ctx.out(), "[{}: path={}]", d.priority, d.path);
         return fmt::format_to(ctx.out(), "[name={}, path={}, priority={}]",
-                              d.name, d.name, d.priority);
+                              d.name, d.path, d.priority);
     }
 };

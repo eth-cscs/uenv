@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <set>
 #include <vector>
 
 #include <uenv/parse.h>
@@ -146,6 +147,74 @@ validate_repo_path(const std::string& path, bool is_absolute, bool exists) {
         return unexpected(fmt::format("'{}' does not exist.", path));
     }
     return fs::absolute(p);
+}
+
+util::expected<std::vector<repo_description>, std::string>
+filter_repo_list(const std::vector<repo_label>& labels,
+                 const std::vector<repo_description>& descriptions,
+                 bool validate) {
+    std::set<std::string> reserved_names;
+    auto unique_name = [&reserved_names]() -> std::string {
+        constexpr auto base = "anonymous";
+        if (!reserved_names.count(base)) {
+            return base;
+        }
+        int idx = 0;
+        while (reserved_names.count(fmt::format("{}{}", base, idx))) {
+            ++idx;
+        }
+        return fmt::format("{}{}", base, idx);
+    };
+
+    for (const auto& r : descriptions) {
+        reserved_names.insert(r.name);
+    }
+    std::vector<repo_description> output{};
+    for (const auto& r : labels) {
+        repo_description description;
+        if (r.is_name()) {
+            const auto name = r.as_name();
+
+            if (auto pos = std::find_if(
+                    descriptions.begin(), descriptions.end(),
+                    [&name](const auto& rd) { return name == rd.name; });
+                pos != descriptions.end()) {
+                // do not copy directly from pos so that priority of the
+                // repo is reset to the default. This matters because the
+                // order of repos listed in the --repo command line should
+                // be preserved.
+                description = {.name = pos->name,
+                               .path = pos->path,
+                               .priority = repo_description::default_priority};
+            } else {
+                return util::unexpected{fmt::format(
+                    "there is no repo with the name {}", r.as_name())};
+            }
+        } else if (r.is_path()) {
+            description = {.name = unique_name(), .path = r.as_path().string()};
+        } else {
+            const auto& d = r.as_description();
+            description = {.name = d.name, .path = d.path};
+            reserved_names.insert(d.name);
+        }
+
+        // check that the path points to a valid repo
+        if (validate) {
+            if (auto result = validate_repo_path(description.path, false, true);
+                !result) {
+                return util::unexpected{
+                    fmt::format("the repository {}", result.error())};
+            }
+        }
+
+        output.push_back(std::move(description));
+    }
+
+    return output;
+}
+
+bool operator<(const repo_description& lhs, const repo_description& rhs) {
+    return lhs.priority < rhs.priority;
 }
 
 //

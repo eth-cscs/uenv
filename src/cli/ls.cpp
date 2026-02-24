@@ -56,6 +56,7 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
         return 1;
     }
 
+    // TODO: raise the search function to a standalone function
     // open the repo
     auto store = uenv::open_repository(settings.config.repo.value());
     if (!store) {

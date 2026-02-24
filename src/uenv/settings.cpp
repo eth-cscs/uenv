@@ -106,17 +106,11 @@ config_base default_config(const envvars::state& env) {
 configuration generate_configuration(const config_base& base) {
     configuration config;
 
-    // set the repo path
-    // initialise to unset
-    config.repo = {};
-    // TODO here we convert from the input list to a validated repo path
-    // - create a validated list
-    // - sort by priority
-    if (!base.repos.empty()) {
-        if (auto path = parse_path(base.repos[0].path)) {
+    for (auto& repo : base.repos) {
+        if (auto path = parse_path(repo.path)) {
             if (auto rpath =
                     uenv::validate_repo_path(path.value(), false, false)) {
-                config.repo = path.value();
+                config.repos.push_back(repo);
             } else {
                 spdlog::warn("invalid repo path {}", rpath.error());
             }
@@ -124,6 +118,8 @@ configuration generate_configuration(const config_base& base) {
             spdlog::warn("invalid repo path {}", path.error().message());
         }
     }
+    // TODO: sort will not be needed if we manage repos in their own type?
+    std::stable_sort(config.repos.begin(), config.repos.end());
 
     // disable color output if it has not be enabled/disabled
     config.color = base.color.value_or(false);
@@ -246,61 +242,6 @@ load_system_config(const envvars::state& calling_env) {
     }
 }
 
-util::expected<std::vector<repo_description>, std::string>
-filter_repo_list(const std::vector<repo_label>& labels,
-                 const std::vector<repo_description>& descriptions) {
-    std::set<std::string> reserved_names;
-    auto unique_name = [&reserved_names]() -> std::string {
-        int idx = 0;
-        while (reserved_names.count(fmt::format("anon{}", idx))) {
-            ++idx;
-        }
-        return fmt::format("anon{}", idx);
-    };
-
-    for (const auto& r : descriptions) {
-        reserved_names.insert(r.name);
-    }
-    std::vector<repo_description> output{};
-    for (const auto& r : labels) {
-        repo_description description;
-        if (r.is_name()) {
-            const auto name = r.as_name();
-
-            if (auto pos = std::find_if(
-                    descriptions.begin(), descriptions.end(),
-                    [&name](const auto& rd) { return name == rd.name; });
-                pos != descriptions.end()) {
-                // do not copy directly from pos so that priority of the
-                // repo is reset to the default. This matters because the
-                // order of repos listed in the --repo command line should
-                // be preserved.
-                description = {.name = pos->name, .path = pos->path};
-            } else {
-                return util::unexpected{fmt::format(
-                    "there is no repo with the name {}", r.as_name())};
-            }
-        } else if (r.is_path()) {
-            description = {.name = unique_name(), .path = r.as_path().string()};
-        } else {
-            const auto& d = r.as_description();
-            description = {.name = d.name, .path = d.path};
-            reserved_names.insert(d.name);
-        }
-
-        // check that the path points to a valid repo
-        if (auto result = validate_repo_path(description.path, false, true);
-            !result) {
-            return util::unexpected{
-                fmt::format("the repository {}", result.error())};
-        }
-
-        output.push_back(std::move(description));
-    }
-
-    return output;
-}
-
 util::expected<config_base, std::string>
 load_config(const uenv::config_base& cli_config,
             const std::optional<std::vector<repo_label>>& repos,
@@ -321,54 +262,10 @@ load_config(const uenv::config_base& cli_config,
     }
 
     if (repos) {
-        std::set<std::string> reserved_names;
-        auto unique_name = [&reserved_names]() -> std::string {
-            int idx = 0;
-            while (reserved_names.count(fmt::format("anon{}", idx))) {
-                ++idx;
-            }
-            return fmt::format("anon{}", idx);
-        };
+        auto descriptions = filter_repo_list(*repos, config.repos);
 
-        for (const auto& r : config.repos) {
-            reserved_names.insert(r.name);
-        }
-        std::vector<repo_description> descriptions{};
-        for (const auto& r : repos.value()) {
-            repo_description description;
-            if (r.is_name()) {
-                const auto name = r.as_name();
-
-                if (auto pos = std::find_if(
-                        config.repos.begin(), config.repos.end(),
-                        [&name](const auto& rd) { return name == rd.name; });
-                    pos != config.repos.end()) {
-                    // do not copy directly from pos so that priority of the
-                    // repo is reset to the default. This matters because
-                    // the order of repos listed in the --repo command line
-                    // should be preserved.
-                    description = {.name = pos->name, .path = pos->path};
-                } else {
-                    return util::unexpected{fmt::format(
-                        "there is no repo with the name {}", r.as_name())};
-                }
-            } else if (r.is_path()) {
-                description = {.name = unique_name(),
-                               .path = r.as_path().string()};
-            } else {
-                const auto& d = r.as_description();
-                description = {.name = d.name, .path = d.path};
-                reserved_names.insert(d.name);
-            }
-
-            // check that the path points to a valid repo
-            if (auto result = validate_repo_path(description.path, false, true);
-                !result) {
-                return util::unexpected{
-                    fmt::format("the repository {}", result.error())};
-            }
-
-            descriptions.push_back(std::move(description));
+        if (!descriptions) {
+            return util::unexpected{fmt::format("{}", descriptions.error())};
         }
 
         // delete all repos in the accumulate config
@@ -377,7 +274,7 @@ load_config(const uenv::config_base& cli_config,
         // make a copy of cli_config and replace its repos with the
         // cli-provided list
         auto modified_cli_config = cli_config;
-        modified_cli_config.repos = descriptions;
+        modified_cli_config.repos = descriptions.value();
 
         return merge(modified_cli_config, config);
     }

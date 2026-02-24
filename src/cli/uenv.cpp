@@ -51,8 +51,6 @@ int main(int argc, char** argv) {
         "--color", [&cli_config]() -> void { cli_config.color = true; },
         "enable color output");
     cli.add_flag("--version", print_version, "print version");
-    // TODO
-    // cli.add_option("--repo", cli_config.repo, "the uenv repository");
     cli.add_option("--repo", cli_repo, "the uenv repository description");
 
     cli.footer(help_footer);
@@ -104,10 +102,6 @@ int main(int argc, char** argv) {
 
     // parse the repo flag if it was passed
     if (cli_repo) {
-        // TODO:
-        // - parse the list
-        // - then validate that each one exists: it should be a hard error for
-        //   an explicitly requested repo to not exist
         if (const auto result = uenv::parse_repo_list(cli_repo.value())) {
             cli_repo_labels = result.value();
         } else {
@@ -138,7 +132,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (!settings.config.repo) {
+    if (settings.config.repos.empty()) {
         term::warn("there is no valid repo - use the --repo flag or edit the "
                    "configuration to set a repo path");
     }
@@ -152,6 +146,8 @@ int main(int argc, char** argv) {
     color::set_color(settings.config.color);
 
     // validate the user repository - attempt to create if it does not exist
+    // TODO: reimplement this for a world where we on
+    /*
     if (settings.config.repo) {
         using enum uenv::repo_state;
         const auto initial_state =
@@ -193,6 +189,7 @@ int main(int argc, char** argv) {
             break;
         }
     }
+    */
 
     spdlog::info("{}", settings);
 

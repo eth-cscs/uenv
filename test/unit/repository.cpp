@@ -228,3 +228,107 @@ TEST_CASE("remove label", "[repository]") {
     REQUIRE(repo.remove(*(uenv_a.begin() + 1)));
     REQUIRE(num_images() == 0);
 }
+
+TEST_CASE("filter repo list", "[repository]") {
+    // util::expected<std::vector<repo_description>, std::string>
+    // filter_repo_list(const std::vector<repo_label>& labels,
+    //                  const std::vector<repo_description>& descriptions);
+    using namespace std::string_literals;
+    namespace fs = std::filesystem;
+
+    {
+        std::vector<uenv::repo_description> descriptions = {
+            {.name = "user", .path = "/home/name/uenv", .priority = 10},
+            {.name = "system", .path = "/site/public/uenv", .priority = 20},
+            {.name = "lab",
+             .path = "/capstor/store/g123/shared/uenv",
+             .priority = 5},
+        };
+        // an empty filter list should return an empty list
+        {
+            auto result = uenv::filter_repo_list({}, descriptions, false);
+            REQUIRE((result && result->empty()));
+        }
+
+        // match a single entry by name
+        {
+            auto result =
+                uenv::filter_repo_list({{"system"s}}, descriptions, false);
+            REQUIRE(result);
+            auto& v = result.value();
+            REQUIRE(v.size() == 1u);
+            REQUIRE(v[0].name == "system");
+            REQUIRE(v[0].path == "/site/public/uenv");
+            // the priority is reset to the default after filtering
+            REQUIRE(v[0].priority == uenv::repo_description::default_priority);
+        }
+
+        // match a single entry by path
+        {
+            auto result = uenv::filter_repo_list(
+                {{fs::path("/home/uenv-repo")}}, descriptions, false);
+            if (!result) {
+                fmt::println("BOOM!! {}", result.error());
+            }
+            REQUIRE(result);
+            auto& v = result.value();
+            REQUIRE(v.size() == 1u);
+            REQUIRE(v[0].name == "anonymous");
+            REQUIRE(v[0].path == "/home/uenv-repo");
+            REQUIRE(v[0].priority == uenv::repo_description::default_priority);
+        }
+        // match a description
+        {
+            auto result = uenv::filter_repo_list(
+                {{uenv::repo_description{.name = "wombat",
+                                         .path = "/home/burrow/uenv",
+                                         .priority = 42}}},
+                descriptions, false);
+            if (!result) {
+                fmt::println("BOOM!! {}", result.error());
+            }
+            REQUIRE(result);
+            auto& v = result.value();
+            REQUIRE(v.size() == 1u);
+            REQUIRE(v[0].name == "wombat");
+            REQUIRE(v[0].path == "/home/burrow/uenv");
+            REQUIRE(v[0].priority == uenv::repo_description::default_priority);
+        }
+        // match a description, path and named lookup
+        {
+            auto result = uenv::filter_repo_list(
+                {
+                    uenv::repo_description{.name = "wombat",
+                                           .path = "/home/burrow/uenv",
+                                           .priority = 42},
+
+                    fs::path("/home/uenv-repo"),
+                    "system"s,
+                },
+                descriptions, false);
+            if (!result) {
+                fmt::println("BOOM!! {}", result.error());
+            }
+            REQUIRE(result);
+            auto& v = result.value();
+            REQUIRE(v.size() == 3u);
+            REQUIRE(v[0].name == "wombat");
+            REQUIRE(v[0].path == "/home/burrow/uenv");
+            REQUIRE(v[0].priority == uenv::repo_description::default_priority);
+            REQUIRE(v[1].name == "anonymous");
+            REQUIRE(v[1].path == "/home/uenv-repo");
+            REQUIRE(v[1].priority == uenv::repo_description::default_priority);
+            REQUIRE(v[2].name == "system");
+            REQUIRE(v[2].path == "/site/public/uenv");
+            REQUIRE(v[2].priority == uenv::repo_description::default_priority);
+        }
+        // inalid name
+        {
+            auto result =
+                uenv::filter_repo_list({{"kangaroo"s}}, descriptions, false);
+            REQUIRE(!result);
+            REQUIRE(result.error() ==
+                    "there is no repo with the name kangaroo");
+        }
+    }
+}

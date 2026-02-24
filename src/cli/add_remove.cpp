@@ -87,7 +87,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         source = parse.value();
     }
 
-    auto env = resolve_uenv(source, settings.config.repo,
+    auto env = resolve_uenv(source, settings.config.repos,
                             settings.calling_environment);
     if (!env) {
         term::error("{}", env.error());

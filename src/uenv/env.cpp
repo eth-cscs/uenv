@@ -102,6 +102,138 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
     return meta;
 }
 
+// record is a record from the on-disk repository store
+//
+// return the full uenv_info description of a record from an on-disk repository
+//
+// resolves the squashfs path, meta data and record
+util::expected<uenv_info, std::string> resolve_uenv(const uenv_record& record,
+                                                    const repository& store) {
+    namespace fs = std::filesystem;
+
+    if (store.is_in_memory()) {
+        return util::unexpected{
+            "(internal error) the store is not from an on-disk repository"};
+    }
+
+    uenv_info info;
+    info.record = record;
+
+    // set sqfs_path and digest
+    info.sqfs_path = fs::absolute(store.uenv_paths(r.sha).squashfs);
+    if (!fs::exists(info.sqfs_path) || !fs::is_regular_file(info.sqfs_path)) {
+        return unexpected(fmt::format(
+            "the uenv image {} does not exist or is not a file. Run "
+            "'uenv repo status' to check the health of the repo.",
+            info.sqfs_path));
+    }
+    spdlog::info("{} squashfs image {}", r, info.sqfs_path.string());
+
+    // if meta/env.json exists, parse the json therein
+    auto meta = find_meta_path(info.sqfs_path);
+    info.meta_path = meta.path;
+
+    if (meta.env) {
+        if (const auto result = uenv::load_meta(*(meta.env))) {
+            info.meta = result.value();
+            spdlog::info("loaded meta (name {}, mount {})", info.meta->name,
+                         info.meta->mount);
+        } else {
+            spdlog::warn("opening the uenv meta data {}: {}",
+                         meta.env->string(), result.error());
+        }
+    } else {
+        spdlog::warn("no meta file available for {}", info.sqfs_path.string());
+    }
+
+    return info;
+}
+
+// resolve uenv_info for a uenv image defined by the path of a squashfs file
+util::expected<uenv_info, std::string>
+resolve_uenv(const std::filesystem::path& sqfs_path) {
+    namespace fs = std::filesystem;
+
+    uenv_info info;
+
+    // set sqfs_path and digest
+    info.sqfs_path = fs::absolute(sqfs_path);
+    if (!fs::exists(info.sqfs_path) || !fs::is_regular_file(info.sqfs_path)) {
+        return unexpected(fmt::format(
+            "the uenv image {} does not exist or is not a file. Run "
+            "'uenv repo status' to check the health of the repo.",
+            info.sqfs_path));
+    }
+
+    // if meta/env.json exists, parse the json therein
+    auto meta = find_meta_path(info.sqfs_path);
+    info.meta_path = meta.path;
+
+    if (meta.env) {
+        if (const auto result = uenv::load_meta(*(meta.env))) {
+            info.meta = result.value();
+            spdlog::info("loaded meta (name {}, mount {})", info.meta->name,
+                         info.meta->mount);
+        } else {
+            spdlog::warn("opening the uenv meta data {}: {}",
+                         meta.env->string(), result.error());
+        }
+    } else {
+        spdlog::warn("no meta file available for {}", info.sqfs_path.string());
+    }
+
+    return info;
+}
+
+util::expected<std::vector<uenv_info>, std::string>
+resolve_uenv(const uenv_label& label, const repo_description& repo,
+             bool require_unique) {
+    spdlog::info("resolve_uenv: {} in {}", label, repo);
+
+    auto store = uenv::open_repository(repo.path);
+    if (!store) {
+        return unexpected(
+            fmt::format("unable to open repo: {}", store.error()));
+    }
+
+    const auto result = store->query(label);
+    if (!result) {
+        return unexpected(fmt::format("{}", store.error()));
+    }
+
+    const auto results = *result;
+    if (results.empty()) {
+        return unexpected(
+            fmt::format("no uenv matches '{}' in the repo '{}'.\n"
+                        "See available uenv using {}.\n"
+                        "Use {} and {} to download images before using them.",
+                        label, repo, color::yellow("uenv image ls"),
+                        color::yellow("uenv image find"),
+                        color::yellow("uenv image pull")));
+    }
+
+    if (require_unique && !results.unique_sha()) {
+        auto errmsg = fmt::format("more than one uenv matches '{}':\n", label);
+        errmsg += format_record_set_table(results);
+        return unexpected(errmsg);
+    }
+
+    std::vector<uenv_info> infos;
+    for (auto& r : results) {
+        if (const auto info = resolve_uenv(r, *store)) {
+            infos.push_back({.sqfs_path = info->sqfs_path,
+                             .record = info->record,
+                             .meta_path = info->.meta_path,
+                             .meta = info->.meta,
+                             .repo = repo});
+        } else {
+            return util::unexpected{info.error()};
+        }
+    }
+
+    return infos;
+}
+
 util::expected<uenv_info, std::string>
 resolve_uenv(const uenv_description& desc,
              std::optional<std::filesystem::path> repo_arg,
@@ -127,6 +259,9 @@ resolve_uenv(const uenv_description& desc,
                               "or by setting the UENV_REPO_PATH "
                               "environment variable");
         }
+        // TODO: this [open repo; fill in label; search] workflow is replicated
+        // in many places
+        // - implement it in a function that takes parameters
         auto store = uenv::open_repository(*repo_arg);
         if (!store) {
             return unexpected(

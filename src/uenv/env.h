@@ -9,6 +9,7 @@
 #include <util/expected.h>
 
 #include <uenv/meta.h>
+#include <uenv/repository.h>
 #include <uenv/uenv.h>
 #include <uenv/view.h>
 
@@ -34,6 +35,8 @@ struct uenv_info {
     std::optional<std::filesystem::path> meta_path;
     // meta data loaded from meta_path/env.json
     std::optional<uenv::meta> meta;
+    // the repo that contains the uenv, if found in a repo.
+    std::optional<uenv::repo_description> repo;
 };
 
 /// Resolve a uenv description to get squashfs path and metadata.
