@@ -65,6 +65,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     // parse the cli args
     //
+
+    // the label is the label that will be given to the uenv added to the repo
     auto label = uenv::parse_uenv_label(args.label);
     if (!label) {
         term::error("the label {} is not valid: {}", args.label,
@@ -78,7 +80,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         return 1;
     }
 
-    // parse input as either a label or a file path
+    // the source can be either the path of a squashfs file, or a label
     uenv_description source;
     if (const auto parse = parse_uenv_description(args.source); !parse) {
         term::error("invalid uenv specification: {}", parse.error().message());
@@ -87,6 +89,10 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         source = parse.value();
     }
 
+    // TODO: this calls resolve_uenv with a source argument that is either a
+    // path or a label/description and resolve_uenv determines which.
+
+    // derive the full description of the source uenv.
     auto env = resolve_uenv(source, settings.config.repos,
                             settings.calling_environment);
     if (!env) {
@@ -114,12 +120,13 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     // Open the repository
     //
-    if (!settings.config.repo) {
+    // TODO: proper treatement of repos
+    if (settings.config.repos.empty()) {
         term::error("a repo needs to be provided either using the --repo "
                     "option, or in the config file");
         return 1;
     }
-    auto store = uenv::open_repository(settings.config.repo.value(),
+    auto store = uenv::open_repository(settings.config.repos[0].path,
                                        repo_mode::readwrite);
     if (!store) {
         term::error("unable to open repo: {}", store.error());

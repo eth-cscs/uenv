@@ -93,16 +93,91 @@ url = string
 
 ## search function
 
+
+- `resolve_uenv` was designed to return a single "resolved" uenv (zero or more than one match is an error)
+    - it is used in contexts that want a single uenv (e.g. run, start, inspect)
+    - I have adapted various backend implementations to instead return a vector of uenv
+- so `resolve_uenv` should be a wrapper function that calls the more generic "search" function that returns a vector, then applies its own logic to extract a single uenv
+    - e.g. 3 matches, with two matches from the first repo -> error
+    - e.g. 3 matches, with one match   from the first repo -> all good
+
+
 ```cpp
-// find a uenv based on description that might be a concrete squashfs path OR a label
-// - run, start
-resolve_uenv(string description, [repo_description] repos) -> [uenv_info]
+//
+// impl:: level: low level that should only be called by back end code
+//
+
+// fill in a complete uenv_info for a uenv in an on-disk store
+resolve_uenv_info(uenv_record, repo_description, database) -> uenv_info
+
+// fill in a complete uenv_info for a uenv from a direct file reference
+resolve_uenv_info(path) -> uenv_info
+
+find_uenv(uenv_label label, repo_description repo) -> [uenv_info]
+{
+    [uenv_info] out
+    store = open(r)
+    for (result: store.find(label)) {
+        out.append(resolve_uenv_info(result.record, r, store);
+    }
+    return out;
+}
 
 // search for a label in a list of repos
-// - return error if repos is empty: lower all that checking to the function, instead of replicating in all call sites
 // - image ls
-// - todo: uenv_label might need to be populated with system name _before_
-resolve_uenv(uenv_label label, [repo_description] repos) -> [uenv_info]
+// - todo: uenv_label must be populated with system name _before_
+find_uenv(uenv_label label, [repo_description] repos) -> [uenv_info]
+{
+    [uenv_info] out
+    for (r: repo) {
+        store = open(r)
+        for (result: store.find(label)) {
+            out.append(resolve_uenv_info(result.record, r, store);
+        }
+    }
+    return out;
+}
+
+// THE BIG QUESTION: does find_uenv take a list of repos, or a single repo, and the iteration is handled one level up
+// - when a single result is returned we would like to retain meta data about which repo it was found in
+//      - the iteration one level up would be tempted to drop
+// - 
+
+// find a unique uenv based on description that might be a concrete squashfs path OR a label
+// - run, start
+resolve_uenv(string description, [repo_description] repos) -> uenv_info
+{
+    if (description as label) {
+        result = find_uenv(label, repos);
+        // post process result to look for a unique uenv
+
+        // OR
+
+        for (r: repos) {
+            result = find_uenv(label, r);
+            if (!r.size==1) {
+                return error(no unique value)
+            }
+            return r[0];
+        }
+    }
+    else if (description as path) {
+        return resolve_uenv_info(path);
+    }
+}
+
+// create concrete description of a complete uenv environment
+// - checks mount points are valid and exist
+// - loads environment patches
+// - output is validated and coherent set of state ready to mount
+// this takes a list of uenv_info that have already been checked
+// - departure from the current implementation which consumes CLI arguments and calls realise_uenv
+concretise_uenv([uenv_info] uenvs) -> env
+{
+    for (e: uenvs) {
+        // assemble env
+    }
+}
 
 // search an individual repo
 // maybe this is not needed, if we can call the database routine below
@@ -111,7 +186,45 @@ resolve_uenv(uenv_label label, repo_description repo) -> [uenv_info]
 // search through open database
 // - image find
 resolve_uenv(uenv_label label, database store) -> [uenv_info]
-````
+```
 
-The current `resolve_uenv` function takes as its input a label and a repo path
-- it 
+entry points
+
+```
+// search functionality
+find_uenv(uenv_label, [repo_description]) -> [uenv_info]
+
+resolve_uenv(uenv_label, [repo_description]) -> uenv_info
+resolve_uenv(path) -> uenv_info
+```
+
+
+the `[uenv_info]` list of uenv is contains a natural partition that corresponds to uenv found in different repositories
+```
+[
+    {prgen-env/24.11@daint, repo=user}
+    {prgen-env/25.11@eiger, repo=user}
+    {prgen-env/24.11@santis, repo=site}
+]
+```
+
+## organising results
+
+`std::vector<std::<uenv_info>>` is not a great container
+
+
+```
+struct uenv_list {
+    using store_ = std::vector<std::<uenv_info>>;
+
+    struct range {
+        store_::const_iterator begin;
+        store_::const_iterator end;
+        uenv_description description;
+        std::optional<std::string> error;
+    };
+
+    store_ values;
+    std::vector<range_> repos;
+};
+```
