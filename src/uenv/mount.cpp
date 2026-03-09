@@ -177,78 +177,8 @@ parse_and_validate_mounts(const std::string& description) {
     return validate_mount_descriptions(mount_descriptions.value());
 }
 
-// Opens the squashfs file as the job user (to handle root-squashed filesystems),
-// binds it to a free loop device as root, and returns the loop device path.
-// The caller is responsible for mounting and eventually clearing the loop device.
-util::expected<std::string, std::string>
-setup_loop_device(const std::string& squashfs_file, id_pair id) {
-    // Open the squashfs file as the job user, not root, to handle
-    // filesystems that root-squash.
-    if (::seteuid(id.uid) != 0 || ::setegid(id.gid) != 0) {
-        return util::unexpected("failed to drop privileges to open squashfs: " +
-                                std::string(strerror(errno)));
-    }
-    int sqfs_fd = ::open(squashfs_file.c_str(), O_RDONLY);
-    const int open_errno = errno;
-    if (::seteuid(0) != 0 || ::setegid(0) != 0) {
-        if (sqfs_fd >= 0) ::close(sqfs_fd);
-        return util::unexpected("failed to restore root privileges - aborting");
-    }
-    if (sqfs_fd < 0) {
-        return util::unexpected("failed to open squashfs " + squashfs_file +
-                                ": " + strerror(open_errno));
-    }
-
-    // Find a free loop device and bind the squashfs fd to it
-    int loop_ctl_fd = ::open("/dev/loop-control", O_RDWR);
-    if (loop_ctl_fd < 0) {
-        ::close(sqfs_fd);
-        return util::unexpected("failed to open /dev/loop-control: " +
-                                std::string(strerror(errno)));
-    }
-    int loop_num = ::ioctl(loop_ctl_fd, LOOP_CTL_GET_FREE);
-    ::close(loop_ctl_fd);
-    if (loop_num < 0) {
-        ::close(sqfs_fd);
-        return util::unexpected("failed to get free loop device: " +
-                                std::string(strerror(errno)));
-    }
-
-    std::string loop_path = "/dev/loop" + std::to_string(loop_num);
-    int loop_fd = ::open(loop_path.c_str(), O_RDWR);
-    if (loop_fd < 0) {
-        ::close(sqfs_fd);
-        return util::unexpected("failed to open loop device " + loop_path +
-                                ": " + std::string(strerror(errno)));
-    }
-
-    if (::ioctl(loop_fd, LOOP_SET_FD, sqfs_fd) < 0) {
-        ::close(sqfs_fd);
-        ::close(loop_fd);
-        return util::unexpected("failed to bind squashfs to loop device: " +
-                                std::string(strerror(errno)));
-    }
-    ::close(sqfs_fd); // loop device holds a reference, safe to close
-
-    struct loop_info64 info{};
-    info.lo_flags = LO_FLAGS_READ_ONLY;
-    strncpy(reinterpret_cast<char*>(info.lo_file_name),
-            squashfs_file.c_str(),
-            LO_NAME_SIZE - 1);
-    if (::ioctl(loop_fd, LOOP_SET_STATUS64, &info) < 0) {
-        ::ioctl(loop_fd, LOOP_CLR_FD); // best-effort cleanup
-        ::close(loop_fd);
-        return util::unexpected("failed to set loop device options: " +
-                                std::string(strerror(errno)));
-    }
-    ::close(loop_fd);
-
-    return loop_path;
-}
-
 util::expected<void, std::string>
-do_mount(const std::vector<mount_pair>& mount_entries,
-         std::optional<id_pair> id [[maybe_unused]]) {
+do_mount(const std::vector<mount_pair>& mount_entries) {
     if (mount_entries.size() == 0) {
         return {};
     }
@@ -256,10 +186,6 @@ do_mount(const std::vector<mount_pair>& mount_entries,
     for (auto& entry : mount_entries) {
         std::string mount_point = entry.mount;
         std::string squashfs_file = entry.sqfs;
-
-        if (id) {
-            setup_loop_device(squashfs_file, id.value());
-        }
 
         // Check the mount point exists inside the mount loop, because the
         // mount point may have been created inside a previous mount.

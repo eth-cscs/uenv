@@ -4,8 +4,6 @@
 #include <string>
 #include <vector>
 
-#include <sys/types.h>
-
 #include <fmt/core.h>
 
 #include <util/expected.h>
@@ -20,11 +18,6 @@ struct mount_description {
 struct mount_pair {
     std::filesystem::path sqfs;
     std::filesystem::path mount;
-};
-
-struct id_pair {
-    uid_t uid;
-    gid_t gid;
 };
 
 // convert a description to a mount_pair that has a validated squashfs path
@@ -47,7 +40,7 @@ util::expected<void, std::string> unshare_as_root();
 
 /// mount sqfs images, make sure mnt ns has been unshared before calling this
 /// function
-util::expected<void, std::string> do_mount(const mount_list& mount_entries, std::optional<id_pair> id=std::nullopt);
+util::expected<void, std::string> do_mount(const mount_list& mount_entries);
 
 } // namespace uenv
 
