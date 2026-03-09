@@ -1,10 +1,11 @@
-#include <slurm/mount_slurm.h>
+#include <string>
+#include <util/expected.h>
 
 #include <linux/loop.h>
 #include <sched.h>
-#include <string>
 #include <sys/mount.h>
-#include <util/expected.h>
+
+#include <slurm/mount_slurm.h>
 
 namespace uenv {
 
