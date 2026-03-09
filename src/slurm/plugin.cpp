@@ -210,8 +210,9 @@ int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
     return ESPANK_SUCCESS;
 }
 
-/// check if image, mountpoint is valid
-int init_post_opt_remote(spank_t sp) {
+/// * check if image, mountpoint is valid
+/// * perform mount
+int init_post_opt_remote(spank_t sp [[maybe_unused]]) {
     // initialise logging to be completely disabled
     uenv::init_log(spdlog::level::off);
 
