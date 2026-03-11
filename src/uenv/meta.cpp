@@ -135,23 +135,30 @@ util::expected<meta, std::string> load_meta(const std::filesystem::path& file) {
                 : ostring{};
         if (default_view) {
             bool found = false;
-            for (auto &[name, _]: views) {
-                if (name==default_view.value()) {
+            for (auto& [name, _] : views) {
+                if (name == default_view.value()) {
                     found = true;
                 }
             }
             // it is not a hard error if the meta data is inconsistent.
             // instead we print a message, and continue without a default view.
-            // this is a compromise to ensure that uenv do not fail to load because of meta data problems.
+            // this is a compromise to ensure that uenv do not fail to load
+            // because of meta data problems.
             if (!found) {
-                spdlog::error("internal error parsing uenv meta data in {}: the default view {} matches no views in the uenv",
-                                file.string(), default_view.value());
+                spdlog::error(
+                    "internal error parsing uenv meta data in {}: the default "
+                    "view {} matches no views in the uenv",
+                    file.string(), default_view.value());
+                // unset the default view
+                default_view = {};
             }
-            // unset the default view
-            default_view = {};
         }
 
-        return meta{.name = name, .description = description, .mount = mount, .views = views, .default_view = default_view};
+        return meta{.name = name,
+                    .description = description,
+                    .mount = mount,
+                    .views = views,
+                    .default_view = default_view};
     } catch (json::exception& e) {
         return util::unexpected(
             fmt::format("internal error parsing uenv meta data in {}: {}",

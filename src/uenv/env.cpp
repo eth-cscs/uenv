@@ -348,7 +348,9 @@ concretise_env(const std::string& uenv_args,
             .meta_path = info.meta_path,
             .description = has_meta ? info.meta->description.value_or("") : "",
             .views =
-                has_meta ? info.meta->views : decltype(concrete_uenv::views){}};
+                has_meta ? info.meta->views : decltype(concrete_uenv::views){},
+            .default_view = has_meta ? info.meta->default_view
+                                     : decltype(concrete_uenv::default_view){}};
     }
 
     // A dictionary with view name as a key, and a list of uenv that provide
@@ -421,6 +423,20 @@ concretise_env(const std::string& uenv_args,
             else {
                 return unexpected(
                     fmt::format("the view '{}' does not exist", view.name));
+            }
+        }
+    }
+    // no views are provided, so set defaults
+    // this only selects views if no view flag was provided
+    // alternatives:
+    // - loop over views and activate default view for any images that have no
+    //   view specified
+    else {
+        for (auto& [name, description] : uenvs) {
+            if (description.default_view) {
+                spdlog::debug("setting default view {} for uenv {}",
+                              description.default_view.value(), name);
+                views.push_back({name, description.default_view.value()});
             }
         }
     }

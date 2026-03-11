@@ -234,6 +234,14 @@ function teardown() {
     refute_line "TOOLCONFLICT=yes"
     unset TOOLCONFLICT
 
+    # the tool uenv provides a default-view called defaultwombat
+    # - sets WOMBAT=soup
+    # check that this is the case
+    unset WOMBAT
+    run uenv --repo=$REPOS/apptool run tool -- bash -c 'echo WOMBAT=$WOMBAT'
+    assert_success
+    assert_line "WOMBAT=soup"
+
     #
     # check --view works when reading meta data from inside a standalone sqfs file
     #

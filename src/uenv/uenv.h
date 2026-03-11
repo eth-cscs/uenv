@@ -165,6 +165,8 @@ struct concrete_uenv {
     std::optional<std::string> description;
     /// the uenv meta data - no set if no meta_path/env.json was found
     std::unordered_map<std::string, concrete_view> views;
+    /// the (optional) default view
+    std::optional<std::string> default_view;
 };
 
 } // namespace uenv
