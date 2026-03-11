@@ -104,15 +104,11 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
     return meta;
 }
 
-// record is a record from the on-disk repository store
-//
 // return the full uenv_info description of a record from an on-disk repository
 //
 // resolves the squashfs path, meta data and record
 util::expected<uenv_info, std::string>
-resolve_uenv_info(const uenv_record& record,
-                  const repo_description& description,
-                  const repository& store) {
+resolve_uenv_info(const uenv_record& record, const repository& store) {
     namespace fs = std::filesystem;
 
     if (store.is_in_memory()) {
@@ -122,7 +118,6 @@ resolve_uenv_info(const uenv_record& record,
 
     uenv_info info;
     info.record = record;
-    info.repo = description;
 
     // set sqfs_path and digest
     info.sqfs_path = fs::absolute(store.uenv_paths(record.sha).squashfs);
@@ -144,7 +139,7 @@ resolve_uenv_info(const uenv_record& record,
             spdlog::info("loaded meta (name {}, mount {})", info.meta->name,
                          info.meta->mount);
         } else {
-            spdlog::warn("opening the uenv meta data {}: {}",
+            spdlog::warn("skipping the uenv meta data {}: {}",
                          meta.env->string(), result.error());
         }
     } else {
@@ -193,7 +188,7 @@ resolve_uenv_info(const std::filesystem::path& sqfs_path) {
 } // namespace impl
 
 // look for matches for a label in a repo, returning a vector of all matches
-util::expected<std::vector<uenv_info>, std::string>
+util::expected<resolved_record_set, std::string>
 search_repo(const uenv_label& label, const repo_description& repo) {
     spdlog::info("search_repo: {} in {}", label, repo);
 
@@ -210,34 +205,57 @@ search_repo(const uenv_label& label, const repo_description& repo) {
 
     std::vector<uenv_info> infos;
     for (auto& r : result.value()) {
-        if (const auto info = impl::resolve_uenv_info(r, repo, store.value())) {
+        if (auto info = impl::resolve_uenv_info(r, store.value())) {
             infos.push_back(std::move(info.value()));
         } else {
             return util::unexpected{info.error()};
         }
     }
 
-    return infos;
+    return resolved_record_set{repo, infos};
 }
 
-// look for matches for a label in a repo, returning a vector of all matches
-util::expected<std::vector<uenv_info>, std::string>
-search_repos(const uenv_label& label,
+util::expected<uenv_info, std::string>
+resolve_uenv(const uenv_label& label,
              const std::vector<repo_description>& repos) {
-    std::vector<uenv_info> infos;
+    spdlog::debug("resolve_uenv: searching for {}", label);
     for (auto& repo : repos) {
+        spdlog::debug("resolve_uenv: search in {}", repo);
         auto result = search_repo(label, repo);
         if (result) {
-            infos.insert(infos.end(), result->begin(), result->end());
+            if (result->empty()) {
+                spdlog::warn("resolve_uenv: no matches");
+            } else if (!result->unique_sha()) {
+                auto errmsg = fmt::format(
+                    "more than one uenv matches the uenv description "
+                    "'{}':\n",
+                    label);
+                errmsg += format_record_set_table(result->as_record_set());
+                return unexpected(errmsg);
+            }
+            // there is a unique match
+            return *(result->begin());
         } else {
-            // TODO: what does an error mean here?
-            // for now we print an error message and skip to the next repo
             spdlog::error("search_repo {}: {}", repo, result.error());
             continue;
         }
     }
 
-    return infos;
+    return unexpected(fmt::format(
+        "no uenv matches '{}'.\n"
+        "See available uenv using {}.\n"
+        "Use {} and {} to download images before using them.",
+        label, color::yellow("uenv image ls"), color::yellow("uenv image find"),
+        color::yellow("uenv image pull")));
+}
+
+util::expected<uenv_info, std::string>
+resolve_uenv(const uenv_description& desc,
+             const std::vector<repo_description>& repos) {
+    if (desc.label()) {
+        return resolve_uenv(desc.label().value(), repos);
+    }
+    return impl::resolve_uenv_info(desc.filename().value());
 }
 
 util::expected<uenv_info, std::string>
@@ -693,6 +711,72 @@ bool operator<(const uenv_record& lhs, const uenv_record& rhs) {
                     lhs.date, lhs.sha) < std::tie(rhs.name, rhs.version,
                                                   rhs.tag, rhs.system,
                                                   rhs.uarch, rhs.date, rhs.sha);
+}
+
+resolved_record_set::resolved_record_set(repo_description repo,
+                                         std::vector<uenv_info> infos)
+    : records_(std::move(infos)), repo_(std::move(repo)) {
+    for (auto& entry : records_) {
+        if (entry.record) {
+            throw std::runtime_error(
+                "(internal error) attempt to initialise resolved_record_set "
+                "with records that do not have records");
+        }
+    }
+}
+
+const repo_description& resolved_record_set::repo() const {
+    return repo_;
+}
+bool resolved_record_set::empty() const {
+    return records_.empty();
+}
+std::size_t resolved_record_set::size() const {
+    return records_.size();
+}
+
+bool resolved_record_set::unique_sha() const {
+    if (empty()) {
+        return false;
+    }
+    if (size() == 1u) {
+        return true;
+    }
+    auto sha = records_.front().record->sha;
+    for (auto& r : records_) {
+        if (r.record->sha != sha) {
+            return false;
+        }
+    }
+    return true;
+};
+
+resolved_record_set::iterator resolved_record_set::begin() {
+    return records_.begin();
+}
+resolved_record_set::iterator resolved_record_set::end() {
+    return records_.end();
+}
+resolved_record_set::const_iterator resolved_record_set::begin() const {
+    return records_.begin();
+}
+resolved_record_set::const_iterator resolved_record_set::end() const {
+    return records_.end();
+}
+resolved_record_set::const_iterator resolved_record_set::cbegin() const {
+    return records_.cbegin();
+}
+resolved_record_set::const_iterator resolved_record_set::cend() const {
+    return records_.cend();
+}
+
+record_set resolved_record_set::as_record_set() const {
+    std::vector<uenv_record> out{};
+    out.reserve(records_.size());
+    for (auto r : records_) {
+        out.push_back(r.record.value());
+    }
+    return out;
 }
 
 } // namespace uenv

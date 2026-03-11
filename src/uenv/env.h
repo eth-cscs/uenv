@@ -35,18 +35,56 @@ struct uenv_info {
     std::optional<std::filesystem::path> meta_path;
     // meta data loaded from meta_path/env.json
     std::optional<uenv::meta> meta;
-    // the repo that contains the uenv, if found in a repo.
-    std::optional<uenv::repo_description> repo;
+};
+
+/// stores information about uenv in a repo
+/// used to hold information returned from querying a repo
+class resolved_record_set {
+    std::vector<uenv_info> records_;
+    repo_description repo_;
+
+  public:
+    resolved_record_set() = delete;
+    resolved_record_set(repo_description repo, std::vector<uenv_info> r);
+
+    using iterator = std::vector<uenv_info>::iterator;
+    using const_iterator = std::vector<uenv_info>::const_iterator;
+
+    const repo_description& repo() const;
+    record_set as_record_set() const;
+
+    bool empty() const;
+
+    std::size_t size() const;
+
+    // return true if there is one or more record, and they all have
+    // the same sha. Otherwise returns false if no records, or if there are at
+    // least 2 records with different sha
+    bool unique_sha() const;
+
+    // iterator access to the underlying records
+    iterator begin();
+    iterator end();
+    const_iterator begin() const;
+    const_iterator end() const;
+    const_iterator cbegin() const;
+    const_iterator cend() const;
 };
 
 /// Resolve a uenv description to get squashfs path and metadata.
 /// Takes either a label (to look up in repo) or a file path.
 /// Does NOT handle mount point resolution from CLI - returns only the mount
 /// from metadata.
+/*
 util::expected<uenv_info, std::string>
 resolve_uenv(const uenv_description& desc,
              std::optional<std::filesystem::path> repo_arg,
              const envvars::state& calling_env);
+*/
+
+util::expected<uenv_info, std::string>
+resolve_uenv(const uenv_description& desc,
+             const std::vector<repo_description>& repos);
 
 util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,

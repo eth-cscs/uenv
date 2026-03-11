@@ -89,12 +89,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         source = parse.value();
     }
 
-    // TODO: this calls resolve_uenv with a source argument that is either a
-    // path or a label/description and resolve_uenv determines which.
-
     // derive the full description of the source uenv.
-    auto env = resolve_uenv(source, settings.config.repos,
-                            settings.calling_environment);
+    auto env = resolve_uenv(source, settings.config.repos);
     if (!env) {
         term::error("{}", env.error());
         return 1;
@@ -120,14 +116,15 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     // Open the repository
     //
-    // TODO: proper treatement of repos
     if (settings.config.repos.empty()) {
         term::error("a repo needs to be provided either using the --repo "
                     "option, or in the config file");
         return 1;
     }
-    auto store = uenv::open_repository(settings.config.repos[0].path,
-                                       repo_mode::readwrite);
+    // the target repository is always the first repo in the list, which can be
+    // overriden using the --repo flag.
+    const auto target_repo = settings.config.repos[0];
+    auto store = uenv::open_repository(target_repo.path, repo_mode::readwrite);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;
@@ -179,8 +176,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     const auto uenv_paths = store->uenv_paths(sqfs->hash);
     uenv::uenv_date date{*util::file_creation_date(sqfs->sqfs)};
 
-    bool source_in_repo =
-        util::is_child(sqfs->sqfs, settings.config.repo.value());
+    bool source_in_repo = util::is_child(sqfs->sqfs, target_repo.path);
 
     // If an sqfs file is already in repo, and it was pulled from a repository
     // then there is a digest mismatch. Do not try to add this image

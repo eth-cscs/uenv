@@ -37,18 +37,6 @@ class repo_label {
     std::variant<std::string, std::filesystem::path, repo_description> value_;
 };
 
-// TODO: replace std::vector<repo_descritption> with repo_list everywhere
-// - think about how and when sorting should be applied
-struct repo_list {
-    repo_list(std::vector<repo_description>);
-    repo_list() = default;
-    // void append(const repo_list& other);
-
-    operator bool() const;
-
-    std::vector<repo_description> repos;
-};
-
 util::expected<std::vector<repo_description>, std::string>
 filter_repo_list(const std::vector<repo_label>& labels,
                  const std::vector<repo_description>& descriptions,

@@ -172,7 +172,7 @@ resolve_uenv(string description, [repo_description] repos) -> uenv_info
 // - output is validated and coherent set of state ready to mount
 // this takes a list of uenv_info that have already been checked
 // - departure from the current implementation which consumes CLI arguments and calls realise_uenv
-concretise_uenv([uenv_info] uenvs) -> env
+concretise_uenv([uenv_info] uenvs, views) -> env
 {
     for (e: uenvs) {
         // assemble env
