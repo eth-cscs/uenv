@@ -218,7 +218,7 @@ util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
                std::optional<std::string> view_args,
                std::optional<std::filesystem::path> repo_arg,
-               const envvars::state& calling_env) {
+               bool use_default_views, const envvars::state& calling_env) {
     namespace fs = std::filesystem;
 
     // parse the uenv description that was provided as a command line
@@ -426,17 +426,37 @@ concretise_env(const std::string& uenv_args,
             }
         }
     }
+
     // no views are provided, so set defaults
     // this only selects views if no view flag was provided
     // alternatives:
     // - loop over views and activate default view for any images that have no
     //   view specified
-    else {
-        for (auto& [name, description] : uenvs) {
+    /*
+    if (views.empty()) {
+        for (auto& [uenv, description] : uenvs) {
             if (description.default_view) {
                 spdlog::debug("setting default view {} for uenv {}",
-                              description.default_view.value(), name);
-                views.push_back({name, description.default_view.value()});
+                              description.default_view.value(), uenv);
+                views.push_back({uenv, description.default_view.value()});
+            }
+        }
+    }
+    */
+
+    if (use_default_views) {
+        // make a list of uenv that have views set by the user
+        std::set<std::string> uenv_with_views{};
+        for (auto& v : views) {
+            uenv_with_views.insert(v.uenv);
+        }
+
+        // set default views of all uenv that do not have a view set
+        for (auto& [uenv, description] : uenvs) {
+            if (description.default_view && uenv_with_views.count(uenv) == 0u) {
+                spdlog::debug("setting default view {} for uenv {}",
+                              description.default_view.value(), uenv);
+                views.push_back({uenv, description.default_view.value()});
             }
         }
     }

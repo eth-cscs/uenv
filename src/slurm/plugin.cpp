@@ -108,6 +108,7 @@ struct arg_pack {
     std::optional<std::string> uenv_description;
     std::optional<std::string> view_description;
     std::optional<std::string> repo_description;
+    bool use_default_views = true;
 };
 static arg_pack args{};
 
@@ -165,6 +166,19 @@ static spank_option view_arg{
         return ESPANK_SUCCESS;
     }};
 
+static spank_option disable_view_arg{
+    (char*)"no-default-view",
+    (char*)"",
+    (char*)"disable default views: only views explicitly set using the --view "
+           "flag will be used",
+    0, // does not take an argument
+    0, // plugin specific value to pass to the callback (unnused)
+    [](int val [[maybe_unused]], const char* optarg [[maybe_unused]],
+       int remote [[maybe_unused]]) -> int {
+        args.use_default_views = false;
+        return ESPANK_SUCCESS;
+    }};
+
 static spank_option repo_arg{
     (char*)"repo",
     (char*)"path*",
@@ -180,7 +194,7 @@ static spank_option repo_arg{
 int slurm_spank_init(spank_t sp, int ac [[maybe_unused]],
                      char** av [[maybe_unused]]) {
 
-    for (auto arg : {&uenv_arg, &view_arg, &repo_arg}) {
+    for (auto arg : {&uenv_arg, &view_arg, &repo_arg, &disable_view_arg}) {
         if (auto status = spank_option_register(sp, arg)) {
             return status;
         }
@@ -303,9 +317,9 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     config_g = uenv::generate_configuration(uenv::load_config(
         {.repo = args.repo_description}, calling_environment));
 
-    const auto env =
-        uenv::concretise_env(*args.uenv_description, args.view_description,
-                             config_g.repo, calling_environment);
+    const auto env = uenv::concretise_env(
+        *args.uenv_description, args.view_description, config_g.repo,
+        args.use_default_views, calling_environment);
 
     if (!env) {
         slurm_error("%s", env.error().c_str());

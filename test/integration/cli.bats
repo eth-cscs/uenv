@@ -242,6 +242,12 @@ function teardown() {
     assert_success
     assert_line "WOMBAT=soup"
 
+    # verify that disabling default views works
+    export WOMBAT=sleepy
+    run uenv --repo=$REPOS/apptool run --no-default-view tool -- bash -c 'echo WOMBAT=$WOMBAT'
+    assert_success
+    assert_line "WOMBAT=sleepy"
+
     #
     # check --view works when reading meta data from inside a standalone sqfs file
     #
