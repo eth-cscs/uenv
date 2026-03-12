@@ -427,23 +427,8 @@ concretise_env(const std::string& uenv_args,
         }
     }
 
-    // no views are provided, so set defaults
-    // this only selects views if no view flag was provided
-    // alternatives:
-    // - loop over views and activate default view for any images that have no
-    //   view specified
-    /*
-    if (views.empty()) {
-        for (auto& [uenv, description] : uenvs) {
-            if (description.default_view) {
-                spdlog::debug("setting default view {} for uenv {}",
-                              description.default_view.value(), uenv);
-                views.push_back({uenv, description.default_view.value()});
-            }
-        }
-    }
-    */
-
+    // set the default view for all uenv with no view set
+    // if the --no-disable-view/-V flag has not been used
     if (use_default_views) {
         // make a list of uenv that have views set by the user
         std::set<std::string> uenv_with_views{};
