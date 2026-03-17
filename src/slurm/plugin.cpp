@@ -1,4 +1,6 @@
+#include <cerrno>
 #include <charconv>
+#include <cstring>
 #include <optional>
 #include <string>
 
@@ -15,6 +17,7 @@
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <util/defer.h>
 #include <util/envvars.h>
 
 #include "config.hpp"
@@ -210,7 +213,8 @@ int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
     return ESPANK_SUCCESS;
 }
 
-/// check if image, mountpoint is valid
+/// * check if image, mountpoint is valid
+/// * perform mount
 int init_post_opt_remote(spank_t sp) {
     // initialise logging to be completely disabled
     uenv::init_log(spdlog::level::off);
@@ -224,6 +228,30 @@ int init_post_opt_remote(spank_t sp) {
         return ESPANK_SUCCESS;
     }
 
+    // On NFS filesystems with root_squash, root is mapped to an anonymous
+    // unprivileged user, preventing access to the squashfs file. We
+    // temporarily adopt the job's effective GID so that file opens succeed
+    // for group-readable squashfs files.
+    //
+    // The job GID is set by Slurm to the user's primary group by default,
+    // or to a user-specified group via --gid (Slurm validates membership).
+    // If the squashfs file is owned by a group other than the job GID, the
+    // user should submit their job with --gid=<group>.
+    //
+    // Note: mode 600 squashfs files on root_squash NFS are not supported.
+    gid_t job_gid;
+    if (spank_get_item(sp, S_JOB_GID, &job_gid) != ESPANK_SUCCESS) {
+        slurm_error("uenv: failed to get job gid");
+        return -ESPANK_ERROR;
+    }
+
+    if (setegid(job_gid) != 0) {
+        slurm_error("uenv: failed to set effective gid: %s", strerror(errno));
+        return -ESPANK_ERROR;
+    }
+    auto cleanup = util::defer(
+        []() noexcept { [[maybe_unused]] int result = setegid(0); });
+
     // parse and validate the mount descriptions
     // note that it is very important to carefully validate the mount_list
     // * check that the squashfs files exist and can be read by the user
@@ -231,6 +259,7 @@ int init_post_opt_remote(spank_t sp) {
     auto mounts = uenv::parse_and_validate_mounts(mount_var.value());
     if (!mounts) {
         slurm_error("%s", mounts.error().c_str());
+        return -ESPANK_ERROR;
     }
 
     if (auto result = uenv::unshare_as_root(); !result) {
@@ -238,8 +267,7 @@ int init_post_opt_remote(spank_t sp) {
         return -ESPANK_ERROR;
     }
 
-    auto result = uenv::do_mount(mounts.value());
-    if (!result) {
+    if (auto result = uenv::do_mount(mounts.value()); !result) {
         slurm_error("error mounting the requested uenv image: %s",
                     result.error().c_str());
         return -ESPANK_ERROR;
