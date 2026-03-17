@@ -1,5 +1,5 @@
-#include <charconv>
 #include <cerrno>
+#include <charconv>
 #include <cstring>
 #include <optional>
 #include <string>
@@ -249,7 +249,8 @@ int init_post_opt_remote(spank_t sp) {
         slurm_error("uenv: failed to set effective gid: %s", strerror(errno));
         return -ESPANK_ERROR;
     }
-    auto cleanup = util::defer([]() noexcept { [[maybe_unused]] int result = setegid(0); });
+    auto cleanup = util::defer(
+        []() noexcept { [[maybe_unused]] int result = setegid(0); });
 
     // parse and validate the mount descriptions
     // note that it is very important to carefully validate the mount_list
