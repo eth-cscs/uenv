@@ -200,11 +200,17 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         if (info.meta) {
             fmt::print("{} mount at {}\n", label_str, info.meta->mount);
             const auto& views = info.meta->views;
-            const std::string default_view = info.meta->default_view ? info.meta->default_view.value(): std::string("");
+            const std::string default_view =
+                info.meta->default_view ? info.meta->default_view.value()
+                                        : std::string("");
             if (!views.empty()) {
                 fmt::print("views:\n");
                 for (const auto& [_, view] : views) {
-                    fmt::print("  {}: {}\n", (view.name!=default_view?view.name: view.name+" (default)"), view.description);
+                    fmt::print("  {}: {}\n",
+                               (view.name != default_view
+                                    ? view.name
+                                    : view.name + " (default)"),
+                               view.description);
                 }
             } else {
                 fmt::print("views: none\n");
