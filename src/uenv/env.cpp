@@ -218,7 +218,7 @@ util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
                std::optional<std::string> view_args,
                std::optional<std::filesystem::path> repo_arg,
-               const envvars::state& calling_env) {
+               bool use_default_views, const envvars::state& calling_env) {
     namespace fs = std::filesystem;
 
     // parse the uenv description that was provided as a command line
@@ -348,7 +348,9 @@ concretise_env(const std::string& uenv_args,
             .meta_path = info.meta_path,
             .description = has_meta ? info.meta->description.value_or("") : "",
             .views =
-                has_meta ? info.meta->views : decltype(concrete_uenv::views){}};
+                has_meta ? info.meta->views : decltype(concrete_uenv::views){},
+            .default_view = has_meta ? info.meta->default_view
+                                     : decltype(concrete_uenv::default_view){}};
     }
 
     // A dictionary with view name as a key, and a list of uenv that provide
@@ -421,6 +423,25 @@ concretise_env(const std::string& uenv_args,
             else {
                 return unexpected(
                     fmt::format("the view '{}' does not exist", view.name));
+            }
+        }
+    }
+
+    // set the default view for all uenv with no view set
+    // if the --no-disable-view/-V flag has not been used
+    if (use_default_views) {
+        // make a list of uenv that have views set by the user
+        std::set<std::string> uenv_with_views{};
+        for (auto& v : views) {
+            uenv_with_views.insert(v.uenv);
+        }
+
+        // set default views of all uenv that do not have a view set
+        for (auto& [uenv, description] : uenvs) {
+            if (description.default_view && uenv_with_views.count(uenv) == 0u) {
+                spdlog::debug("setting default view {} for uenv {}",
+                              description.default_view.value(), uenv);
+                views.push_back({uenv, description.default_view.value()});
             }
         }
     }

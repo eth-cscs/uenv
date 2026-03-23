@@ -49,7 +49,7 @@ util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
                std::optional<std::string> view_args,
                std::optional<std::filesystem::path> repo_arg,
-               const envvars::state& calling_env);
+               bool use_default_views, const envvars::state& calling_env);
 
 envvars::state generate_environment(const env&, const envvars::state&,
                                     std::optional<std::string> = std::nullopt);

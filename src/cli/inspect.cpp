@@ -82,6 +82,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         {"description", nullptr},
         {"mount", nullptr},
         {"views", nlohmann::json::array()},
+        {"default-view", nullptr},
         // values taken from repo database
         {"name", nullptr},
         {"version", nullptr},
@@ -122,6 +123,9 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         for (const auto& [_, view] : info.meta->views) {
             j["views"].push_back(
                 {{"name", view.name}, {"description", view.description}});
+        }
+        if (info.meta->default_view) {
+            j["default-view"] = info.meta->default_view.value();
         }
     }
 
@@ -196,10 +200,17 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         if (info.meta) {
             fmt::print("{} mount at {}\n", label_str, info.meta->mount);
             const auto& views = info.meta->views;
+            const std::string default_view =
+                info.meta->default_view ? info.meta->default_view.value()
+                                        : std::string("");
             if (!views.empty()) {
                 fmt::print("views:\n");
                 for (const auto& [_, view] : views) {
-                    fmt::print("  {}: {}\n", view.name, view.description);
+                    fmt::print("  {}: {}\n",
+                               (view.name != default_view
+                                    ? view.name
+                                    : view.name + " (default)"),
+                               view.description);
                 }
             } else {
                 fmt::print("views: none\n");
