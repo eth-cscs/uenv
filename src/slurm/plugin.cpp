@@ -172,7 +172,7 @@ static spank_option disable_view_arg{
     (char*)"disable default views: only views explicitly set using the --view "
            "flag will be used",
     0, // does not take an argument
-    0, // plugin specific value to pass to the callback (unnused)
+    0, // plugin specific value to pass to the callback (unused)
     [](int val [[maybe_unused]], const char* optarg [[maybe_unused]],
        int remote [[maybe_unused]]) -> int {
         args.use_default_views = false;
