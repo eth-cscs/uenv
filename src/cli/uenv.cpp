@@ -146,7 +146,13 @@ int main(int argc, char** argv) {
     color::set_color(settings.config.color);
 
     // validate the user repository - attempt to create if it does not exist
-    // TODO: reimplement this for a world where we on
+    // TODO: reimplement this for a world where multiple valid repos are
+    // available. options:
+    // - set a default_repo in the settings, that may or may not exist
+    //      - create it only when needed (image pull, image add, repo create are
+    //      used without an explicit repository provided by the user)
+    // - only create a repo with the name "default" without direct user
+    // - require user to explicitly create
     /*
     if (settings.config.repo) {
         using enum uenv::repo_state;

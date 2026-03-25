@@ -4,6 +4,7 @@
 #include <uenv/env.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
+#include <util/fs.h>
 
 namespace {
 
@@ -71,6 +72,7 @@ auto create_mini_repo(std::optional<std::filesystem::path> p = {}) {
 TEST_CASE("create-in-memory", "[repository]") {
     auto repo = uenv::create_repository();
     REQUIRE(repo);
+    REQUIRE(repo->is_in_memory());
 
     for (auto& r : prgenvgnu_records) {
         REQUIRE(repo->add(r));
@@ -211,8 +213,6 @@ TEST_CASE("remove label", "[repository]") {
 
     auto num_images = [&repo]() { return repo.query({})->size(); };
 
-    num_images();
-
     auto uenv_a = *(repo.query({.name = msha('a').string()}));
     auto uenv_b = *(repo.query({.name = msha('b').string()}));
 
@@ -227,6 +227,21 @@ TEST_CASE("remove label", "[repository]") {
 
     REQUIRE(repo.remove(*(uenv_a.begin() + 1)));
     REQUIRE(num_images() == 0);
+}
+
+TEST_CASE("create disk repo", "[repository]") {
+    auto repo_dir = util::make_temp_dir();
+    {
+        auto R = create_mini_repo(repo_dir);
+        REQUIRE(R);
+        REQUIRE(!R->is_in_memory());
+    }
+    {
+        auto R = uenv::open_repository(repo_dir);
+        REQUIRE(R);
+        REQUIRE(!R->is_in_memory());
+        REQUIRE(R->query({})->size() == 3);
+    }
 }
 
 TEST_CASE("filter repo list", "[repository]") {

@@ -112,8 +112,8 @@ resolve_uenv_info(const uenv_record& record, const repository& store) {
     namespace fs = std::filesystem;
 
     if (store.is_in_memory()) {
-        return util::unexpected{
-            "(internal error) the store is not from an on-disk repository"};
+        throw std::runtime_error(
+            "(internal error) the store is not from an on-disk repository");
     }
 
     uenv_info info;
@@ -185,8 +185,6 @@ resolve_uenv_info(const std::filesystem::path& sqfs_path) {
     return info;
 }
 
-} // namespace impl
-
 // look for matches for a label in a repo, returning a vector of all matches
 util::expected<resolved_record_set, std::string>
 search_repo(const uenv_label& label, const repo_description& repo) {
@@ -215,13 +213,15 @@ search_repo(const uenv_label& label, const repo_description& repo) {
     return resolved_record_set{repo, infos};
 }
 
+} // namespace impl
+
 util::expected<uenv_info, std::string>
 resolve_uenv(const uenv_label& label,
              const std::vector<repo_description>& repos) {
     spdlog::debug("resolve_uenv: searching for {}", label);
     for (auto& repo : repos) {
         spdlog::debug("resolve_uenv: search in {}", repo);
-        auto result = search_repo(label, repo);
+        auto result = impl::search_repo(label, repo);
         if (result) {
             if (result->empty()) {
                 spdlog::warn("resolve_uenv: no matches");
@@ -236,7 +236,7 @@ resolve_uenv(const uenv_label& label,
             // there is a unique match
             return *(result->begin());
         } else {
-            spdlog::error("search_repo {}: {}", repo, result.error());
+            spdlog::error("resolve_repo {}: {}", repo, result.error());
             continue;
         }
     }
@@ -601,7 +601,7 @@ resolved_record_set::resolved_record_set(repo_description repo,
                                          std::vector<uenv_info> infos)
     : records_(std::move(infos)), repo_(std::move(repo)) {
     for (auto& entry : records_) {
-        if (entry.record) {
+        if (!entry.record) {
             throw std::runtime_error(
                 "(internal error) attempt to initialise resolved_record_set "
                 "with records that do not have records");

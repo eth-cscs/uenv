@@ -1,7 +1,6 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
-#include <set>
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -258,6 +257,9 @@ load_config(const uenv::config_base& cli_config,
     if (auto sys = uenv::load_system_config(calling_env)) {
         config = merge(*sys, config);
     } else {
+        // do not treat broken system configuration as a hard error.
+        // important because users can't fix system config, and we
+        // do not want a broken systm config to disable the uenv tool.
         spdlog::warn("load_config::did not load system config file: {}",
                      sys.error());
     }
@@ -265,12 +267,17 @@ load_config(const uenv::config_base& cli_config,
     if (auto usr = uenv::load_user_config(calling_env)) {
         config = merge(*usr, config);
     } else {
+        // do not treat broken user configuration as a hard error.
+        // we could make this a hard error, because users can fix their
+        // configuration.
         spdlog::warn("load_config::did not load user config: {}", usr.error());
     }
 
     if (repos) {
         auto descriptions = filter_repo_list(*repos, config.repos);
 
+        // filter_repo_list errors are hard errors because this implies that the
+        // user has explicitly requested an invalid repository list
         if (!descriptions) {
             return util::unexpected{fmt::format("{}", descriptions.error())};
         }

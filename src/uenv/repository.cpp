@@ -1072,7 +1072,8 @@ util::expected<record_set, std::string> repository::remove(const sha256& r) {
 }
 
 bool repository::is_in_memory() const {
-    return impl_->path.has_value();
+    // the repository is in memory if the path is not set
+    return !(impl_->path.has_value());
 }
 
 bool repository::is_readonly() const {
