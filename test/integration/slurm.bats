@@ -101,6 +101,13 @@ function teardown() {
     assert_output --partial 'hello tool'
     assert_output --partial 'hello app'
 
+    # check that default views load correctly
+    unset WOMBAT
+    run_srun_unchecked --repo=$RP --uenv=tool bash -c 'echo WOMBAT=$WOMBAT'
+    assert_output --partial "WOMBAT=soup"
+    run_srun_unchecked --repo=$RP --uenv=tool --no-default-view bash -c 'echo WOMBAT=$WOMBAT'
+    assert_output --partial "WOMBAT="
+
     # check that invalid view names are caught
     run_srun_unchecked --repo=$RP --uenv=tool --view=tools true
     assert_output --partial "the view 'tools' does not exist"

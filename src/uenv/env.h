@@ -86,10 +86,9 @@ util::expected<uenv_info, std::string>
 resolve_uenv(const uenv_description& desc,
              const std::vector<repo_description>& repos);
 
-util::expected<env, std::string>
-concretise_env(const std::string& uenv_args,
-               const std::optional<std::string>& view_args,
-               const std::vector<repo_description>& repos);
+util::expected<env, std::string> concretise_env(
+    const std::string& uenv_args, const std::optional<std::string>& view_args,
+    const std::vector<repo_description>& repos, bool use_default_views);
 
 envvars::state generate_environment(const env&, const envvars::state&,
                                     std::optional<std::string> = std::nullopt);

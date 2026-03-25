@@ -35,6 +35,9 @@ void start_args::add_cli(CLI::App& cli,
         ->required();
     start_cli->add_flag("--ignore-tty", ignore_tty,
                         "don't check for non-interactive shells");
+    start_cli->add_flag(
+        "-V,--no-default-view", disable_default_view,
+        "disable loading default views when no view is specified");
     start_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::start; });
     start_cli->footer(start_footer);
@@ -94,8 +97,9 @@ will not work, because it starts a new interactive shell.)",
         return 1;
     }
 
-    const auto env = concretise_env(
-        args.uenv_description, args.view_description, globals.config.repos);
+    const auto env =
+        concretise_env(args.uenv_description, args.view_description,
+                       globals.config.repos, !args.disable_default_view);
 
     if (!env) {
         term::error("{}", env.error());

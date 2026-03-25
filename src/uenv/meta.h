@@ -19,6 +19,7 @@ struct meta {
     std::optional<std::string> description;
     std::string mount;
     std::unordered_map<std::string, concrete_view> views;
+    std::optional<std::string> default_view;
 };
 
 // load a meta object from a json meta data file
