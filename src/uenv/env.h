@@ -88,9 +88,8 @@ resolve_uenv(const uenv_description& desc,
 
 util::expected<env, std::string>
 concretise_env(const std::string& uenv_args,
-               std::optional<std::string> view_args,
-               std::optional<std::filesystem::path> repo_arg,
-               const envvars::state& calling_env);
+               const std::optional<std::string>& view_args,
+               const std::vector<repo_description>& repos);
 
 envvars::state generate_environment(const env&, const envvars::state&,
                                     std::optional<std::string> = std::nullopt);

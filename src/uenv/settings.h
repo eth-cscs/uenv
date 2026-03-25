@@ -51,6 +51,8 @@ struct configuration {
     bool color;
     std::optional<std::string> elastic_config;
     configuration& operator=(const configuration&) = default;
+
+    std::optional<uenv::repo_description> repo() const;
 };
 
 // performs additional validation on parsed user and config file inputs

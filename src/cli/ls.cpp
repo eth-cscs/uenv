@@ -43,7 +43,8 @@ void image_ls_args::add_cli(CLI::App& cli,
 
 int image_ls(const image_ls_args& args, const global_settings& settings) {
     // require that a valid repo has been provided
-    if (!settings.config.repo) {
+    const auto repo = settings.config.repo();
+    if (!repo) {
         term::error("a repo needs to be provided either using the --repo flag "
                     "in the config file");
         return 1;
@@ -58,7 +59,7 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
 
     // TODO: raise the search function to a standalone function
     // open the repo
-    auto store = uenv::open_repository(settings.config.repo.value());
+    auto store = uenv::open_repository(repo->path);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;

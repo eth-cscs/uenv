@@ -287,13 +287,13 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
     spdlog::info("image rm {}", args.label);
 
     // open the repo
-    if (!settings.config.repo) {
+    const auto repo = settings.config.repo();
+    if (!repo) {
         term::error("a repo needs to be provided either using the --repo flag "
                     "in the config file");
         return 1;
     }
-    auto store = uenv::open_repository(settings.config.repo.value(),
-                                       repo_mode::readwrite);
+    auto store = uenv::open_repository(repo->path, repo_mode::readwrite);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;

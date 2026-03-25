@@ -89,8 +89,8 @@ int status([[maybe_unused]] const status_args& args,
     }
     spdlog::debug("derived view description from UENV_VIEW {}", view_desc);
 
-    const auto env = concretise_env(mount_desc, view_desc, settings.config.repo,
-                                    settings.calling_environment);
+    const auto env =
+        concretise_env(mount_desc, view_desc, settings.config.repos);
 
     if (!env) {
         term::error("could not interpret environment: {}", env.error());

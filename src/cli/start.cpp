@@ -1,7 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 #include <unistd.h>
 
-#include <ranges>
 #include <string>
 
 #include <fmt/core.h>
@@ -95,9 +94,8 @@ will not work, because it starts a new interactive shell.)",
         return 1;
     }
 
-    const auto env =
-        concretise_env(args.uenv_description, args.view_description,
-                       globals.config.repo, globals.calling_environment);
+    const auto env = concretise_env(
+        args.uenv_description, args.view_description, globals.config.repos);
 
     if (!env) {
         term::error("{}", env.error());

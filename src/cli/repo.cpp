@@ -93,17 +93,17 @@ void repo_args::add_cli(CLI::App& cli,
 // inspect the repo path that is optionally passed as an argument.
 // if no argument is provided, fall back to the value passed using
 // the --repo argument, which in turn falls back to the default value.
-util::expected<std::string, std::string>
-resolve_repo_path(std::optional<std::string> path,
-                  const global_settings& settings) {
+util::expected<repo_description, std::string>
+resolve_repo(std::optional<std::string> path, const global_settings& settings) {
     if (path) {
         if (auto result = parse_path(*path); !result) {
             return util::unexpected(result.error().message());
         }
-        return *path;
+        return repo_description{.name = "cli", .path = *path};
     }
-    if (settings.config.repo) {
-        return settings.config.repo.value();
+
+    if (auto repo = settings.config.repo()) {
+        return repo.value();
     }
     return util::unexpected("no repo path provided");
 }
@@ -119,10 +119,10 @@ resolve_repo_list(std::optional<std::string> repo_arg,
         return *path;
         */
     }
-    if (settings.config.repo) {
-        return settings.config.repo.value();
+    if (auto repo = settings.config.repo()) {
+        return std::vector{repo.value()};
     }
-    return util::unexpected("no repo path provided");
+    return util::unexpected("no repo available");
 }
 
 struct repo_consistency {
@@ -202,21 +202,21 @@ get_record_map(const repository& store) {
 } // namespace impl
 
 int repo_create(const repo_create_args& args, const global_settings& settings) {
-    auto path = resolve_repo_path(args.path, settings);
-    if (!path) {
-        term::error("invalid repository path: {}", path.error());
+    auto repo = resolve_repo(args.path, settings);
+    if (!repo) {
+        term::error("invalid repository path: {}", repo.error());
         return 1;
     }
-    spdlog::info("attempting to create uenv repo at {}", *path);
-    auto x = create_repository(*path);
-    if (!x) {
-        term::error("{}", x.error());
+    spdlog::info("attempting to create uenv repo at {}", repo->path);
+
+    if (auto result = create_repository(repo->path); !result) {
+        term::error("{}", result.error());
         return 1;
     }
     return 0;
 }
 
-// JSON outpu will generate a json string like the following
+// JSON output will generate a json string like the following
 // {
 //   "path": "/scratch/.repo",
 //   "status": "readwrite",
@@ -235,13 +235,13 @@ int repo_create(const repo_create_args& args, const global_settings& settings) {
 int repo_status(const repo_status_args& args, const global_settings& settings) {
     using enum repo_state;
 
-    auto path = resolve_repo_path(args.path, settings);
-    if (!path) {
-        term::error("invalid repository path: {}", path.error());
+    auto repo = resolve_repo(args.path, settings);
+    if (!repo) {
+        term::error("invalid repository path: {}", repo.error());
         return 1;
     }
 
-    auto status = validate_repository(path.value());
+    auto status = validate_repository(repo->path);
 
     const bool valid_repo = status == readonly || status == readwrite;
     bool update = false;
@@ -253,20 +253,20 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
     if (valid_repo) {
         // check for lustre striping
         if (auto p =
-                lustre::load_path(path.value(), settings.calling_environment)) {
+                lustre::load_path(repo->path, settings.calling_environment)) {
             lustre_state = lustre::is_striped(*p);
             update |= !lustre_state.value();
         }
 
         // check for inconsistencies between stored images and the database
-        if (auto store = uenv::open_repository(path.value())) {
+        if (auto store = uenv::open_repository(repo->path)) {
             if (auto c = impl::check_repo_consistency(store.value()); !c) {
                 store_state = c;
                 update = true;
             }
         } else {
             term::error("the repository at {} could not be opened {}",
-                        path.value(), store.error());
+                        repo->path, store.error());
             return 1;
         }
     }
@@ -275,7 +275,7 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
     if (args.json) {
         using nlohmann::json;
         json json_out;
-        json_out["path"] = path.value();
+        json_out["path"] = repo->path;
         json_out["fstype"] = lustre_state ? "lustre" : "unknown";
         json_out["updates"] = json::array();
         if (lustre_state && !lustre_state.value()) {
@@ -301,14 +301,14 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
     // output the results in human readable form (the default)
     else {
         if (status == no_exist) {
-            term::msg("{} is not a repository", path.value());
+            term::msg("{} is not a repository", repo->path);
         } else {
-            term::msg("the repository {} is {}", path.value(), status);
+            term::msg("the repository {} is {}", repo->path, status);
         }
         if (lustre_state) {
             if (!lustre_state.value()) {
                 term::msg("  - is on a lustre file system that is not striped",
-                          path.value());
+                          repo->path);
             } else {
                 term::msg("  - on a lustre file system");
             }
@@ -322,9 +322,9 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
             }
         }
         if (update) {
-            term::msg("\nrun '{}' to apply updates to the repository",
-                      color::yellow(
-                          fmt::format("uenv repo update {}", path.value())));
+            term::msg(
+                "\nrun '{}' to apply updates to the repository",
+                color::yellow(fmt::format("uenv repo update {}", repo->path)));
         }
     }
 
@@ -334,28 +334,29 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
 int repo_update(const repo_update_args& args, const global_settings& settings) {
     using enum repo_state;
 
-    auto path = resolve_repo_path(args.path, settings);
-    if (!path) {
-        term::error("invalid repository path: {}", path.error());
+    auto repo = resolve_repo(args.path, settings);
+    if (!repo) {
+        term::error("invalid repository path: {}", repo.error());
         return 1;
     }
 
-    auto status = validate_repository(*path);
+    auto status = validate_repository(repo->path);
     if (status == readonly) {
-        term::error("the repository at {} is read only\n", *path);
+        term::error("the repository at {} is read only\n", repo->path);
         return 1;
     }
     if (status == no_exist) {
-        term::error("no repository at {}\n", *path);
+        term::error("no repository at {}\n", repo->path);
         return 1;
     }
     if (status == invalid) {
-        term::error("the repository at {} is in invalid state\n", *path);
+        term::error("the repository at {} is in invalid state\n", repo->path);
         return 1;
     }
 
     if (args.lustre) {
-        if (auto p = lustre::load_path(*path, settings.calling_environment)) {
+        if (auto p =
+                lustre::load_path(repo->path, settings.calling_environment)) {
             if (!lustre::is_striped(*p)) {
                 term::msg("{} applying striping", p->path.string());
                 lustre::set_striping(*p, lustre::default_striping, true);
@@ -364,9 +365,11 @@ int repo_update(const repo_update_args& args, const global_settings& settings) {
     }
 
     // check for inconsistencies between stored images and the database
-    if (auto store = uenv::open_repository(*path, uenv::repo_mode::readwrite)) {
+    if (auto store =
+            uenv::open_repository(repo->path, uenv::repo_mode::readwrite)) {
         if (auto C = impl::check_repo_consistency(*store); !C) {
-            term::msg("the repository at {} has missing uenv images:", *path);
+            term::msg("the repository at {} has missing uenv images:",
+                      repo->path);
             for (auto& [digest, records] : C.no_storage) {
                 term::msg("  removing stale ref {}", digest);
                 const auto store_path = store->uenv_paths(digest).store;
@@ -384,12 +387,12 @@ int repo_update(const repo_update_args& args, const global_settings& settings) {
             }
         }
     } else {
-        term::error("the repository at {} could not be opened {}", *path,
+        term::error("the repository at {} could not be opened {}", repo->path,
                     store.error());
         return 1;
     }
 
-    term::msg("The repository {} is up to date", *path);
+    term::msg("The repository {} is up to date", repo->path);
 
     return 0;
 }
@@ -407,8 +410,8 @@ int repo_migrate(const repo_migrate_args& args,
     //   source=first, destination=second.
     fs::path source;
     if (auto src =
-            resolve_repo_path(args.path1 ? args.path0 : args.path1, settings)) {
-        source = *src;
+            resolve_repo(args.path1 ? args.path0 : args.path1, settings)) {
+        source = src->path;
     } else {
         term::error("unable to determine source repository {}", src.error());
         return 1;

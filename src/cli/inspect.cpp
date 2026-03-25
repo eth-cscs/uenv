@@ -50,8 +50,7 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
     }
 
     // Resolve the uenv to get full information including metadata
-    auto info_result =
-        resolve_uenv(desc, globals.config.repo, globals.calling_environment);
+    auto info_result = resolve_uenv(desc, globals.config.repos);
     if (!info_result) {
         term::error("unable to resolve uenv: {}", info_result.error());
         return 1;

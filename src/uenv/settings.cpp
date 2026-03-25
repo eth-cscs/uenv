@@ -39,6 +39,13 @@ util::unexpected<config_error> make_config_error(std::string message,
         config_error{.message = std::move(message), .line = line}};
 }
 
+std::optional<uenv::repo_description> configuration::repo() const {
+    if (repos.empty()) {
+        return std::nullopt;
+    }
+    return repos[0];
+}
+
 // merge two config_base items
 // if both have the same field set, choose the lhs value
 config_base merge(const config_base& lhs, const config_base& rhs) {
