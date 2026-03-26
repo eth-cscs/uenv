@@ -20,6 +20,8 @@ struct repo_description {
     std::uint32_t priority = default_priority;
     friend bool operator<(const repo_description& lhs,
                           const repo_description& rhs);
+    friend bool operator==(const repo_description& lhs,
+                           const repo_description& rhs);
 };
 
 class repo_label {
@@ -202,5 +204,22 @@ template <> class fmt::formatter<uenv::repo_description> {
                           FmtContext& ctx) const {
         return fmt::format_to(ctx.out(), "[name={}, path={}, priority={}]",
                               d.name, d.path, d.priority);
+    }
+};
+
+template <> class fmt::formatter<uenv::repo_label> {
+  public:
+    // parse format specification and store it:
+    constexpr auto parse(format_parse_context& ctx) {
+        return ctx.end();
+    }
+    // format a value using stored specification:
+    template <typename FmtContext>
+    constexpr auto format(uenv::repo_label const& d, FmtContext& ctx) const {
+        return d.is_name() ? fmt::format_to(ctx.out(), "[name={}]", d.as_name())
+               : d.is_path() ? fmt::format_to(ctx.out(), "[path={}]",
+                                              d.as_path().string())
+                             : fmt::format_to(ctx.out(), "[description={}]",
+                                              d.as_description());
     }
 };

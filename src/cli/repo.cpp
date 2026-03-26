@@ -64,27 +64,14 @@ void repo_args::add_cli(CLI::App& cli,
         "migrate", "migrate a repository to a new directory");
 
     migrate_cli
-        ->add_option("source", migrate_args.path0,
+        ->add_option("source", migrate_args.source,
                      "path of the source repository (if not provided use the "
                      "default repo)")
-        ->required()
-        ->check([](const std::string& arg) -> std::string {
-            if (auto status = validate_repo_path(arg, false, false); !status) {
-                return fmt::format("{} is not a valid repo path: {}", arg,
-                                   status.error());
-            }
-            return {};
-        });
+        ->required();
     migrate_cli
-        ->add_option("destination", migrate_args.path1,
+        ->add_option("destination", migrate_args.destination,
                      "path of the new repository")
-        ->check([](const std::string& arg) -> std::string {
-            if (auto status = validate_repo_path(arg, false, false); !status) {
-                return fmt::format("{} is not a valid repo path: {}", arg,
-                                   status.error());
-            }
-            return {};
-        });
+        ->required();
     migrate_cli->add_flag("--sync,!--no-sync", migrate_args.sync,
                           "merge source uenv into an existing target repo.");
     migrate_cli->callback(
@@ -421,27 +408,45 @@ int repo_migrate(const repo_migrate_args& args,
     using enum repo_state;
     namespace fs = std::filesystem;
 
-    // set up the source and destination repo paths based on positional
-    // arguments.
-    // 1 positional argument provided:
-    //   use it as the destination and use the default repo as the source.
-    // 2 positiinal arguments provided:
-    //   source=first, destination=second.
-    fs::path source;
-    if (auto src =
-            resolve_repo(args.path1 ? args.path0 : args.path1, settings)) {
-        source = src->path;
+    uenv::repo_description source;
+    if (auto source_label = parse_repo_label(args.source)) {
+        if (auto result = pick_repo(source_label.value(), settings.config.repos,
+                                    "source")) {
+            source = result.value();
+        } else {
+            term::error("source repo is not a valid: ", result.error());
+            return 1;
+        }
     } else {
-        term::error("unable to determine source repository {}", src.error());
+        term::error("source repo is not valid: ",
+                    source_label.error().message());
         return 1;
     }
-    // the input paths have already been validated so the strings can be cast to
-    // fs::path without error checking.
-    const auto destination =
-        fs::path(args.path1 ? args.path1.value() : args.path0.value());
+
+    uenv::repo_description destination;
+    if (auto destination_label = parse_repo_label(args.destination)) {
+        if (auto result = pick_repo(destination_label.value(),
+                                    settings.config.repos, "destination")) {
+            destination = result.value();
+        } else {
+            term::error("destination repo is not a valid: ", result.error());
+            return 1;
+        }
+    } else {
+        term::error("destination repo is not valid: ",
+                    destination_label.error().message());
+        return 1;
+    }
+
+    // verify that source and destination are different locaions
+    if (destination == source) {
+        term::error("the source and destination point to the same directory {}",
+                    source.path);
+        return 1;
+    }
 
     // validate that the source repo exists and is a valid repo
-    if (auto status = validate_repository(source);
+    if (auto status = validate_repository(source.path);
         !(status == readonly || status == readwrite)) {
         term::error("source repo {} is not a valid repo", source);
         return 1;
@@ -449,7 +454,7 @@ int repo_migrate(const repo_migrate_args& args,
 
     // validate the destination repo either does not exist,
     // or is writable if the sync option is enabled.
-    const auto dest_status = validate_repository(destination);
+    const auto dest_status = validate_repository(destination.path);
     if (args.sync && !(dest_status == no_exist || dest_status == readwrite)) {
         term::error("destination repo {} can not be synced because it is {}.",
                     destination,
@@ -471,7 +476,7 @@ int repo_migrate(const repo_migrate_args& args,
     }
 
     if (const auto src_store =
-            uenv::open_repository(source, uenv::repo_mode::readonly);
+            uenv::open_repository(source.path, uenv::repo_mode::readonly);
         !src_store) {
         term::error("the repo {} could not be opened {}", source,
                     src_store.error());
@@ -488,8 +493,8 @@ int repo_migrate(const repo_migrate_args& args,
         // create/open the destination repo
         auto dst_store =
             dest_status == no_exist
-                ? create_repository(destination)
-                : open_repository(destination, repo_mode::readwrite);
+                ? create_repository(destination.path)
+                : open_repository(destination.path, repo_mode::readwrite);
 
         if (!dst_store) {
             term::error("unable to open destination repo for migration: {}",

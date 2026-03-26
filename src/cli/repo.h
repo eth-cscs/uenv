@@ -24,11 +24,8 @@ struct repo_update_args {
     bool lustre = true;
 };
 struct repo_migrate_args {
-    // takes two arguments: source and destination
-    // source is optional, but comes first when provided
-    // so we take two unnamed arguments, and determine them later
-    std::optional<std::string> path0;
-    std::optional<std::string> path1;
+    std::string source;
+    std::string destination;
     bool sync = true;
 };
 

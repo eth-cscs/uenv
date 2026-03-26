@@ -98,8 +98,12 @@ config_base default_config(const envvars::state& env) {
 
     if (rexist || ravail) {
         return {
+            // priority of the default repo is default_priority-1
+            // which will give it higher priority than other repos with default
+            // priority
             .repos = {{.name = "default",
-                       .path = (rexist ? *rexist : *ravail)}},
+                       .path = (rexist ? *rexist : *ravail),
+                       .priority = repo_description::default_priority - 1}},
             .color = color::default_color(env),
         };
     }
@@ -124,7 +128,6 @@ configuration generate_configuration(const config_base& base) {
             spdlog::warn("invalid repo path {}", path.error().message());
         }
     }
-    // TODO: sort will not be needed if we manage repos in their own type?
     std::stable_sort(config.repos.begin(), config.repos.end());
 
     // disable color output if it has not be enabled/disabled
@@ -290,8 +293,14 @@ load_config(const uenv::config_base& cli_config,
         auto modified_cli_config = cli_config;
         modified_cli_config.repos = descriptions.value();
 
+        spdlog::info("load_config using repositories: {}",
+                     fmt::join(std::vector{modified_cli_config.repos}, ", "));
+
         return merge(modified_cli_config, config);
     }
+
+    spdlog::info("load_config using repositories: {}",
+                 fmt::join(std::vector{config.repos}, ", "));
 
     return merge(cli_config, config);
 }

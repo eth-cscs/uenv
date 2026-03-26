@@ -46,7 +46,7 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
     const auto repo = settings.config.repo();
     if (!repo) {
         term::error("a repo needs to be provided either using the --repo flag "
-                    "in the config file");
+                    "or the config file");
         return 1;
     }
 

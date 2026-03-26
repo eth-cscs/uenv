@@ -103,6 +103,8 @@ int main(int argc, char** argv) {
     // parse the repo flag if it was passed
     if (cli_repo) {
         if (const auto result = uenv::parse_repo_list(cli_repo.value())) {
+            spdlog::info("selected repositories: {}",
+                         fmt::join(result.value(), ", "));
             cli_repo_labels = result.value();
         } else {
             term::error("invalid --repo argument: {}",

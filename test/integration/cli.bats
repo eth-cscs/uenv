@@ -151,17 +151,17 @@ function teardown() {
     # using --repo flag to uenv
     run uenv --repo=$RP repo status
     assert_success
-    assert_line --index 0 "the repository $RP is readwrite"
+    assert_line --index 0 "anonymous:$RP is readwrite"
 
     # as a positional argument to the repo status command itself
     run uenv repo status $RP
     assert_success
-    assert_line --index 0 "the repository $RP is readwrite"
+    assert_line --index 0 "cli:$RP is readwrite"
 
     # no error for a path that does not exist
     run uenv repo status /wombat
     assert_success
-    assert_line --index 0 "/wombat is not a repository"
+    assert_line --index 0 "cli:/wombat is not a repository"
 
     # TODO:
     # - check a read-only repo

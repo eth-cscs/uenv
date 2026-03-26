@@ -227,6 +227,11 @@ bool operator<(const repo_description& lhs, const repo_description& rhs) {
     return lhs.priority < rhs.priority;
 }
 
+bool operator==(const repo_description& lhs, const repo_description& rhs) {
+    return std::filesystem::weakly_canonical(lhs.path) ==
+           std::filesystem::weakly_canonical(rhs.path);
+}
+
 //
 // repo_label implementation
 //
