@@ -680,7 +680,7 @@ util::expected<repo_label, parse_error> parse_repo_label(lex::lexer& L) {
             if (auto path = parse_path(L)) {
 
                 return repo_description{.name = name.value(),
-                                        .path = path.value()};
+                                        .path = std::filesystem::path(path.value())};
             } else {
                 return util::unexpected{path.error()};
             }

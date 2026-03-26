@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include <fmt/std.h>
+
 #include <fmt/format.h>
 
 #include <uenv/uenv.h>
@@ -16,7 +18,7 @@ struct repo_description {
     static constexpr std::uint32_t default_priority = 10;
 
     std::string name;
-    std::string path;
+    std::filesystem::path path;
     std::uint32_t priority = default_priority;
     friend bool operator<(const repo_description& lhs,
                           const repo_description& rhs);
@@ -92,7 +94,7 @@ default_repo_path(const envvars::state& env, bool exists = false);
 // - so it will return true always (because no check for existance is
 // performed)
 util::expected<std::filesystem::path, std::string>
-validate_repo_path(const std::string& path, bool is_absolute = true,
+validate_repo_path(const std::filesystem::path& path, bool is_absolute = true,
                    bool exists = true);
 
 enum class repo_state { readonly, readwrite, no_exist, invalid };
@@ -203,7 +205,7 @@ template <> class fmt::formatter<uenv::repo_description> {
     constexpr auto format(uenv::repo_description const& d,
                           FmtContext& ctx) const {
         return fmt::format_to(ctx.out(), "[name={}, path={}, priority={}]",
-                              d.name, d.path, d.priority);
+                              d.name, d.path.string(), d.priority);
     }
 };
 

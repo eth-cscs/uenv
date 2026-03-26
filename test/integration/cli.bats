@@ -317,6 +317,77 @@ EOF
     assert_output --partial "a uenv session is already running"
 }
 
+@test "multi repo --repo flag" {
+    RP1=$(mktemp -d $TMP/repo1-XXXXXX)
+    RP2=$(mktemp -d $TMP/repo2-XXXXXX)
+    run uenv repo create $RP1
+    assert_success
+    run uenv repo create $RP2
+    assert_success
+
+    # two paths: auto-generated names "anonymous" and "anonymous0"
+    run uenv --repo=$RP1,$RP2 repo status
+    assert_success
+    assert_line "anonymous:$RP1 is readwrite"
+    assert_line "anonymous0:$RP2 is readwrite"
+    [ "${#lines[@]}" -eq 2 ]
+
+    # reversing the order reverses the names too
+    run uenv --repo=$RP2,$RP1 repo status
+    assert_success
+    assert_line "anonymous:$RP2 is readwrite"
+    assert_line "anonymous0:$RP1 is readwrite"
+    [ "${#lines[@]}" -eq 2 ]
+
+    # name=path syntax assigns explicit names
+    run uenv --repo=first=$RP1,second=$RP2 repo status
+    assert_success
+    assert_line "first:$RP1 is readwrite"
+    assert_line "second:$RP2 is readwrite"
+    [ "${#lines[@]}" -eq 2 ]
+
+    # a non-existent path in the list is an error
+    run uenv --repo=$RP1,/wombat repo status
+    assert_failure
+}
+
+@test "multi repo toml config" {
+    RP1=$(mktemp -d $TMP/repo1-XXXXXX)
+    RP2=$(mktemp -d $TMP/repo2-XXXXXX)
+    run uenv repo create $RP1
+    assert_success
+    run uenv repo create $RP2
+    assert_success
+
+    # write a config with two [[repositories]] entries — this was previously
+    # broken because parse_repository_array rejected arrays with more than one
+    # entry.
+    XDG=$TMP/xdg
+    mkdir -p $XDG/uenv
+    cat > $XDG/uenv/config.toml <<EOF
+[[repositories]]
+name = 'first'
+path = '$RP1'
+
+[[repositories]]
+name = 'second'
+path = '$RP2'
+EOF
+
+    # use XDG_CONFIG_HOME to redirect user config, and a fake HOME to suppress
+    # default repo detection.
+    FAKE_HOME=$(mktemp -d $TMP/home-XXXXXX)
+    run env HOME=$FAKE_HOME XDG_CONFIG_HOME=$XDG uenv repo status
+    assert_success
+    assert_line "first:$RP1 is readwrite"
+    assert_line "second:$RP2 is readwrite"
+
+    # TODO: once image ls searches all repos, add:
+    # run uenv --repo=first=$RP1,second=$RP2 image ls --no-header
+    # assert_line --partial "images from RP1..."
+    # assert_line --partial "images from RP2..."
+}
+
 @test "image add" {
     # using UENV_REPO_PATH env variable
     RP=$(mktemp -d $TMP/create-XXXXXX)

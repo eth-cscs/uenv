@@ -117,15 +117,10 @@ configuration generate_configuration(const config_base& base) {
     configuration config;
 
     for (auto& repo : base.repos) {
-        if (auto path = parse_path(repo.path)) {
-            if (auto rpath =
-                    uenv::validate_repo_path(path.value(), false, false)) {
-                config.repos.push_back(repo);
-            } else {
-                spdlog::warn("invalid repo path {}", rpath.error());
-            }
+        if (auto rpath = uenv::validate_repo_path(repo.path, false, false)) {
+            config.repos.push_back(repo);
         } else {
-            spdlog::warn("invalid repo path {}", path.error().message());
+            spdlog::warn("invalid repo path {}", rpath.error());
         }
     }
     std::stable_sort(config.repos.begin(), config.repos.end());
@@ -353,8 +348,8 @@ read_config_file(const std::filesystem::path& path,
     for (auto [key, value] : settings) {
         if (key == "repo") {
             config.repos = {{.name = "default",
-                             .path = calling_env.expand(
-                                 value, envvars::expand_delim::curly)}};
+                             .path = std::filesystem::path(calling_env.expand(
+                                 value, envvars::expand_delim::curly))}};
         } else if (key == "color") {
             if (value == "true") {
                 config.color = true;
@@ -385,8 +380,8 @@ util::expected<std::vector<repo_description>, config_error>
 parse_repository_array(const toml::node& input,
                        const envvars::state& calling_env) {
     const auto arr = input.as_array();
-    if (!arr || arr->size() != 1u) {
-        return make_config_error("repositories is not an array with 1 entry",
+    if (!arr) {
+        return make_config_error("repositories is not an array",
                                  input.source().begin.line);
     }
 
@@ -446,7 +441,7 @@ parse_repository_array(const toml::node& input,
             // specified, because an invalid description read from a system
             // configuration can't be modified by the user.
             result.push_back({.name = std::move(name.value()),
-                              .path = std::move(path.value()),
+                              .path = std::filesystem::path(std::move(path.value())),
                               .priority = priority});
         } else {
             return make_config_error("repositories is not a table",

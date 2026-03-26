@@ -125,28 +125,16 @@ default_repo_path(const envvars::state& env, bool exists) {
 }
 
 util::expected<std::filesystem::path, std::string>
-validate_repo_path(const std::string& path, bool is_absolute, bool exists) {
-    auto parsed_path_string = parse_path(path);
-    if (!parsed_path_string) {
-        return util::unexpected(
-            fmt::format("{} is an invalid uenv repository path: {}", path,
-                        parsed_path_string.error().message()));
+validate_repo_path(const std::filesystem::path& path, bool is_absolute,
+                   bool exists) {
+    if (is_absolute && !path.is_absolute()) {
+        return unexpected(
+            fmt::format("'{}' is not an absolute path.", path.string()));
     }
-    try {
-        const auto p = std::filesystem::path(*parsed_path_string);
-    } catch (...) {
-        return util::unexpected(
-            fmt::format("{} is an invalid uenv repository path", path));
+    if (exists && !fs::exists(path)) {
+        return unexpected(fmt::format("'{}' does not exist.", path.string()));
     }
-
-    const auto p = fs::path(path);
-    if (is_absolute && !p.is_absolute()) {
-        return unexpected(fmt::format("'{}' is not an absolute path.", path));
-    }
-    if (exists && !fs::exists(p)) {
-        return unexpected(fmt::format("'{}' does not exist.", path));
-    }
-    return fs::absolute(p);
+    return fs::absolute(path);
 }
 
 util::expected<repo_description, std::string>
@@ -170,7 +158,7 @@ pick_repo(const repo_label& label,
         }
     } else if (label.is_path()) {
         return repo_description{.name = altname,
-                                .path = label.as_path().string()};
+                                .path = label.as_path()};
     } else {
         const auto& d = label.as_description();
         return repo_description{.name = d.name, .path = d.path};
@@ -203,9 +191,16 @@ filter_repo_list(const std::vector<repo_label>& labels,
     }
     std::vector<repo_description> output{};
     for (const auto& r : labels) {
-        auto description = pick_repo(r, descriptions, unique_name());
+        auto name = unique_name();
+        auto description = pick_repo(r, descriptions, name);
         if (!description) {
             return util::unexpected{description.error()};
+        }
+        // only reserve the generated name if it was used: pick_repo uses the
+        // altname only for is_path() labels; is_name() and is_description()
+        // labels supply their own names.
+        if (r.is_path()) {
+            reserved_names.insert(std::move(name));
         }
         output.push_back(std::move(description.value()));
     }

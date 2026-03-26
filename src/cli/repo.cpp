@@ -89,7 +89,7 @@ resolve_repo(std::optional<std::string> path, const global_settings& settings) {
         if (auto result = parse_path(*path); !result) {
             return util::unexpected(result.error().message());
         }
-        return repo_description{.name = "cli", .path = *path};
+        return repo_description{.name = "cli", .path = std::filesystem::path(*path)};
     }
 
     if (auto repo = settings.config.repo()) {
@@ -268,7 +268,7 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
         if (args.json) {
             json json_entry;
             json_entry["name"] = repo.name;
-            json_entry["path"] = repo.path;
+            json_entry["path"] = repo.path.string();
             json_entry["fstype"] = lustre_state ? "lustre" : "unknown";
             json_entry["updates"] = json::array();
             if (lustre_state && !lustre_state.value()) {
@@ -295,10 +295,10 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
         else {
             if (status == no_exist) {
                 term::msg("{}:{} is not a repository", color::yellow(repo.name),
-                          color::cyan(repo.path));
+                          color::cyan(repo.path.string()));
             } else {
                 term::msg("{}:{} is {}", color::yellow(repo.name),
-                          color::cyan(repo.path), status);
+                          color::cyan(repo.path.string()), status);
             }
             if (lustre_state) {
                 if (!lustre_state.value()) {
