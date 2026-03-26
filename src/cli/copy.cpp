@@ -161,7 +161,7 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
                         "to copy anyway");
             return 1;
         }
-        term::error("the destination already exists and will be overwritten");
+        term::warn("the destination already exists and will be overwritten");
     }
 
     const auto rego_url = site::registry_url();
