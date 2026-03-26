@@ -85,6 +85,8 @@ util::expected<std::string, parse_error> parse_repo_name(const std::string& in);
 util::expected<std::vector<repo_label>, parse_error>
 parse_repo_list(const std::string& in);
 
+util::expected<repo_label, parse_error> parse_repo_label(const std::string& in);
+
 util::expected<util::semver, parse_error> parse_semver(const std::string& arg);
 
 } // namespace uenv

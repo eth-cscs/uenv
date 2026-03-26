@@ -14,12 +14,12 @@ struct repo_create_args {
     std::optional<std::string> path;
 };
 struct repo_status_args {
-    std::optional<std::string> path;
+    std::optional<std::string> repo;
     // print output in json format
     bool json = false;
 };
 struct repo_update_args {
-    std::optional<std::string> path;
+    std::string repo;
     // whether to apply lustre checks
     bool lustre = true;
 };

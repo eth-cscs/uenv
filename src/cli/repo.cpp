@@ -33,6 +33,7 @@ void repo_args::add_cli(CLI::App& cli,
     auto* create_cli =
         repo_cli->add_subcommand("create", "create a new uenv repository");
 
+    // TODO: should this command really work by selecting a default location?
     create_cli->add_option("path", create_args.path,
                            "path of the repo to create");
     create_cli->callback(
@@ -41,7 +42,8 @@ void repo_args::add_cli(CLI::App& cli,
     // add the status command, i.e. `uenv repo status ...`
     auto* status_cli = repo_cli->add_subcommand(
         "status", "status of an existing uenv repository");
-    status_cli->add_option("path", status_args.path, "path of the repo");
+    status_cli->add_option("repo", status_args.repo,
+                           "the repo (one of [path] or [name])");
     status_cli->add_flag("--json", status_args.json, "output in json format");
     status_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::repo_status; });
@@ -50,7 +52,8 @@ void repo_args::add_cli(CLI::App& cli,
     auto* update_cli = repo_cli->add_subcommand(
         "update", "update an existing uenv repository");
 
-    update_cli->add_option("path", update_args.path, "path of the repo");
+    update_cli->add_option("repo", update_args.repo, "repository to update")
+        ->required();
     update_cli->add_flag("--lustre,!--no-lustre", update_args.lustre,
                          "apply lustre striping fix if applicable");
     update_cli->callback(
@@ -106,23 +109,6 @@ resolve_repo(std::optional<std::string> path, const global_settings& settings) {
         return repo.value();
     }
     return util::unexpected("no repo path provided");
-}
-
-util::expected<std::vector<uenv::repo_description>, std::string>
-resolve_repo_list(std::optional<std::string> repo_arg,
-                  const global_settings& settings) {
-    if (repo_arg) {
-        /*
-        if (auto result = parse_path(*path); !result) {
-            return util::unexpected(result.error().message());
-        }
-        return *path;
-        */
-    }
-    if (auto repo = settings.config.repo()) {
-        return std::vector{repo.value()};
-    }
-    return util::unexpected("no repo available");
 }
 
 struct repo_consistency {
@@ -216,116 +202,146 @@ int repo_create(const repo_create_args& args, const global_settings& settings) {
     return 0;
 }
 
-// JSON output will generate a json string like the following
+// JSON output generates a json string like the following
 // {
-//   "path": "/scratch/.repo",
-//   "status": "readwrite",
-//   "fstype": "scratch",
-//   // list of chanages that can be applied
-//   "updates": ["lustre-striping", "storage"],
-//   // list of digests to remove (default is empty)
-//   "digest-remove": [
-//       {
-//        "digest": "aa789ssdf",
-//        "labels": ["bilby/23:v2@daint"]
-//       }
-//   ],
+//  "repos": [
+//     {
+//       "name": "default",
+//       "path": "/scratch/.repo",
+//       "status": "readwrite",
+//       "fstype": "scratch",
+//       // list of chanages that can be applied
+//       "updates": ["lustre-striping", "storage"],
+//       // list of digests to remove (default is empty)
+//       "digest-remove": [{
+//           "digest": "aa789ssdf",
+//           "labels": ["bilby/23:v2@daint"]
+//         }
+//       ],
+//     }
+//   ]
 // }
 
 int repo_status(const repo_status_args& args, const global_settings& settings) {
     using enum repo_state;
 
-    auto repo = resolve_repo(args.path, settings);
-    if (!repo) {
-        term::error("invalid repository path: {}", repo.error());
-        return 1;
-    }
-
-    auto status = validate_repository(repo->path);
-
-    const bool valid_repo = status == readonly || status == readwrite;
-    bool update = false;
-
-    // set to true when an update can be applied using `uenv repo update`
-    std::optional<lustre::stripe_stats> lustre_state{};
-    std::optional<repo_consistency> store_state{};
-
-    if (valid_repo) {
-        // check for lustre striping
-        if (auto p =
-                lustre::load_path(repo->path, settings.calling_environment)) {
-            lustre_state = lustre::is_striped(*p);
-            update |= !lustre_state.value();
-        }
-
-        // check for inconsistencies between stored images and the database
-        if (auto store = uenv::open_repository(repo->path)) {
-            if (auto c = impl::check_repo_consistency(store.value()); !c) {
-                store_state = c;
-                update = true;
-            }
-        } else {
-            term::error("the repository at {} could not be opened {}",
-                        repo->path, store.error());
+    std::vector<repo_description> repos{};
+    if (args.repo) {
+        auto label = uenv::parse_repo_label(args.repo.value());
+        if (!label) {
+            term::error("invalid repository description: {}",
+                        label.error().message());
             return 1;
         }
-    }
-
-    // output the results as json
-    if (args.json) {
-        using nlohmann::json;
-        json json_out;
-        json_out["path"] = repo->path;
-        json_out["fstype"] = lustre_state ? "lustre" : "unknown";
-        json_out["updates"] = json::array();
-        if (lustre_state && !lustre_state.value()) {
-            json_out["updates"].push_back("lustre-striping");
-        }
-        json_out["digest-remove"] = json::array();
-        json_out["status"] = fmt::format("{}", status);
-        if (store_state) {
-            json_out["updates"].push_back("storage");
-            for (const auto& [digest, records] : store_state->no_storage) {
-                auto jlabels = json::array();
-                for (const auto& r : records) {
-                    jlabels.push_back(fmt::format("{}", r));
-                }
-                json_out["digest-remove"].push_back(
-                    {{"digest", fmt::format("{}", digest)},
-                     {"labels", jlabels}});
-            }
-        }
-
-        term::msg("{}", json_out.dump());
-    }
-    // output the results in human readable form (the default)
-    else {
-        if (status == no_exist) {
-            term::msg("{} is not a repository", repo->path);
+        if (auto repo =
+                uenv::pick_repo(label.value(), settings.config.repos, "cli")) {
+            repos.push_back(repo.value());
         } else {
-            term::msg("the repository {} is {}", repo->path, status);
+            term::error("invalid repository description: {}", repo.error());
+            return 1;
         }
-        if (lustre_state) {
-            if (!lustre_state.value()) {
-                term::msg("  - is on a lustre file system that is not striped",
-                          repo->path);
+    } else {
+        repos = settings.config.repos;
+    }
+
+    using nlohmann::json;
+    auto json_repos = json::array();
+    for (auto& repo : repos) {
+        auto status = validate_repository(repo.path);
+
+        const bool valid_repo = status == readonly || status == readwrite;
+        bool update = false;
+
+        // set to true when an update can be applied using `uenv repo update`
+        std::optional<lustre::stripe_stats> lustre_state{};
+        std::optional<repo_consistency> store_state{};
+
+        if (valid_repo) {
+            // check for lustre striping
+            if (auto p = lustre::load_path(repo.path,
+                                           settings.calling_environment)) {
+                lustre_state = lustre::is_striped(*p);
+                update |= !lustre_state.value();
+            }
+
+            // check for inconsistencies between stored images and the database
+            if (auto store = uenv::open_repository(repo.path)) {
+                if (auto c = impl::check_repo_consistency(store.value()); !c) {
+                    store_state = c;
+                    update = true;
+                }
             } else {
-                term::msg("  - on a lustre file system");
+                term::error("the repository at {} could not be opened {}",
+                            repo.path, store.error());
+                return 1;
             }
         }
-        if (store_state) {
-            term::msg("  - has missing uenv images:");
-            for (const auto& [digest, records] : store_state->no_storage) {
-                for (const auto& r : records) {
-                    term::msg("    {} {}", digest, r);
+
+        // output the results as json
+        if (args.json) {
+            json json_entry;
+            json_entry["name"] = repo.name;
+            json_entry["path"] = repo.path;
+            json_entry["fstype"] = lustre_state ? "lustre" : "unknown";
+            json_entry["updates"] = json::array();
+            if (lustre_state && !lustre_state.value()) {
+                json_entry["updates"].push_back("lustre-striping");
+            }
+            json_entry["digest-remove"] = json::array();
+            json_entry["status"] = fmt::format("{}", status);
+            if (store_state) {
+                json_entry["updates"].push_back("storage");
+                for (const auto& [digest, records] : store_state->no_storage) {
+                    auto jlabels = json::array();
+                    for (const auto& r : records) {
+                        jlabels.push_back(fmt::format("{}", r));
+                    }
+                    json_entry["digest-remove"].push_back(
+                        {{"digest", fmt::format("{}", digest)},
+                         {"labels", jlabels}});
                 }
             }
+
+            json_repos.push_back(json_entry);
         }
-        if (update) {
-            term::msg(
-                "\nrun '{}' to apply updates to the repository",
-                color::yellow(fmt::format("uenv repo update {}", repo->path)));
+        // output the results in human readable form (the default)
+        else {
+            if (status == no_exist) {
+                term::msg("{}:{} is not a repository", color::yellow(repo.name),
+                          color::cyan(repo.path));
+            } else {
+                term::msg("{}:{} is {}", color::yellow(repo.name),
+                          color::cyan(repo.path), status);
+            }
+            if (lustre_state) {
+                if (!lustre_state.value()) {
+                    term::msg(
+                        "  - is on a lustre file system that is not striped",
+                        repo.path);
+                } else {
+                    term::msg("  - on a lustre file system");
+                }
+            }
+            if (store_state) {
+                term::msg("  - has missing uenv images:");
+                for (const auto& [digest, records] : store_state->no_storage) {
+                    for (const auto& r : records) {
+                        term::msg("    {} {}", digest, r);
+                    }
+                }
+            }
+            if (update) {
+                term::msg("\nrun '{}' to apply updates to the repository",
+                          color::yellow(
+                              fmt::format("uenv repo update {}", repo.path)));
+            }
         }
+    }
+
+    if (args.json) {
+        json output;
+        output["repos"] = json_repos;
+        term::msg("{}", output.dump());
     }
 
     return 0;
@@ -334,11 +350,14 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
 int repo_update(const repo_update_args& args, const global_settings& settings) {
     using enum repo_state;
 
-    auto repo = resolve_repo(args.path, settings);
-    if (!repo) {
-        term::error("invalid repository path: {}", repo.error());
+    auto label = uenv::parse_repo_label(args.repo);
+    if (!label) {
+        term::error("invalid repository description: {}",
+                    label.error().message());
         return 1;
     }
+
+    auto repo = uenv::pick_repo(label.value(), settings.config.repos, "cli");
 
     auto status = validate_repository(repo->path);
     if (status == readonly) {
@@ -609,13 +628,16 @@ std::string repo_footer() {
         block{none, "a repo in the default location."},
         linebreak{},
         block{xmpl, "The 'repo update' sub-command applies updates and upgrades to a repository:"},
-        block{code,   "uenv repo update"},
+        block{code,   "uenv repo update default"},
         block{none, "will update the default repo."},
+        linebreak{},
+        block{code,   "uenv repo update $HOME/my-repo"},
+        block{none, "will update the repository at the custom location ~/my-repo."},
         linebreak{},
         block{note, "Updates are used to upgrade or update a repository, when needed. Currently two upgrades"},
         block{none, "are applied:"},
         block{none, "  - apply Lustre striping if the repo is on a Lustre file system and no striping"},
-        block{none, "    has already been applied."},
+        block{none, "    has already been applied. Disable this option with the --no-lustre flag."},
         block{none, "  - remove uenv from the database if their squashfs file does not exist"},
         block{none, "    which can occur to repos on non-default locations that are subject to"},
         block{none, "    clean up policies."},
@@ -624,7 +646,7 @@ std::string repo_footer() {
         block{code,   "uenv repo migrate $SCRATCH/.uenv-images $HOME/uenv-repo"},
         block{none, "will copy from $SCRATCH/.uenv-images to $HOME/uenv-repo."},
         linebreak{},
-        block{note, "By default, 'repo migrate' will accept an existing repository as the destination."},
+        block{note, "'repo migrate' will accept an existing repository as the destination."},
         block{none, "In the example above, the repo $HOME/uenv-repo can already exist, in which case"},
         block{none, "only images from the source repo that are not in the destination will be copied."},
         block{none, "The destination repo will be created if it does not already exist."},

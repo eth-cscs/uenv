@@ -149,6 +149,38 @@ validate_repo_path(const std::string& path, bool is_absolute, bool exists) {
     return fs::absolute(p);
 }
 
+util::expected<repo_description, std::string>
+pick_repo(const repo_label& label,
+          const std::vector<repo_description>& descriptions,
+          const std::string& altname) {
+    if (label.is_name()) {
+        const auto name = label.as_name();
+
+        if (auto pos = std::find_if(
+                descriptions.begin(), descriptions.end(),
+                [&name](const auto& rd) { return name == rd.name; });
+            pos != descriptions.end()) {
+            return repo_description{.name = pos->name,
+                                    .path = pos->path,
+                                    .priority =
+                                        repo_description::default_priority};
+        } else {
+            return util::unexpected{fmt::format(
+                "there is no repo with the name {}", label.as_name())};
+        }
+    } else if (label.is_path()) {
+        return repo_description{.name = altname,
+                                .path = label.as_path().string()};
+    } else {
+        const auto& d = label.as_description();
+        return repo_description{.name = d.name, .path = d.path};
+    }
+
+    spdlog::error(
+        "pick_repo should return either a value or error before this point");
+    return util::unexpected{"(internal error) see logs"};
+}
+
 util::expected<std::vector<repo_description>, std::string>
 filter_repo_list(const std::vector<repo_label>& labels,
                  const std::vector<repo_description>& descriptions,
@@ -171,43 +203,21 @@ filter_repo_list(const std::vector<repo_label>& labels,
     }
     std::vector<repo_description> output{};
     for (const auto& r : labels) {
-        repo_description description;
-        if (r.is_name()) {
-            const auto name = r.as_name();
-
-            if (auto pos = std::find_if(
-                    descriptions.begin(), descriptions.end(),
-                    [&name](const auto& rd) { return name == rd.name; });
-                pos != descriptions.end()) {
-                // do not copy directly from pos so that priority of the
-                // repo is reset to the default. This matters because the
-                // order of repos listed in the --repo command line should
-                // be preserved.
-                description = {.name = pos->name,
-                               .path = pos->path,
-                               .priority = repo_description::default_priority};
-            } else {
-                return util::unexpected{fmt::format(
-                    "there is no repo with the name {}", r.as_name())};
-            }
-        } else if (r.is_path()) {
-            description = {.name = unique_name(), .path = r.as_path().string()};
-        } else {
-            const auto& d = r.as_description();
-            description = {.name = d.name, .path = d.path};
-            reserved_names.insert(d.name);
+        auto description = pick_repo(r, descriptions, unique_name());
+        if (!description) {
+            return util::unexpected{description.error()};
         }
+        output.push_back(std::move(description.value()));
+    }
 
-        // check that the path points to a valid repo
-        if (validate) {
-            if (auto result = validate_repo_path(description.path, false, true);
+    if (validate) {
+        for (const auto& r : output) {
+            if (auto result = validate_repo_path(r.path, false, true);
                 !result) {
                 return util::unexpected{
                     fmt::format("the repository {}", result.error())};
             }
         }
-
-        output.push_back(std::move(description));
     }
 
     return output;

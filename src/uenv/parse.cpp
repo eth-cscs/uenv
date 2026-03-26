@@ -664,8 +664,12 @@ parse_repo_name(const std::string& in) {
     return result;
 }
 
-// TODO: repo_description is not suitable here, because it should really be a
-// discriminated union of [name, path]
+// parse one of three ways to describe a repo:
+// METHOD       EXAMPLE
+// --------------------
+// name:        myrepo
+// name=path:   myrepo=/store/.uenv
+// path:        ./store/.uenv
 util::expected<repo_label, parse_error> parse_repo_label(lex::lexer& L) {
     // check whether the description starts with a name
     if (auto name = parse_repo_name(L)) {
@@ -685,15 +689,35 @@ util::expected<repo_label, parse_error> parse_repo_label(lex::lexer& L) {
     } else if (auto path = parse_path(L)) {
         return std::filesystem::path(path.value());
     }
-    return util::unexpected{
-        parse_error{L.string(), "expected a name or a path", L.peek()}};
+    return util::unexpected{parse_error{
+        L.string(),
+        "expected a repo description (one of [name], [path] or [name,path])",
+        L.peek()}};
 }
 
-// TODO: this simply passes a single directory/path and converts it into a
-// repo_description with name "cli".
-// This will want to be rejigged to parse a list, and will probably have to
-// return a different type that can contain a list of either name, path, or
-// a named path.
+// Parse an individual repo description
+// For cli arguments that take one, and one only, descriptions.
+util::expected<repo_label, parse_error>
+parse_repo_label(const std::string& in) {
+    const std::string sanitised = util::strip(in);
+    auto L = lex::lexer(sanitised);
+    auto label = parse_repo_label(L);
+    if (!label) {
+        return util::unexpected{label.error()};
+    }
+
+    // if parsing finished and the string has not been consumed,
+    // and invalid token was encountered
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
+    }
+
+    return label;
+}
+
+// Parse a comma-separated repo list
+// /store/repo,scratch=/scratch/.uenv,
 util::expected<std::vector<repo_label>, parse_error>
 parse_repo_list(const std::string& in) {
     const std::string sanitised = util::strip(in);

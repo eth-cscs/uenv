@@ -244,10 +244,49 @@ TEST_CASE("create disk repo", "[repository]") {
     }
 }
 
+TEST_CASE("pick repo", "[repository]") {
+    using namespace std::string_literals;
+    namespace fs = std::filesystem;
+
+    std::vector<uenv::repo_description> descriptions = {
+        {.name = "user", .path = "/home/name/uenv", .priority = 10},
+        {.name = "system", .path = "/site/public/uenv", .priority = 20},
+        {.name = "lab",
+         .path = "/capstor/store/g123/shared/uenv",
+         .priority = 5},
+    };
+
+    // match a single entry by name
+    {
+        auto result =
+            uenv::pick_repo(uenv::repo_label{"system"s}, descriptions, "cli");
+        REQUIRE(result);
+        auto& v = result.value();
+        REQUIRE(v.name == "system");
+        REQUIRE(v.path == "/site/public/uenv");
+        REQUIRE(v.priority == uenv::repo_description::default_priority);
+    }
+
+    // choose using only name something not in the list
+    // this should fail, because names are used to select from a pre-defined
+    // repo
+    {
+        auto result =
+            uenv::pick_repo(uenv::repo_label{"wombat"s}, descriptions, "cli");
+        REQUIRE(!result);
+    }
+    // pick a path not in the list
+    {
+        auto result = uenv::pick_repo(uenv::repo_label{fs::path{"/usr/.uenv"}},
+                                      descriptions, "cli");
+        REQUIRE(result);
+        REQUIRE(result->name == "cli");
+        REQUIRE(result->path == "/usr/.uenv");
+        REQUIRE(result->priority == uenv::repo_description::default_priority);
+    }
+}
+
 TEST_CASE("filter repo list", "[repository]") {
-    // util::expected<std::vector<repo_description>, std::string>
-    // filter_repo_list(const std::vector<repo_label>& labels,
-    //                  const std::vector<repo_description>& descriptions);
     using namespace std::string_literals;
     namespace fs = std::filesystem;
 

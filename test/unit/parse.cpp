@@ -363,11 +363,7 @@ TEST_CASE("parse registry entry", "[parse]") {
              "build/eiger/zen2/prgenv-gnu/24.11/1529952520",
          }) {
         auto r = uenv::parse_registry_entry(s);
-        if (!r) {
-            fmt::println("{}", r.error().message());
-        } else {
-            REQUIRE(r);
-        }
+        REQUIRE(r);
     }
 
     // invalid input that was involved in a crash
@@ -550,13 +546,59 @@ TEST_CASE("parse repo label", "[parse]") {
         auto L = lex::lexer(",");
         auto result = uenv::parse_repo_label(L);
         REQUIRE(!result);
-        REQUIRE(result.error().detail == "expected a name or a path");
+        REQUIRE(result.error().detail ==
+                "expected a repo description (one of [name], [path] or "
+                "[name,path])");
     }
     {
         auto L = lex::lexer("wombat=x");
         auto result = uenv::parse_repo_label(L);
         REQUIRE(!result);
         REQUIRE(result.error().detail.starts_with("expected a path"));
+    }
+
+    //
+    // test the public interface that takes a string as input
+    //
+    {
+        auto result = uenv::parse_repo_label(" wombat=/the/burrow   ");
+        REQUIRE(result);
+        REQUIRE(!result.value().is_name());
+        REQUIRE(!result.value().is_path());
+        REQUIRE(result.value().is_description());
+        auto d = result.value().as_description();
+        REQUIRE(d.name == "wombat");
+        REQUIRE(d.path == "/the/burrow");
+    }
+    {
+        auto result = uenv::parse_repo_label(" wombat\t");
+        REQUIRE(result);
+        REQUIRE(result.value().is_name());
+        REQUIRE(!result.value().is_path());
+        REQUIRE(!result.value().is_description());
+        REQUIRE(result.value().as_name() == "wombat");
+    }
+    {
+        auto result = uenv::parse_repo_label("\t/path/to/repo ");
+        REQUIRE(result);
+        REQUIRE(!result.value().is_name());
+        REQUIRE(result.value().is_path());
+        REQUIRE(!result.value().is_description());
+        REQUIRE(result.value().as_path() == "/path/to/repo");
+    }
+    // the public interface will generate an error if there are additional
+    // tokens after the first full label has been read
+    {
+        auto result = uenv::parse_repo_label("wombat,dingo");
+        REQUIRE(!result);
+        REQUIRE(result.error().message().starts_with("unexpected symbol ,"));
+    }
+    {
+        auto result = uenv::parse_repo_label("");
+        REQUIRE(!result);
+        REQUIRE(result.error().message().starts_with(
+            "expected a repo description (one of [name], [path] or "
+            "[name,path])"));
     }
 }
 

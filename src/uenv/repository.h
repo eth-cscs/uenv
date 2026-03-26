@@ -37,6 +37,11 @@ class repo_label {
     std::variant<std::string, std::filesystem::path, repo_description> value_;
 };
 
+util::expected<repo_description, std::string>
+pick_repo(const repo_label& label,
+          const std::vector<repo_description>& descriptions,
+          const std::string& altname);
+
 util::expected<std::vector<repo_description>, std::string>
 filter_repo_list(const std::vector<repo_label>& labels,
                  const std::vector<repo_description>& descriptions,
