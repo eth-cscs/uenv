@@ -157,8 +157,7 @@ pick_repo(const repo_label& label,
                 "there is no repo with the name {}", label.as_name())};
         }
     } else if (label.is_path()) {
-        return repo_description{.name = altname,
-                                .path = label.as_path()};
+        return repo_description{.name = altname, .path = label.as_path()};
     } else {
         const auto& d = label.as_description();
         return repo_description{.name = d.name, .path = d.path};
@@ -191,17 +190,11 @@ filter_repo_list(const std::vector<repo_label>& labels,
     }
     std::vector<repo_description> output{};
     for (const auto& r : labels) {
-        auto name = unique_name();
-        auto description = pick_repo(r, descriptions, name);
+        auto description = pick_repo(r, descriptions, unique_name());
         if (!description) {
             return util::unexpected{description.error()};
         }
-        // only reserve the generated name if it was used: pick_repo uses the
-        // altname only for is_path() labels; is_name() and is_description()
-        // labels supply their own names.
-        if (r.is_path()) {
-            reserved_names.insert(std::move(name));
-        }
+        reserved_names.insert(description->name);
         output.push_back(std::move(description.value()));
     }
 
@@ -232,27 +225,27 @@ bool operator==(const repo_description& lhs, const repo_description& rhs) {
 //
 
 bool repo_label::is_name() const {
-    return value_.index() == 0u;
+    return std::holds_alternative<std::string>(value_);
 }
 
 bool repo_label::is_path() const {
-    return value_.index() == 1u;
+    return std::holds_alternative<std::filesystem::path>(value_);
 }
 
 bool repo_label::is_description() const {
-    return value_.index() == 2u;
+    return std::holds_alternative<repo_description>(value_);
 }
 
 const std::string& repo_label::as_name() const {
-    return get<0>(value_);
+    return std::get<std::string>(value_);
 }
 
 const std::filesystem::path& repo_label::as_path() const {
-    return get<1>(value_);
+    return std::get<std::filesystem::path>(value_);
 }
 
 const repo_description& repo_label::as_description() const {
-    return get<2>(value_);
+    return std::get<repo_description>(value_);
 }
 
 // A thin wrapper around sqlite3*
