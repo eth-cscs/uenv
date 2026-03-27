@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -124,6 +125,8 @@ configuration generate_configuration(const config_base& base) {
         }
     }
     std::stable_sort(config.repos.begin(), config.repos.end());
+    config.repos.erase(std::unique(config.repos.begin(), config.repos.end()),
+                       config.repos.end());
 
     // disable color output if it has not be enabled/disabled
     config.color = base.color.value_or(false);
@@ -238,11 +241,8 @@ load_system_config(const envvars::state& calling_env) {
         spdlog::info("load_system_config:: loaded {}", config_path);
         return result;
     } else {
-        spdlog::info("load_system_config:: no configuration file found",
-                     config_path);
-        return util::unexpected(
-            fmt::format("load_system_config::path {} does not exist",
-                        config_root / "config.toml"));
+        spdlog::info("load_system_config:: no configuration file found");
+        return config_base{};
     }
 }
 
@@ -255,11 +255,11 @@ load_config(const uenv::config_base& cli_config,
     if (auto sys = uenv::load_system_config(calling_env)) {
         config = merge(*sys, config);
     } else {
-        // do not treat broken system configuration as a hard error.
-        // important because users can't fix system config, and we
-        // do not want a broken systm config to disable the uenv tool.
-        spdlog::warn("load_config::did not load system config file: {}",
-                     sys.error());
+        // do not treat a broken system configuration as a hard error:
+        // users cannot fix system config, and a parse error must not
+        // disable the tool for them.
+        spdlog::error("load_config::error reading system config file: {}",
+                      sys.error());
     }
 
     if (auto usr = uenv::load_user_config(calling_env)) {
@@ -440,9 +440,10 @@ parse_repository_array(const toml::node& input,
             // this should only generate warnings if an invalid repo is
             // specified, because an invalid description read from a system
             // configuration can't be modified by the user.
-            result.push_back({.name = std::move(name.value()),
-                              .path = std::filesystem::path(std::move(path.value())),
-                              .priority = priority});
+            result.push_back(
+                {.name = std::move(name.value()),
+                 .path = std::filesystem::path(std::move(path.value())),
+                 .priority = priority});
         } else {
             return make_config_error("repositories is not a table",
                                      element.source().begin.line);
@@ -496,7 +497,7 @@ parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
         const auto& value = entry.second;
         if (key == "color") {
             if (auto v = value.value<bool>()) {
-                spdlog::debug("parse_config_yaml: added color {}", v.value());
+                spdlog::debug("parse_config_toml: added color {}", v.value());
                 config.color = v;
             } else {
                 return make_config_error(
@@ -505,14 +506,14 @@ parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
             }
         } else if (key == "elastic") {
             if (auto v = parse_elastic(value)) {
-                spdlog::debug("parse_config_yaml: added elastic {}", v.value());
+                spdlog::debug("parse_config_toml: added elastic {}", v.value());
                 config.elastic_config = v.value();
             } else {
                 return util::unexpected{v.error()};
             }
         } else if (key == "repositories") {
             if (const auto v = parse_repository_array(value, calling_env)) {
-                spdlog::debug("parse_config_yaml: added repo {}",
+                spdlog::debug("parse_config_toml: added repo {}",
                               *(v.value().begin()));
                 // fmt::join(v.value(), ","));
                 config.repos = v.value();

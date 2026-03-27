@@ -334,9 +334,8 @@ TEST_CASE("filter repo list", "[repository]") {
         // match a description
         {
             auto result = uenv::filter_repo_list(
-                {{uenv::repo_description{.name = "wombat",
-                                         .path = "/home/burrow/uenv",
-                                         .priority = 42}}},
+                {{uenv::repo_name_path{.name = "wombat",
+                                       .path = "/home/burrow/uenv"}}},
                 descriptions, false);
             if (!result) {
                 fmt::println("BOOM!! {}", result.error());
@@ -352,9 +351,8 @@ TEST_CASE("filter repo list", "[repository]") {
         {
             auto result = uenv::filter_repo_list(
                 {
-                    uenv::repo_description{.name = "wombat",
-                                           .path = "/home/burrow/uenv",
-                                           .priority = 42},
+                    uenv::repo_name_path{.name = "wombat",
+                                         .path = "/home/burrow/uenv"},
 
                     fs::path("/home/uenv-repo"),
                     "system"s,

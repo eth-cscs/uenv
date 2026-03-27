@@ -1,5 +1,6 @@
 #pragma once
 
+#include <concepts>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -14,6 +15,14 @@
 
 namespace uenv {
 
+// A name=path pair from the CLI (e.g. --repo myrepo=/path/to/repo).
+// Distinct from repo_description, which carries priority for config-layer
+// ordering and is the fully resolved form used everywhere else.
+struct repo_name_path {
+    std::string name;
+    std::filesystem::path path;
+};
+
 struct repo_description {
     static constexpr std::uint32_t default_priority = 10;
 
@@ -26,19 +35,25 @@ struct repo_description {
                            const repo_description& rhs);
 };
 
+template <typename T>
+concept repo_label_type =
+    std::same_as<T, std::string> || std::same_as<T, std::filesystem::path> ||
+    std::same_as<T, repo_name_path>;
+
 class repo_label {
   public:
-    template <typename T> repo_label(T value) : value_{std::move(value)} {};
+    template <repo_label_type T>
+    repo_label(T value) : value_{std::move(value)} {};
 
     bool is_name() const;
     bool is_path() const;
-    bool is_description() const;
+    bool is_name_path() const;
     const std::string& as_name() const;
     const std::filesystem::path& as_path() const;
-    const repo_description& as_description() const;
+    const repo_name_path& as_name_path() const;
 
   private:
-    std::variant<std::string, std::filesystem::path, repo_description> value_;
+    std::variant<std::string, std::filesystem::path, repo_name_path> value_;
 };
 
 util::expected<repo_description, std::string>
@@ -221,7 +236,8 @@ template <> class fmt::formatter<uenv::repo_label> {
         return d.is_name() ? fmt::format_to(ctx.out(), "[name={}]", d.as_name())
                : d.is_path() ? fmt::format_to(ctx.out(), "[path={}]",
                                               d.as_path().string())
-                             : fmt::format_to(ctx.out(), "[description={}]",
-                                              d.as_description());
+                             : fmt::format_to(ctx.out(), "[name={}, path={}]",
+                                              d.as_name_path().name,
+                                              d.as_name_path().path.string());
     }
 };

@@ -159,13 +159,9 @@ pick_repo(const repo_label& label,
     } else if (label.is_path()) {
         return repo_description{.name = altname, .path = label.as_path()};
     } else {
-        const auto& d = label.as_description();
+        const auto& d = label.as_name_path();
         return repo_description{.name = d.name, .path = d.path};
     }
-
-    spdlog::error(
-        "pick_repo should return either a value or error before this point");
-    return util::unexpected{"(internal error) see logs"};
 }
 
 util::expected<std::vector<repo_description>, std::string>
@@ -232,8 +228,8 @@ bool repo_label::is_path() const {
     return std::holds_alternative<std::filesystem::path>(value_);
 }
 
-bool repo_label::is_description() const {
-    return std::holds_alternative<repo_description>(value_);
+bool repo_label::is_name_path() const {
+    return std::holds_alternative<repo_name_path>(value_);
 }
 
 const std::string& repo_label::as_name() const {
@@ -244,8 +240,8 @@ const std::filesystem::path& repo_label::as_path() const {
     return std::get<std::filesystem::path>(value_);
 }
 
-const repo_description& repo_label::as_description() const {
-    return std::get<repo_description>(value_);
+const repo_name_path& repo_label::as_name_path() const {
+    return std::get<repo_name_path>(value_);
 }
 
 // A thin wrapper around sqlite3*

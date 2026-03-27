@@ -519,7 +519,7 @@ TEST_CASE("parse repo label", "[parse]") {
         REQUIRE(result);
         REQUIRE(result.value().is_name());
         REQUIRE(!result.value().is_path());
-        REQUIRE(!result.value().is_description());
+        REQUIRE(!result.value().is_name_path());
         REQUIRE(result.value().as_name() == "wombat");
     }
     {
@@ -528,7 +528,7 @@ TEST_CASE("parse repo label", "[parse]") {
         REQUIRE(result);
         REQUIRE(!result.value().is_name());
         REQUIRE(result.value().is_path());
-        REQUIRE(!result.value().is_description());
+        REQUIRE(!result.value().is_name_path());
         REQUIRE(result.value().as_path() == "/path/to/repo");
     }
     {
@@ -537,8 +537,8 @@ TEST_CASE("parse repo label", "[parse]") {
         REQUIRE(result);
         REQUIRE(!result.value().is_name());
         REQUIRE(!result.value().is_path());
-        REQUIRE(result.value().is_description());
-        auto d = result.value().as_description();
+        REQUIRE(result.value().is_name_path());
+        auto d = result.value().as_name_path();
         REQUIRE(d.name == "wombat");
         REQUIRE(d.path == "/the/burrow");
     }
@@ -565,8 +565,8 @@ TEST_CASE("parse repo label", "[parse]") {
         REQUIRE(result);
         REQUIRE(!result.value().is_name());
         REQUIRE(!result.value().is_path());
-        REQUIRE(result.value().is_description());
-        auto d = result.value().as_description();
+        REQUIRE(result.value().is_name_path());
+        auto d = result.value().as_name_path();
         REQUIRE(d.name == "wombat");
         REQUIRE(d.path == "/the/burrow");
     }
@@ -575,7 +575,7 @@ TEST_CASE("parse repo label", "[parse]") {
         REQUIRE(result);
         REQUIRE(result.value().is_name());
         REQUIRE(!result.value().is_path());
-        REQUIRE(!result.value().is_description());
+        REQUIRE(!result.value().is_name_path());
         REQUIRE(result.value().as_name() == "wombat");
     }
     {
@@ -583,7 +583,7 @@ TEST_CASE("parse repo label", "[parse]") {
         REQUIRE(result);
         REQUIRE(!result.value().is_name());
         REQUIRE(result.value().is_path());
-        REQUIRE(!result.value().is_description());
+        REQUIRE(!result.value().is_name_path());
         REQUIRE(result.value().as_path() == "/path/to/repo");
     }
     // the public interface will generate an error if there are additional
