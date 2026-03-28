@@ -89,13 +89,33 @@ resolve_repo(std::optional<std::string> path, const global_settings& settings) {
         if (auto result = parse_path(*path); !result) {
             return util::unexpected(result.error().message());
         }
-        return repo_description{.name = "cli", .path = std::filesystem::path(*path)};
+        return repo_description{.name = "cli",
+                                .path = std::filesystem::path(*path)};
     }
 
     if (auto repo = settings.config.repo()) {
         return repo.value();
     }
     return util::unexpected("no repo path provided");
+}
+
+// parse a CLI repo argument string and resolve it against the configured repo
+// list. Returns a fully resolved repo_description or an error message.
+// altname: if non-empty, used as the repo name when the argument is a bare
+// path (no explicit name), e.g. "cli", "source", "destination".
+util::expected<repo_description, std::string>
+resolve_repo_arg(const std::string& arg, const repo_list& repos,
+                 const std::string& altname = "") {
+    auto label = uenv::parse_repo_label(arg);
+    if (!label) {
+        return util::unexpected(fmt::format(
+            "invalid repository description: {}", label.error().message()));
+    }
+    auto result = repos.pick(label.value());
+    if (result && !altname.empty() && label->is_path()) {
+        result->name = altname;
+    }
+    return result;
 }
 
 struct repo_consistency {
@@ -212,23 +232,17 @@ int repo_create(const repo_create_args& args, const global_settings& settings) {
 int repo_status(const repo_status_args& args, const global_settings& settings) {
     using enum repo_state;
 
-    std::vector<repo_description> repos{};
+    repo_list repos{};
     if (args.repo) {
-        auto label = uenv::parse_repo_label(args.repo.value());
-        if (!label) {
-            term::error("invalid repository description: {}",
-                        label.error().message());
+        auto repo =
+            resolve_repo_arg(args.repo.value(), settings.config.repos, "cli");
+        if (!repo) {
+            term::error("{}", repo.error());
             return 1;
         }
-        if (auto repo =
-                uenv::pick_repo(label.value(), settings.config.repos, "cli")) {
-            repos.push_back(repo.value());
-        } else {
-            term::error("invalid repository description: {}", repo.error());
-            return 1;
-        }
+        repos.accumulate(std::vector<repo_description>{repo.value()});
     } else {
-        repos = settings.config.repos;
+        repos.accumulate(settings.config.repos);
     }
 
     using nlohmann::json;
@@ -337,14 +351,11 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
 int repo_update(const repo_update_args& args, const global_settings& settings) {
     using enum repo_state;
 
-    auto label = uenv::parse_repo_label(args.repo);
-    if (!label) {
-        term::error("invalid repository description: {}",
-                    label.error().message());
+    auto repo = resolve_repo_arg(args.repo, settings.config.repos, "cli");
+    if (!repo) {
+        term::error("{}", repo.error());
         return 1;
     }
-
-    auto repo = uenv::pick_repo(label.value(), settings.config.repos, "cli");
 
     auto status = validate_repository(repo->path);
     if (status == readonly) {
@@ -408,35 +419,22 @@ int repo_migrate(const repo_migrate_args& args,
     using enum repo_state;
     namespace fs = std::filesystem;
 
-    uenv::repo_description source;
-    if (auto source_label = parse_repo_label(args.source)) {
-        if (auto result = pick_repo(source_label.value(), settings.config.repos,
-                                    "source")) {
-            source = result.value();
-        } else {
-            term::error("source repo is not a valid: ", result.error());
-            return 1;
-        }
-    } else {
-        term::error("source repo is not valid: ",
-                    source_label.error().message());
+    auto source_result =
+        resolve_repo_arg(args.source, settings.config.repos, "source");
+    if (!source_result) {
+        term::error("source repo is not valid: {}", source_result.error());
         return 1;
     }
+    const auto source = source_result.value();
 
-    uenv::repo_description destination;
-    if (auto destination_label = parse_repo_label(args.destination)) {
-        if (auto result = pick_repo(destination_label.value(),
-                                    settings.config.repos, "destination")) {
-            destination = result.value();
-        } else {
-            term::error("destination repo is not a valid: ", result.error());
-            return 1;
-        }
-    } else {
-        term::error("destination repo is not valid: ",
-                    destination_label.error().message());
+    auto destination_result = resolve_repo_arg(
+        args.destination, settings.config.repos, "destination");
+    if (!destination_result) {
+        term::error("destination repo is not valid: {}",
+                    destination_result.error());
         return 1;
     }
+    const auto destination = destination_result.value();
 
     // verify that source and destination are different locaions
     if (destination == source) {

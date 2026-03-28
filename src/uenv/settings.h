@@ -47,7 +47,7 @@ load_config(const uenv::config_base& cli_config,
             const envvars::state& calling_env);
 
 struct configuration {
-    std::vector<uenv::repo_description> repos;
+    uenv::repo_list repos;
     bool color;
     std::optional<std::string> elastic_config;
     configuration& operator=(const configuration&) = default;

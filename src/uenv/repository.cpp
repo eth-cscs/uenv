@@ -330,6 +330,31 @@ repo_list::replace(const std::vector<repo_label>& labels) {
     return {};
 }
 
+util::expected<repo_description, std::string>
+repo_list::pick(const repo_label& label) const {
+    if (label.is_name()) {
+        const auto& name = label.as_name();
+        auto it = std::find_if(repos_.begin(), repos_.end(),
+                               [&](const auto& r) { return r.name == name; });
+        if (it == repos_.end()) {
+            return util::unexpected{
+                fmt::format("there is no repo with the name '{}'", name)};
+        }
+        return repo_description{.name = it->name,
+                                .path = it->path,
+                                .priority = repo_description::default_priority};
+    } else if (label.is_path()) {
+        return repo_description{.name = name_from_path(label.as_path()),
+                                .path = label.as_path(),
+                                .priority = repo_description::default_priority};
+    } else {
+        const auto& np = label.as_name_path();
+        return repo_description{.name = np.name,
+                                .path = np.path,
+                                .priority = repo_description::default_priority};
+    }
+}
+
 repo_list::const_iterator repo_list::begin() const {
     return repos_.begin();
 }

@@ -115,9 +115,9 @@ config_base default_config(const envvars::state& env) {
 configuration generate_configuration(const config_base& base) {
     configuration config;
 
-    for (auto& repo : base.repos) {
+    for (const auto& repo : base.repos) {
         if (auto rpath = uenv::validate_repo_path(repo.path, false, false)) {
-            config.repos.push_back(repo);
+            config.repos.accumulate(std::vector<repo_description>{repo});
         } else {
             spdlog::warn("invalid repo path {}", rpath.error());
         }

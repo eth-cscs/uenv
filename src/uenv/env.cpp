@@ -215,9 +215,8 @@ search_repo(const uenv_label& label, const repo_description& repo) {
 
 } // namespace impl
 
-util::expected<uenv_info, std::string>
-resolve_uenv(const uenv_label& label,
-             const std::vector<repo_description>& repos) {
+util::expected<uenv_info, std::string> resolve_uenv(const uenv_label& label,
+                                                    const repo_list& repos) {
     spdlog::debug("resolve_uenv: searching for {}", label);
     for (auto& repo : repos) {
         spdlog::debug("resolve_uenv: search in {}", repo);
@@ -250,17 +249,17 @@ resolve_uenv(const uenv_label& label,
 }
 
 util::expected<uenv_info, std::string>
-resolve_uenv(const uenv_description& desc,
-             const std::vector<repo_description>& repos) {
+resolve_uenv(const uenv_description& desc, const repo_list& repos) {
     if (desc.label()) {
         return resolve_uenv(desc.label().value(), repos);
     }
     return impl::resolve_uenv_info(desc.filename().value());
 }
 
-util::expected<env, std::string> concretise_env(
-    const std::string& uenv_args, const std::optional<std::string>& view_args,
-    const std::vector<repo_description>& repos, bool use_default_views) {
+util::expected<env, std::string>
+concretise_env(const std::string& uenv_args,
+               const std::optional<std::string>& view_args,
+               const repo_list& repos, bool use_default_views) {
     namespace fs = std::filesystem;
 
     // parse the uenv description that was provided as a command line

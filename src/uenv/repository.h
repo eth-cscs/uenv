@@ -94,6 +94,13 @@ class repo_list {
     util::expected<void, std::string>
     replace(const std::vector<repo_label>& labels);
 
+    // Resolve a label to a repo_description against the current contents:
+    //   - name-only:  look up by name; error if not found
+    //   - name+path:  use name and path directly
+    //   - path-only:  derive a name from the path basename
+    util::expected<repo_description, std::string>
+    pick(const repo_label& label) const;
+
     using const_iterator = std::vector<repo_description>::const_iterator;
     const_iterator begin() const;
     const_iterator end() const;
