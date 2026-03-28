@@ -66,6 +66,46 @@ filter_repo_list(const std::vector<repo_label>& labels,
                  const std::vector<repo_description>& descriptions,
                  bool validate = true);
 
+// An ordered list of repo_description entries, maintained sorted by priority.
+// Provides two write modes:
+//   accumulate - merges repos from a less-specific config layer, with the
+//                incoming repos winning all conflicts (rename, update, dedup).
+//   replace    - replaces the list entirely by resolving repo_label values
+//                against the current contents.
+class repo_list {
+  public:
+    repo_list() = default;
+
+    // Accumulate repos from a less-specific config layer.
+    // Incoming repos are the more-specific layer and win all conflicts:
+    //   - same canonical path (different name): rename to incoming name
+    //   - same name (different path):           update to incoming path
+    //   - same name AND path:                   deduplicate
+    // Among non-conflicting equal-priority repos, incoming entries sort
+    // before existing entries (so more-specific layers appear first).
+    void accumulate(const std::vector<repo_description>& incoming);
+    void accumulate(const repo_list& other);
+
+    // Replace the list by resolving labels against the current contents:
+    //   - name-only:  look up by name; error if not found
+    //   - name+path:  use directly
+    //   - path-only:  generate a valid name from the path basename
+    // All resulting entries get default_priority; input order is preserved.
+    util::expected<void, std::string>
+    replace(const std::vector<repo_label>& labels);
+
+    using const_iterator = std::vector<repo_description>::const_iterator;
+    const_iterator begin() const;
+    const_iterator end() const;
+    bool empty() const;
+    std::size_t size() const;
+    const repo_description& operator[](std::size_t i) const;
+    const repo_description& front() const;
+
+  private:
+    std::vector<repo_description> repos_;
+};
+
 class record_set {
     std::vector<uenv_record> records_;
 

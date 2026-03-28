@@ -47,17 +47,18 @@ std::optional<uenv::repo_description> configuration::repo() const {
 }
 
 // merge two config_base items
-// if both have the same field set, choose the lhs value
+// lhs is the more-specific layer and takes priority.
+// For repos: start from rhs, accumulate lhs so lhs wins conflicts and
+// equal-priority lhs entries sort before rhs entries.
+// For scalar optionals: lhs wins (first set value wins).
 config_base merge(const config_base& lhs, const config_base& rhs) {
-    auto repos = lhs.repos;
-    repos.insert(repos.end(), rhs.repos.begin(), rhs.repos.end());
-    return {.repos = repos,
-            .color = lhs.color   ? lhs.color
-                     : rhs.color ? rhs.color
-                                 : std::nullopt,
-            .elastic_config = lhs.elastic_config   ? lhs.elastic_config
-                              : rhs.elastic_config ? rhs.elastic_config
-                                                   : std::nullopt};
+    config_base result = rhs;
+    result.repos.accumulate(lhs.repos);
+    result.color = lhs.color ? lhs.color : rhs.color ? rhs.color : std::nullopt;
+    result.elastic_config = lhs.elastic_config   ? lhs.elastic_config
+                            : rhs.elastic_config ? rhs.elastic_config
+                                                 : std::nullopt;
+    return result;
 }
 
 config_base default_config(const envvars::state& env) {
@@ -97,21 +98,18 @@ config_base default_config(const envvars::state& env) {
         // clang-format on
     }
 
+    config_base cfg;
+    cfg.color = color::default_color(env);
     if (rexist || ravail) {
-        return {
-            // priority of the default repo is default_priority-1
-            // which will give it higher priority than other repos with default
-            // priority
-            .repos = {{.name = "default",
-                       .path = (rexist ? *rexist : *ravail),
-                       .priority = repo_description::default_priority - 1}},
-            .color = color::default_color(env),
-        };
+        // priority of the default repo is default_priority-1
+        // which will give it higher priority than other repos with default
+        // priority
+        cfg.repos.accumulate(std::vector<repo_description>{
+            {.name = "default",
+             .path = (rexist ? *rexist : *ravail),
+             .priority = repo_description::default_priority - 1}});
     }
-
-    return {
-        .color = color::default_color(env),
-    };
+    return cfg;
 }
 
 configuration generate_configuration(const config_base& base) {
@@ -124,10 +122,6 @@ configuration generate_configuration(const config_base& base) {
             spdlog::warn("invalid repo path {}", rpath.error());
         }
     }
-    std::stable_sort(config.repos.begin(), config.repos.end());
-    config.repos.erase(std::unique(config.repos.begin(), config.repos.end()),
-                       config.repos.end());
-
     // disable color output if it has not be enabled/disabled
     config.color = base.color.value_or(false);
 
@@ -272,30 +266,20 @@ load_config(const uenv::config_base& cli_config,
     }
 
     if (repos) {
-        auto descriptions = filter_repo_list(*repos, config.repos);
-
-        // filter_repo_list errors are hard errors because this implies that the
+        // replace errors are hard errors because this implies that the
         // user has explicitly requested an invalid repository list
-        if (!descriptions) {
-            return util::unexpected{fmt::format("{}", descriptions.error())};
+        if (auto result = config.repos.replace(*repos); !result) {
+            return util::unexpected{result.error()};
         }
 
-        // delete all repos in the accumulate config
-        config.repos = {};
-
-        // make a copy of cli_config and replace its repos with the
-        // cli-provided list
-        auto modified_cli_config = cli_config;
-        modified_cli_config.repos = descriptions.value();
-
         spdlog::info("load_config using repositories: {}",
-                     fmt::join(std::vector{modified_cli_config.repos}, ", "));
+                     fmt::join(config.repos, ", "));
 
-        return merge(modified_cli_config, config);
+        return merge(cli_config, config);
     }
 
     spdlog::info("load_config using repositories: {}",
-                 fmt::join(std::vector{config.repos}, ", "));
+                 fmt::join(config.repos, ", "));
 
     return merge(cli_config, config);
 }
@@ -347,9 +331,10 @@ read_config_file(const std::filesystem::path& path,
     config_base config;
     for (auto [key, value] : settings) {
         if (key == "repo") {
-            config.repos = {{.name = "default",
-                             .path = std::filesystem::path(calling_env.expand(
-                                 value, envvars::expand_delim::curly))}};
+            config.repos.accumulate(std::vector<repo_description>{
+                {.name = "default",
+                 .path = std::filesystem::path(calling_env.expand(
+                     value, envvars::expand_delim::curly))}});
         } else if (key == "color") {
             if (value == "true") {
                 config.color = true;
@@ -515,8 +500,7 @@ parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
             if (const auto v = parse_repository_array(value, calling_env)) {
                 spdlog::debug("parse_config_toml: added repo {}",
                               *(v.value().begin()));
-                // fmt::join(v.value(), ","));
-                config.repos = v.value();
+                config.repos.accumulate(v.value());
             } else {
                 return util::unexpected{v.error()};
             }

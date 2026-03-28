@@ -148,10 +148,10 @@ function teardown() {
     # check the different methods for providing the repo location
     #
 
-    # using --repo flag to uenv
+    # using --repo flag to uenv: name is derived from the path basename
     run uenv --repo=$RP repo status
     assert_success
-    assert_line --index 0 "anonymous:$RP is readwrite"
+    assert_line --index 0 "apptool:$RP is readwrite"
 
     # as a positional argument to the repo status command itself
     run uenv repo status $RP
@@ -325,18 +325,20 @@ EOF
     run uenv repo create $RP2
     assert_success
 
-    # two paths: auto-generated names "anonymous" and "anonymous0"
+    # two paths: names are derived from the path basenames
+    N1=$(basename $RP1)
+    N2=$(basename $RP2)
     run uenv --repo=$RP1,$RP2 repo status
     assert_success
-    assert_line "anonymous:$RP1 is readwrite"
-    assert_line "anonymous0:$RP2 is readwrite"
+    assert_line "$N1:$RP1 is readwrite"
+    assert_line "$N2:$RP2 is readwrite"
     [ "${#lines[@]}" -eq 2 ]
 
     # reversing the order reverses the names too
     run uenv --repo=$RP2,$RP1 repo status
     assert_success
-    assert_line "anonymous:$RP2 is readwrite"
-    assert_line "anonymous0:$RP1 is readwrite"
+    assert_line "$N2:$RP2 is readwrite"
+    assert_line "$N1:$RP1 is readwrite"
     [ "${#lines[@]}" -eq 2 ]
 
     # name=path syntax assigns explicit names

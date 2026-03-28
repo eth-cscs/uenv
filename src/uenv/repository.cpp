@@ -217,6 +217,139 @@ bool operator==(const repo_description& lhs, const repo_description& rhs) {
 }
 
 //
+// repo_list implementation
+//
+
+namespace {
+
+// Derive a valid repo name from a filesystem path.
+// Extracts only alphanumeric, '-', and '_' characters from the filename,
+// skipping leading '-' and '_' until the first alphanumeric is seen.
+// Falls back to "anonymous" if no valid characters are found.
+std::string name_from_path(const std::filesystem::path& path) {
+    const auto fname = path.filename().string();
+    bool seen_alnum = false;
+    std::string result;
+    result.reserve(fname.size());
+    std::copy_if(fname.begin(), fname.end(), std::back_inserter(result),
+                 [&seen_alnum](unsigned char c) {
+                     if (std::isalnum(c)) {
+                         seen_alnum = true;
+                         return true;
+                     }
+                     return seen_alnum && (c == '-' || c == '_');
+                 });
+    return result.empty() ? "anonymous" : result;
+}
+
+// Generate a name unique among reserved, using name_from_path as the base.
+std::string make_unique_name(const std::filesystem::path& path,
+                             const std::set<std::string>& reserved) {
+    const std::string base = name_from_path(path);
+    if (!reserved.count(base)) {
+        return base;
+    }
+    for (unsigned i = 0;; ++i) {
+        auto candidate = fmt::format("{}{}", base, i);
+        if (!reserved.count(candidate)) {
+            return candidate;
+        }
+    }
+}
+
+} // namespace
+
+void repo_list::accumulate(const std::vector<repo_description>& incoming) {
+    // Remove existing entries that conflict with any incoming entry.
+    // Incoming wins: same name → update path; same canonical path → rename.
+    for (const auto& inc : incoming) {
+        auto canonical = fs::weakly_canonical(inc.path);
+        repos_.erase(std::remove_if(repos_.begin(), repos_.end(),
+                                    [&](const auto& existing) {
+                                        return existing.name == inc.name ||
+                                               fs::weakly_canonical(
+                                                   existing.path) == canonical;
+                                    }),
+                     repos_.end());
+    }
+
+    // Prepend incoming so that after stable_sort, equal-priority incoming
+    // entries appear before existing entries (incoming = more-specific layer).
+    repos_.insert(repos_.begin(), incoming.begin(), incoming.end());
+
+    std::stable_sort(repos_.begin(), repos_.end());
+}
+
+void repo_list::accumulate(const repo_list& other) {
+    accumulate(other.repos_);
+}
+
+util::expected<void, std::string>
+repo_list::replace(const std::vector<repo_label>& labels) {
+    std::set<std::string> used_names;
+    std::vector<repo_description> result;
+    result.reserve(labels.size());
+
+    for (const auto& label : labels) {
+        repo_description desc;
+        desc.priority = repo_description::default_priority;
+
+        if (label.is_name()) {
+            const auto& name = label.as_name();
+            auto it =
+                std::find_if(repos_.begin(), repos_.end(),
+                             [&](const auto& r) { return r.name == name; });
+            if (it == repos_.end()) {
+                return util::unexpected{
+                    fmt::format("no repository named '{}'", name)};
+            }
+            desc.name = it->name;
+            desc.path = it->path;
+        } else if (label.is_path()) {
+            desc.path = label.as_path();
+            desc.name = make_unique_name(label.as_path(), used_names);
+            if (auto v = validate_repo_path(desc.path, false, true); !v) {
+                return util::unexpected{
+                    fmt::format("the repository {}", v.error())};
+            }
+        } else {
+            const auto& np = label.as_name_path();
+            desc.name = np.name;
+            desc.path = np.path;
+            if (auto v = validate_repo_path(desc.path, false, true); !v) {
+                return util::unexpected{
+                    fmt::format("the repository {}", v.error())};
+            }
+        }
+
+        used_names.insert(desc.name);
+        result.push_back(std::move(desc));
+    }
+
+    repos_ = std::move(result);
+    return {};
+}
+
+repo_list::const_iterator repo_list::begin() const {
+    return repos_.begin();
+}
+repo_list::const_iterator repo_list::end() const {
+    return repos_.end();
+}
+bool repo_list::empty() const {
+    return repos_.empty();
+}
+std::size_t repo_list::size() const {
+    return repos_.size();
+}
+const repo_description& repo_list::operator[](std::size_t i) const {
+    return repos_[i];
+}
+const repo_description& repo_list::front() const {
+    return repos_.front();
+}
+
+//
 // repo_label implementation
 //
 

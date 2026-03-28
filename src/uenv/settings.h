@@ -12,7 +12,7 @@
 namespace uenv {
 
 struct config_base {
-    std::vector<repo_description> repos;
+    repo_list repos;
     std::optional<bool> color;
     std::optional<std::string> elastic_config;
 };
