@@ -9,6 +9,7 @@
 #include <spdlog/spdlog.h>
 #include <toml++/toml.hpp>
 
+#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <uenv/settings.h>
@@ -58,6 +59,9 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
     result.elastic_config = lhs.elastic_config   ? lhs.elastic_config
                             : rhs.elastic_config ? rhs.elastic_config
                                                  : std::nullopt;
+    result.system_name = lhs.system_name   ? lhs.system_name
+                         : rhs.system_name ? rhs.system_name
+                                           : std::nullopt;
     return result;
 }
 
@@ -100,6 +104,7 @@ config_base default_config(const envvars::state& env) {
 
     config_base cfg;
     cfg.color = color::default_color(env);
+    cfg.system_name = site::get_system_name(env);
     if (rexist || ravail) {
         // priority of the default repo is default_priority-1
         // which will give it higher priority than other repos with default
@@ -124,8 +129,16 @@ configuration generate_configuration(const config_base& base) {
     }
     // disable color output if it has not be enabled/disabled
     config.color = base.color.value_or(false);
-
     config.elastic_config = base.elastic_config;
+    if (base.system_name) {
+        if (parse_cluster_name(base.system_name.value())) {
+            config.system_name = base.system_name;
+        } else {
+            spdlog::warn("generate_configuration: invalid system name '{}', "
+                         "ignoring",
+                         base.system_name.value());
+        }
+    }
 
     return config;
 }

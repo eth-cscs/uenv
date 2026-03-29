@@ -230,6 +230,18 @@ create_repository(const std::filesystem::path& repo_path);
 
 util::expected<repository, std::string> create_repository();
 
+/// Apply a default system name to a uenv_label.
+/// - label.system already set to a name: keep it (user's explicit @system)
+/// - label.system set to "@*" (wildcard): clear it (match any system)
+/// - label.system unset: fill in system_name
+uenv_label apply_system(uenv_label label,
+                        std::optional<std::string> system_name);
+
+/// Apply system name to a uenv_description's label.
+/// No-op for file-path descriptions.
+uenv_description apply_system(uenv_description desc,
+                              std::optional<std::string> system_name);
+
 } // namespace uenv
 
 template <> class fmt::formatter<uenv::repo_state> {

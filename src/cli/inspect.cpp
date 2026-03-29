@@ -49,6 +49,8 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         desc = parse.value();
     }
 
+    desc = apply_system(desc, globals.config.system_name);
+
     // Resolve the uenv to get full information including metadata
     auto info_result = resolve_uenv(desc, globals.config.repos);
     if (!info_result) {

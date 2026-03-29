@@ -15,6 +15,7 @@ struct config_base {
     repo_list repos;
     std::optional<bool> color;
     std::optional<std::string> elastic_config;
+    std::optional<std::string> system_name;
 };
 
 // the result of parsing a line in a configuration file
@@ -50,6 +51,7 @@ struct configuration {
     uenv::repo_list repos;
     bool color;
     std::optional<std::string> elastic_config;
+    std::optional<std::string> system_name;
     configuration& operator=(const configuration&) = default;
 
     std::optional<uenv::repo_description> repo() const;

@@ -10,10 +10,9 @@
 
 namespace site {
 
-// return the name of the current system
-// on CSCS systems this is derived from the CLUSTER_NAME environment variable
-std::optional<std::string> get_system_name(const std::optional<std::string>,
-                                           const envvars::state&);
+// return the name of the current system from the calling environment.
+// on CSCS systems this is derived from the CLUSTER_NAME environment variable.
+std::optional<std::string> get_system_name(const envvars::state&);
 
 std::optional<std::string> get_username();
 

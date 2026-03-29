@@ -86,8 +86,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
         return 1;
     }
 
-    label.system =
-        site::get_system_name(label.system, settings.calling_environment);
+    label = apply_system(label, settings.config.system_name);
     if (!label.name) {
         term::error(
             "the uenv description '{}' must specify the name of the uenv",

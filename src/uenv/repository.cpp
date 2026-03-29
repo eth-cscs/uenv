@@ -1245,4 +1245,26 @@ bool repository::contains(const uenv_record& r) const {
     return impl_->contains(r);
 }
 
+uenv_label apply_system(uenv_label label,
+                        std::optional<std::string> system_name) {
+    if (!label.system) {
+        label.system = system_name;
+    } else if (label.system.value() == "*") {
+        label.system = std::nullopt;
+    }
+    return label;
+}
+
+uenv_description apply_system(uenv_description desc,
+                              std::optional<std::string> system_name) {
+    if (auto l = desc.label()) {
+        auto nl = apply_system(l.value(), system_name);
+        if (desc.mount()) {
+            return uenv_description{nl, desc.mount().value()};
+        }
+        return uenv_description{nl};
+    }
+    return desc;
+}
+
 } // namespace uenv

@@ -7,7 +7,6 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
-#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -65,8 +64,7 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
             return 1;
         }
     }
-    label.system =
-        site::get_system_name(label.system, settings.calling_environment);
+    label = apply_system(label, settings.config.system_name);
 
     // query each repo in priority order
     std::vector<repo_record_set> results;
