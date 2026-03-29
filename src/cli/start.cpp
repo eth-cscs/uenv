@@ -9,8 +9,6 @@
 #include <spdlog/spdlog.h>
 
 #include <uenv/env.h>
-#include <uenv/meta.h>
-#include <uenv/parse.h>
 #include <util/expected.h>
 #include <util/shell.h>
 
@@ -97,9 +95,16 @@ will not work, because it starts a new interactive shell.)",
         return 1;
     }
 
-    const auto env =
-        concretise_env(args.uenv_description, args.view_description,
-                       globals.config.repos, !args.disable_default_view);
+    const auto resolved =
+        resolve_uenv_args(args.uenv_description, globals.config.repos,
+                          globals.config.system_name);
+    if (!resolved) {
+        term::error("{}", resolved.error());
+        return 1;
+    }
+
+    const auto env = concretise_env(resolved.value(), args.view_description,
+                                    !args.disable_default_view);
 
     if (!env) {
         term::error("{}", env.error());

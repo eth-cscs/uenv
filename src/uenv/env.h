@@ -39,6 +39,14 @@ struct uenv_info {
     std::optional<repo_description> repo;
 };
 
+/// A resolved uenv paired with an optional CLI-provided mount override.
+/// Passed to concretise_env after resolve_uenv has been called by the caller.
+struct resolved_uenv {
+    uenv_info info;
+    // mount point explicitly provided on the CLI (overrides metadata mount)
+    std::optional<std::string> mount_override;
+};
+
 /// stores information about uenv in a repo
 /// used to hold information returned from querying a repo
 class resolved_record_set {
@@ -73,24 +81,20 @@ class resolved_record_set {
     const_iterator cend() const;
 };
 
-/// Resolve a uenv description to get squashfs path and metadata.
-/// Takes either a label (to look up in repo) or a file path.
-/// Does NOT handle mount point resolution from CLI - returns only the mount
-/// from metadata.
-/*
-util::expected<uenv_info, std::string>
-resolve_uenv(const uenv_description& desc,
-             std::optional<std::filesystem::path> repo_arg,
-             const envvars::state& calling_env);
-*/
-
 util::expected<uenv_info, std::string>
 resolve_uenv(const uenv_description& desc, const repo_list& repos);
 
+/// Parse a raw CLI uenv description string, apply system filtering, and
+/// resolve each entry against the provided repos. Returns the vector of
+/// resolved_uenv ready to pass to concretise_env.
+util::expected<std::vector<resolved_uenv>, std::string>
+resolve_uenv_args(const std::string& uenv_description, const repo_list& repos,
+                  std::optional<std::string> system_name = std::nullopt);
+
 util::expected<env, std::string>
-concretise_env(const std::string& uenv_args,
+concretise_env(const std::vector<resolved_uenv>& uenvs,
                const std::optional<std::string>& view_args,
-               const repo_list& repos, bool use_default_views);
+               bool use_default_views);
 
 envvars::state generate_environment(const env&, const envvars::state&,
                                     std::optional<std::string> = std::nullopt);

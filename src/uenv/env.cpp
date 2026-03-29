@@ -258,39 +258,37 @@ resolve_uenv(const uenv_description& desc, const repo_list& repos) {
     return impl::resolve_uenv_info(desc.filename().value());
 }
 
-util::expected<env, std::string>
-concretise_env(const std::string& uenv_args,
-               const std::optional<std::string>& view_args,
-               const repo_list& repos, bool use_default_views) {
-    namespace fs = std::filesystem;
-
-    // parse the uenv description that was provided as a command line
-    // argument. the command line argument is a comma-separated list of
-    // uenvs, where each uenv is either
-    // - the path of a squashfs image; or
-    // - a uenv description of the form
-    // name[/version][:tag][@system][%uarch] with an optional mount point.
-    const auto uenv_descriptions = uenv::parse_uenv_args(uenv_args);
-    if (!uenv_descriptions) {
+util::expected<std::vector<resolved_uenv>, std::string>
+resolve_uenv_args(const std::string& uenv_description, const repo_list& repos,
+                  std::optional<std::string> system_name) {
+    const auto descs = parse_uenv_args(uenv_description);
+    if (!descs) {
         return unexpected(fmt::format("invalid uenv description: {}",
-                                      uenv_descriptions.error().message()));
+                                      descs.error().message()));
     }
+    std::vector<resolved_uenv> result;
+    for (auto desc : descs.value()) {
+        desc = apply_system(desc, system_name);
+        auto info = resolve_uenv(desc, repos);
+        if (!info) {
+            return unexpected(info.error());
+        }
+        result.push_back(resolved_uenv{info.value(), desc.mount()});
+    }
+    return result;
+}
 
-    // concretise the uenv descriptions by looking for the squashfs file, or
-    // looking up the uenv descrition in a registry.
-    // after this loop, we have fully validated list of uenvs, mount points
-    // and meta data (if they have meta data).
+util::expected<env, std::string>
+concretise_env(const std::vector<resolved_uenv>& input_uenvs,
+               const std::optional<std::string>& view_args,
+               bool use_default_views) {
+    namespace fs = std::filesystem;
 
     std::unordered_map<std::string, uenv::concrete_uenv> uenvs;
     std::set<fs::path> used_mounts;
     std::set<fs::path> used_sqfs;
-    for (auto& desc : *uenv_descriptions) {
-        // Resolve uenv information (squashfs path, metadata, etc.)
-        auto info_result = resolve_uenv(desc, repos);
-        if (!info_result) {
-            return unexpected(info_result.error());
-        }
-        auto& info = *info_result;
+    for (const auto& ru : input_uenvs) {
+        const auto& info = ru.info;
 
         // Determine the name for this uenv:
         // - use the name from the repo database if the image is in a database
@@ -315,17 +313,22 @@ concretise_env(const std::string& uenv_args,
             spdlog::debug("concretise_env: setting name {}", name);
         }
 
+        // label string used in error messages
+        const auto label_str = info.record
+                                   ? fmt::format("{}", info.record.value())
+                                   : info.sqfs_path.string();
+
         // handle the case where no mount point was provided by the CLI or
         // meta data
-        if (!desc.mount() && !info.meta) {
+        if (!ru.mount_override && !info.meta) {
             return unexpected(
-                fmt::format("no mount point provided for {}", desc));
+                fmt::format("no mount point provided for {}", label_str));
         }
 
         // if an explicit mount point was provided, use that
         // otherwise use the mount point provided in the meta data
         std::string mount_string =
-            desc.mount() ? desc.mount().value() : info.meta->mount;
+            ru.mount_override ? ru.mount_override.value() : info.meta->mount;
 
         // TODO: hand off validation to the mount.cpp implementation:
         // For now leave this as is - it is working and well-tested.
@@ -337,27 +340,28 @@ concretise_env(const std::string& uenv_args,
 
         fs::path mount;
         if (auto p = parse_path(mount_string)) {
-            mount = *p;
+            mount = p.value();
             if (!fs::exists(mount)) {
-                return unexpected(fmt::format(
-                    "the mount point {} for {} does not exist", desc, mount));
+                return unexpected(
+                    fmt::format("the mount point {} for {} does not exist",
+                                mount, label_str));
             }
             if (!fs::is_directory(mount)) {
                 return unexpected(
                     fmt::format("the mount point {} for {} is not a directory",
-                                desc, mount));
+                                mount, label_str));
             }
             if (!mount.is_absolute()) {
                 return unexpected(fmt::format(
-                    "the mount point {} for {} must be an absolute path", desc,
-                    mount));
+                    "the mount point {} for {} must be an absolute path", mount,
+                    label_str));
             }
         } else {
             return unexpected(
-                fmt::format("invalid mount point provided for {}: {}", desc,
-                            p.error().message()));
+                fmt::format("invalid mount point provided for {}: {}",
+                            label_str, p.error().message()));
         }
-        spdlog::info("{} will be mounted at {}", desc, mount);
+        spdlog::info("{} will be mounted at {}", label_str, mount);
 
         // check for unique mount points and squashfs images
         {
@@ -382,7 +386,7 @@ concretise_env(const std::string& uenv_args,
 
         uenvs[name] = concrete_uenv{
             .name = name,
-            .label = has_record ? fmt::format("{}", info.record)
+            .label = has_record ? fmt::format("{}", info.record.value())
                                 : decltype(concrete_uenv::label){},
             .digest = has_record ? fmt::format("{}", info.record->sha)
                                  : decltype(concrete_uenv::digest){},

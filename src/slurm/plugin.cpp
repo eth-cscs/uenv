@@ -364,9 +364,15 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         return -ESPANK_ERROR;
     }
 
-    const auto env = uenv::concretise_env(args.uenv_description.value(),
-                                          args.view_description, config_g.repos,
-                                          args.use_default_views);
+    const auto resolved = uenv::resolve_uenv_args(
+        args.uenv_description.value(), config_g.repos, config_g.system_name);
+    if (!resolved) {
+        slurm_error("%s", resolved.error().c_str());
+        return -ESPANK_ERROR;
+    }
+
+    const auto env = uenv::concretise_env(
+        resolved.value(), args.view_description, args.use_default_views);
 
     if (!env) {
         slurm_error("%s", env.error().c_str());
