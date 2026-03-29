@@ -43,7 +43,8 @@ function teardown() {
 @test "image ls" {
     run uenv --repo=$REPOS/apptool image ls
     assert_success
-    assert_line --index 0 --regexp "^uenv\s+arch\s+system\s+id"
+    assert_line --index 0 --partial "repo apptool"
+    assert_line --index 1 --regexp "^uenv\s+arch\s+system\s+id"
     assert_output --regexp "app/42.0:v1\s+zen3\s+arapiles"
     assert_output --regexp "app/43.0:v1\s+zen3\s+arapiles"
     assert_output --regexp "tool/17.3.2:v1\s+zen3\s+arapiles"
@@ -94,7 +95,8 @@ function teardown() {
 
     run uenv --repo=$REPOS/apptool image ls wombat
     assert_success
-    assert_output "no matching uenv"
+    assert_output --partial "repo apptool"
+    assert_output --partial "no matching uenv"
 
     # empty output if --no-header is used and there are no matches
     run uenv --repo=$REPOS/apptool image ls wombat --no-header
@@ -112,11 +114,13 @@ function teardown() {
     assert_line --partial "tool/17.3.2:v1"
 
     # test --json output
-    #run uenv --repo=$REPOS/apptool image ls --json app | jq '.records | length'
     run uenv --repo=$REPOS/apptool image ls --json app
     assert_success
     jq_output="$(echo "$output" | jq '.records | length')"
     assert_equal "$jq_output" "2"
+    # each record carries a repo field identifying its source
+    jq_output="$(echo "$output" | jq '.records[0].repo.name')"
+    assert_equal "$jq_output" '"apptool"'
 
     # empty results is not an error
     run uenv --repo=$REPOS/apptool image ls --json doesnotexist
@@ -351,6 +355,29 @@ EOF
     # a non-existent path in the list is an error
     run uenv --repo=$RP1,/wombat repo status
     assert_failure
+
+    # populate repos with distinct images and verify image ls returns both
+    run uenv --repo=first=$RP1 image add app/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/app42.squashfs
+    assert_success
+    run uenv --repo=second=$RP2 image add tool/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
+    assert_success
+
+    run uenv --repo=first=$RP1,second=$RP2 image ls --no-header
+    assert_success
+    assert_line --partial "app/1.0:v1"
+    assert_line --partial "tool/1.0:v1"
+
+    # table output has a section header per repo
+    run uenv --repo=first=$RP1,second=$RP2 image ls
+    assert_success
+    assert_output --partial "repo first"
+    assert_output --partial "repo second"
+
+    # json output: each record carries a repo field
+    run uenv --repo=first=$RP1,second=$RP2 image ls --json
+    assert_success
+    jq_output="$(echo "$output" | jq '[.records[].repo.name] | sort | unique | join(",")')"
+    assert_equal "$jq_output" '"first,second"'
 }
 
 @test "multi repo toml config" {
@@ -384,10 +411,18 @@ EOF
     assert_line "first:$RP1 is readwrite"
     assert_line "second:$RP2 is readwrite"
 
-    # TODO: once image ls searches all repos, add:
-    # run uenv --repo=first=$RP1,second=$RP2 image ls --no-header
-    # assert_line --partial "images from RP1..."
-    # assert_line --partial "images from RP2..."
+    # populate repos with distinct images and verify image ls searches both
+    run env HOME=$FAKE_HOME XDG_CONFIG_HOME=$XDG uenv --repo=first=$RP1 image add \
+        app/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/app42.squashfs
+    assert_success
+    run env HOME=$FAKE_HOME XDG_CONFIG_HOME=$XDG uenv --repo=second=$RP2 image add \
+        tool/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
+    assert_success
+
+    run env HOME=$FAKE_HOME XDG_CONFIG_HOME=$XDG uenv image ls --no-header
+    assert_success
+    assert_line --partial "app/1.0:v1"
+    assert_line --partial "tool/1.0:v1"
 }
 
 @test "image add" {
@@ -560,10 +595,10 @@ EOF
     assert_output --partial "wombat/24:v1"
 
     # verify that the sha and wombat image are no longer in the repo
-    run uenv --repo=$UENV_REPO_PATH image ls $sha
-    assert_output 'no matching uenv'
-    run uenv --repo=$UENV_REPO_PATH image ls wombat
-    assert_output 'no matching uenv'
+    run uenv --repo=$UENV_REPO_PATH image ls --no-header $sha
+    assert_output ''
+    run uenv --repo=$UENV_REPO_PATH image ls --no-header wombat
+    assert_output ''
 
     # verify that the file was removed
     [ ! -d $UENV_REPO_PATH/images/$sha ]
@@ -579,8 +614,8 @@ EOF
     # verify that the file was removed
     [ ! -d $UENV_REPO_PATH/images/$sha ]
     # check that the uenv was removed from database
-    run uenv --repo=$UENV_REPO_PATH image ls $pattern
-    assert_output "no matching uenv"
+    run uenv --repo=$UENV_REPO_PATH image ls --no-header $pattern
+    assert_output ""
 
     # removing a one of multiple labels on the same sha removes the label but leaves the others untouched
     # step 1: add another image with the same hash as the remaining image

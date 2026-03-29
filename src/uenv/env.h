@@ -35,6 +35,8 @@ struct uenv_info {
     std::optional<std::filesystem::path> meta_path;
     // meta data loaded from meta_path/env.json
     std::optional<uenv::meta> meta;
+    // the repo this image was found in (nullopt for squashfs file path inputs)
+    std::optional<repo_description> repo;
 };
 
 /// stores information about uenv in a repo

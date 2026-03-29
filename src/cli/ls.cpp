@@ -42,9 +42,7 @@ void image_ls_args::add_cli(CLI::App& cli,
 }
 
 int image_ls(const image_ls_args& args, const global_settings& settings) {
-    // require that a valid repo has been provided
-    const auto repo = settings.config.repo();
-    if (!repo) {
+    if (settings.config.repos.empty()) {
         term::error("a repo needs to be provided either using the --repo flag "
                     "or the config file");
         return 1;
@@ -57,15 +55,7 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
         return 1;
     }
 
-    // TODO: raise the search function to a standalone function
-    // open the repo
-    auto store = uenv::open_repository(repo->path);
-    if (!store) {
-        term::error("unable to open repo: {}", store.error());
-        return 1;
-    }
-
-    // find the search term that was provided by the user
+    // parse the search term once, before opening any repos
     uenv_label label{};
     if (args.uenv_description) {
         if (const auto parse = parse_uenv_label(*args.uenv_description)) {
@@ -75,21 +65,27 @@ int image_ls(const image_ls_args& args, const global_settings& settings) {
             return 1;
         }
     }
-
-    // set label->system to the current cluster name if it has not
-    // already been set.
     label.system =
         site::get_system_name(label.system, settings.calling_environment);
 
-    // query the repo
-    const auto result = store->query(label, !args.no_partials);
-    if (!result) {
-        term::error("invalid search term: {}", store.error());
-        return 1;
+    // query each repo in priority order
+    std::vector<repo_record_set> results;
+    for (const auto& repo : settings.config.repos) {
+        auto store = uenv::open_repository(repo.path);
+        if (!store) {
+            term::warn("unable to open repo {}: {}", repo.name, store.error());
+            continue;
+        }
+        auto query = store->query(label, !args.no_partials);
+        if (!query) {
+            term::warn("unable to query repo {}: {}", repo.name, query.error());
+            continue;
+        }
+        results.push_back({repo, std::move(query.value())});
     }
 
-    print_record_set(
-        result.value(), format.value(),
+    print_repo_record_sets(
+        results, format.value(),
         format.value() == record_set_format::list ? args.format.value() : "");
 
     return 0;

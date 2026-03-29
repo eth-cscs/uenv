@@ -91,6 +91,8 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         {"date", nullptr},
         {"system", nullptr},
         {"uarch", nullptr},
+        // repo provenance (null for squashfs file path inputs)
+        {"repo", nullptr},
     };
 
     if (info.meta_path && !util::is_temp_dir(info.meta_path.value())) {
@@ -128,6 +130,11 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         }
     }
 
+    if (info.repo) {
+        j["repo"] = {{"name", info.repo->name},
+                     {"path", info.repo->path.string()}};
+    }
+
     // we use the name from the metadata, not the name from from repo record.
     // create a warning when the name does not match?
 
@@ -163,24 +170,30 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
                 return j[idx];
             };
 
+            auto repo_name = info.repo ? info.repo->name : "none";
+            auto repo_path =
+                info.repo ? info.repo->path.string() : std::string("none");
+
             // clang-format off
             auto msg = fmt::format(
                 fmt::runtime(*args.format),
-                fmt::arg("name",    getvalue("name")),
-                fmt::arg("version", getvalue("version")),
-                fmt::arg("tag",     getvalue("tag")),
-                fmt::arg("id",      getvalue("id")),
-                fmt::arg("digest",  getvalue("digest")),
-                fmt::arg("sha256",  getvalue("digest")),
-                fmt::arg("date",    getvalue("date")),
-                fmt::arg("system",  getvalue("system")),
-                fmt::arg("uarch",   getvalue("uarch")),
-                fmt::arg("path",    getvalue("path")),
-                fmt::arg("sqfs",    getvalue("sqfs")),
-                fmt::arg("meta",    getvalue("meta")),
-                fmt::arg("mount",   getvalue("mount")),
+                fmt::arg("name",      getvalue("name")),
+                fmt::arg("version",   getvalue("version")),
+                fmt::arg("tag",       getvalue("tag")),
+                fmt::arg("id",        getvalue("id")),
+                fmt::arg("digest",    getvalue("digest")),
+                fmt::arg("sha256",    getvalue("digest")),
+                fmt::arg("date",      getvalue("date")),
+                fmt::arg("system",    getvalue("system")),
+                fmt::arg("uarch",     getvalue("uarch")),
+                fmt::arg("path",      getvalue("path")),
+                fmt::arg("sqfs",      getvalue("sqfs")),
+                fmt::arg("meta",      getvalue("meta")),
+                fmt::arg("mount",     getvalue("mount")),
                 fmt::arg("description", getvalue("description")),
-                fmt::arg("views",   views_str)
+                fmt::arg("views",     views_str),
+                fmt::arg("repo",      repo_name),
+                fmt::arg("repo_path", repo_path)
             );
             // clang-format on
             fmt::print("{}\n", msg);
@@ -196,6 +209,10 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         const std::string label_str =
             info.record ? fmt::format("{}", info.record.value())
                         : info.sqfs_path.string();
+        if (info.repo) {
+            fmt::print("repo {}:{}\n", info.repo->name,
+                       info.repo->path.string());
+        }
         if (info.meta) {
             fmt::print("{} mount at {}\n", label_str, info.meta->mount);
             const auto& views = info.meta->views;
@@ -269,6 +286,8 @@ std::string image_inspect_footer() {
         help::block{none, "    path:        absolute path where the uenv is stored"},
         help::block{none, "    sqfs:        absolute path of the squashfs file"},
         help::block{none, "    meta:        absolute path of the metadata directory"},
+        help::block{none, "    repo:        name of the repo the uenv was found in (\"none\" for file paths)"},
+        help::block{none, "    repo_path:   path of the repo the uenv was found in (\"none\" for file paths)"},
         // clang-format on
     };
 

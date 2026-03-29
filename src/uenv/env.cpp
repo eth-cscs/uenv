@@ -204,7 +204,8 @@ search_repo(const uenv_label& label, const repo_description& repo) {
     std::vector<uenv_info> infos;
     for (auto& r : result.value()) {
         if (auto info = impl::resolve_uenv_info(r, store.value())) {
-            infos.push_back(std::move(info.value()));
+            info->repo = repo;
+            infos.push_back(std::move(*info));
         } else {
             return util::unexpected{info.error()};
         }
@@ -223,7 +224,8 @@ util::expected<uenv_info, std::string> resolve_uenv(const uenv_label& label,
         auto result = impl::search_repo(label, repo);
         if (result) {
             if (result->empty()) {
-                spdlog::warn("resolve_uenv: no matches");
+                spdlog::debug("resolve_uenv: no matches in {}", repo);
+                continue;
             } else if (!result->unique_sha()) {
                 auto errmsg = fmt::format(
                     "more than one uenv matches the uenv description "
