@@ -5,6 +5,9 @@
 - #143 [feature] improved bash completion for uenv labels and files
 - #142 [feature] use toml for configuration; support multiple repositories
 - #136 [feature] support for default views
+
+## 9.2.0
+
 - #135 [fix] mount squasfs files on root squashed NFS mounts
 - #133 [feature] improved error message for revoked registry tokens
 - #131 [feature] remove --list flag in favor of a --format flag
