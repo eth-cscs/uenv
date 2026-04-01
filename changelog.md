@@ -1,8 +1,13 @@
 # Changelog
 
-- #135 [fix] mount squasfs files on root squashed NFS mounts 
-- #133 [feature] improved error message for revoked registry tokens 
-- #131 [feature] remove --list flag in favor of a --format flag 
+## 10.0.0
+
+- #143 [feature] improved bash completion for uenv labels and files
+- #142 [feature] use toml for configuration; support multiple repositories
+- #136 [feature] support for default views
+- #135 [fix] mount squasfs files on root squashed NFS mounts
+- #133 [feature] improved error message for revoked registry tokens
+- #131 [feature] remove --list flag in favor of a --format flag
 - #129 [feature] `uenv image find` and `uenv image ls` do partial match on uenv names
 - #127 [feature] find views, mount point, etc. information using `uenv image inspect` without opening a uenv.
 
