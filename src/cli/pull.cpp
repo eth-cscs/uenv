@@ -33,7 +33,7 @@ void image_pull_args::add_cli(CLI::App& cli,
     auto* pull_cli =
         cli.add_subcommand("pull", "download a uenv from a registry");
     pull_cli
-        ->add_option("uenv-from-registry", uenv_description,
+        ->add_option("uenv", uenv_description,
                      "the uenv to pull, either name/version:tag, sha256 or id")
         ->required();
     pull_cli->add_option(

@@ -27,7 +27,7 @@ void image_find_args::add_cli(CLI::App& cli,
                               [[maybe_unused]] global_settings& settings) {
     auto* find_cli =
         cli.add_subcommand("find", "search for uenv that can be pulled");
-    find_cli->add_option("uenv-search-term", uenv_description, "search term");
+    find_cli->add_option("uenv", uenv_description, "search term");
     find_cli->add_flag("--no-header", no_header,
                        "print only the matching records, with no header.");
     find_cli->add_flag("--json", json,
