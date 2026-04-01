@@ -425,6 +425,36 @@ EOF
     assert_line --partial "tool/1.0:v1"
 }
 
+@test "multi repo run" {
+    RP1=$(mktemp -d $TMP/repo1-XXXXXX)
+    RP2=$(mktemp -d $TMP/repo2-XXXXXX)
+    run uenv repo create $RP1
+    assert_success
+    run uenv repo create $RP2
+    assert_success
+
+    # put app42 in repo1 and app43 in repo2, both registered as app/1.0:v1
+    run uenv --repo=first=$RP1 image add app/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/app42.squashfs
+    assert_success
+    run uenv --repo=second=$RP2 image add app/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/app43.squashfs
+    assert_success
+
+    # repo1 has higher priority: app --version should print 42.0
+    run uenv --repo=first=$RP1,second=$RP2 run --view=app app -- app --version
+    assert_success
+    assert_output "42.0"
+
+    # with reversed priority repo2 wins: app --version should print 43.0
+    run uenv --repo=second=$RP2,first=$RP1 run --view=app app -- app --version
+    assert_success
+    assert_output "43.0"
+
+    # with only repo2 the match comes from there: app --version should print 43.0
+    run uenv --repo=second=$RP2 run --view=app app -- app --version
+    assert_success
+    assert_output "43.0"
+}
+
 @test "image add" {
     # using UENV_REPO_PATH env variable
     RP=$(mktemp -d $TMP/create-XXXXXX)

@@ -137,76 +137,6 @@ validate_repo_path(const std::filesystem::path& path, bool is_absolute,
     return fs::absolute(path);
 }
 
-util::expected<repo_description, std::string>
-pick_repo(const repo_label& label,
-          const std::vector<repo_description>& descriptions,
-          const std::string& altname) {
-    if (label.is_name()) {
-        const auto name = label.as_name();
-
-        if (auto pos = std::find_if(
-                descriptions.begin(), descriptions.end(),
-                [&name](const auto& rd) { return name == rd.name; });
-            pos != descriptions.end()) {
-            return repo_description{.name = pos->name,
-                                    .path = pos->path,
-                                    .priority =
-                                        repo_description::default_priority};
-        } else {
-            return util::unexpected{fmt::format(
-                "there is no repo with the name {}", label.as_name())};
-        }
-    } else if (label.is_path()) {
-        return repo_description{.name = altname, .path = label.as_path()};
-    } else {
-        const auto& d = label.as_name_path();
-        return repo_description{.name = d.name, .path = d.path};
-    }
-}
-
-util::expected<std::vector<repo_description>, std::string>
-filter_repo_list(const std::vector<repo_label>& labels,
-                 const std::vector<repo_description>& descriptions,
-                 bool validate) {
-    std::set<std::string> reserved_names;
-    auto unique_name = [&reserved_names]() -> std::string {
-        constexpr auto base = "anonymous";
-        if (!reserved_names.count(base)) {
-            return base;
-        }
-        int idx = 0;
-        while (reserved_names.count(fmt::format("{}{}", base, idx))) {
-            ++idx;
-        }
-        return fmt::format("{}{}", base, idx);
-    };
-
-    for (const auto& r : descriptions) {
-        reserved_names.insert(r.name);
-    }
-    std::vector<repo_description> output{};
-    for (const auto& r : labels) {
-        auto description = pick_repo(r, descriptions, unique_name());
-        if (!description) {
-            return util::unexpected{description.error()};
-        }
-        reserved_names.insert(description->name);
-        output.push_back(std::move(description.value()));
-    }
-
-    if (validate) {
-        for (const auto& r : output) {
-            if (auto result = validate_repo_path(r.path, false, true);
-                !result) {
-                return util::unexpected{
-                    fmt::format("the repository {}", result.error())};
-            }
-        }
-    }
-
-    return output;
-}
-
 bool operator<(const repo_description& lhs, const repo_description& rhs) {
     return lhs.priority < rhs.priority;
 }
@@ -1202,6 +1132,28 @@ record_set::const_iterator record_set::cend() const {
     return records_.cend();
 }
 
+uenv_label apply_system(uenv_label label,
+                        std::optional<std::string> system_name) {
+    if (!label.system) {
+        label.system = system_name;
+    } else if (label.system.value() == "*") {
+        label.system = std::nullopt;
+    }
+    return label;
+}
+
+uenv_description apply_system(uenv_description desc,
+                              std::optional<std::string> system_name) {
+    if (auto l = desc.label()) {
+        auto nl = apply_system(l.value(), system_name);
+        if (desc.mount()) {
+            return uenv_description{nl, desc.mount().value()};
+        }
+        return uenv_description{nl};
+    }
+    return desc;
+}
+
 // wrapping the pimpled implementation
 
 repository::~repository() = default;
@@ -1243,28 +1195,6 @@ repository::pathset repository::uenv_paths(sha256 sha) const {
 
 bool repository::contains(const uenv_record& r) const {
     return impl_->contains(r);
-}
-
-uenv_label apply_system(uenv_label label,
-                        std::optional<std::string> system_name) {
-    if (!label.system) {
-        label.system = system_name;
-    } else if (label.system.value() == "*") {
-        label.system = std::nullopt;
-    }
-    return label;
-}
-
-uenv_description apply_system(uenv_description desc,
-                              std::optional<std::string> system_name) {
-    if (auto l = desc.label()) {
-        auto nl = apply_system(l.value(), system_name);
-        if (desc.mount()) {
-            return uenv_description{nl, desc.mount().value()};
-        }
-        return uenv_description{nl};
-    }
-    return desc;
 }
 
 } // namespace uenv

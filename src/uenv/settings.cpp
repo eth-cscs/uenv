@@ -120,13 +120,16 @@ config_base default_config(const envvars::state& env) {
 configuration generate_configuration(const config_base& base) {
     configuration config;
 
-    for (const auto& repo : base.repos) {
-        if (auto rpath = uenv::validate_repo_path(repo.path, false, false)) {
-            config.repos.accumulate(std::vector<repo_description>{repo});
+    config.repos = base.repos;
+    config.repos.filter([](const auto& r) {
+        if (auto rpath = uenv::validate_repo_path(r.path, false, false)) {
+            return true;
         } else {
             spdlog::warn("invalid repo path {}", rpath.error());
         }
-    }
+        return false;
+    });
+
     // disable color output if it has not be enabled/disabled
     config.color = base.color.value_or(false);
     config.elastic_config = base.elastic_config;

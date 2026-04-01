@@ -431,11 +431,11 @@ concretise_env(const std::vector<resolved_uenv>& input_uenvs,
             // check whether the view name matches the name of any views
             // provided by uenv
             if (view2uenv.count(view.name)) {
-                // a list of uenv that have a view with name v.name
+                // a list of uenv that provide a view that matches our view
                 const auto& matching_uenvs = view2uenv[view.name];
 
-                // handle the case where no uenv name was provided, e.g.
-                // develop
+                // handle the case where no uenv name was provided
+                // e.g. --view=develop
                 if (!view.uenv) {
                     // it is ambiguous if more than one option is available
                     if (matching_uenvs.size() > 1) {
@@ -450,7 +450,8 @@ concretise_env(const std::vector<resolved_uenv>& input_uenvs,
                     views.push_back({matching_uenvs[0], view.name});
                 }
                 // handle the case where both uenv and view name are
-                // provided, e.g. prgenv-gnu:develop
+                // provided
+                // e.g. --view=prgenv-gnu:develop
                 else {
                     auto it = std::find_if(
                         matching_uenvs.begin(), matching_uenvs.end(),

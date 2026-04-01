@@ -53,6 +53,8 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         return 1;
     }
 
+    spdlog::warn("====== {}", globals.config.repos);
+
     const auto resolved =
         resolve_uenv_args(args.uenv_description, globals.config.repos,
                           globals.config.system_name);

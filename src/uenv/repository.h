@@ -56,16 +56,6 @@ class repo_label {
     std::variant<std::string, std::filesystem::path, repo_name_path> value_;
 };
 
-util::expected<repo_description, std::string>
-pick_repo(const repo_label& label,
-          const std::vector<repo_description>& descriptions,
-          const std::string& altname);
-
-util::expected<std::vector<repo_description>, std::string>
-filter_repo_list(const std::vector<repo_label>& labels,
-                 const std::vector<repo_description>& descriptions,
-                 bool validate = true);
-
 // An ordered list of repo_description entries, maintained sorted by priority.
 // Provides two write modes:
 //   accumulate - merges repos from a less-specific config layer, with the
@@ -100,6 +90,13 @@ class repo_list {
     //   - path-only:  derive a name from the path basename
     util::expected<repo_description, std::string>
     pick(const repo_label& label) const;
+
+    template <std::predicate<const repo_description&> F> void filter(F&& f) {
+        if (auto end = std::stable_partition(repos_.begin(), repos_.end(), f);
+            end != repos_.end()) {
+            repos_.erase(end, repos_.end());
+        }
+    }
 
     using const_iterator = std::vector<repo_description>::const_iterator;
     const_iterator begin() const;
