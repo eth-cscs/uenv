@@ -52,8 +52,7 @@ void image_pull_args::add_cli(CLI::App& cli,
     pull_cli->footer(image_pull_footer);
 }
 
-int image_pull([[maybe_unused]] const image_pull_args& args,
-               [[maybe_unused]] const global_settings& settings) {
+int image_pull(const image_pull_args& args, const global_settings& settings) {
     namespace fs = std::filesystem;
 
     if (args.build) {
@@ -131,7 +130,7 @@ int image_pull([[maybe_unused]] const image_pull_args& args,
 
     // require that a valid repo has been provided
     const auto repo = settings.config.repo();
-    if (repo) {
+    if (!repo) {
         term::error("a repo needs to be provided either using the --repo "
                     "option, or in the config file");
         return 1;

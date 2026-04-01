@@ -116,15 +116,17 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     // Open the repository
     //
-    if (settings.config.repos.empty()) {
-        term::error("a repo needs to be provided either using the --repo "
-                    "option, or in the config file");
-        return 1;
-    }
+
     // the target repository is always the first repo in the list, which can be
     // overriden using the --repo flag.
-    const auto target_repo = settings.config.repos[0];
-    auto store = uenv::open_repository(target_repo.path, repo_mode::readwrite);
+    const auto repo = settings.config.repo();
+    if (!repo) {
+        term::error(
+            "a repo needs to be provided either using the --repo flag or "
+            "in the config file");
+        return 1;
+    }
+    auto store = uenv::open_repository(repo->path, repo_mode::readwrite);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;
@@ -176,7 +178,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     const auto uenv_paths = store->uenv_paths(sqfs->hash);
     uenv::uenv_date date{*util::file_creation_date(sqfs->sqfs)};
 
-    bool source_in_repo = util::is_child(sqfs->sqfs, target_repo.path);
+    bool source_in_repo = util::is_child(sqfs->sqfs, repo->path);
 
     // If an sqfs file is already in repo, and it was pulled from a repository
     // then there is a digest mismatch. Do not try to add this image
