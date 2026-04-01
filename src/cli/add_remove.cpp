@@ -37,7 +37,7 @@ void image_add_args::add_cli(CLI::App& cli,
     add_cli->add_flag("--move", move,
                       "move the squahfs image instead of copying it.");
     add_cli
-        ->add_option("source", source,
+        ->add_option("uenv", source,
                      "the label or squashfs file to add to the repo.")
         ->required();
     add_cli->callback(
@@ -50,7 +50,7 @@ void image_rm_args::add_cli([[maybe_unused]] CLI::App& cli,
                             [[maybe_unused]] global_settings& settings) {
     auto* rm_cli =
         cli.add_subcommand("rm", "delete a uenv image from a repository");
-    rm_cli->add_option("label", label, "the uenv to remove.")->required();
+    rm_cli->add_option("uenv", label, "the uenv to remove.")->required();
     rm_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::image_rm; });
 
