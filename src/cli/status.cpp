@@ -159,7 +159,7 @@ std::string status_footer() {
     using enum help::block::admonition;
     std::vector<help::item> items{
         // clang-format off
-        help::block{none, "Disply information about the current uenv environment." },
+        help::block{none, "Display information about the current uenv environment." },
         help::linebreak{},
         help::block{xmpl, "get status:"},
         help::block{code,   "uenv status"},
