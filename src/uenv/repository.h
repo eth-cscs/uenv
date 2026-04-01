@@ -43,7 +43,8 @@ concept repo_label_type =
 class repo_label {
   public:
     template <repo_label_type T>
-    repo_label(T value) : value_{std::move(value)} {};
+    repo_label(T value) : value_{std::move(value)} {
+    }
 
     bool is_name() const;
     bool is_path() const;
