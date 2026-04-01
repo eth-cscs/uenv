@@ -38,8 +38,8 @@ class lexer_impl {
         parse();
     }
 
-    std::string string() const {
-        return std::string(input_);
+    std::string_view string() const {
+        return input_;
     }
 
     token next() {
@@ -243,7 +243,7 @@ tok lexer::current_kind() const {
     return impl_->current_kind();
 }
 
-std::string lexer::string() const {
+std::string_view lexer::string() const {
     return impl_->string();
 }
 

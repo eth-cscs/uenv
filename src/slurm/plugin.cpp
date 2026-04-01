@@ -32,7 +32,7 @@ namespace uenv {
 
 void set_log_level(const envvars::state& env) {
     // use warn as the default log level
-    auto log_level = spdlog::level::warn;
+    auto log_level = spdlog::level::off;
     bool invalid_env = false;
 
     // check the environment variable UENV_LOG_LEVEL
@@ -342,12 +342,37 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         return ESPANK_SUCCESS;
     }
 
-    config_g = uenv::generate_configuration(uenv::load_config(
-        {.repo = args.repo_description}, calling_environment));
+    // parse the repo flag if it was passed
+    std::optional<std::vector<uenv::repo_label>> cli_repo_labels{};
+    if (args.repo_description) {
+        if (const auto result =
+                uenv::parse_repo_list(args.repo_description.value())) {
+            cli_repo_labels = result.value();
+        } else {
+            slurm_error("invalid --repo argument: %s",
+                        result.error().description.c_str());
+            return -ESPANK_ERROR;
+        }
+    }
+
+    if (auto full_config =
+            uenv::load_config({}, cli_repo_labels, calling_environment)) {
+
+        config_g = uenv::generate_configuration(full_config.value());
+    } else {
+        slurm_error("%s", full_config.error().c_str());
+        return -ESPANK_ERROR;
+    }
+
+    const auto resolved = uenv::resolve_uenv_args(
+        args.uenv_description.value(), config_g.repos, config_g.system_name);
+    if (!resolved) {
+        slurm_error("%s", resolved.error().c_str());
+        return -ESPANK_ERROR;
+    }
 
     const auto env = uenv::concretise_env(
-        *args.uenv_description, args.view_description, config_g.repo,
-        args.use_default_views, calling_environment);
+        resolved.value(), args.view_description, args.use_default_views);
 
     if (!env) {
         slurm_error("%s", env.error().c_str());

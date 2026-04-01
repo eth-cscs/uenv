@@ -11,7 +11,8 @@ enum class tok {
     integer,    // unsigned integer
     comma,      // comma ','
     colon,      // colon ':'
-    symbol,     // string, e.g. prgenv
+    symbol,     // consecutive alphabet or underscore
+                // examples: prgenv, my_repo, _, _name
     dash,       // comma ','
     dot,        // comma ','
     whitespace, // spaces, tabs, etc. Contiguous white space characters are
@@ -51,7 +52,7 @@ class lexer {
     tok current_kind() const;
 
     // return a string view of the full input
-    std::string string() const;
+    std::string_view string() const;
 
     // return true if the current token matches tok
     bool operator==(tok) const;

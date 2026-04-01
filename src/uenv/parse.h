@@ -35,6 +35,11 @@ struct parse_error {
         : input(std::move(input)), detail(std::move(detail)), loc(tok.loc),
           width(tok.spelling.length()) {
     }
+    parse_error(std::string_view input, std::string detail,
+                const lex::token& tok)
+        : input(input), detail(std::move(detail)), loc(tok.loc),
+          width(tok.spelling.length()) {
+    }
     parse_error(std::string input, std::string description, std::string detail,
                 const lex::token& tok)
         : input(std::move(input)), description(std::move(description)),
@@ -62,18 +67,25 @@ util::expected<uenv_label, parse_error> parse_uenv_label(const std::string& in);
 util::expected<uenv_description, parse_error>
 parse_uenv_description(const std::string& in);
 
-// pares a namespacesd uenv label
 util::expected<uenv_nslabel, parse_error>
 parse_uenv_nslabel(const std::string& in);
 
 util::expected<uenv_registry_entry, parse_error>
 parse_registry_entry(const std::string& in);
 
+// TODO: deprecate as soon as the old config file format is dropped
 util::expected<config_line, parse_error>
 parse_config_line(const std::string& arg);
 
 util::expected<std::string, parse_error>
 parse_cluster_name(const std::string& in);
+
+util::expected<std::string, parse_error> parse_repo_name(const std::string& in);
+
+util::expected<std::vector<repo_label>, parse_error>
+parse_repo_list(const std::string& in);
+
+util::expected<repo_label, parse_error> parse_repo_label(const std::string& in);
 
 util::expected<util::semver, parse_error> parse_semver(const std::string& arg);
 

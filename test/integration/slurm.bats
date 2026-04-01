@@ -74,7 +74,7 @@ function teardown() {
 
     # an error should be generated if an ambiguous uenv is requested
     run_srun_unchecked --repo=$RP  --uenv=app --view=app app --version
-    assert_output --partial "error: more than one uenv matches the uenv description 'app'"
+    assert_output --partial "error: more than one uenv matches the uenv description"
 
     run_srun_unchecked  --uenv=app/43.0 --repo=$REPOS/apptool --view=app app
     assert_output --partial 'hello app'

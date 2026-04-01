@@ -4,6 +4,7 @@
 #include <uenv/env.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
+#include <util/fs.h>
 
 namespace {
 
@@ -71,6 +72,7 @@ auto create_mini_repo(std::optional<std::filesystem::path> p = {}) {
 TEST_CASE("create-in-memory", "[repository]") {
     auto repo = uenv::create_repository();
     REQUIRE(repo);
+    REQUIRE(repo->is_in_memory());
 
     for (auto& r : prgenvgnu_records) {
         REQUIRE(repo->add(r));
@@ -211,8 +213,6 @@ TEST_CASE("remove label", "[repository]") {
 
     auto num_images = [&repo]() { return repo.query({})->size(); };
 
-    num_images();
-
     auto uenv_a = *(repo.query({.name = msha('a').string()}));
     auto uenv_b = *(repo.query({.name = msha('b').string()}));
 
@@ -227,4 +227,155 @@ TEST_CASE("remove label", "[repository]") {
 
     REQUIRE(repo.remove(*(uenv_a.begin() + 1)));
     REQUIRE(num_images() == 0);
+}
+
+TEST_CASE("create disk repo", "[repository]") {
+    auto repo_dir = util::make_temp_dir();
+    {
+        auto R = create_mini_repo(repo_dir);
+        REQUIRE(R);
+        REQUIRE(!R->is_in_memory());
+    }
+    {
+        auto R = uenv::open_repository(repo_dir);
+        REQUIRE(R);
+        REQUIRE(!R->is_in_memory());
+        REQUIRE(R->query({})->size() == 3);
+    }
+}
+
+// helper: make a repo_description with default priority
+static uenv::repo_description
+rd(std::string name, std::string path,
+   uint32_t priority = uenv::repo_description::default_priority) {
+    return {.name = std::move(name),
+            .path = std::filesystem::path(std::move(path)),
+            .priority = priority};
+}
+
+TEST_CASE("repo_list accumulate priority ordering", "[repo_list]") {
+    uenv::repo_list rl;
+    // lower priority number sorts first
+    rl.accumulate({rd("high", "/high", 5), rd("low", "/low", 20)});
+    REQUIRE(rl.size() == 2u);
+    REQUIRE(rl[0].name == "high");
+    REQUIRE(rl[1].name == "low");
+}
+
+TEST_CASE("repo_list accumulate tie-breaking: incoming before existing",
+          "[repo_list]") {
+    uenv::repo_list rl;
+    rl.accumulate({rd("existing", "/existing")});
+    rl.accumulate({rd("incoming", "/incoming")});
+    // both at default_priority; incoming (more-specific layer) sorts first
+    REQUIRE(rl.size() == 2u);
+    REQUIRE(rl[0].name == "incoming");
+    REQUIRE(rl[1].name == "existing");
+}
+
+TEST_CASE("repo_list accumulate conflict: same name, incoming path wins",
+          "[repo_list]") {
+    uenv::repo_list rl;
+    rl.accumulate({rd("myrepo", "/old/path")});
+    rl.accumulate({rd("myrepo", "/new/path")});
+    REQUIRE(rl.size() == 1u);
+    REQUIRE(rl[0].name == "myrepo");
+    REQUIRE(rl[0].path == "/new/path");
+}
+
+TEST_CASE("repo_list accumulate conflict: same path, incoming name wins",
+          "[repo_list]") {
+    uenv::repo_list rl;
+    rl.accumulate({rd("old-name", "/shared/path")});
+    rl.accumulate({rd("new-name", "/shared/path")});
+    REQUIRE(rl.size() == 1u);
+    REQUIRE(rl[0].name == "new-name");
+    REQUIRE(rl[0].path == "/shared/path");
+}
+
+TEST_CASE("repo_list accumulate conflict: same name and path deduplicates",
+          "[repo_list]") {
+    uenv::repo_list rl;
+    rl.accumulate({rd("repo", "/path")});
+    rl.accumulate({rd("repo", "/path")});
+    REQUIRE(rl.size() == 1u);
+}
+
+TEST_CASE("repo_list accumulate multiple layers: later wins ties",
+          "[repo_list]") {
+    // simulate default → system → user accumulation
+    uenv::repo_list rl;
+    rl.accumulate({rd("default", "/default", 9)});
+    rl.accumulate({rd("sys", "/sys")});
+    rl.accumulate({rd("usr", "/usr")});
+    // default has lower priority number → first; usr and sys both at
+    // default_priority, usr was accumulated last so sorts before sys
+    REQUIRE(rl.size() == 3u);
+    REQUIRE(rl[0].name == "default");
+    REQUIRE(rl[1].name == "usr");
+    REQUIRE(rl[2].name == "sys");
+}
+
+TEST_CASE("repo_list replace: name-only label resolves from current contents",
+          "[repo_list]") {
+    using namespace std::string_literals;
+    uenv::repo_list rl;
+    rl.accumulate({rd("team", "/team/repo"), rd("shared", "/shared/repo")});
+
+    auto result = rl.replace({"team"s});
+    REQUIRE(result);
+    REQUIRE(rl.size() == 1u);
+    REQUIRE(rl[0].name == "team");
+    REQUIRE(rl[0].path == "/team/repo");
+    REQUIRE(rl[0].priority == uenv::repo_description::default_priority);
+}
+
+TEST_CASE("repo_list replace: unknown name returns error", "[repo_list]") {
+    using namespace std::string_literals;
+    uenv::repo_list rl;
+    rl.accumulate({rd("team", "/team/repo")});
+    auto result = rl.replace({"nosuchrepo"s});
+    REQUIRE(!result);
+}
+
+TEST_CASE("repo_list replace: path-only label generates name from basename",
+          "[repo_list]") {
+    // Use a real temp dir with a leading-dot basename to exercise name
+    // stripping: ".uenv-images-test" -> "uenv-images-test"
+    auto tmpdir = std::filesystem::temp_directory_path() / ".uenv-images-test";
+    std::filesystem::create_directories(tmpdir);
+
+    uenv::repo_list rl;
+    auto result = rl.replace({tmpdir});
+    REQUIRE(result);
+    REQUIRE(rl.size() == 1u);
+    REQUIRE(rl[0].name == "uenv-images-test");
+    REQUIRE(rl[0].path == tmpdir);
+
+    std::filesystem::remove(tmpdir);
+}
+
+TEST_CASE("repo_list replace: name+path label used directly", "[repo_list]") {
+    auto tmpdir = std::filesystem::temp_directory_path();
+    uenv::repo_list rl;
+    auto result =
+        rl.replace({uenv::repo_name_path{.name = "custom", .path = tmpdir}});
+    REQUIRE(result);
+    REQUIRE(rl.size() == 1u);
+    REQUIRE(rl[0].name == "custom");
+    REQUIRE(rl[0].path == tmpdir);
+}
+
+TEST_CASE("repo_list replace: preserves input order at default_priority",
+          "[repo_list]") {
+    using namespace std::string_literals;
+    uenv::repo_list rl;
+    rl.accumulate({rd("a", "/a"), rd("b", "/b"), rd("c", "/c")});
+
+    auto result = rl.replace({"c"s, "a"s, "b"s});
+    REQUIRE(result);
+    REQUIRE(rl.size() == 3u);
+    REQUIRE(rl[0].name == "c");
+    REQUIRE(rl[1].name == "a");
+    REQUIRE(rl[2].name == "b");
 }

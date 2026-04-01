@@ -26,21 +26,11 @@ std::optional<std::string> get_username() {
     return std::nullopt;
 }
 
-std::optional<std::string>
-get_system_name(const std::optional<std::string> value,
-                const envvars::state& calling_env) {
-    if (value) {
-        if (value == "*") {
-            return std::nullopt;
-        }
-        return value;
+std::optional<std::string> get_system_name(const envvars::state& calling_env) {
+    if (auto name = calling_env.get("CLUSTER_NAME")) {
+        spdlog::debug("cluster name is '{}'", name.value());
+        return name.value();
     }
-
-    if (auto system_name = calling_env.get("CLUSTER_NAME")) {
-        spdlog::debug("cluster name is '{}'", system_name.value());
-        return system_name.value();
-    }
-
     spdlog::debug("cluster name is undefined");
     return std::nullopt;
 }

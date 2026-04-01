@@ -43,7 +43,8 @@ function teardown() {
 @test "image ls" {
     run uenv --repo=$REPOS/apptool image ls
     assert_success
-    assert_line --index 0 --regexp "^uenv\s+arch\s+system\s+id"
+    assert_line --index 0 --partial "repo apptool"
+    assert_line --index 1 --regexp "^uenv\s+arch\s+system\s+id"
     assert_output --regexp "app/42.0:v1\s+zen3\s+arapiles"
     assert_output --regexp "app/43.0:v1\s+zen3\s+arapiles"
     assert_output --regexp "tool/17.3.2:v1\s+zen3\s+arapiles"
@@ -94,7 +95,8 @@ function teardown() {
 
     run uenv --repo=$REPOS/apptool image ls wombat
     assert_success
-    assert_output "no matching uenv"
+    assert_output --partial "repo apptool"
+    assert_output --partial "no matching uenv"
 
     # empty output if --no-header is used and there are no matches
     run uenv --repo=$REPOS/apptool image ls wombat --no-header
@@ -103,7 +105,7 @@ function teardown() {
 
     run uenv --repo=/wombat image ls --no-header
     assert_failure
-    assert_output --partial "the repository /wombat does not exist"
+    assert_output --partial "the repository '/wombat' does not exist"
 
     run uenv --repo=$REPOS/apptool image ls --no-header
     assert_success
@@ -112,11 +114,13 @@ function teardown() {
     assert_line --partial "tool/17.3.2:v1"
 
     # test --json output
-    #run uenv --repo=$REPOS/apptool image ls --json app | jq '.records | length'
     run uenv --repo=$REPOS/apptool image ls --json app
     assert_success
     jq_output="$(echo "$output" | jq '.records | length')"
     assert_equal "$jq_output" "2"
+    # each record carries a repo field identifying its source
+    jq_output="$(echo "$output" | jq '.records[0].repo.name')"
+    assert_equal "$jq_output" '"apptool"'
 
     # empty results is not an error
     run uenv --repo=$REPOS/apptool image ls --json doesnotexist
@@ -148,20 +152,20 @@ function teardown() {
     # check the different methods for providing the repo location
     #
 
-    # using --repo flag to uenv
+    # using --repo flag to uenv: name is derived from the path basename
     run uenv --repo=$RP repo status
     assert_success
-    assert_line --index 0 "the repository $RP is readwrite"
+    assert_line --index 0 "apptool:$RP is readwrite"
 
     # as a positional argument to the repo status command itself
     run uenv repo status $RP
     assert_success
-    assert_line --index 0 "the repository $RP is readwrite"
+    assert_line --index 0 "cli:$RP is readwrite"
 
     # no error for a path that does not exist
     run uenv repo status /wombat
     assert_success
-    assert_line --index 0 "/wombat is not a repository"
+    assert_line --index 0 "cli:/wombat is not a repository"
 
     # TODO:
     # - check a read-only repo
@@ -203,7 +207,7 @@ function teardown() {
     #
     # check that run looks up images in the repo and mounts at the correct location
     #
-    run uenv --repo=$REPOS/apptool run tool -- ls /user-tools
+    run uenv -v --repo=$REPOS/apptool run tool -- ls /user-tools
     assert_success
     assert_output --regexp "meta"
 
@@ -315,6 +319,140 @@ exit
 EOF
     assert_failure
     assert_output --partial "a uenv session is already running"
+}
+
+@test "multi repo --repo flag" {
+    RP1=$(mktemp -d $TMP/repo1-XXXXXX)
+    RP2=$(mktemp -d $TMP/repo2-XXXXXX)
+    run uenv repo create $RP1
+    assert_success
+    run uenv repo create $RP2
+    assert_success
+
+    # two paths: names are derived from the path basenames
+    N1=$(basename $RP1)
+    N2=$(basename $RP2)
+    run uenv --repo=$RP1,$RP2 repo status
+    assert_success
+    assert_line "$N1:$RP1 is readwrite"
+    assert_line "$N2:$RP2 is readwrite"
+    [ "${#lines[@]}" -eq 2 ]
+
+    # reversing the order reverses the names too
+    run uenv --repo=$RP2,$RP1 repo status
+    assert_success
+    assert_line "$N2:$RP2 is readwrite"
+    assert_line "$N1:$RP1 is readwrite"
+    [ "${#lines[@]}" -eq 2 ]
+
+    # name=path syntax assigns explicit names
+    run uenv --repo=first=$RP1,second=$RP2 repo status
+    assert_success
+    assert_line "first:$RP1 is readwrite"
+    assert_line "second:$RP2 is readwrite"
+    [ "${#lines[@]}" -eq 2 ]
+
+    # a non-existent path in the list is an error
+    run uenv --repo=$RP1,/wombat repo status
+    assert_failure
+
+    # populate repos with distinct images and verify image ls returns both
+    run uenv --repo=first=$RP1 image add app/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/app42.squashfs
+    assert_success
+    run uenv --repo=second=$RP2 image add tool/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
+    assert_success
+
+    run uenv --repo=first=$RP1,second=$RP2 image ls --no-header
+    assert_success
+    assert_line --partial "app/1.0:v1"
+    assert_line --partial "tool/1.0:v1"
+
+    # table output has a section header per repo
+    run uenv --repo=first=$RP1,second=$RP2 image ls
+    assert_success
+    assert_output --partial "repo first"
+    assert_output --partial "repo second"
+
+    # json output: each record carries a repo field
+    run uenv --repo=first=$RP1,second=$RP2 image ls --json
+    assert_success
+    jq_output="$(echo "$output" | jq '[.records[].repo.name] | sort | unique | join(",")')"
+    assert_equal "$jq_output" '"first,second"'
+}
+
+@test "multi repo toml config" {
+    RP1=$(mktemp -d $TMP/repo1-XXXXXX)
+    RP2=$(mktemp -d $TMP/repo2-XXXXXX)
+    run uenv repo create $RP1
+    assert_success
+    run uenv repo create $RP2
+    assert_success
+
+    # write a config with two [[repositories]] entries — this was previously
+    # broken because parse_repository_array rejected arrays with more than one
+    # entry.
+    XDG=$TMP/xdg
+    mkdir -p $XDG/uenv
+    cat > $XDG/uenv/config.toml <<EOF
+[[repositories]]
+name = 'first'
+path = '$RP1'
+
+[[repositories]]
+name = 'second'
+path = '$RP2'
+EOF
+
+    # use XDG_CONFIG_HOME to redirect user config, and a fake HOME to suppress
+    # default repo detection.
+    FAKE_HOME=$(mktemp -d $TMP/home-XXXXXX)
+    run env HOME=$FAKE_HOME XDG_CONFIG_HOME=$XDG uenv repo status
+    assert_success
+    assert_line "first:$RP1 is readwrite"
+    assert_line "second:$RP2 is readwrite"
+
+    # populate repos with distinct images and verify image ls searches both
+    run env HOME=$FAKE_HOME XDG_CONFIG_HOME=$XDG uenv --repo=first=$RP1 image add \
+        app/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/app42.squashfs
+    assert_success
+    run env HOME=$FAKE_HOME XDG_CONFIG_HOME=$XDG uenv --repo=second=$RP2 image add \
+        tool/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
+    assert_success
+
+    run env HOME=$FAKE_HOME XDG_CONFIG_HOME=$XDG uenv image ls --no-header
+    assert_success
+    assert_line --partial "app/1.0:v1"
+    assert_line --partial "tool/1.0:v1"
+}
+
+@test "multi repo run" {
+    RP1=$(mktemp -d $TMP/repo1-XXXXXX)
+    RP2=$(mktemp -d $TMP/repo2-XXXXXX)
+    run uenv repo create $RP1
+    assert_success
+    run uenv repo create $RP2
+    assert_success
+
+    # put app42 in repo1 and app43 in repo2, both registered as app/1.0:v1
+    run uenv --repo=first=$RP1 image add app/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/app42.squashfs
+    assert_success
+    run uenv --repo=second=$RP2 image add app/1.0:v1@$CLUSTER_NAME%zen3 $SQFS_LIB/apptool/standalone/app43.squashfs
+    assert_success
+
+    # repo1 has higher priority: app --version should print 42.0
+    run uenv --repo=first=$RP1,second=$RP2 run --view=app app -- app --version
+    assert_success
+    assert_output "42.0"
+
+    # with reversed priority repo2 wins: app --version should print 43.0
+    run uenv --repo=second=$RP2,first=$RP1 run --view=app app -- app --version
+    assert_success
+    assert_output "43.0"
+
+    # with only repo2 the match comes from there: app --version should print 43.0
+    run uenv --repo=second=$RP2 run --view=app app -- app --version
+    assert_success
+    assert_output "43.0"
 }
 
 @test "image add" {
@@ -487,10 +625,10 @@ EOF
     assert_output --partial "wombat/24:v1"
 
     # verify that the sha and wombat image are no longer in the repo
-    run uenv --repo=$UENV_REPO_PATH image ls $sha
-    assert_output 'no matching uenv'
-    run uenv --repo=$UENV_REPO_PATH image ls wombat
-    assert_output 'no matching uenv'
+    run uenv --repo=$UENV_REPO_PATH image ls --no-header $sha
+    assert_output ''
+    run uenv --repo=$UENV_REPO_PATH image ls --no-header wombat
+    assert_output ''
 
     # verify that the file was removed
     [ ! -d $UENV_REPO_PATH/images/$sha ]
@@ -506,8 +644,8 @@ EOF
     # verify that the file was removed
     [ ! -d $UENV_REPO_PATH/images/$sha ]
     # check that the uenv was removed from database
-    run uenv --repo=$UENV_REPO_PATH image ls $pattern
-    assert_output "no matching uenv"
+    run uenv --repo=$UENV_REPO_PATH image ls --no-header $pattern
+    assert_output ""
 
     # removing a one of multiple labels on the same sha removes the label but leaves the others untouched
     # step 1: add another image with the same hash as the remaining image

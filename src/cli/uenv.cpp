@@ -39,6 +39,8 @@ int main(int argc, char** argv) {
     uenv::config_base cli_config;
     uenv::global_settings settings;
     bool print_version = false;
+    std::optional<std::string> cli_repo{};
+    std::optional<std::vector<uenv::repo_label>> cli_repo_labels{};
 
     CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
@@ -49,7 +51,7 @@ int main(int argc, char** argv) {
         "--color", [&cli_config]() -> void { cli_config.color = true; },
         "enable color output");
     cli.add_flag("--version", print_version, "print version");
-    cli.add_option("--repo", cli_config.repo, "the uenv repository");
+    cli.add_option("--repo", cli_repo, "the uenv repository description");
 
     cli.footer(help_footer);
 
@@ -98,16 +100,41 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    // parse the repo flag if it was passed
+    if (cli_repo) {
+        if (const auto result = uenv::parse_repo_list(cli_repo.value())) {
+            spdlog::info("selected repositories: {}",
+                         fmt::join(result.value(), ", "));
+            cli_repo_labels = result.value();
+        } else {
+            term::error("invalid --repo argument: {}",
+                        result.error().description);
+            return 1;
+        }
+    }
+
+    // TODO: adding support for more than one repo has surfaced the problem with
+    // automatically creating the user's default repository: we are trying to
+    // generate any repos in the repo list that have not been created.
+    // Revisit the behavior:
+    // - we could only create any repo named "default"
+    // - we could only create repos that are explicitly provided using --repo
+    // I prefer the first option, so that users do not "accidentally" create new
+    // repos when they have a typo
+
     // set the configuration according to defaults, cli options and config
     // files.
-    auto full_config =
-        uenv::load_config(cli_config, settings.calling_environment);
+    if (auto full_config = uenv::load_config(cli_config, cli_repo_labels,
+                                             settings.calling_environment)) {
+        // generate_configuration applies checks to ensure that paths in the
+        // config exist. If they don't it unsets them with warning messages.
+        settings.config = uenv::generate_configuration(full_config.value());
+    } else {
+        term::error("{}", full_config.error());
+        return 1;
+    }
 
-    // generate_configuration applies checks to ensure that paths in the config
-    // exist. If they don't it unsets them with warning messages.
-    settings.config = uenv::generate_configuration(full_config);
-
-    if (!settings.config.repo) {
+    if (settings.config.repos.empty()) {
         term::warn("there is no valid repo - use the --repo flag or edit the "
                    "configuration to set a repo path");
     }
@@ -121,6 +148,14 @@ int main(int argc, char** argv) {
     color::set_color(settings.config.color);
 
     // validate the user repository - attempt to create if it does not exist
+    // TODO: reimplement this for a world where multiple valid repos are
+    // available. options:
+    // - set a default_repo in the settings, that may or may not exist
+    //      - create it only when needed (image pull, image add, repo create are
+    //      used without an explicit repository provided by the user)
+    // - only create a repo with the name "default" without direct user
+    // - require user to explicitly create
+    /*
     if (settings.config.repo) {
         using enum uenv::repo_state;
         const auto initial_state =
@@ -162,6 +197,7 @@ int main(int argc, char** argv) {
             break;
         }
     }
+    */
 
     spdlog::info("{}", settings);
 

@@ -629,6 +629,129 @@ parse_cluster_name(const std::string& in) {
     return result;
 }
 
+// tokens that can appear in repo names
+bool is_repo_tok(lex::tok t) {
+    return t == lex::tok::symbol || t == lex::tok::integer ||
+           t == lex::tok::dash;
+};
+
+util::expected<std::string, parse_error> parse_repo_name(lex::lexer& L) {
+    const auto start = L.peek().loc;
+    if (L != lex::tok::symbol) {
+        return util::unexpected(parse_error{
+            L.string(), "name must start with letter or underscore", L.peek()});
+    }
+    while (is_repo_tok(L.peek().kind)) {
+        L.next();
+    }
+    return std::string{L.string().data() + start,
+                       L.string().data() + L.peek().loc};
+}
+
+util::expected<std::string, parse_error>
+parse_repo_name(const std::string& in) {
+    const std::string sanitised = util::strip(in);
+    auto L = lex::lexer(sanitised);
+    const auto result = parse_repo_name(L);
+    if (!result) {
+        return result;
+    }
+
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+    }
+    return result;
+}
+
+// parse one of three ways to describe a repo:
+// METHOD       EXAMPLE
+// --------------------
+// name:        myrepo
+// name=path:   myrepo=/store/.uenv
+// path:        ./store/.uenv
+util::expected<repo_label, parse_error> parse_repo_label(lex::lexer& L) {
+    // check whether the description starts with a name
+    if (auto name = parse_repo_name(L)) {
+        // check whether the label is of the form name=path
+        if (L == lex::tok::equals) {
+            // eat the leading '=' token
+            L.next();
+            if (auto path = parse_path(L)) {
+
+                return repo_name_path{.name = name.value(),
+                                      .path =
+                                          std::filesystem::path(path.value())};
+            } else {
+                return util::unexpected{path.error()};
+            }
+        }
+        return name.value();
+    } else if (auto path = parse_path(L)) {
+        return std::filesystem::path(path.value());
+    }
+    return util::unexpected{parse_error{
+        L.string(),
+        "expected a repo description (one of [name], [path] or [name,path])",
+        L.peek()}};
+}
+
+// Parse an individual repo description
+// For cli arguments that take one, and one only, descriptions.
+util::expected<repo_label, parse_error>
+parse_repo_label(const std::string& in) {
+    const std::string sanitised = util::strip(in);
+    auto L = lex::lexer(sanitised);
+    auto label = parse_repo_label(L);
+    if (!label) {
+        return util::unexpected{label.error()};
+    }
+
+    // if parsing finished and the string has not been consumed,
+    // and invalid token was encountered
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
+    }
+
+    return label;
+}
+
+// Parse a comma-separated repo list
+// /store/repo,scratch=/scratch/.uenv,
+util::expected<std::vector<repo_label>, parse_error>
+parse_repo_list(const std::string& in) {
+    const std::string sanitised = util::strip(in);
+    auto L = lex::lexer(sanitised);
+
+    std::vector<repo_label> labels;
+    while (true) {
+        if (auto label = parse_repo_label(L)) {
+            labels.push_back(std::move(label.value()));
+        } else {
+            return util::unexpected{label.error()};
+        }
+
+        if (L.peek().kind != lex::tok::comma) {
+            break;
+        }
+        L.next();
+
+        // handle trailing comma elegantly
+        if (L.peek().kind == lex::tok::end) {
+            break;
+        }
+    }
+    // if parsing finished and the string has not been consumed,
+    // and invalid token was encountered
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
+    }
+
+    return labels;
+}
+
 // tokens that can appear in configuration keys
 bool is_key_tok(lex::tok t) {
     return t == lex::tok::symbol || t == lex::tok::dash ||
@@ -650,6 +773,7 @@ util::expected<std::string, parse_error> parse_key(lex::lexer& L) {
     return parse_string(L, "key", is_key_tok);
 }
 
+// TODO: deprecate as soon as the old config file format is dropped
 util::expected<config_line, parse_error>
 parse_config_line(const std::string& arg) {
     const auto line = util::strip(arg);
