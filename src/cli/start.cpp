@@ -1,7 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 #include <unistd.h>
 
-#include <ranges>
 #include <string>
 
 #include <fmt/core.h>
@@ -10,8 +9,6 @@
 #include <spdlog/spdlog.h>
 
 #include <uenv/env.h>
-#include <uenv/meta.h>
-#include <uenv/parse.h>
 #include <util/expected.h>
 #include <util/shell.h>
 
@@ -36,6 +33,9 @@ void start_args::add_cli(CLI::App& cli,
         ->required();
     start_cli->add_flag("--ignore-tty", ignore_tty,
                         "don't check for non-interactive shells");
+    start_cli->add_flag(
+        "-V,--no-default-view", disable_default_view,
+        "disable loading default views when no view is specified");
     start_cli->callback(
         [&settings]() { settings.mode = uenv::cli_mode::start; });
     start_cli->footer(start_footer);
@@ -95,9 +95,16 @@ will not work, because it starts a new interactive shell.)",
         return 1;
     }
 
-    const auto env =
-        concretise_env(args.uenv_description, args.view_description,
-                       globals.config.repo, globals.calling_environment);
+    const auto resolved =
+        resolve_uenv_args(args.uenv_description, globals.config.repos,
+                          globals.config.system_name);
+    if (!resolved) {
+        term::error("{}", resolved.error());
+        return 1;
+    }
+
+    const auto env = concretise_env(resolved.value(), args.view_description,
+                                    !args.disable_default_view);
 
     if (!env) {
         term::error("{}", env.error());

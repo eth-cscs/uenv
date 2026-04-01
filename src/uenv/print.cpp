@@ -153,4 +153,74 @@ void print_record_set(const record_set& records, record_set_format f,
     }
 }
 
+void print_repo_record_sets(const std::vector<repo_record_set>& results,
+                            record_set_format f, std::string_view fmtstring) {
+    switch (f) {
+
+    case record_set_format::table: {
+        for (const auto& [repo, records] : results) {
+            fmt::print("repo {}:{}\n", color::yellow(repo.name),
+                       color::cyan(repo.path.string()));
+            fmt::print("{}", format_record_set_table(records, false));
+            fmt::print("\n");
+        }
+        return;
+    }
+
+    case record_set_format::table_no_header: {
+        for (const auto& [repo, records] : results) {
+            fmt::print("{}", format_record_set_table(records, true));
+        }
+        return;
+    }
+
+    case record_set_format::json: {
+        using nlohmann::json;
+        std::vector<json> jrecords;
+        for (const auto& [repo, records] : results) {
+            auto jrepo =
+                json{{"name", repo.name}, {"path", repo.path.string()}};
+            for (const auto& r : records) {
+                jrecords.push_back(json{{"name", r.name},
+                                        {"version", r.version},
+                                        {"tag", r.tag},
+                                        {"system", r.system},
+                                        {"uarch", r.uarch},
+                                        {"id", r.id.string()},
+                                        {"digest", r.sha.string()},
+                                        {"size", r.size_byte},
+                                        {"date", fmt::format("{}", r.date)},
+                                        {"repo", jrepo}});
+            }
+        }
+        fmt::print("{}", json{{"records", jrecords}}.dump());
+        return;
+    }
+
+    case record_set_format::list: {
+        for (const auto& [repo, records] : results) {
+            for (const auto& r : records) {
+                // clang-format off
+                fmt::print("{}\n", fmt::format(
+                    fmt::runtime(fmtstring),
+                    fmt::arg("name",      r.name),
+                    fmt::arg("version",   r.version),
+                    fmt::arg("tag",       r.tag),
+                    fmt::arg("system",    r.system),
+                    fmt::arg("uarch",     r.uarch),
+                    fmt::arg("id",        r.id),
+                    fmt::arg("digest",    r.sha),
+                    fmt::arg("size",      r.size_byte),
+                    fmt::arg("date",      r.date),
+                    fmt::arg("repo",      repo.name),
+                    fmt::arg("repo_path", repo.path.string())
+                ));
+                // clang-format on
+            }
+        }
+        return;
+    }
+    }
+}
+
 } // namespace uenv

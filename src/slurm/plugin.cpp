@@ -1,4 +1,6 @@
+#include <cerrno>
 #include <charconv>
+#include <cstring>
 #include <optional>
 #include <string>
 
@@ -15,6 +17,7 @@
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <util/defer.h>
 #include <util/envvars.h>
 
 #include "config.hpp"
@@ -29,7 +32,7 @@ namespace uenv {
 
 void set_log_level(const envvars::state& env) {
     // use warn as the default log level
-    auto log_level = spdlog::level::warn;
+    auto log_level = spdlog::level::off;
     bool invalid_env = false;
 
     // check the environment variable UENV_LOG_LEVEL
@@ -108,6 +111,7 @@ struct arg_pack {
     std::optional<std::string> uenv_description;
     std::optional<std::string> view_description;
     std::optional<std::string> repo_description;
+    bool use_default_views = true;
 };
 static arg_pack args{};
 
@@ -165,6 +169,19 @@ static spank_option view_arg{
         return ESPANK_SUCCESS;
     }};
 
+static spank_option disable_view_arg{
+    (char*)"no-default-view",
+    (char*)"",
+    (char*)"disable default views: only views explicitly set using the --view "
+           "flag will be used",
+    0, // does not take an argument
+    0, // plugin specific value to pass to the callback (unused)
+    [](int val [[maybe_unused]], const char* optarg [[maybe_unused]],
+       int remote [[maybe_unused]]) -> int {
+        args.use_default_views = false;
+        return ESPANK_SUCCESS;
+    }};
+
 static spank_option repo_arg{
     (char*)"repo",
     (char*)"path*",
@@ -180,7 +197,7 @@ static spank_option repo_arg{
 int slurm_spank_init(spank_t sp, int ac [[maybe_unused]],
                      char** av [[maybe_unused]]) {
 
-    for (auto arg : {&uenv_arg, &view_arg, &repo_arg}) {
+    for (auto arg : {&uenv_arg, &view_arg, &repo_arg, &disable_view_arg}) {
         if (auto status = spank_option_register(sp, arg)) {
             return status;
         }
@@ -210,7 +227,8 @@ int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
     return ESPANK_SUCCESS;
 }
 
-/// check if image, mountpoint is valid
+/// * check if image, mountpoint is valid
+/// * perform mount
 int init_post_opt_remote(spank_t sp) {
     // initialise logging to be completely disabled
     uenv::init_log(spdlog::level::off);
@@ -224,6 +242,30 @@ int init_post_opt_remote(spank_t sp) {
         return ESPANK_SUCCESS;
     }
 
+    // On NFS filesystems with root_squash, root is mapped to an anonymous
+    // unprivileged user, preventing access to the squashfs file. We
+    // temporarily adopt the job's effective GID so that file opens succeed
+    // for group-readable squashfs files.
+    //
+    // The job GID is set by Slurm to the user's primary group by default,
+    // or to a user-specified group via --gid (Slurm validates membership).
+    // If the squashfs file is owned by a group other than the job GID, the
+    // user should submit their job with --gid=<group>.
+    //
+    // Note: mode 600 squashfs files on root_squash NFS are not supported.
+    gid_t job_gid;
+    if (spank_get_item(sp, S_JOB_GID, &job_gid) != ESPANK_SUCCESS) {
+        slurm_error("uenv: failed to get job gid");
+        return -ESPANK_ERROR;
+    }
+
+    if (setegid(job_gid) != 0) {
+        slurm_error("uenv: failed to set effective gid: %s", strerror(errno));
+        return -ESPANK_ERROR;
+    }
+    auto cleanup = util::defer(
+        []() noexcept { [[maybe_unused]] int result = setegid(0); });
+
     // parse and validate the mount descriptions
     // note that it is very important to carefully validate the mount_list
     // * check that the squashfs files exist and can be read by the user
@@ -231,6 +273,7 @@ int init_post_opt_remote(spank_t sp) {
     auto mounts = uenv::parse_and_validate_mounts(mount_var.value());
     if (!mounts) {
         slurm_error("%s", mounts.error().c_str());
+        return -ESPANK_ERROR;
     }
 
     if (auto result = uenv::unshare_as_root(); !result) {
@@ -238,8 +281,7 @@ int init_post_opt_remote(spank_t sp) {
         return -ESPANK_ERROR;
     }
 
-    auto result = uenv::do_mount(mounts.value());
-    if (!result) {
+    if (auto result = uenv::do_mount(mounts.value()); !result) {
         slurm_error("error mounting the requested uenv image: %s",
                     result.error().c_str());
         return -ESPANK_ERROR;
@@ -300,12 +342,37 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         return ESPANK_SUCCESS;
     }
 
-    config_g = uenv::generate_configuration(uenv::load_config(
-        {.repo = args.repo_description}, calling_environment));
+    // parse the repo flag if it was passed
+    std::optional<std::vector<uenv::repo_label>> cli_repo_labels{};
+    if (args.repo_description) {
+        if (const auto result =
+                uenv::parse_repo_list(args.repo_description.value())) {
+            cli_repo_labels = result.value();
+        } else {
+            slurm_error("invalid --repo argument: %s",
+                        result.error().description.c_str());
+            return -ESPANK_ERROR;
+        }
+    }
 
-    const auto env =
-        uenv::concretise_env(*args.uenv_description, args.view_description,
-                             config_g.repo, calling_environment);
+    if (auto full_config =
+            uenv::load_config({}, cli_repo_labels, calling_environment)) {
+
+        config_g = uenv::generate_configuration(full_config.value());
+    } else {
+        slurm_error("%s", full_config.error().c_str());
+        return -ESPANK_ERROR;
+    }
+
+    const auto resolved = uenv::resolve_uenv_args(
+        args.uenv_description.value(), config_g.repos, config_g.system_name);
+    if (!resolved) {
+        slurm_error("%s", resolved.error().c_str());
+        return -ESPANK_ERROR;
+    }
+
+    const auto env = uenv::concretise_env(
+        resolved.value(), args.view_description, args.use_default_views);
 
     if (!env) {
         slurm_error("%s", env.error().c_str());

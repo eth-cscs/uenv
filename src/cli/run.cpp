@@ -1,6 +1,5 @@
 // vim: ts=4 sts=4 sw=4 et
 
-#include <ranges>
 #include <string>
 
 #include <fmt/core.h>
@@ -9,8 +8,6 @@
 #include <spdlog/spdlog.h>
 
 #include <uenv/env.h>
-#include <uenv/meta.h>
-#include <uenv/parse.h>
 #include <util/expected.h>
 #include <util/shell.h>
 #include <util/subprocess.h>
@@ -37,6 +34,9 @@ void run_args::add_cli(CLI::App& cli, global_settings& settings) {
         ->add_option("commands", commands,
                      "the command to run, including with arguments")
         ->required();
+    run_cli->add_flag(
+        "-V,--no-default-view", disable_default_view,
+        "disable loading default views when no view is specified");
     run_cli->callback([&settings]() { settings.mode = uenv::cli_mode::run; });
     run_cli->footer(run_footer);
 }
@@ -53,9 +53,18 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         return 1;
     }
 
-    const auto env =
-        concretise_env(args.uenv_description, args.view_description,
-                       globals.config.repo, globals.calling_environment);
+    spdlog::warn("====== {}", globals.config.repos);
+
+    const auto resolved =
+        resolve_uenv_args(args.uenv_description, globals.config.repos,
+                          globals.config.system_name);
+    if (!resolved) {
+        term::error("{}", resolved.error());
+        return 1;
+    }
+
+    const auto env = concretise_env(resolved.value(), args.view_description,
+                                    !args.disable_default_view);
 
     if (!env) {
         term::error("{}", env.error());

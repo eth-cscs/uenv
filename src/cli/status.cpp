@@ -13,11 +13,7 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
-#include <site/site.h>
 #include <uenv/env.h>
-#include <uenv/parse.h>
-#include <uenv/repository.h>
-#include <util/expected.h>
 #include <util/strings.h>
 
 #include "help.h"
@@ -89,8 +85,14 @@ int status([[maybe_unused]] const status_args& args,
     }
     spdlog::debug("derived view description from UENV_VIEW {}", view_desc);
 
-    const auto env = concretise_env(mount_desc, view_desc, settings.config.repo,
-                                    settings.calling_environment);
+    const auto resolved = resolve_uenv_args(mount_desc, settings.config.repos);
+    if (!resolved) {
+        term::error("could not interpret UENV_MOUNT_LIST: {}",
+                    resolved.error());
+        return 1;
+    }
+
+    const auto env = concretise_env(resolved.value(), view_desc, false);
 
     if (!env) {
         term::error("could not interpret environment: {}", env.error());
@@ -157,7 +159,7 @@ std::string status_footer() {
     using enum help::block::admonition;
     std::vector<help::item> items{
         // clang-format off
-        help::block{none, "Disply information about the current uenv environment." },
+        help::block{none, "Display information about the current uenv environment." },
         help::linebreak{},
         help::block{xmpl, "get status:"},
         help::block{code,   "uenv status"},

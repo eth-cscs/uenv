@@ -75,8 +75,7 @@ int image_find([[maybe_unused]] const image_find_args& args,
             return 1;
         }
     }
-    label.system =
-        site::get_system_name(label.system, settings.calling_environment);
+    label = apply_system(label, settings.config.system_name);
     spdlog::info("image_find: {}::{}", nspace, label);
 
     auto store = site::registry_listing(nspace);

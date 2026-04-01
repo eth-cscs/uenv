@@ -16,6 +16,7 @@ parse_uenv_description(lex::lexer&);
 util::expected<view_description, parse_error>
 parse_view_description(lex::lexer& L);
 util::expected<mount_description, parse_error> parse_mount_entry(lex::lexer& L);
+util::expected<repo_label, parse_error> parse_repo_label(lex::lexer& L);
 } // namespace uenv
 
 TEST_CASE("parse names", "[parse]") {
@@ -362,11 +363,7 @@ TEST_CASE("parse registry entry", "[parse]") {
              "build/eiger/zen2/prgenv-gnu/24.11/1529952520",
          }) {
         auto r = uenv::parse_registry_entry(s);
-        if (!r) {
-            fmt::println("{}", r.error().message());
-        } else {
-            REQUIRE(r);
-        }
+        REQUIRE(r);
     }
 
     // invalid input that was involved in a crash
@@ -480,6 +477,7 @@ TEST_CASE("config_line", "[parse]") {
         REQUIRE(!result);
     }
 }
+
 TEST_CASE("cluster", "[parse]") {
     // parse_cluster_name(const std::string& in);
     REQUIRE(uenv::parse_cluster_name("alps-eiger").value() == "eiger");
@@ -498,6 +496,110 @@ TEST_CASE("cluster", "[parse]") {
     // maybe the following should be enabled in the future, i.e. strip alps- and
     // glob remaining - into the cluster name
     REQUIRE(!uenv::parse_cluster_name("alps-daint-ln002"));
+}
+
+TEST_CASE("repo_name", "[parse]") {
+    REQUIRE(uenv::parse_repo_name("repo").value() == "repo");
+    REQUIRE(uenv::parse_repo_name("main").value() == "main");
+    REQUIRE(uenv::parse_repo_name("main2").value() == "main2");
+    REQUIRE(uenv::parse_repo_name("main-2").value() == "main-2");
+    REQUIRE(uenv::parse_repo_name("foo_bar").value() == "foo_bar");
+    REQUIRE(uenv::parse_repo_name("_").value() == "_");
+
+    REQUIRE(!uenv::parse_repo_name(""));
+    REQUIRE(!uenv::parse_repo_name("-main"));
+    REQUIRE(!uenv::parse_repo_name("2"));
+    REQUIRE(!uenv::parse_repo_name("main?"));
+}
+
+TEST_CASE("parse repo label", "[parse]") {
+    {
+        auto L = lex::lexer("wombat");
+        auto result = uenv::parse_repo_label(L);
+        REQUIRE(result);
+        REQUIRE(result.value().is_name());
+        REQUIRE(!result.value().is_path());
+        REQUIRE(!result.value().is_name_path());
+        REQUIRE(result.value().as_name() == "wombat");
+    }
+    {
+        auto L = lex::lexer("/path/to/repo");
+        auto result = uenv::parse_repo_label(L);
+        REQUIRE(result);
+        REQUIRE(!result.value().is_name());
+        REQUIRE(result.value().is_path());
+        REQUIRE(!result.value().is_name_path());
+        REQUIRE(result.value().as_path() == "/path/to/repo");
+    }
+    {
+        auto L = lex::lexer("wombat=/the/burrow");
+        auto result = uenv::parse_repo_label(L);
+        REQUIRE(result);
+        REQUIRE(!result.value().is_name());
+        REQUIRE(!result.value().is_path());
+        REQUIRE(result.value().is_name_path());
+        auto d = result.value().as_name_path();
+        REQUIRE(d.name == "wombat");
+        REQUIRE(d.path == "/the/burrow");
+    }
+    {
+        auto L = lex::lexer(",");
+        auto result = uenv::parse_repo_label(L);
+        REQUIRE(!result);
+        REQUIRE(result.error().detail ==
+                "expected a repo description (one of [name], [path] or "
+                "[name,path])");
+    }
+    {
+        auto L = lex::lexer("wombat=x");
+        auto result = uenv::parse_repo_label(L);
+        REQUIRE(!result);
+        REQUIRE(result.error().detail.starts_with("expected a path"));
+    }
+
+    //
+    // test the public interface that takes a string as input
+    //
+    {
+        auto result = uenv::parse_repo_label(" wombat=/the/burrow   ");
+        REQUIRE(result);
+        REQUIRE(!result.value().is_name());
+        REQUIRE(!result.value().is_path());
+        REQUIRE(result.value().is_name_path());
+        auto d = result.value().as_name_path();
+        REQUIRE(d.name == "wombat");
+        REQUIRE(d.path == "/the/burrow");
+    }
+    {
+        auto result = uenv::parse_repo_label(" wombat\t");
+        REQUIRE(result);
+        REQUIRE(result.value().is_name());
+        REQUIRE(!result.value().is_path());
+        REQUIRE(!result.value().is_name_path());
+        REQUIRE(result.value().as_name() == "wombat");
+    }
+    {
+        auto result = uenv::parse_repo_label("\t/path/to/repo ");
+        REQUIRE(result);
+        REQUIRE(!result.value().is_name());
+        REQUIRE(result.value().is_path());
+        REQUIRE(!result.value().is_name_path());
+        REQUIRE(result.value().as_path() == "/path/to/repo");
+    }
+    // the public interface will generate an error if there are additional
+    // tokens after the first full label has been read
+    {
+        auto result = uenv::parse_repo_label("wombat,dingo");
+        REQUIRE(!result);
+        REQUIRE(result.error().message().starts_with("unexpected symbol ,"));
+    }
+    {
+        auto result = uenv::parse_repo_label("");
+        REQUIRE(!result);
+        REQUIRE(result.error().message().starts_with(
+            "expected a repo description (one of [name], [path] or "
+            "[name,path])"));
+    }
 }
 
 TEST_CASE("semver", "[parse]") {
@@ -565,9 +667,9 @@ TEST_CASE("semver", "[parse]") {
     // examples from semver spec
 
     // https://semver.org/#spec-item-10
-    //  note we don't enforce that numbers following points can't have leading
-    //  zeros so we parse invalid semver, however valid semver are parsed
-    //  correctly
+    //  note we don't enforce that numbers following points can't have
+    //  leading zeros so we parse invalid semver, however valid semver are
+    //  parsed correctly
     for (std::string s :
          {"1.0.0-alpha+001", "1.0.0+20130313144700",
           "1.0.0-beta+exp.sha.5114f85", "1.0.0+21AF26D3----117B344092BD"}) {

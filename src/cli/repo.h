@@ -14,21 +14,18 @@ struct repo_create_args {
     std::optional<std::string> path;
 };
 struct repo_status_args {
-    std::optional<std::string> path;
+    std::optional<std::string> repo;
     // print output in json format
     bool json = false;
 };
 struct repo_update_args {
-    std::optional<std::string> path;
+    std::string repo;
     // whether to apply lustre checks
     bool lustre = true;
 };
 struct repo_migrate_args {
-    // takes two arguments: source and destination
-    // source is optional, but comes first when provided
-    // so we take two unnamed arguments, and determine them later
-    std::optional<std::string> path0;
-    std::optional<std::string> path1;
+    std::string source;
+    std::string destination;
     bool sync = true;
 };
 
