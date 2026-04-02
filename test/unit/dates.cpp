@@ -20,6 +20,12 @@ TEST_CASE("range", "[dates]") {
     REQUIRE(!dt(2023, 0, 29).validate());
     REQUIRE(!dt(2023, 1, 32).validate());
     REQUIRE(!dt(2023, 13, 1).validate());
+    REQUIRE(dt(2023, 2, 28, 0, 0, 0).validate());
+    REQUIRE(dt(2023, 2, 28, 0, 0, 0).validate());
+    REQUIRE(dt(2023, 2, 28, 23, 59, 59).validate());
+    REQUIRE(!dt(2023, 2, 28, 24, 59, 59).validate());
+    REQUIRE(!dt(2023, 2, 28, 23, 60, 59).validate());
+    REQUIRE(!dt(2023, 2, 28, 23, 59, 60).validate());
 }
 
 TEST_CASE("comparison", "[dates]") {

@@ -77,38 +77,74 @@ bool uenv_date::validate() const {
 
     switch (month) {
     case 1:
-        return day <= 31;
+        if (day > 31) {
+            return false;
+        }
+        break;
     case 2:
-        return day <= (28 + (year % 4u ? 0u : 1u));
+        if (day > (28 + (year % 4u ? 0u : 1u))) {
+            return false;
+        }
+        break;
     case 3:
-        return day <= 31;
+        if (day > 31) {
+            return false;
+        }
+        break;
     case 4:
-        return day <= 30;
+        if (day > 30) {
+            return false;
+        }
+        break;
     case 5:
-        return day <= 31;
+        if (day > 31) {
+            return false;
+        }
+        break;
     case 6:
-        return day <= 30;
+        if (day > 30) {
+            return false;
+        }
+        break;
     case 7:
-        return day <= 31;
+        if (day > 31) {
+            return false;
+        }
+        break;
     case 8:
-        return day <= 31;
+        if (day > 31) {
+            return false;
+        }
+        break;
     case 9:
-        return day <= 30;
+        if (day > 30) {
+            return false;
+        }
+        break;
     case 10:
-        return day <= 31;
+        if (day > 31) {
+            return false;
+        }
+        break;
     case 11:
-        return day <= 30;
+        if (day > 30) {
+            return false;
+        }
+        break;
     case 12:
-        return day <= 31;
+        if (day > 31) {
+            return false;
+        }
+        break;
     }
 
-    if (hour < 24) {
+    if (hour >= 24) {
         return false;
     }
-    if (minute < 60) {
+    if (minute >= 60) {
         return false;
     }
-    if (second < 60) {
+    if (second >= 60) {
         return false;
     }
 
