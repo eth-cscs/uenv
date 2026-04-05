@@ -64,8 +64,15 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
         return 1;
     }
 
+    if (!settings.config.registry) {
+        term::error("registry is not configured: add a [registry] section to "
+                    "your uenv configuration file");
+        return 1;
+    }
+    const auto& registry_cfg = *settings.config.registry;
+
     std::optional<uenv::oras::credentials> credentials;
-    if (auto c = site::get_credentials(args.username, args.token)) {
+    if (auto c = oras::get_credentials(args.username, args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());
@@ -74,7 +81,7 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
 
     // pull the search term that was provided by the user
     uenv_label label{};
-    std::string nspace{site::default_namespace()};
+    std::string nspace{registry_cfg.default_namespace};
     if (const auto parse = parse_uenv_nslabel(args.uenv_description)) {
         label = parse->label;
         if (parse->nspace) {
@@ -173,7 +180,7 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
 
     if (pull_sqfs || pull_meta) {
         try {
-            auto rego_url = site::registry_url();
+            auto rego_url = registry_cfg.url;
             spdlog::debug("registry url: {}", rego_url);
 
             if (pull_meta) {

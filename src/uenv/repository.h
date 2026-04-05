@@ -276,7 +276,7 @@ template <> class fmt::formatter<uenv::repo_description> {
     template <typename FmtContext>
     constexpr auto format(uenv::repo_description const& d,
                           FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "[name={}, path={}, priority={}]",
+        return fmt::format_to(ctx.out(), "repo(name={}, path={}, priority={})",
                               d.name, d.path.string(), d.priority);
     }
 };
@@ -290,11 +290,13 @@ template <> class fmt::formatter<uenv::repo_label> {
     // format a value using stored specification:
     template <typename FmtContext>
     constexpr auto format(uenv::repo_label const& d, FmtContext& ctx) const {
-        return d.is_name() ? fmt::format_to(ctx.out(), "[name={}]", d.as_name())
-               : d.is_path() ? fmt::format_to(ctx.out(), "[path={}]",
-                                              d.as_path().string())
-                             : fmt::format_to(ctx.out(), "[name={}, path={}]",
-                                              d.as_name_path().name,
-                                              d.as_name_path().path.string());
+        return d.is_name()
+                   ? fmt::format_to(ctx.out(), "repo(name={})", d.as_name())
+               : d.is_path()
+                   ? fmt::format_to(ctx.out(), "repo(path={})",
+                                    d.as_path().string())
+                   : fmt::format_to(ctx.out(), "repo(name={}, path={})",
+                                    d.as_name_path().name,
+                                    d.as_name_path().path.string());
     }
 };

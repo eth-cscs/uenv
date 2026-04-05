@@ -480,6 +480,9 @@ TEST_CASE("config_line", "[parse]") {
 
 TEST_CASE("cluster", "[parse]") {
     // parse_cluster_name(const std::string& in);
+    //
+    // the first part of a hyphenated name is dropped, because some CSCS
+    // clusters used to be use alps-NAME to name the cluster.
     REQUIRE(uenv::parse_cluster_name("alps-eiger").value() == "eiger");
     REQUIRE(uenv::parse_cluster_name("alps-daint").value() == "daint");
     REQUIRE(uenv::parse_cluster_name("eiger").value() == "eiger");

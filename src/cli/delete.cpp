@@ -49,8 +49,21 @@ void image_delete_args::add_cli(CLI::App& cli,
 
 int image_delete([[maybe_unused]] const image_delete_args& args,
                  [[maybe_unused]] const global_settings& settings) {
+    if (!settings.config.registry) {
+        term::error("registry is not configured: add a [registry] section to "
+                    "your uenv configuration file");
+        return 1;
+    }
+    const auto& registry_cfg = *settings.config.registry;
+    if (!registry_cfg.artifactory_url) {
+        term::error("registry.artifactory_url is not configured: it is "
+                    "required for deleting images");
+        return 1;
+    }
+    const auto& artifactory_url = *registry_cfg.artifactory_url;
+
     uenv::oras::credentials credentials;
-    if (auto c = site::get_credentials(args.username, args.token)) {
+    if (auto c = oras::get_credentials(args.username, args.token)) {
         if (!*c) {
             term::error("full credentials must be provided", c.error());
         }
@@ -107,13 +120,10 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
         return 1;
     }
 
-    const auto rego_url = site::registry_url();
-    spdlog::debug("registry url: {}", rego_url);
     for (auto& record : *matches) {
-        auto url = fmt::format(
-            "https://jfrog.svc.cscs.ch/artifactory/uenv/{}/{}/{}/{}/{}/{}",
-            nspace, record.system, record.uarch, record.name, record.version,
-            record.tag);
+        auto url = fmt::format("{}/{}/{}/{}/{}/{}/{}", artifactory_url, nspace,
+                               record.system, record.uarch, record.name,
+                               record.version, record.tag);
 
         if (auto result =
                 util::curl::del(url, credentials.username, credentials.token);

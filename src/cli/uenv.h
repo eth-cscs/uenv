@@ -30,7 +30,8 @@ enum class cli_mode : std::uint32_t {
     start,
     status,
     build,
-    completion
+    completion,
+    configure,
 };
 
 struct global_settings {
@@ -103,6 +104,8 @@ template <> class fmt::formatter<uenv::cli_mode> {
             return format_to(ctx.out(), "build");
         case completion:
             return format_to(ctx.out(), "completion");
+        case configure:
+            return format_to(ctx.out(), "configure");
         }
         return format_to(ctx.out(), "unknown");
     }

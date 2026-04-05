@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -9,7 +8,6 @@
 #include <spdlog/spdlog.h>
 #include <toml++/toml.hpp>
 
-#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <uenv/settings.h>
@@ -62,6 +60,9 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
     result.system_name = lhs.system_name   ? lhs.system_name
                          : rhs.system_name ? rhs.system_name
                                            : std::nullopt;
+    result.registry = lhs.registry   ? lhs.registry
+                      : rhs.registry ? rhs.registry
+                                     : std::nullopt;
     return result;
 }
 
@@ -104,7 +105,6 @@ config_base default_config(const envvars::state& env) {
 
     config_base cfg;
     cfg.color = color::default_color(env);
-    cfg.system_name = site::get_system_name(env);
     if (rexist || ravail) {
         // priority of the default repo is default_priority-1
         // which will give it higher priority than other repos with default
@@ -143,6 +143,8 @@ configuration generate_configuration(const config_base& base) {
         }
     }
 
+    config.registry = base.registry;
+
     return config;
 }
 
@@ -157,6 +159,29 @@ namespace impl::v2 {
 util::expected<config_base, std::string>
 read_config_file(const std::filesystem::path& path,
                  const envvars::state& calling_env);
+}
+
+std::optional<std::filesystem::path>
+user_config_path(const envvars::state& calling_env) {
+    namespace fs = std::filesystem;
+
+    const auto home_env = calling_env.get("HOME");
+    const auto xdg_env = calling_env.get("XDG_CONFIG_HOME");
+    // return an null if no path available
+    if (!home_env && !xdg_env) {
+        return {};
+    }
+
+    const auto config_path =
+        xdg_env ? (fs::path(xdg_env.value()) / "uenv")
+                : (fs::path(home_env.value()) / ".config/uenv");
+    const auto config_file = config_path / "config.toml";
+
+    if (fs::exists(config_file)) {
+        return config_file;
+    }
+
+    return {};
 }
 
 // read configuration from the user configuration file
@@ -217,42 +242,47 @@ load_user_config(const envvars::state& calling_env) {
     return *result;
 }
 
+std::optional<std::filesystem::path> system_config_path() {
+    namespace fs = std::filesystem;
+    const auto base = fs::path{"/etc/uenv"};
+    if (auto p = base / "config.toml"; fs::exists(p)) {
+        return p;
+    }
+    if (auto p = base / "config"; fs::exists(p)) {
+        return p;
+    }
+    return std::nullopt;
+}
+
 // read configuration from /etc
 util::expected<config_base, std::string>
 load_system_config(const envvars::state& calling_env) {
-    namespace fs = std::filesystem;
-
-    spdlog::debug("load_system_config");
-
-    const auto config_root = fs::path{"/etc/uenv"};
-    if (const auto config_path = config_root / "config.toml";
-        fs::exists(config_path)) {
-        auto result = impl::v2::read_config_file(config_path, calling_env);
+    if (const auto config_path = system_config_path(); !config_path) {
+        spdlog::info("load_system_config:: no system config");
+        return config_base{};
+    } else if (config_path->extension() == ".toml") {
+        spdlog::info("load_system_config:: loading {}", config_path.value());
+        auto result =
+            impl::v2::read_config_file(config_path.value(), calling_env);
         if (!result) {
             return util::unexpected{fmt::format(
                 "load_system_config::error reading config {}", result.error())};
         }
-        spdlog::info("load_system_config:: loaded {}", config_path);
-        return result;
-    }
-    // TODO: remove this fall back to the old parser when /etc/uenv/config is no
-    // longer used
-    else if (const auto config_path = config_root / "config";
-             fs::exists(config_path)) {
-        spdlog::warn(
-            "load_system_config:: loading v1 configuration in {} instead of "
-            "new toml format",
-            config_path);
-        auto result = impl::v1::read_config_file(config_path, calling_env);
-        if (!result) {
-            return util::unexpected{fmt::format(
-                "load_system_config::error reading config {}", result.error())};
-        }
-        spdlog::info("load_system_config:: loaded {}", config_path);
+        spdlog::info("load_system_config:: loaded {}", config_path.value());
         return result;
     } else {
-        spdlog::info("load_system_config:: no configuration file found");
-        return config_base{};
+        spdlog::warn("load_system_config:: loading v1 configuration in {} "
+                     "instead of "
+                     "new toml format",
+                     config_path.value());
+        auto result =
+            impl::v1::read_config_file(config_path.value(), calling_env);
+        if (!result) {
+            return util::unexpected{fmt::format(
+                "load_system_config::error reading config {}", result.error())};
+        }
+        spdlog::info("load_system_config:: loaded {}", config_path.value());
+        return result;
     }
 }
 
@@ -455,6 +485,18 @@ parse_repository_array(const toml::node& input,
 }
 
 util::expected<std::string, config_error>
+parse_system(const toml::node& input) {
+    if (const auto v = input.value<std::string>()) {
+        if (const auto name = uenv::parse_cluster_name(v.value())) {
+            return name.value();
+        }
+    }
+
+    return make_config_error("not a valid system name",
+                             input.source().begin.line);
+}
+
+util::expected<std::string, config_error>
 parse_elastic(const toml::node& input) {
     const auto tbl = input.as_table();
     if (!tbl) {
@@ -488,6 +530,64 @@ parse_elastic(const toml::node& input) {
     return url.value();
 }
 
+util::expected<registry_config, config_error>
+parse_registry(const toml::node& input) {
+    const auto tbl = input.as_table();
+    if (!tbl) {
+        return make_config_error("registry configuration is not a table",
+                                 input.source().begin.line);
+    }
+
+    std::optional<std::string> url{};
+    std::optional<std::string> default_namespace{};
+    std::optional<std::string> artifactory_url{};
+
+    for (const auto& entry : *tbl) {
+        std::string_view key = entry.first.str();
+        const auto& value = entry.second;
+        if (key == "url") {
+            if (auto v = value.value<std::string>()) {
+                url = v.value();
+            } else {
+                return make_config_error("registry.url must be a string",
+                                         value.source().begin.line);
+            }
+        } else if (key == "default_namespace") {
+            if (auto v = value.value<std::string>()) {
+                default_namespace = v.value();
+            } else {
+                return make_config_error(
+                    "registry.default_namespace must be a string",
+                    value.source().begin.line);
+            }
+        } else if (key == "artifactory_url") {
+            if (auto v = value.value<std::string>()) {
+                artifactory_url = v.value();
+            } else {
+                return make_config_error(
+                    "registry.artifactory_url must be a string",
+                    value.source().begin.line);
+            }
+        } else {
+            return make_config_error(fmt::format("unexpected key '{}'", key),
+                                     value.source().begin.line);
+        }
+    }
+    if (!url) {
+        return make_config_error("registry.url is not defined",
+                                 input.source().begin.line);
+    }
+    if (!default_namespace) {
+        return make_config_error("registry.default_namespace is not defined",
+                                 input.source().begin.line);
+    }
+
+    return registry_config{.url = std::move(url.value()),
+                           .default_namespace =
+                               std::move(default_namespace.value()),
+                           .artifactory_url = std::move(artifactory_url)};
+}
+
 util::expected<config_base, config_error>
 parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
     // build a config from the key value
@@ -512,11 +612,26 @@ parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
             } else {
                 return util::unexpected{v.error()};
             }
+        } else if (key == "system_name") {
+            if (auto v = parse_system(value)) {
+                spdlog::debug("parse_config_toml: added system {}", v.value());
+                config.system_name = v.value();
+            } else {
+                return util::unexpected{v.error()};
+            }
         } else if (key == "repositories") {
             if (const auto v = parse_repository_array(value, calling_env)) {
                 spdlog::debug("parse_config_toml: added repo {}",
                               *(v.value().begin()));
                 config.repos.accumulate(v.value());
+            } else {
+                return util::unexpected{v.error()};
+            }
+        } else if (key == "registry") {
+            if (auto v = parse_registry(value)) {
+                spdlog::debug("parse_config_toml: added registry url {}",
+                              v.value().url);
+                config.registry = std::move(v.value());
             } else {
                 return util::unexpected{v.error()};
             }
