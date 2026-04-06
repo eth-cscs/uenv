@@ -80,4 +80,15 @@ registry_listing(const std::string& nspace) {
     return store;
 }
 
+std::optional<std::string> get_system_name(const envvars::state& calling_env) {
+    if (auto name = calling_env.get("CLUSTER_NAME")) {
+        spdlog::debug("cluster name is '{}'", name.value());
+        return name.value();
+    }
+
+    spdlog::debug("cluster name is undefined");
+
+    return std::nullopt;
+}
+
 } // namespace site

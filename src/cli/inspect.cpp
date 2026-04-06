@@ -36,8 +36,8 @@ void image_inspect_args::add_cli(CLI::App& cli,
     inspect_cli->footer(image_inspect_footer);
 }
 
-int image_inspect([[maybe_unused]] const image_inspect_args& args,
-                  [[maybe_unused]] const global_settings& settings) {
+int image_inspect(const image_inspect_args& args,
+                  const global_settings& settings) {
     spdlog::info("image inspect {}", args.uenv);
 
     // parse input as either a label or a file path

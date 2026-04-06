@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 #include <toml++/toml.hpp>
 
+#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <uenv/settings.h>
@@ -129,6 +130,7 @@ config_base default_config(const envvars::state& env) {
              .path = (rexist ? *rexist : *ravail),
              .priority = repo_description::default_priority - 1}});
     }
+    cfg.system_name = site::get_system_name(env);
     return cfg;
 }
 
