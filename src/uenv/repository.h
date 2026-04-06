@@ -161,7 +161,8 @@ enum class repo_state { readonly, readwrite, no_exist, invalid };
 // assumes that repo_path satisfies valide_repo_path()
 repo_state validate_repository(const std::filesystem::path& repo_path);
 
-enum class repo_mode : std::uint8_t { readonly, readwrite };
+enum class repo_open_mode : std::uint8_t { readonly, readwrite };
+enum class repo_create_mode : std::uint8_t { create, existsokay };
 
 struct repository_impl;
 struct repository {
@@ -177,7 +178,7 @@ struct repository {
         std::filesystem::path squashfs;
     };
 
-    using enum repo_mode;
+    using enum repo_open_mode;
     repository() = delete;
 
     repository(repository&&);
@@ -216,15 +217,16 @@ struct repository {
     ~repository();
 
     friend util::expected<repository, std::string>
-    open_repository(const std::filesystem::path&, repo_mode mode);
+    open_repository(const std::filesystem::path&, repo_open_mode mode);
 };
 
 util::expected<repository, std::string>
 open_repository(const std::filesystem::path&,
-                repo_mode mode = repo_mode::readonly);
+                repo_open_mode mode = repo_open_mode::readonly);
 
 util::expected<repository, std::string>
-create_repository(const std::filesystem::path& repo_path);
+create_repository(const std::filesystem::path& repo_path,
+                  repo_create_mode mode = repo_create_mode::create);
 
 util::expected<repository, std::string> create_repository();
 

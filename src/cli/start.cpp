@@ -59,12 +59,11 @@ detect_non_interactive(const envvars::state& envvars) {
     return std::nullopt;
 }
 
-int start(const start_args& args,
-          [[maybe_unused]] const global_settings& globals) {
+int start(const start_args& args, const global_settings& settings) {
     spdlog::info("start with options {}", args);
 
     // error if a uenv is already mounted
-    if (in_uenv_session(globals.calling_environment)) {
+    if (in_uenv_session(settings.calling_environment)) {
         term::error("{}",
                     R"(a uenv session is already running.
 It is not possible to call 'uenv start' or 'uenv run' inside a uenv session.
@@ -72,7 +71,7 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         return 1;
     }
 
-    if (auto reason = detect_non_interactive(globals.calling_environment);
+    if (auto reason = detect_non_interactive(settings.calling_environment);
         !args.ignore_tty && reason) {
         term::error(
             "{}", fmt::format(
@@ -96,10 +95,13 @@ will not work, because it starts a new interactive shell.)",
     }
 
     const auto resolved =
-        resolve_uenv_args(args.uenv_description, globals.config.repos,
-                          globals.config.system_name);
+        resolve_uenv_args(args.uenv_description, settings.config.repos,
+                          settings.config.system_name);
     if (!resolved) {
         term::error("{}", resolved.error());
+        term::hint("{}",
+                   (settings.config.repos.empty() ? messages::no_repos()
+                                                  : messages::no_matches()));
         return 1;
     }
 
@@ -111,11 +113,11 @@ will not work, because it starts a new interactive shell.)",
         return 1;
     }
 
-    auto runtime_environment =
-        generate_environment(*env, globals.calling_environment, "SQFSMNT_FWD_");
+    auto runtime_environment = generate_environment(
+        *env, settings.calling_environment, "SQFSMNT_FWD_");
 
     // find the current shell (zsh, bash, etc)
-    auto shell = util::current_shell(globals.calling_environment);
+    auto shell = util::current_shell(settings.calling_environment);
     if (!shell) {
         term::error("unable to determine the current shell because {}",
                     shell.error());
@@ -129,8 +131,8 @@ will not work, because it starts a new interactive shell.)",
                                      m.second.mount_path));
     }
 
-    const auto commands = uenv::squashfs_mount_args(globals.calling_environment,
-                                                    mounts, {shell->string()});
+    const auto commands = uenv::squashfs_mount_args(
+        settings.calling_environment, mounts, {shell->string()});
 
     auto c_env = runtime_environment.c_env();
     auto error = util::exec(commands, c_env);

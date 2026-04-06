@@ -116,15 +116,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    // TODO: adding support for more than one repo has surfaced the problem with
-    // automatically creating the user's default repository: we are trying to
-    // generate any repos in the repo list that have not been created.
-    // Revisit the behavior:
-    // - we could only create any repo named "default"
-    // - we could only create repos that are explicitly provided using --repo
-    // I prefer the first option, so that users do not "accidentally" create new
-    // repos when they have a typo
-
     // set the configuration according to defaults, cli options and config
     // files.
     if (auto full_config = uenv::load_config(cli_config, cli_repo_labels,
@@ -138,8 +129,8 @@ int main(int argc, char** argv) {
     }
 
     if (settings.config.repos.empty()) {
-        term::warn("there is no valid repo - use the --repo flag or edit the "
-                   "configuration to set a repo path");
+        spdlog::warn("there is no valid repo - use the --repo flag or edit the "
+                     "configuration to set a repo path");
     }
 
     //
@@ -149,58 +140,6 @@ int main(int argc, char** argv) {
     spdlog::info("color output is {}",
                  (settings.config.color ? "enabled" : "disabled"));
     color::set_color(settings.config.color);
-
-    // validate the user repository - attempt to create if it does not exist
-    // TODO: reimplement this for a world where multiple valid repos are
-    // available. options:
-    // - set a default_repo in the settings, that may or may not exist
-    //      - create it only when needed (image pull, image add, repo create are
-    //      used without an explicit repository provided by the user)
-    // - only create a repo with the name "default" without direct user
-    // - require user to explicitly create
-    /*
-    if (settings.config.repo) {
-        using enum uenv::repo_state;
-        const auto initial_state =
-            uenv::validate_repository(settings.config.repo.value());
-        switch (initial_state) {
-        // repo exists and is read only
-        case invalid:
-            spdlog::warn("unable to create repository: {} is invalid",
-                         settings.config.repo.value());
-            break;
-        // repo exists and is read only
-        case readonly:
-            spdlog::warn("the repo {} exists, but is read only, some "
-                         "operations like image pull are disabled.",
-                         settings.config.repo.value());
-        // repo exists and is writable
-        case readwrite:
-            break;
-        // repo does not exist - attempt to create
-        // ignore any error - later attempts to use the repo can handle the
-        // error
-        default:
-            const auto repo_path = settings.config.repo.value();
-            spdlog::info("the repo {} does not exist - creating", repo_path);
-            if (auto result = uenv::create_repository(repo_path); !result) {
-                spdlog::warn("the repo {} was not created: {}", repo_path,
-                             result.error());
-            } else {
-                // apply lustre striping to repository
-                if (lustre::is_lustre(repo_path)) {
-                    if (auto p = lustre::load_path(
-                            repo_path, settings.calling_environment)) {
-                        if (!lustre::is_striped(*p)) {
-                            lustre::set_striping(*p, lustre::default_striping);
-                        }
-                    }
-                }
-            }
-            break;
-        }
-    }
-    */
 
     spdlog::info("{}", settings);
 

@@ -60,9 +60,14 @@ struct configuration {
     std::optional<std::string> elastic_config;
     std::optional<std::string> system_name;
     std::optional<registry_config> registry;
+    std::optional<repo_description> default_repo;
     configuration& operator=(const configuration&) = default;
 
-    std::optional<uenv::repo_description> repo() const;
+    // return:
+    // - the default_repo if is is set (may or may not exist)
+    // - else the first repo in repos (if repos is not empty)
+    // - else nothing
+    std::optional<uenv::repo_description> user_repo() const;
 };
 
 // performs additional validation on parsed user and config file inputs
@@ -71,6 +76,15 @@ configuration generate_configuration(const config_base& base);
 std::optional<std::filesystem::path> system_config_path();
 std::optional<std::filesystem::path>
 user_config_path(const envvars::state& calling_env);
+
+// helper that will return the default writeable repository, if it exists or can
+// be created.
+// used by modes that update a repo (image add, image rm, image pull, repo
+// create) that need to pick one repo to modify.
+// it will create the default repo, if one has been specified but has not yet
+// been created.
+util::expected<repository, std::string>
+concretise_user_repo(const configuration&);
 
 } // namespace uenv
 

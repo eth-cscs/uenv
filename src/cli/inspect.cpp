@@ -37,7 +37,7 @@ void image_inspect_args::add_cli(CLI::App& cli,
 }
 
 int image_inspect([[maybe_unused]] const image_inspect_args& args,
-                  [[maybe_unused]] const global_settings& globals) {
+                  [[maybe_unused]] const global_settings& settings) {
     spdlog::info("image inspect {}", args.uenv);
 
     // parse input as either a label or a file path
@@ -49,12 +49,15 @@ int image_inspect([[maybe_unused]] const image_inspect_args& args,
         desc = parse.value();
     }
 
-    desc = apply_system(desc, globals.config.system_name);
+    desc = apply_system(desc, settings.config.system_name);
 
     // Resolve the uenv to get full information including metadata
-    auto info_result = resolve_uenv(desc, globals.config.repos);
+    auto info_result = resolve_uenv(desc, settings.config.repos);
     if (!info_result) {
-        term::error("unable to resolve uenv: {}", info_result.error());
+        term::error("{}", info_result.error());
+        term::hint("{}",
+                   (settings.config.repos.empty() ? messages::no_repos()
+                                                  : messages::no_matches()));
         return 1;
     }
     const auto& info = *info_result;

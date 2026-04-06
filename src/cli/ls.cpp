@@ -15,6 +15,7 @@
 #include "help.h"
 #include "ls.h"
 #include "terminal.h"
+#include "uenv.h"
 
 namespace uenv {
 
@@ -41,17 +42,17 @@ void image_ls_args::add_cli(CLI::App& cli,
 }
 
 int image_ls(const image_ls_args& args, const global_settings& settings) {
-    if (settings.config.repos.empty()) {
-        term::error("a repo needs to be provided either using the --repo flag "
-                    "or the config file");
-        return 1;
-    }
-
     auto format =
         get_record_set_format(args.no_header, args.json, (bool)args.format);
     if (!format) {
         term::error("{}", format.error());
         return 1;
+    }
+
+    // print a warning if there are no repos
+    // skip the warning if outputing json format so that we don't pollute
+    if (settings.config.repos.empty() && *format != record_set_format::json) {
+        term::warn("{}", messages::no_repos());
     }
 
     // parse the search term once, before opening any repos

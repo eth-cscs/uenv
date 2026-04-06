@@ -41,11 +41,11 @@ void run_args::add_cli(CLI::App& cli, global_settings& settings) {
     run_cli->footer(run_footer);
 }
 
-int run(const run_args& args, const global_settings& globals) {
+int run(const run_args& args, const global_settings& settings) {
     spdlog::info("run with options {}", args);
 
     // error if a uenv is already mounted
-    if (in_uenv_session(globals.calling_environment)) {
+    if (in_uenv_session(settings.calling_environment)) {
         term::error("{}",
                     R"(a uenv session is already running.
 It is not possible to call 'uenv start' or 'uenv run' inside a uenv session.
@@ -53,13 +53,18 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         return 1;
     }
 
-    spdlog::warn("====== {}", globals.config.repos);
+    if (settings.config.repos.empty()) {
+        term::warn("{}", messages::no_repos());
+    }
 
     const auto resolved =
-        resolve_uenv_args(args.uenv_description, globals.config.repos,
-                          globals.config.system_name);
+        resolve_uenv_args(args.uenv_description, settings.config.repos,
+                          settings.config.system_name);
     if (!resolved) {
         term::error("{}", resolved.error());
+        term::hint("{}",
+                   (settings.config.repos.empty() ? messages::no_repos()
+                                                  : messages::no_matches()));
         return 1;
     }
 
@@ -71,8 +76,8 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         return 1;
     }
 
-    auto runtime_environment =
-        generate_environment(*env, globals.calling_environment, "SQFSMNT_FWD_");
+    auto runtime_environment = generate_environment(
+        *env, settings.calling_environment, "SQFSMNT_FWD_");
 
     std::vector<std::string> mounts;
     for (auto m : env->uenvs) {
@@ -80,8 +85,8 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
                                      m.second.mount_path));
     }
 
-    const auto commands = uenv::squashfs_mount_args(globals.calling_environment,
-                                                    mounts, args.commands);
+    const auto commands = uenv::squashfs_mount_args(
+        settings.calling_environment, mounts, args.commands);
 
     auto c_env = runtime_environment.c_env();
     auto error = util::exec(commands, c_env);

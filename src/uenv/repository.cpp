@@ -355,8 +355,8 @@ struct sqlite_database {
 };
 
 hopefully<sqlite_database> open_sqlite_database(const fs::path path,
-                                                repo_mode mode) {
-    using enum repo_mode;
+                                                repo_open_mode mode) {
+    using enum repo_open_mode;
 
     if (!fs::exists(path)) {
         return unexpected(
@@ -391,7 +391,7 @@ hopefully<sqlite_database> open_sqlite_database(const fs::path path,
 // If path is not set, an in memory database is created.
 hopefully<sqlite_database>
 create_sqlite_database(const std::optional<fs::path> path = {}) {
-    using enum repo_mode;
+    using enum repo_open_mode;
 
     if (path && fs::exists(*path)) {
         return unexpected(
@@ -637,8 +637,8 @@ repo_state validate_repository(const fs::path& repo_path) {
 }
 
 util::expected<repository, std::string>
-open_repository(const fs::path& repo_path, repo_mode mode) {
-    using enum repo_mode;
+open_repository(const fs::path& repo_path, repo_open_mode mode) {
+    using enum repo_open_mode;
     const auto initial_state = validate_repository(repo_path);
 
     switch (initial_state) {
@@ -664,15 +664,24 @@ open_repository(const fs::path& repo_path, repo_mode mode) {
         return unexpected(db.error());
     }
 
-    return repository(
-        std::make_unique<repository_impl>(std::move(*db), repo_path, true));
+    return repository(std::make_unique<repository_impl>(
+        std::move(*db), repo_path,
+        mode != readwrite // whether the repository is readonly
+        ));
 }
 
 std::vector<std::string> schema_tables();
 
+// creates a new repository at the location repo_path, and returns a writeable
+// repositry type that refers to the new repository..
+// by default exists_okay=false: if a repository exists at repo_path, it is
+// treated as an error.
+// if exists_okay, and the repository exists with write access, return a
+// reference to the existing repository.
 util::expected<repository, std::string>
-create_repository(const fs::path& repo_path) {
+create_repository(const fs::path& repo_path, repo_create_mode mode) {
     using enum repo_state;
+    using enum repo_create_mode;
 
     auto abs_repo_path = fs::absolute(repo_path);
 
@@ -682,9 +691,18 @@ create_repository(const fs::path& repo_path) {
         return unexpected(fmt::format(
             "unable to create repository: {} is invalid", abs_repo_path));
     case readonly:
-    case readwrite:
         return unexpected(fmt::format(
-            "unable to create repository: {} already exists", abs_repo_path));
+            "unable to create repository: {} already exists and is read only",
+            abs_repo_path));
+    case readwrite:
+        if (mode == create) {
+            return unexpected(
+                fmt::format("unable to create repository: {} already exists",
+                            abs_repo_path));
+        } else {
+            return open_repository(repo_path, repo_open_mode::readwrite);
+        }
+        break;
     default:
         break;
     }

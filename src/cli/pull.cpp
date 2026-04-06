@@ -135,15 +135,8 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
     const auto record = *(remote_matches->begin());
     spdlog::info("pulling {} {}", record.sha, record);
 
-    // require that a valid repo has been provided
-    const auto repo = settings.config.repo();
-    if (!repo) {
-        term::error("a repo needs to be provided either using the --repo "
-                    "option, or in the config file");
-        return 1;
-    }
-    // open the repo
-    auto store = uenv::open_repository(repo->path, repo_mode::readwrite);
+    // find/create and open the default repository
+    auto store = uenv::concretise_user_repo(settings.config);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;

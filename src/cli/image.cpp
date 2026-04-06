@@ -32,12 +32,6 @@ void image_args::add_cli(CLI::App& cli,
     // add the `uenv image ls` command
     ls_args.add_cli(*image_cli, settings);
 
-    // add the `uenv image copy` command
-    copy_args.add_cli(*image_cli, settings);
-
-    // add the `uenv image delete` command
-    delete_args.add_cli(*image_cli, settings);
-
     // add the `uenv image add` command
     add_args.add_cli(*image_cli, settings);
 
@@ -52,6 +46,12 @@ void image_args::add_cli(CLI::App& cli,
 
     // add the `uenv image pull` command
     pull_args.add_cli(*image_cli, settings);
+
+    // add the `uenv image copy` command
+    copy_args.add_cli(*image_cli, settings);
+
+    // add the `uenv image delete` command
+    delete_args.add_cli(*image_cli, settings);
 
     // add the `uenv image push` command
     push_args.add_cli(*image_cli, settings);

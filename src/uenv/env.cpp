@@ -242,12 +242,7 @@ util::expected<uenv_info, std::string> resolve_uenv(const uenv_label& label,
         }
     }
 
-    return unexpected(fmt::format(
-        "no uenv matches '{}'.\n"
-        "See available uenv using {}.\n"
-        "Use {} and {} to download images before using them.",
-        label, color::yellow("uenv image ls"), color::yellow("uenv image find"),
-        color::yellow("uenv image pull")));
+    return unexpected(fmt::format("no uenv matches '{}'", label));
 }
 
 util::expected<uenv_info, std::string>

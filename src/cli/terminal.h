@@ -20,6 +20,11 @@ template <typename... T> void error(fmt::format_string<T...> fmt, T&&... args) {
                fmt::vformat(fmt, fmt::make_format_args(args...)));
 }
 
+template <typename... T> void hint(fmt::format_string<T...> fmt, T&&... args) {
+    fmt::print(stderr, "{}: {}\n", ::color::cyan("hint"),
+               fmt::vformat(fmt, fmt::make_format_args(args...)));
+}
+
 template <typename... T> void msg(fmt::format_string<T...> fmt, T&&... args) {
     fmt::print(stdout, "{}\n",
                fmt::vformat(fmt, fmt::make_format_args(args...)));

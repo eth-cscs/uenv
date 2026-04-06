@@ -38,11 +38,26 @@ util::unexpected<config_error> make_config_error(std::string message,
         config_error{.message = std::move(message), .line = line}};
 }
 
-std::optional<uenv::repo_description> configuration::repo() const {
-    if (repos.empty()) {
-        return std::nullopt;
+util::expected<repository, std::string>
+concretise_user_repo(const configuration& config) {
+    const auto description = config.user_repo();
+    if (!description) {
+        return util::unexpected{
+            "there is no repo specified. Add one with the --repo "
+            "flag or configuration file."};
     }
-    return repos[0];
+
+    return create_repository(description->path, repo_create_mode::existsokay);
+}
+
+std::optional<uenv::repo_description> configuration::user_repo() const {
+    if (default_repo) {
+        return default_repo;
+    }
+    if (!repos.empty()) {
+        return repos[0];
+    }
+    return std::nullopt;
 }
 
 // merge two config_base items
@@ -118,16 +133,36 @@ config_base default_config(const envvars::state& env) {
 }
 
 configuration generate_configuration(const config_base& base) {
+    using enum repo_state;
+
     configuration config;
 
+    // the first step is to record whether the highest priority input repository
+    // does not exist.
+    // this information is used later to decide whether to create the repository
+    // before operations that modify repositories like `image pull` - in effect
+    // automatically creating repositories for users. this is a little awkward,
+    // however users find having to explicitly create a repository, particularly
+    // the default repository, before they can start using it confusing and
+    // inconvenient.
+    if (base.repos.size() &&
+        uenv::validate_repository(base.repos[0].path) == no_exist) {
+        config.default_repo = base.repos[0];
+    }
+
+    // filter the list of repos to remove repos that do not exist or are in an
+    // invalid state.
     config.repos = base.repos;
     config.repos.filter([](const auto& r) {
-        if (auto rpath = uenv::validate_repo_path(r.path, false, false)) {
+        const auto status = uenv::validate_repository(r.path);
+        switch (status) {
+        case readwrite:
+        case readonly:
             return true;
-        } else {
-            spdlog::warn("invalid repo path {}", rpath.error());
+        default:
+            spdlog::warn("invalid repo {}", r);
+            return false;
         }
-        return false;
     });
 
     // disable color output if it has not be enabled/disabled
