@@ -79,7 +79,8 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
     result.registry = lhs.registry   ? lhs.registry
                       : rhs.registry ? rhs.registry
                                      : std::nullopt;
-    result.warnings.insert(result.warnings.end(), lhs.warnings.begin(), lhs.warnings.end());
+    result.warnings.insert(result.warnings.end(), lhs.warnings.begin(),
+                           lhs.warnings.end());
     return result;
 }
 
@@ -310,7 +311,7 @@ load_system_config(const envvars::state& calling_env) {
         return result;
     } else {
         spdlog::debug("load_system_config:: loading v1 configuration in {}",
-                     config_path.value());
+                      config_path.value());
         auto result =
             impl::v1::read_config_file(config_path.value(), calling_env);
         if (!result) {
@@ -694,17 +695,17 @@ read_config_file(const std::filesystem::path& path,
     const auto result = toml::parse_file(path.string());
     if (!result) {
         spdlog::warn("read_config_file:: {} {}", path.string(),
-                result.error().description());
+                     result.error().description());
         const auto pos = result.error().source().begin;
-        return util::unexpected(
-            fmt::format("(line {} col {}) {}", pos.line, pos.column, result.error().description()));
+        return util::unexpected(fmt::format("(line {} col {}) {}", pos.line,
+                                            pos.column,
+                                            result.error().description()));
     }
 
     const auto config = parse_config_toml(result.table(), calling_env);
 
     if (!config) {
-        return util::unexpected{
-            fmt::format("{}", config.error())};
+        return util::unexpected{fmt::format("{}", config.error())};
     }
     return config.value();
 }
