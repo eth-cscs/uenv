@@ -1135,7 +1135,8 @@ record_set::const_iterator record_set::cend() const {
 uenv_label apply_system(uenv_label label,
                         std::optional<std::string> system_name) {
     if (!label.system) {
-        label.system = system_name;
+        if (!label.uarch)
+            label.system = system_name;
     } else if (label.system.value() == "*") {
         label.system = std::nullopt;
     }
