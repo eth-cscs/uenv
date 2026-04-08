@@ -53,6 +53,7 @@ int main(int argc, char** argv) {
         "enable color output");
     cli.add_flag("--version", print_version, "print version");
     cli.add_option("--repo", cli_repo, "the uenv repository description");
+    cli.add_option("--system", cli_config.system_name, "the system name");
 
     cli.footer(help_footer);
 
