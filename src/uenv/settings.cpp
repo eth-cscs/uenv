@@ -79,6 +79,7 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
     result.registry = lhs.registry   ? lhs.registry
                       : rhs.registry ? rhs.registry
                                      : std::nullopt;
+    result.warnings.insert(result.warnings.end(), lhs.warnings.begin(), lhs.warnings.end());
     return result;
 }
 
@@ -162,7 +163,7 @@ configuration generate_configuration(const config_base& base) {
         case readonly:
             return true;
         default:
-            spdlog::warn("invalid repo {}", r);
+            spdlog::warn("ignoring repository {} (invalid)", r);
             return false;
         }
     });
@@ -298,7 +299,7 @@ load_system_config(const envvars::state& calling_env) {
         spdlog::info("load_system_config:: no system config");
         return config_base{};
     } else if (config_path->extension() == ".toml") {
-        spdlog::info("load_system_config:: loading {}", config_path.value());
+        spdlog::debug("load_system_config:: loading {}", config_path.value());
         auto result =
             impl::v2::read_config_file(config_path.value(), calling_env);
         if (!result) {
@@ -308,9 +309,7 @@ load_system_config(const envvars::state& calling_env) {
         spdlog::info("load_system_config:: loaded {}", config_path.value());
         return result;
     } else {
-        spdlog::warn("load_system_config:: loading v1 configuration in {} "
-                     "instead of "
-                     "new toml format",
+        spdlog::debug("load_system_config:: loading v1 configuration in {}",
                      config_path.value());
         auto result =
             impl::v1::read_config_file(config_path.value(), calling_env);
@@ -335,7 +334,7 @@ load_config(const uenv::config_base& cli_config,
         // do not treat a broken system configuration as a hard error:
         // users cannot fix system config, and a parse error must not
         // disable the tool for them.
-        spdlog::error("load_config::error reading system config file: {}",
+        spdlog::error("load_config:: error reading system config file: {}",
                       sys.error());
     }
 
@@ -345,7 +344,8 @@ load_config(const uenv::config_base& cli_config,
         // do not treat broken user configuration as a hard error.
         // we could make this a hard error, because users can fix their
         // configuration.
-        spdlog::warn("load_config::did not load user config: {}", usr.error());
+        spdlog::warn("load_config:: did not load user config: {}", usr.error());
+        config.warnings.push_back(fmt::format("{}", usr.error()));
     }
 
     if (repos) {
@@ -693,18 +693,18 @@ read_config_file(const std::filesystem::path& path,
 
     const auto result = toml::parse_file(path.string());
     if (!result) {
-        spdlog::warn("read_config_file: error parsing {}: {}", path.string(),
-                     result.error().description());
+        spdlog::warn("read_config_file:: {} {}", path.string(),
+                result.error().description());
+        const auto pos = result.error().source().begin;
         return util::unexpected(
-            fmt::format("unable to open configuration file {}: {}",
-                        path.string(), result.error().description()));
+            fmt::format("(line {} col {}) {}", pos.line, pos.column, result.error().description()));
     }
 
     const auto config = parse_config_toml(result.table(), calling_env);
 
     if (!config) {
         return util::unexpected{
-            fmt::format("{}: {}", path.string(), config.error())};
+            fmt::format("{}", config.error())};
     }
     return config.value();
 }

@@ -121,6 +121,10 @@ int main(int argc, char** argv) {
     // files.
     if (auto full_config = uenv::load_config(cli_config, cli_repo_labels,
                                              settings.calling_environment)) {
+        // print any warnings that were generated while loading configuration
+        for (const auto& warning: full_config->warnings) {
+            term::warn("{}", warning);
+        }
         // generate_configuration applies checks to ensure that paths in the
         // config exist. If they don't it unsets them with warning messages.
         settings.config = uenv::generate_configuration(full_config.value());

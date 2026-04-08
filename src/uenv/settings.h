@@ -23,6 +23,8 @@ struct config_base {
     std::optional<std::string> elastic_config;
     std::optional<std::string> system_name;
     std::optional<registry_config> registry;
+
+    std::vector<std::string> warnings;
 };
 
 // the result of parsing a line in a configuration file
