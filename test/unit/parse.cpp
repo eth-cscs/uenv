@@ -483,17 +483,19 @@ TEST_CASE("cluster", "[parse]") {
     //
     // the first part of a hyphenated name is dropped, because some CSCS
     // clusters used to be use alps-NAME to name the cluster.
-    REQUIRE(uenv::parse_cluster_name("alps-eiger").value() == "eiger");
-    REQUIRE(uenv::parse_cluster_name("alps-daint").value() == "daint");
+    // REQUIRE(uenv::parse_cluster_name("alps-eiger").value() == "eiger");
     REQUIRE(uenv::parse_cluster_name("eiger").value() == "eiger");
     REQUIRE(uenv::parse_cluster_name("daint").value() == "daint");
-    REQUIRE(uenv::parse_cluster_name("alps-eiger002").value() == "eiger002");
     REQUIRE(uenv::parse_cluster_name("  eiger_ln002 ").value() ==
             "eiger_ln002");
-    REQUIRE(uenv::parse_cluster_name("wombat-soup").value() == "soup");
+    REQUIRE(uenv::parse_cluster_name("*").value() == "*");
 
+    REQUIRE(!uenv::parse_cluster_name("*wombat"));
+
+    // we do not permit dash in cluster names
     REQUIRE(!uenv::parse_cluster_name("alps-,"));
     REQUIRE(!uenv::parse_cluster_name("alps,"));
+    REQUIRE(!uenv::parse_cluster_name("alps-daint"));
     REQUIRE(!uenv::parse_cluster_name(""));
 
     // maybe the following should be enabled in the future, i.e. strip alps- and
