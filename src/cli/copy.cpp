@@ -52,8 +52,15 @@ void image_copy_args::add_cli(CLI::App& cli,
 
 int image_copy([[maybe_unused]] const image_copy_args& args,
                [[maybe_unused]] const global_settings& settings) {
+    if (!settings.config.registry) {
+        term::error("registry is not configured: add a [registry] section to "
+                    "your uenv configuration file");
+        return 1;
+    }
+    const auto& registry_cfg = *settings.config.registry;
+
     std::optional<uenv::oras::credentials> credentials;
-    if (auto c = site::get_credentials(args.username, args.token)) {
+    if (auto c = oras::get_credentials(args.username, args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());
@@ -164,7 +171,7 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
         term::warn("the destination already exists and will be overwritten");
     }
 
-    const auto rego_url = site::registry_url();
+    const auto rego_url = registry_cfg.url;
     spdlog::debug("registry url: {}", rego_url);
     if (auto result =
             oras::copy(rego_url, src_label.nspace.value(), src_record,

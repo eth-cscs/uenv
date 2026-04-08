@@ -64,8 +64,15 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
         return 1;
     }
 
+    if (!settings.config.registry) {
+        term::error("registry is not configured: add a [registry] section to "
+                    "your uenv configuration file");
+        return 1;
+    }
+    const auto& registry_cfg = *settings.config.registry;
+
     std::optional<uenv::oras::credentials> credentials;
-    if (auto c = site::get_credentials(args.username, args.token)) {
+    if (auto c = oras::get_credentials(args.username, args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());
@@ -74,7 +81,7 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
 
     // pull the search term that was provided by the user
     uenv_label label{};
-    std::string nspace{site::default_namespace()};
+    std::string nspace{registry_cfg.default_namespace};
     if (const auto parse = parse_uenv_nslabel(args.uenv_description)) {
         label = parse->label;
         if (parse->nspace) {
@@ -128,15 +135,8 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
     const auto record = *(remote_matches->begin());
     spdlog::info("pulling {} {}", record.sha, record);
 
-    // require that a valid repo has been provided
-    const auto repo = settings.config.repo();
-    if (!repo) {
-        term::error("a repo needs to be provided either using the --repo "
-                    "option, or in the config file");
-        return 1;
-    }
-    // open the repo
-    auto store = uenv::open_repository(repo->path, repo_mode::readwrite);
+    // find/create and open the default repository
+    auto store = uenv::concretise_user_repo(settings.config);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;
@@ -173,7 +173,7 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
 
     if (pull_sqfs || pull_meta) {
         try {
-            auto rego_url = site::registry_url();
+            auto rego_url = registry_cfg.url;
             spdlog::debug("registry url: {}", rego_url);
 
             if (pull_meta) {

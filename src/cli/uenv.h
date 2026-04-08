@@ -6,6 +6,7 @@
 #include <CLI/CLI.hpp>
 
 #include <uenv/settings.h>
+#include <util/color.h>
 #include <util/envvars.h>
 #include <util/expected.h>
 
@@ -30,7 +31,8 @@ enum class cli_mode : std::uint32_t {
     start,
     status,
     build,
-    completion
+    completion,
+    configure,
 };
 
 struct global_settings {
@@ -49,6 +51,29 @@ struct global_settings {
     // configuration options: merged from config file, CLI options and defaults
     configuration config;
 };
+
+// common strings used in more than one location.
+namespace messages {
+[[maybe_unused]] static std::string no_repos() {
+    return fmt::format("there are no repositories.\n"
+                       "- create one with {}\n"
+                       "- or use the {} flag to provide the location of "
+                       "existing repositories\n"
+                       "- or set the {} field in your config file",
+                       color::yellow("uenv repo create"),
+                       color::yellow("--repo"),
+                       color::yellow("[[repositories]]"));
+}
+
+[[maybe_unused]] static std::string no_matches() {
+    return fmt::format(
+        "see available uenv using {}.\n"
+        "use {} and {} to find and download images before using them.",
+        color::yellow("uenv image ls"), color::yellow("uenv image find"),
+        color::yellow("uenv image pull"));
+}
+
+} // namespace messages
 
 } // namespace uenv
 
@@ -103,6 +128,8 @@ template <> class fmt::formatter<uenv::cli_mode> {
             return format_to(ctx.out(), "build");
         case completion:
             return format_to(ctx.out(), "completion");
+        case configure:
+            return format_to(ctx.out(), "configure");
         }
         return format_to(ctx.out(), "unknown");
     }

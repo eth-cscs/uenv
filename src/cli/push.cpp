@@ -57,8 +57,15 @@ void image_push_args::add_cli(CLI::App& cli,
 
 int image_push([[maybe_unused]] const image_push_args& args,
                [[maybe_unused]] const global_settings& settings) {
+    if (!settings.config.registry) {
+        term::error("registry is not configured: add a [registry] section to "
+                    "your uenv configuration file");
+        return 1;
+    }
+    const auto& registry_cfg = *settings.config.registry;
+
     std::optional<uenv::oras::credentials> credentials;
-    if (auto c = site::get_credentials(args.username, args.token)) {
+    if (auto c = oras::get_credentials(args.username, args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());
@@ -118,7 +125,7 @@ int image_push([[maybe_unused]] const image_push_args& args,
     spdlog::info("image_push: squashfs {}", sqfs.value());
 
     try {
-        auto rego_url = site::registry_url();
+        auto rego_url = registry_cfg.url;
         spdlog::debug("registry url: {}", rego_url);
 
         // Push the SquashFS image

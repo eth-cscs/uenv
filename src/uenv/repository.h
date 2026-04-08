@@ -161,7 +161,8 @@ enum class repo_state { readonly, readwrite, no_exist, invalid };
 // assumes that repo_path satisfies valide_repo_path()
 repo_state validate_repository(const std::filesystem::path& repo_path);
 
-enum class repo_mode : std::uint8_t { readonly, readwrite };
+enum class repo_open_mode : std::uint8_t { readonly, readwrite };
+enum class repo_create_mode : std::uint8_t { create, existsokay };
 
 struct repository_impl;
 struct repository {
@@ -177,7 +178,7 @@ struct repository {
         std::filesystem::path squashfs;
     };
 
-    using enum repo_mode;
+    using enum repo_open_mode;
     repository() = delete;
 
     repository(repository&&);
@@ -216,15 +217,16 @@ struct repository {
     ~repository();
 
     friend util::expected<repository, std::string>
-    open_repository(const std::filesystem::path&, repo_mode mode);
+    open_repository(const std::filesystem::path&, repo_open_mode mode);
 };
 
 util::expected<repository, std::string>
 open_repository(const std::filesystem::path&,
-                repo_mode mode = repo_mode::readonly);
+                repo_open_mode mode = repo_open_mode::readonly);
 
 util::expected<repository, std::string>
-create_repository(const std::filesystem::path& repo_path);
+create_repository(const std::filesystem::path& repo_path,
+                  repo_create_mode mode = repo_create_mode::create);
 
 util::expected<repository, std::string> create_repository();
 
@@ -276,7 +278,7 @@ template <> class fmt::formatter<uenv::repo_description> {
     template <typename FmtContext>
     constexpr auto format(uenv::repo_description const& d,
                           FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "[name={}, path={}, priority={}]",
+        return fmt::format_to(ctx.out(), "repo(name={}, path={}, priority={})",
                               d.name, d.path.string(), d.priority);
     }
 };
@@ -290,11 +292,13 @@ template <> class fmt::formatter<uenv::repo_label> {
     // format a value using stored specification:
     template <typename FmtContext>
     constexpr auto format(uenv::repo_label const& d, FmtContext& ctx) const {
-        return d.is_name() ? fmt::format_to(ctx.out(), "[name={}]", d.as_name())
-               : d.is_path() ? fmt::format_to(ctx.out(), "[path={}]",
-                                              d.as_path().string())
-                             : fmt::format_to(ctx.out(), "[name={}, path={}]",
-                                              d.as_name_path().name,
-                                              d.as_name_path().path.string());
+        return d.is_name()
+                   ? fmt::format_to(ctx.out(), "repo(name={})", d.as_name())
+               : d.is_path()
+                   ? fmt::format_to(ctx.out(), "repo(path={})",
+                                    d.as_path().string())
+                   : fmt::format_to(ctx.out(), "repo(name={}, path={})",
+                                    d.as_name_path().name,
+                                    d.as_name_path().path.string());
     }
 };

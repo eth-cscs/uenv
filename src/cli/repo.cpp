@@ -93,7 +93,7 @@ resolve_repo(std::optional<std::string> path, const global_settings& settings) {
                                 .path = std::filesystem::path(*path)};
     }
 
-    if (auto repo = settings.config.repo()) {
+    if (auto repo = settings.config.user_repo()) {
         return repo.value();
     }
     return util::unexpected("no repo path provided");
@@ -206,6 +206,8 @@ int repo_create(const repo_create_args& args, const global_settings& settings) {
         term::error("{}", result.error());
         return 1;
     }
+    term::msg("the repository {} has been created.",
+              color::yellow(repo->path.string()));
     return 0;
 }
 
@@ -339,6 +341,12 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
         }
     }
 
+    // print a user-friendly message if not outputing json and there are no
+    // repos
+    if (!args.json && repos.empty()) {
+        term::warn("{}", messages::no_repos());
+    }
+
     if (args.json) {
         json output;
         output["repos"] = json_repos;
@@ -382,8 +390,8 @@ int repo_update(const repo_update_args& args, const global_settings& settings) {
     }
 
     // check for inconsistencies between stored images and the database
-    if (auto store =
-            uenv::open_repository(repo->path, uenv::repo_mode::readwrite)) {
+    if (auto store = uenv::open_repository(repo->path,
+                                           uenv::repo_open_mode::readwrite)) {
         if (auto C = impl::check_repo_consistency(*store); !C) {
             term::msg("the repository at {} has missing uenv images:",
                       repo->path);
@@ -474,7 +482,7 @@ int repo_migrate(const repo_migrate_args& args,
     }
 
     if (const auto src_store =
-            uenv::open_repository(source.path, uenv::repo_mode::readonly);
+            uenv::open_repository(source.path, uenv::repo_open_mode::readonly);
         !src_store) {
         term::error("the repo {} could not be opened {}", source,
                     src_store.error());
@@ -492,7 +500,7 @@ int repo_migrate(const repo_migrate_args& args,
         auto dst_store =
             dest_status == no_exist
                 ? create_repository(destination.path)
-                : open_repository(destination.path, repo_mode::readwrite);
+                : open_repository(destination.path, repo_open_mode::readwrite);
 
         if (!dst_store) {
             term::error("unable to open destination repo for migration: {}",

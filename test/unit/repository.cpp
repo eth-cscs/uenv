@@ -96,6 +96,25 @@ TEST_CASE("find", "[repository]") {
     REQUIRE(repo->query({.version = "2024", .system = "santis"})->size() == 4u);
 }
 
+TEST_CASE("existing", "[repository]") {
+    auto repo_dir = util::make_temp_dir();
+    auto repo = create_mini_repo(repo_dir);
+    REQUIRE(repo);
+
+    // trying to create a repository in the location of an existing repository
+    // is an error by default
+    REQUIRE(!uenv::create_repository(repo_dir));
+    // with exists_okay=true a reference to the existing repository
+    auto R =
+        uenv::create_repository(repo_dir, uenv::repo_create_mode::existsokay);
+    REQUIRE(R);
+    // the reference should be writeable
+    // REQUIRE(!R->is_readonly());
+    REQUIRE(!R->is_in_memory());
+    // the contents of the repository should be unmodified
+    REQUIRE(R->query({.name = "wombat"})->size() == 2u);
+}
+
 TEST_CASE("duplicates", "[repository]") {
     // there are 4 records that match "netcdf-tools/2024:v1" that are
     // disambiguated by system and uarch

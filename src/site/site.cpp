@@ -1,7 +1,3 @@
-#include <unistd.h>
-
-#include <fstream>
-#include <optional>
 #include <string>
 
 #include <nlohmann/json.hpp>
@@ -18,26 +14,6 @@
 #include "site.h"
 
 namespace site {
-
-std::optional<std::string> get_username() {
-    if (const auto name = getlogin()) {
-        return std::string{name};
-    }
-    return std::nullopt;
-}
-
-std::optional<std::string> get_system_name(const envvars::state& calling_env) {
-    if (auto name = calling_env.get("CLUSTER_NAME")) {
-        spdlog::debug("cluster name is '{}'", name.value());
-        return name.value();
-    }
-    spdlog::debug("cluster name is undefined");
-    return std::nullopt;
-}
-
-std::string default_namespace() {
-    return "deploy";
-}
 
 util::expected<uenv::repository, std::string>
 registry_listing(const std::string& nspace) {
@@ -104,55 +80,15 @@ registry_listing(const std::string& nspace) {
     return store;
 }
 
-std::string registry_url() {
-    return "jfrog.svc.cscs.ch/uenv";
-}
-
-util::expected<std::optional<uenv::oras::credentials>, std::string>
-get_credentials(std::optional<std::string> username,
-                std::optional<std::string> token) {
-    namespace fs = std::filesystem;
-    namespace oras = uenv::oras;
-
-    if (!token) {
-        return std::nullopt;
+std::optional<std::string> get_system_name(const envvars::state& calling_env) {
+    if (auto name = calling_env.get("CLUSTER_NAME")) {
+        spdlog::debug("cluster name is '{}'", name.value());
+        return name.value();
     }
 
-    fs::path token_path{token.value()};
-    if (!fs::exists(token_path)) {
-        return util::unexpected{fmt::format(
-            "the token '{}' is not a path or file.", token_path.string())};
-    }
+    spdlog::debug("cluster name is undefined");
 
-    if (fs::is_directory(token_path)) {
-        token_path = token_path / "TOKEN";
-        if (!fs::exists(token_path)) {
-            return util::unexpected{fmt::format(
-                "the token file '{}' does not exist.", token_path.string())};
-        }
-    }
-
-    if (util::file_access_level(token_path) < util::file_level::readonly) {
-        return util::unexpected{fmt::format(
-            "you do not have permission to read the token file '{}'",
-            token_path.string())};
-    }
-
-    std::string token_string{};
-    if (std::ifstream fid{token_path}) {
-        std::getline(fid, token_string);
-    } else {
-        return util::unexpected{fmt::format("unable to read a token from '{}'",
-                                            token_path.string())};
-    }
-
-    auto uname = username ? username : site::get_username();
-    if (!uname) {
-        return util::unexpected{
-            "provide a username with --username for the --token."};
-    }
-
-    return oras::credentials{.username = uname.value(), .token = token_string};
+    return std::nullopt;
 }
 
 } // namespace site

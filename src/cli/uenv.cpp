@@ -20,6 +20,7 @@
 #include "add_remove.h"
 #include "build.h"
 #include "completion.h"
+#include "config.h"
 #include "delete.h"
 #include "help.h"
 #include "image.h"
@@ -52,6 +53,7 @@ int main(int argc, char** argv) {
         "enable color output");
     cli.add_flag("--version", print_version, "print version");
     cli.add_option("--repo", cli_repo, "the uenv repository description");
+    cli.add_option("--system", cli_config.system_name, "the system name");
 
     cli.footer(help_footer);
 
@@ -62,6 +64,7 @@ int main(int argc, char** argv) {
     uenv::status_args stat;
     uenv::build_args build;
     uenv::completion_args completion(&cli);
+    uenv::configure_args configure;
 
     start.add_cli(cli, settings);
     run.add_cli(cli, settings);
@@ -70,6 +73,7 @@ int main(int argc, char** argv) {
     stat.add_cli(cli, settings);
     build.add_cli(cli, settings);
     completion.add_cli(cli, settings);
+    configure.add_cli(cli, settings);
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -113,19 +117,14 @@ int main(int argc, char** argv) {
         }
     }
 
-    // TODO: adding support for more than one repo has surfaced the problem with
-    // automatically creating the user's default repository: we are trying to
-    // generate any repos in the repo list that have not been created.
-    // Revisit the behavior:
-    // - we could only create any repo named "default"
-    // - we could only create repos that are explicitly provided using --repo
-    // I prefer the first option, so that users do not "accidentally" create new
-    // repos when they have a typo
-
     // set the configuration according to defaults, cli options and config
     // files.
     if (auto full_config = uenv::load_config(cli_config, cli_repo_labels,
                                              settings.calling_environment)) {
+        // print any warnings that were generated while loading configuration
+        for (const auto& warning : full_config->warnings) {
+            term::warn("{}", warning);
+        }
         // generate_configuration applies checks to ensure that paths in the
         // config exist. If they don't it unsets them with warning messages.
         settings.config = uenv::generate_configuration(full_config.value());
@@ -135,8 +134,8 @@ int main(int argc, char** argv) {
     }
 
     if (settings.config.repos.empty()) {
-        term::warn("there is no valid repo - use the --repo flag or edit the "
-                   "configuration to set a repo path");
+        spdlog::warn("there is no valid repo - use the --repo flag or edit the "
+                     "configuration to set a repo path");
     }
 
     //
@@ -146,58 +145,6 @@ int main(int argc, char** argv) {
     spdlog::info("color output is {}",
                  (settings.config.color ? "enabled" : "disabled"));
     color::set_color(settings.config.color);
-
-    // validate the user repository - attempt to create if it does not exist
-    // TODO: reimplement this for a world where multiple valid repos are
-    // available. options:
-    // - set a default_repo in the settings, that may or may not exist
-    //      - create it only when needed (image pull, image add, repo create are
-    //      used without an explicit repository provided by the user)
-    // - only create a repo with the name "default" without direct user
-    // - require user to explicitly create
-    /*
-    if (settings.config.repo) {
-        using enum uenv::repo_state;
-        const auto initial_state =
-            uenv::validate_repository(settings.config.repo.value());
-        switch (initial_state) {
-        // repo exists and is read only
-        case invalid:
-            spdlog::warn("unable to create repository: {} is invalid",
-                         settings.config.repo.value());
-            break;
-        // repo exists and is read only
-        case readonly:
-            spdlog::warn("the repo {} exists, but is read only, some "
-                         "operations like image pull are disabled.",
-                         settings.config.repo.value());
-        // repo exists and is writable
-        case readwrite:
-            break;
-        // repo does not exist - attempt to create
-        // ignore any error - later attempts to use the repo can handle the
-        // error
-        default:
-            const auto repo_path = settings.config.repo.value();
-            spdlog::info("the repo {} does not exist - creating", repo_path);
-            if (auto result = uenv::create_repository(repo_path); !result) {
-                spdlog::warn("the repo {} was not created: {}", repo_path,
-                             result.error());
-            } else {
-                // apply lustre striping to repository
-                if (lustre::is_lustre(repo_path)) {
-                    if (auto p = lustre::load_path(
-                            repo_path, settings.calling_environment)) {
-                        if (!lustre::is_striped(*p)) {
-                            lustre::set_striping(*p, lustre::default_striping);
-                        }
-                    }
-                }
-            }
-            break;
-        }
-    }
-    */
 
     spdlog::info("{}", settings);
 
@@ -238,6 +185,8 @@ int main(int argc, char** argv) {
         return uenv::build(build, settings);
     case settings.completion:
         return uenv::completion(completion);
+    case settings.configure:
+        return uenv::configure(configure, settings);
     case settings.unset:
         term::msg("uenv version {}", UENV_VERSION);
         term::msg("call '{} --help' for help", argv[0]);

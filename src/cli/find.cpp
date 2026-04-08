@@ -54,6 +54,13 @@ int image_find([[maybe_unused]] const image_find_args& args,
         return 1;
     }
 
+    if (!settings.config.registry) {
+        term::error("registry is not configured: add a [registry] section to "
+                    "your uenv configuration file");
+        return 1;
+    }
+    const auto& registry_cfg = *settings.config.registry;
+
     auto format =
         get_record_set_format(args.no_header, args.json, (bool)args.format);
     if (!format) {
@@ -63,7 +70,7 @@ int image_find([[maybe_unused]] const image_find_args& args,
 
     // find the search term that was provided by the user
     uenv_label label{};
-    std::string nspace{site::default_namespace()};
+    std::string nspace{registry_cfg.default_namespace};
     if (args.uenv_description) {
         if (const auto parse = parse_uenv_nslabel(*args.uenv_description)) {
             label = parse->label;
