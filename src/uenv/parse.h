@@ -77,7 +77,7 @@ parse_registry_entry(const std::string& in);
 util::expected<config_line, parse_error>
 parse_config_line(const std::string& arg);
 
-util::expected<std::string, parse_error>
+util::expected<std::optional<std::string>, parse_error>
 parse_cluster_name(const std::string& in);
 
 util::expected<std::string, parse_error> parse_repo_name(const std::string& in);

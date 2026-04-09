@@ -593,31 +593,17 @@ bool is_cluster_tok(lex::tok t) {
     return t == lex::tok::symbol || t == lex::tok::integer;
 };
 
-util::expected<std::string, parse_error> parse_cluster_name(lex::lexer& L) {
+util::expected<std::optional<std::string>, parse_error>
+parse_cluster_name(lex::lexer& L) {
     // special case the wild card *
     if (L == lex::tok::star) {
         L.next();
-        if (L == lex::tok::end) {
-            return "*";
-        }
-        return util::unexpected(
-            parse_error{L.string(), "unexpected symbol '{}'", L.peek()});
+        return std::nullopt;
     }
-    if (const auto namestr = parse_string(L, "cluster", is_cluster_tok)) {
-        // succesfully parsed a cluster name e.g. 'daint' or 'eiger'
-        if (L == lex::tok::end) {
-            return namestr;
-        }
-    } else {
-        // return the error
-        return namestr;
-    }
-
-    return util::unexpected(
-        parse_error{L.string(), "unexpected symvbol {}", L.peek()});
+    return parse_string(L, "cluster", is_cluster_tok);
 }
 
-util::expected<std::string, parse_error>
+util::expected<std::optional<std::string>, parse_error>
 parse_cluster_name(const std::string& in) {
     const std::string sanitised = util::strip(in);
     auto L = lex::lexer(sanitised);

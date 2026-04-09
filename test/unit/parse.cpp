@@ -488,14 +488,17 @@ TEST_CASE("cluster", "[parse]") {
     REQUIRE(uenv::parse_cluster_name("daint").value() == "daint");
     REQUIRE(uenv::parse_cluster_name("  eiger_ln002 ").value() ==
             "eiger_ln002");
-    REQUIRE(uenv::parse_cluster_name("*").value() == "*");
+    // * is a wildcard that means "all", which is represented by an empty
+    // std::optional
+    REQUIRE(uenv::parse_cluster_name("*").value() == std::nullopt);
 
     REQUIRE(!uenv::parse_cluster_name("*wombat"));
 
-    // we do not permit dash in cluster names
+    // we do not permit dash or comma in cluster names
     REQUIRE(!uenv::parse_cluster_name("alps-,"));
     REQUIRE(!uenv::parse_cluster_name("alps,"));
     REQUIRE(!uenv::parse_cluster_name("alps-daint"));
+    // empty names are not permitted
     REQUIRE(!uenv::parse_cluster_name(""));
 
     // maybe the following should be enabled in the future, i.e. strip alps- and

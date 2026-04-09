@@ -171,7 +171,11 @@ configuration generate_configuration(const config_base& base) {
 
     // disable color output if it has not be enabled/disabled
     config.color = base.color.value_or(false);
+
+    // set elastic logging end point
     config.elastic_config = base.elastic_config;
+
+    // set the system name
     if (base.system_name) {
         if (parse_cluster_name(base.system_name.value())) {
             config.system_name = base.system_name;
@@ -522,11 +526,13 @@ parse_repository_array(const toml::node& input,
     return result;
 }
 
-util::expected<std::string, config_error>
+util::expected<std::optional<std::string>, config_error>
 parse_system(const toml::node& input) {
     if (const auto v = input.value<std::string>()) {
         if (const auto name = uenv::parse_cluster_name(v.value())) {
-            return name.value();
+            // return the raw representation, which might be "*"
+            // the value will be parsed again during generate_configuration()
+            return v;
         }
     }
 
