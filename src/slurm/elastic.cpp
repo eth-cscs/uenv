@@ -18,6 +18,7 @@
 #include <util/curl.h>
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/strings.h>
 
 namespace uenv {
 
@@ -48,14 +49,25 @@ slurm_elastic_payload(const std::vector<telemetry_data>& uenv_data,
             return util::unexpected{"SLURM_JOBID is not set"};
         }
 
-        // fields that can be "null" are set as empty strings.
-        // this is because elastic does not like the types of fields to differ
-        // over time, and setting an unset field to null would violate that.
-        // data["cluster"] = calling_env.get("CLUSTER_NAME").value_or("");
-        std::string cluster_name =
+        // determine the system name. We go out of our way to infer the cluster
+        // name from e.g. /etc/xthostname and SLURM_CLUSTER_NAME to best match
+        // the system name used by slurm, and to make it harder for users to
+        // spoof a cluster name.
+        //
+        // fields that can be "null" are set as empty
+        // strings. this is because elastic does not like the types of fields to
+        // differ over time, and setting an unset field to null would violate
+        // that.
+        std::string raw_cluster_name =
             util::read_single_line_file("/etc/xthostname")
                 .value_or(calling_env.get("SLURM_CLUSTER_NAME").value_or(""));
-        data["vcluster"] = parse_cluster_name(cluster_name).value_or("");
+
+        // strip prefixes like the "alps-" in "alps-daint"
+        std::string cluster_name = util::split(raw_cluster_name, '-').back();
+        // this looks a bit funny because parse_cluster_name returns
+        // expected<optional<string>>
+        data["vcluster"] =
+            parse_cluster_name(cluster_name).value_or("").value_or("");
         data["hostname"] =
             util::read_single_line_file("/etc/hostname")
                 .value_or(calling_env.get("HOSTNAME").value_or(""));
