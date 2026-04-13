@@ -104,7 +104,15 @@ else
 fi
 
 uenv_version=$(sed 's/-.*//' "${srcdir}/VERSION")
-uenv_release=slurm$(echo $slurm_version | sed 's|\.[0-9]\+$||; s|\.||')
+# Pre-release suffix from VERSION (e.g. "rc2" from "10.0.0-rc2"), empty for final releases.
+# RPM's ~ operator makes slurm2505~rc2 sort before slurm2505, which is the correct ordering.
+prerelease=$(sed 's/^[^-]*-\?//' "${srcdir}/VERSION")
+slurm_tag=slurm$(echo $slurm_version | sed 's|\.[0-9]\+$||; s|\.||')
+if [[ -n "$prerelease" ]]; then
+    uenv_release="${slurm_tag}~${prerelease}"
+else
+    uenv_release="${slurm_tag}"
+fi
 
 echo '======================================================='
 echo "uenv_version   $uenv_version"
