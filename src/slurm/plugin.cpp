@@ -31,7 +31,7 @@ extern "C" {
 namespace uenv {
 
 void set_log_level(const envvars::state& env) {
-    // use warn as the default log level
+    // disable logging by default
     auto log_level = spdlog::level::off;
     bool invalid_env = false;
 

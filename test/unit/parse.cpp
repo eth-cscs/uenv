@@ -483,22 +483,46 @@ TEST_CASE("cluster", "[parse]") {
     //
     // the first part of a hyphenated name is dropped, because some CSCS
     // clusters used to be use alps-NAME to name the cluster.
-    REQUIRE(uenv::parse_cluster_name("alps-eiger").value() == "eiger");
-    REQUIRE(uenv::parse_cluster_name("alps-daint").value() == "daint");
+    // REQUIRE(uenv::parse_cluster_name("alps-eiger").value() == "eiger");
     REQUIRE(uenv::parse_cluster_name("eiger").value() == "eiger");
     REQUIRE(uenv::parse_cluster_name("daint").value() == "daint");
-    REQUIRE(uenv::parse_cluster_name("alps-eiger002").value() == "eiger002");
     REQUIRE(uenv::parse_cluster_name("  eiger_ln002 ").value() ==
             "eiger_ln002");
-    REQUIRE(uenv::parse_cluster_name("wombat-soup").value() == "soup");
+    // * is a wildcard that means "all", which is represented by an empty
+    // std::optional
+    REQUIRE(uenv::parse_cluster_name("*").value() == std::nullopt);
 
+    REQUIRE(!uenv::parse_cluster_name("*wombat"));
+
+    // we do not permit dash or comma in cluster names
     REQUIRE(!uenv::parse_cluster_name("alps-,"));
     REQUIRE(!uenv::parse_cluster_name("alps,"));
+    REQUIRE(!uenv::parse_cluster_name("alps-daint"));
+    // empty names are not permitted
     REQUIRE(!uenv::parse_cluster_name(""));
 
     // maybe the following should be enabled in the future, i.e. strip alps- and
     // glob remaining - into the cluster name
     REQUIRE(!uenv::parse_cluster_name("alps-daint-ln002"));
+}
+
+TEST_CASE("xthostname", "[parse]") {
+    REQUIRE(uenv::parse_xthostname("eiger").value() == "eiger");
+    REQUIRE(uenv::parse_xthostname("alps-eiger").value() == "eiger");
+    REQUIRE(uenv::parse_xthostname("daint").value() == "daint");
+    REQUIRE(uenv::parse_xthostname("alps-daint").value() == "daint");
+    REQUIRE(uenv::parse_xthostname("  eiger_ln002 ").value() == "eiger_ln002");
+
+    // we do not permit trailing dash or comma in cluster names
+    REQUIRE(!uenv::parse_xthostname("alps-"));
+    REQUIRE(!uenv::parse_xthostname("alps-eiger-"));
+    REQUIRE(!uenv::parse_xthostname("alps,"));
+    // empty names are not permitted
+    REQUIRE(!uenv::parse_xthostname(""));
+
+    // maybe the following should be enabled in the future, i.e. strip alps- and
+    // glob remaining - into the cluster name
+    REQUIRE(!uenv::parse_xthostname("alps-daint-ln002"));
 }
 
 TEST_CASE("repo_name", "[parse]") {
