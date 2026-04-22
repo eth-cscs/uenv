@@ -506,6 +506,25 @@ TEST_CASE("cluster", "[parse]") {
     REQUIRE(!uenv::parse_cluster_name("alps-daint-ln002"));
 }
 
+TEST_CASE("xthostname", "[parse]") {
+    REQUIRE(uenv::parse_xthostname("eiger").value() == "eiger");
+    REQUIRE(uenv::parse_xthostname("alps-eiger").value() == "eiger");
+    REQUIRE(uenv::parse_xthostname("daint").value() == "daint");
+    REQUIRE(uenv::parse_xthostname("alps-daint").value() == "daint");
+    REQUIRE(uenv::parse_xthostname("  eiger_ln002 ").value() == "eiger_ln002");
+
+    // we do not permit trailing dash or comma in cluster names
+    REQUIRE(!uenv::parse_xthostname("alps-"));
+    REQUIRE(!uenv::parse_xthostname("alps-eiger-"));
+    REQUIRE(!uenv::parse_xthostname("alps,"));
+    // empty names are not permitted
+    REQUIRE(!uenv::parse_xthostname(""));
+
+    // maybe the following should be enabled in the future, i.e. strip alps- and
+    // glob remaining - into the cluster name
+    REQUIRE(!uenv::parse_xthostname("alps-daint-ln002"));
+}
+
 TEST_CASE("repo_name", "[parse]") {
     REQUIRE(uenv::parse_repo_name("repo").value() == "repo");
     REQUIRE(uenv::parse_repo_name("main").value() == "main");

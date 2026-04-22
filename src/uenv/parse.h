@@ -73,12 +73,15 @@ parse_uenv_nslabel(const std::string& in);
 util::expected<uenv_registry_entry, parse_error>
 parse_registry_entry(const std::string& in);
 
-// TODO: deprecate as soon as the old config file format is dropped
+// TODO: remove as soon as the old config file format is dropped
 util::expected<config_line, parse_error>
 parse_config_line(const std::string& arg);
 
 util::expected<std::optional<std::string>, parse_error>
 parse_cluster_name(const std::string& in);
+
+util::expected<std::string, parse_error>
+parse_xthostname(const std::string& in);
 
 util::expected<std::string, parse_error> parse_repo_name(const std::string& in);
 

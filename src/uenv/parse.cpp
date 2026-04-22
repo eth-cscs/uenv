@@ -603,11 +603,36 @@ parse_cluster_name(lex::lexer& L) {
     return parse_string(L, "cluster", is_cluster_tok);
 }
 
+util::expected<std::string, parse_error> parse_xthostname(lex::lexer& L) {
+    auto name = parse_string(L, "cluster", is_cluster_tok);
+    if (name && L == lex::tok::dash) {
+        L.next();
+        return parse_string(L, "cluster", is_cluster_tok);
+    }
+    return name;
+}
+
 util::expected<std::optional<std::string>, parse_error>
 parse_cluster_name(const std::string& in) {
     const std::string sanitised = util::strip(in);
     auto L = lex::lexer(sanitised);
     const auto result = parse_cluster_name(L);
+    if (!result) {
+        return result;
+    }
+
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+    }
+    return result;
+}
+
+util::expected<std::string, parse_error>
+parse_xthostname(const std::string& in) {
+    const std::string sanitised = util::strip(in);
+    auto L = lex::lexer(sanitised);
+    const auto result = parse_xthostname(L);
     if (!result) {
         return result;
     }
