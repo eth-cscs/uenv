@@ -1152,6 +1152,11 @@ record_set::const_iterator record_set::cend() const {
 
 uenv_label apply_system(uenv_label label,
                         std::optional<std::string> system_name) {
+    // convert the star wildcard into nullopt
+    if (system_name && system_name.value() == "*") {
+        system_name = std::nullopt;
+    }
+
     if (!label.system) {
         label.system = system_name;
     } else if (label.system.value() == "*") {

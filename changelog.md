@@ -2,6 +2,9 @@
 
 ## 10.0.0
 
+- #147 [feature] support using '*' as cluster name in configuration files and --system flag
+- #145 [feature] move nearly all cscs-specific logic into configuration files
+- #144 [fix] fix latent bug parsing date strings
 - #143 [feature] improved bash completion for uenv labels and files
 - #142 [feature] use toml for configuration; support multiple repositories
 - #136 [feature] support for default views
