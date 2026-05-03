@@ -206,6 +206,9 @@ int slurm_spank_init(spank_t sp, int ac [[maybe_unused]],
     return ESPANK_SUCCESS;
 }
 
+// Called in the local context (srun) after resources have been allocated, when
+// the job id and step id are known. This information is required to create
+// elastic logs that can be correlated with Slurm logs.
 int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
                                 int ac [[maybe_unused]],
                                 char** av [[maybe_unused]]) {
@@ -227,8 +230,15 @@ int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
     return ESPANK_SUCCESS;
 }
 
-/// * check if image, mountpoint is valid
-/// * perform mount
+// Performs mounting of the squashfs images inside slurm_spank_init_post_opt in
+// the _remote_ context. The squashfs images to mount and their mount points are
+// set in the local and allocator contexts, where they are encoded in
+// the environment variable UENV_MOUNT_LIST.
+// This function relies on this variable being set.
+//
+// * parse UENV_MOUNT_LIST environment variable if set
+// * check that each image:mountpoint is valid
+// * perform mount
 int init_post_opt_remote(spank_t sp) {
     // initialise logging to be completely disabled
     uenv::init_log(spdlog::level::off);
@@ -290,10 +300,18 @@ int init_post_opt_remote(spank_t sp) {
     return ESPANK_SUCCESS;
 }
 
-/// * parse and validate the CLI arguments
-/// * set environment variables that are used in the remote context to mount
-///   the image
-/// * set environment variables for all requested views
+// Called in the local and allocator contexts in slurm_spank_init_post_opt.
+//
+// Parses command line arguments and validates that they describe a correct and
+// consistent environment, then sets environment variables and encodes the
+// squashfs images and their mount points in the UENV_MOUNT_LIST environment
+// variable which will be read in the remote context, where the images are
+// mounted.
+//
+// * parse and validate the CLI arguments
+// * set environment variables that are used in the remote context to mount
+//   the image
+// * set environment variables for all requested views
 int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // grab a snapshot of the calling environment
     // this function is called in the local context (where srun and sbatch
