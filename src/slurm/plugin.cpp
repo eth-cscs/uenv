@@ -64,6 +64,13 @@ void set_log_level(const envvars::state& env) {
     }
 }
 
+// todo: should we check whether the mounts actually exist?
+bool uenv_mounted(const envvars::state& env) {
+    const auto mvar = env.get("UENV_MOUNT_LIST");
+
+    return mvar && !mvar->empty();
+}
+
 } // namespace uenv
 
 //
@@ -340,21 +347,47 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     args.repo_description =
         args.repo_description ? args.repo_description : repo_description;
 
-    if (!args.uenv_description) {
-        // it is an error if the view argument was passed without the uenv
-        // argument
-        if (args.view_description) {
-            slurm_error("the uenv --view=%s argument is set, but the --uenv "
-                        "argument was not",
-                        args.view_description->c_str());
-            return -ESPANK_ERROR;
-        }
+    // check whether a uenv session is already mounted
+    const bool uenv_is_loaded = uenv::uenv_mounted(calling_environment);
 
-        // check whether a uenv has been mounted in the calling environment.
-        // this will be mounted in the remote context, so check that:
-        // * the squashfs image exists
-        // * the user has read access to the squashfs image
-        // * the mount point exists
+    // sbatch and salloc are treated identically by the plugin
+    const bool in_sbatch = spank_context() == spank_context_t::S_CTX_ALLOCATOR;
+    const bool in_srun = spank_context() == spank_context_t::S_CTX_LOCAL;
+    const bool uenv_args = (bool)args.uenv_description;
+
+    bool ignore_uenv_mount_list = false;
+    bool set_views = false;
+
+    if (in_sbatch && uenv_is_loaded) {
+        slurm_spank_log("WARNING: calling sbatch or salloc from inside a uenv "
+                        "session. The loaded uenv will be ignored by Slurm.");
+        ignore_uenv_mount_list = true;
+        ::unsetenv("UENV_MOUNT_LIST");
+    }
+
+    if (in_srun) {
+        set_views = uenv_args;
+        ignore_uenv_mount_list = uenv_args;
+    }
+
+    // else if (srun AND uenv-mounted AND no-uenv-args)
+    // mount
+
+    // it is an error if uenv arguments are passed without the --uenv
+    // argument also set
+    if (uenv_args && (args.view_description || args.repo_description)) {
+        slurm_error("the uenv --view and --repo argument can not be set "
+                    "when the --uenv argument is not provided",
+                    args.view_description->c_str());
+        return -ESPANK_ERROR;
+    }
+
+    // check whether a uenv has been mounted in the calling environment.
+    // this will be mounted in the remote context, so check that:
+    // * the squashfs image exists
+    // * the user has read access to the squashfs image
+    // * the mount point exists
+    {
         if (auto mount_var = calling_environment.get("UENV_MOUNT_LIST")) {
             if (auto mount_list = uenv::parse_and_validate_mounts(*mount_var);
                 !mount_list) {
@@ -364,6 +397,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
             }
         }
 
+        // TODO: this is not good, because it skips telemetry
         return ESPANK_SUCCESS;
     }
 
@@ -439,8 +473,8 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     ::setenv("UENV_MOUNT_LIST",
              fmt::format("{}", fmt::join(uenv_mount_list, ",")).c_str(), 1);
 
-    // unset the SBATCH_UENV* environment variables, so that they can't affect
-    // calls to srun and sbatch inside the called script/jobstep
+    // unset the SBATCH_UENV* environment variables, so that they can't
+    // affect calls to srun and sbatch inside the called script/jobstep
     for (const auto name :
          {"SBATCH_UENV", "SBATCH_UENV_VIEW", "SBATCH_UENV_REPO"}) {
         if (calling_environment.get(name)) {
@@ -448,8 +482,8 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         }
     }
 
-    // set the SLURM_UENV* variables that indicate the status of uenv set by the
-    // plugin
+    // set the SLURM_UENV* variables that indicate the status of uenv set by
+    // the plugin
     ::setenv("SLURM_UENV", args.uenv_description.value_or("").c_str(), 1);
     ::setenv("SLURM_UENV_VIEW", args.view_description.value_or("").c_str(), 1);
     ::setenv("SLURM_UENV_REPO", args.repo_description.value_or("").c_str(), 1);
