@@ -147,8 +147,7 @@ std::optional<std::string> getenv_wrapper(spank_t sp, const char* var) {
 static spank_option uenv_arg{
     (char*)"uenv",
     (char*)"<file>[:mount-point][,<file:mount-point>]*",
-    (char*)"A comma seprated list of file and mountpoint, default mount-point "
-           "is " DEFAULT_MOUNT_POINT,
+    (char*)"A comma seprated list of uenv",
     1, // requires an argument
     0, // plugin specific value to pass to the callback (unnused)
     [](int val, const char* optarg, int remote) -> int {
