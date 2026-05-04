@@ -12,6 +12,7 @@
 #include <spdlog/spdlog.h>
 
 #include <slurm/mount_slurm.h>
+#include <uenv/config.h>
 #include <uenv/env.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
@@ -321,16 +322,23 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // initialise logging
     uenv::set_log_level(calling_environment);
 
-    // check whether SLURM_UENV or SLURM_UENV_VIEW has been set
+    // log the version of uenv being used
+    spdlog::info("uenv version {}", UENV_VERSION);
+
+    // check whether SBATCH_UENV or SBATCH_UENV_VIEW has been set
     // the arguments passed via --uenv and --view take precedence
     std::optional<std::string> uenv_description =
-        calling_environment.get("SLURM_UENV");
+        calling_environment.get("SBATCH_UENV");
     std::optional<std::string> view_description =
-        calling_environment.get("SLURM_UENV_VIEW");
+        calling_environment.get("SBATCH_UENV_VIEW");
+    std::optional<std::string> repo_description =
+        calling_environment.get("SBATCH_UENV_REPO");
     args.uenv_description =
         args.uenv_description ? args.uenv_description : uenv_description;
     args.view_description =
         args.view_description ? args.view_description : view_description;
+    args.repo_description =
+        args.repo_description ? args.repo_description : repo_description;
 
     if (!args.uenv_description) {
         // it is an error if the view argument was passed without the uenv
@@ -430,6 +438,21 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
 
     ::setenv("UENV_MOUNT_LIST",
              fmt::format("{}", fmt::join(uenv_mount_list, ",")).c_str(), 1);
+
+    // unset the SBATCH_UENV* environment variables, so that they can't affect
+    // calls to srun and sbatch inside the called script/jobstep
+    for (const auto name :
+         {"SBATCH_UENV", "SBATCH_UENV_VIEW", "SBATCH_UENV_REPO"}) {
+        if (calling_environment.get(name)) {
+            ::unsetenv(name);
+        }
+    }
+
+    // set the SLURM_UENV* variables that indicate the status of uenv set by the
+    // plugin
+    ::setenv("SLURM_UENV", args.uenv_description.value_or("").c_str(), 1);
+    ::setenv("SLURM_UENV_VIEW", args.view_description.value_or("").c_str(), 1);
+    ::setenv("SLURM_UENV_REPO", args.repo_description.value_or("").c_str(), 1);
 
     return ESPANK_SUCCESS;
 }
