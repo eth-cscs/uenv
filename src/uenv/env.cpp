@@ -19,6 +19,7 @@
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
+#include <uenv/telemetry.h>
 #include <util/color.h>
 #include <util/envvars.h>
 #include <util/fs.h>
@@ -28,16 +29,10 @@ namespace uenv {
 
 using util::unexpected;
 
-// a convenience helper that merges all of the environment variable patches, one
+// A convenience helper that merges all of the environment variable patches, one
 // for each view, into a single patch
+// Also sets UENV_VIEW, UENV_MOUNT_LIST and UENV_TELEMETRY environment variables
 envvars::patch env::patch() const {
-    if (views.empty()) {
-        return {};
-    }
-    if (views.size() == 1u) {
-        return uenvs.at(views[0].uenv).views.at(views[0].name).environment;
-    }
-
     envvars::patch p{};
 
     for (auto& view : views) {
@@ -50,11 +45,48 @@ envvars::patch env::patch() const {
         p.merge(uenvs.at(view.uenv).views.at(view.name).environment);
     }
 
+    // set UENV variable
+    p.update_scalar("UENV", uenv_arg);
+
+    // set UENV_MOUNT_LIST variable
+    auto mount_description = [](const auto& u) {
+        return fmt::format("{}:{}", u.sqfs_path, u.mount_path);
+    };
+    p.update_scalar("UENV_MOUNT_LIST",
+                    fmt::format("{}", fmt::join(uenvs | std::views::values |
+                                                    std::views::transform(
+                                                        mount_description),
+                                                ",")));
+
+    // set UENV_VIEW env variable
+    auto view_description = [this](const auto& v) {
+        return fmt::format("{}:{}:{}", uenvs.at(v.uenv).mount_path, v.uenv,
+                           v.name);
+    };
+
+    p.update_scalar("UENV_VIEW",
+                    fmt::format("{}", fmt::join(views | std::views::transform(
+                                                            view_description),
+                                                ",")));
+    // set UENV_REPO env variable
+    auto repo_description = [](const auto& r) {
+        return fmt::format("{}:{}", r.name, r.path);
+    };
+    p.update_scalar("UENV_REPO",
+                    fmt::format("{}", fmt::join(repos | std::views::transform(
+                                                            repo_description),
+                                                ",")));
+
+    // set UENV_TELEMETRY env variable
+    p.update_scalar("UENV_TELEMETRY", to_string(make_telemetry(*this)));
+
     return p;
 }
 
 // returns true iff in a running uenv session
 bool in_uenv_session(const envvars::state& e) {
+    // TODO: this could be extended to check whether squashfs files are mounted
+    // at the locations in UENV_MOUNT_LIST
     return e.get("UENV_MOUNT_LIST") && e.get("UENV_VIEW");
 }
 
@@ -276,6 +308,7 @@ resolve_uenv_args(const std::string& uenv_description, const repo_list& repos,
 util::expected<env, std::string>
 concretise_env(const std::vector<resolved_uenv>& input_uenvs,
                const std::optional<std::string>& view_args,
+               const std::string& uenv_description, const repo_list& repos,
                bool use_default_views) {
     namespace fs = std::filesystem;
 
@@ -489,7 +522,10 @@ concretise_env(const std::vector<resolved_uenv>& input_uenvs,
         }
     }
 
-    return env{uenvs, views};
+    return env{.uenvs = uenvs,
+               .views = views,
+               .repos = repos,
+               .uenv_arg = uenv_description};
 }
 
 // list of environment variables that are ignored in setuid applications
@@ -537,18 +573,6 @@ envvars::state generate_environment(const env& environment,
 
     vars.apply_patch(environment.patch(), envvars::expand_delim::view);
 
-    // set UENV_VIEW env variable, used inside the environment by uenv
-    auto view_description = [&environment](const auto& v) {
-        return fmt::format("{}:{}:{}", environment.uenvs.at(v.uenv).mount_path,
-                           v.uenv, v.name);
-    };
-
-    vars.set(
-        "UENV_VIEW",
-        fmt::format("{}", fmt::join(environment.views |
-                                        std::views::transform(view_description),
-                                    ",")));
-
     // search the environment for variables that are security sensitive, and
     // generate renamed copies.
     // Performed in two stages, because directly updating in the first loop
@@ -566,42 +590,6 @@ envvars::state generate_environment(const env& environment,
         vars.set(var.name, *(var.value));
     }
     return vars;
-}
-
-// Update the calling environment to apply the environment variable updates.
-// note: making this into a nice clean function that returns state that can be
-// used by the calling slurm plugin was too hard - because slurm requires that
-// the use of setenv/getenv/unsetenv or spank_getenv/spank_setenv/spank_unsetenv
-void patch_slurm_environment(const env& environment,
-                             envvars::state const& base) {
-    // create the full environment with all patches applied
-    envvars::state full_env =
-        generate_environment(environment, base, std::nullopt);
-
-    // get the patch that was applied
-    auto patch = environment.patch();
-
-    // iterate over all variables in the patch:
-    // - if the variable was unset: unset it in the calling environment
-    // - if the variable was set: apply the new value to the calling environment
-    for (auto& [name, _] : patch.scalars()) {
-        if (auto value = full_env.get(name)) {
-            setenv(name.c_str(), value->c_str(), 1);
-        } else {
-            unsetenv(name.c_str());
-        }
-    }
-    for (auto& [name, var] : patch.prefix_paths()) {
-        if (auto value = full_env.get(name)) {
-            setenv(name.c_str(), value->c_str(), 1);
-        } else {
-            unsetenv(name.c_str());
-        }
-    }
-
-    if (auto value = full_env.get("UENV_VIEW")) {
-        setenv("UENV_VIEW", value->c_str(), 1);
-    }
 }
 
 bool operator==(const uenv_record& lhs, const uenv_record& rhs) {

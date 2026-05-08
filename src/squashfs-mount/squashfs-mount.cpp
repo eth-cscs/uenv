@@ -160,7 +160,7 @@ int main(int argc, char** argv, char** envp) {
     }
 
     // add UENV environment variables
-    runtime_env.set("UENV_MOUNT_LIST", uenv_mount_list);
+    runtime_env.set("SQFS_MOUNT_LIST", uenv_mount_list);
 
     auto cenv = runtime_env.c_env();
     auto error = util::exec(*commands, cenv);

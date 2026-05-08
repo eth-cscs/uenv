@@ -217,6 +217,47 @@ TEST_CASE("parse view list", "[parse]") {
     }
 }
 
+TEST_CASE("parse env_view list", "[parse]") {
+    {
+        auto in = "";
+        auto result = uenv::parse_env_view_description(in);
+        if (!result) {
+            fmt::println("{}", result.error().message());
+        }
+        REQUIRE(result);
+        REQUIRE(result->empty());
+    }
+    {
+        auto in = "/img/store.squashfs:tools:develop-fast";
+        auto result = uenv::parse_env_view_description(in);
+        if (!result) {
+            fmt::println("{}", result.error().message());
+        }
+        REQUIRE(result);
+        REQUIRE(result->size() == 1u);
+        REQUIRE((*result)[0].mount == "/img/store.squashfs");
+        REQUIRE((*result)[0].name == "develop-fast");
+        REQUIRE((*result)[0].uenv == "tools");
+    }
+    {
+        // two views with a trailing comma
+        auto in = "/img/store.squashfs:tools:easy,/images/"
+                  "store.squashfs:application:default,";
+        auto result = uenv::parse_env_view_description(in);
+        if (!result) {
+            fmt::println("{}", result.error().message());
+        }
+        REQUIRE(result);
+        REQUIRE(result->size() == 2u);
+        REQUIRE((*result)[0].mount == "/img/store.squashfs");
+        REQUIRE((*result)[0].name == "easy");
+        REQUIRE((*result)[0].uenv == "tools");
+        REQUIRE((*result)[1].mount == "/images/store.squashfs");
+        REQUIRE((*result)[1].name == "default");
+        REQUIRE((*result)[1].uenv == "application");
+    }
+}
+
 TEST_CASE("parse uenv list", "[parse]") {
     {
         auto in = "prgenv-gnu/24.7:rc1:/user-environment";
@@ -231,8 +272,8 @@ TEST_CASE("parse uenv list", "[parse]") {
         REQUIRE(*d.mount() == "/user-environment");
     }
     {
-        // test case where no tag is provide - ensure that the mount point
-        // after the : character is read correctly.
+        // test case where no tag is provide - ensure that the mount
+        // point after the : character is read correctly.
         auto in = "prgenv-gnu/24.7:/user-environment";
         auto result = uenv::parse_uenv_args(in);
         REQUIRE(result);
@@ -257,7 +298,8 @@ TEST_CASE("parse uenv list", "[parse]") {
         REQUIRE(!d.mount());
     }
     {
-        auto in = "/scratch/.uenv-images/sdfklsdf890df9a87sdf/store.squashfs:/"
+        auto in = "/scratch/.uenv-images/sdfklsdf890df9a87sdf/"
+                  "store.squashfs:/"
                   "user-environment/store-asdf/my-image_mnt_point3//"
                   ",prgenv-nvidia";
         auto result = uenv::parse_uenv_args(in);
@@ -265,8 +307,8 @@ TEST_CASE("parse uenv list", "[parse]") {
         REQUIRE(result->size() == 2);
         auto d = (*result)[0];
         auto n = *d.filename();
-        REQUIRE(n ==
-                "/scratch/.uenv-images/sdfklsdf890df9a87sdf/store.squashfs");
+        REQUIRE(n == "/scratch/.uenv-images/sdfklsdf890df9a87sdf/"
+                     "store.squashfs");
         REQUIRE(*d.mount() ==
                 "/user-environment/store-asdf/my-image_mnt_point3//");
         d = (*result)[1];
@@ -483,13 +525,14 @@ TEST_CASE("cluster", "[parse]") {
     //
     // the first part of a hyphenated name is dropped, because some CSCS
     // clusters used to be use alps-NAME to name the cluster.
-    // REQUIRE(uenv::parse_cluster_name("alps-eiger").value() == "eiger");
+    // REQUIRE(uenv::parse_cluster_name("alps-eiger").value() ==
+    // "eiger");
     REQUIRE(uenv::parse_cluster_name("eiger").value() == "eiger");
     REQUIRE(uenv::parse_cluster_name("daint").value() == "daint");
     REQUIRE(uenv::parse_cluster_name("  eiger_ln002 ").value() ==
             "eiger_ln002");
-    // * is a wildcard that means "all", which is represented by an empty
-    // std::optional
+    // * is a wildcard that means "all", which is represented by an
+    // empty std::optional
     REQUIRE(uenv::parse_cluster_name("*").value() == std::nullopt);
 
     REQUIRE(!uenv::parse_cluster_name("*wombat"));
@@ -501,8 +544,8 @@ TEST_CASE("cluster", "[parse]") {
     // empty names are not permitted
     REQUIRE(!uenv::parse_cluster_name(""));
 
-    // maybe the following should be enabled in the future, i.e. strip alps- and
-    // glob remaining - into the cluster name
+    // maybe the following should be enabled in the future, i.e. strip
+    // alps- and glob remaining - into the cluster name
     REQUIRE(!uenv::parse_cluster_name("alps-daint-ln002"));
 }
 
@@ -520,8 +563,8 @@ TEST_CASE("xthostname", "[parse]") {
     // empty names are not permitted
     REQUIRE(!uenv::parse_xthostname(""));
 
-    // maybe the following should be enabled in the future, i.e. strip alps- and
-    // glob remaining - into the cluster name
+    // maybe the following should be enabled in the future, i.e. strip
+    // alps- and glob remaining - into the cluster name
     REQUIRE(!uenv::parse_xthostname("alps-daint-ln002"));
 }
 
@@ -613,8 +656,8 @@ TEST_CASE("parse repo label", "[parse]") {
         REQUIRE(!result.value().is_name_path());
         REQUIRE(result.value().as_path() == "/path/to/repo");
     }
-    // the public interface will generate an error if there are additional
-    // tokens after the first full label has been read
+    // the public interface will generate an error if there are
+    // additional tokens after the first full label has been read
     {
         auto result = uenv::parse_repo_label("wombat,dingo");
         REQUIRE(!result);
@@ -695,8 +738,8 @@ TEST_CASE("semver", "[parse]") {
 
     // https://semver.org/#spec-item-10
     //  note we don't enforce that numbers following points can't have
-    //  leading zeros so we parse invalid semver, however valid semver are
-    //  parsed correctly
+    //  leading zeros so we parse invalid semver, however valid semver
+    //  are parsed correctly
     for (std::string s :
          {"1.0.0-alpha+001", "1.0.0+20130313144700",
           "1.0.0-beta+exp.sha.5114f85", "1.0.0+21AF26D3----117B344092BD"}) {

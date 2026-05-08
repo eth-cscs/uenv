@@ -67,6 +67,7 @@ unit_src = [
         'unit/repository.cpp',
         'unit/settings.cpp',
         'unit/subprocess.cpp',
+        'unit/telemetry.cpp',
 ]
 
 unit = executable('unit',

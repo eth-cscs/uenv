@@ -52,6 +52,9 @@ struct parse_error {
 util::expected<std::vector<view_description>, parse_error>
 parse_view_args(const std::string& arg);
 
+util::expected<std::vector<env_view_description>, parse_error>
+parse_env_view_description(const std::string& arg);
+
 util::expected<std::vector<uenv_description>, parse_error>
 parse_uenv_args(const std::string& arg);
 

@@ -10,7 +10,7 @@ function logf() {
 
 function run_srun_unchecked() {
   log "+ srun $@"
-  run srun -N1 --oversubscribe "$@"
+  run srun -n1 --oversubscribe "$@"
 
   log "${output}"
 
@@ -24,7 +24,7 @@ function run_srun() {
 
 function run_sbatch_unchecked() {
   slurm_log=$(mktemp)
-  run sbatch --wait -o "${slurm_log}" "$@"
+  run sbatch --wait --output "${slurm_log}" "$@"
   log "${output}"
   logf "+ job log (${slurm_log}):\n$(cat ${slurm_log})"
 }

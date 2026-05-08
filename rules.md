@@ -32,7 +32,7 @@ Setting `SLURM_UENV` as a read-only reflection of the active session allows all 
 
 When `sbatch` or `salloc` is called, the plugin checks for signs that a uenv session is already active in the calling environment:
 - `SLURM_UENV` is set → the submission is being made from inside a running Slurm uenv job.
-- `UENV_MOUNT_LIST` is set (without `SLURM_UENV`) → the submission is being made from a CLI `uenv run` or `uenv start` session on a login node.
+- `UENV_MOUNT_LIST` **and** `UENV_VIEW` are both set (without `SLURM_UENV`) → the submission is being made from a CLI `uenv run` or `uenv start` session on a login node. Both variables are always set together by the CLI; checking both avoids false positives from stale or partial environment state.
 
 ### Why a hard error, not a warning?
 
@@ -40,11 +40,11 @@ If an active uenv session is detected and no explicit uenv is specified for the 
 
 ### Rules
 
-1. If `SLURM_UENV` or `UENV_MOUNT_LIST` is set in the calling environment, **and** neither `--uenv` nor `--uenv-ignore` was given → **hard error**. The error message must explain both options.
+1. If an active session is detected (see above), **and** neither `--uenv` nor `--uenv-passthrough` was given → **hard error**. The error message must explain both options.
 
-2. If `SLURM_UENV` or `UENV_MOUNT_LIST` is set, **and** `--uenv=<image>` was explicitly given → start fresh with the specified image. The inherited session state is fully replaced. This is the supported path for sbatch-inside-sbatch workflows where the inner job uses a different uenv.
+2. If an active session is detected, **and** `--uenv=<image>` was explicitly given → start fresh with the specified image. The inherited session state is fully replaced. This is the supported path for sbatch-inside-sbatch workflows where the inner job uses a different uenv.
 
-3. If `SLURM_UENV` or `UENV_MOUNT_LIST` is set, **and** `--uenv-ignore` was given → proceed with no uenv. `SBATCH_UENV` is also ignored. This is the supported escape for inner jobs that want to run clean.
+3. If an active session is detected, **and** `--uenv-passthrough=ignore` was given → proceed with no uenv. `SBATCH_UENV` is also ignored. This is the supported escape for inner jobs that want to run clean.
 
 4. If the calling environment is clean (no active session): resolve the uenv from `--uenv` flag > `SBATCH_UENV` env var > nothing. If a uenv was resolved: patch environment variables, set `UENV_MOUNT_LIST`, set `SLURM_UENV`/`SLURM_VIEW`, and unset `SBATCH_UENV`/`SBATCH_VIEW` from the downstream environment.
 
@@ -69,7 +69,7 @@ The `#SBATCH --uenv=...` header form remains fully supported. It is the natural 
 
 2. If `SLURM_UENV` is set (inside a running Slurm uenv job) → **mount-only mode**: do not re-patch environment variables (they were set at allocation time). Validate `UENV_MOUNT_LIST` and pass it through to the remote context. `SBATCH_UENV` is ignored.
 
-3. If `UENV_MOUNT_LIST` is set but `SLURM_UENV` is not (inside a CLI `uenv run`/`uenv start` session) → same as case 2: validate and pass through, no environment patching. `SBATCH_UENV` is ignored.
+3. If `UENV_MOUNT_LIST` and `UENV_VIEW` are both set but `SLURM_UENV` is not (inside a CLI `uenv run`/`uenv start` session) → same as case 2: validate and pass through, no environment patching. `SBATCH_UENV` is ignored.
 
 4. If `SBATCH_UENV` is set and no active session is detected → treat as equivalent to `--uenv`. Full setup as in case 1. This supports CI/CD pipelines and other contexts where specifying flags on the command line is awkward.
 
@@ -83,3 +83,19 @@ An active session (cases 2 and 3) means the environment is already configured. A
 ## Remote context (compute node)
 
 No changes. The remote context reads `UENV_MOUNT_LIST`, validates each entry, creates a mount namespace, and mounts the squashfs images. It does not modify environment variables.
+
+---
+
+## Open questions
+
+### `SBATCH_UENV` in the `srun` local context (case 4 above)
+
+The current implementation respects `SBATCH_UENV` in `srun` even when no session is active, deviating from the strict Slurm convention that `SBATCH_*` variables only apply to `sbatch`/`salloc`.
+
+Two options under consideration:
+
+**Option A (current):** `srun` reads `SBATCH_UENV` when no active session is detected, treating it as equivalent to `--uenv`. Rationale: the variable is always unset by the plugin after use, so any `SBATCH_UENV` present at `srun` time inside a job script must have been deliberately re-set by the user.
+
+**Option B:** `SBATCH_UENV` is only consumed in the allocator context (`sbatch`/`salloc`) and ignored (but still unset) in `srun`. This follows the Slurm `SBATCH_*` convention exactly and eliminates the edge case where a user with `SBATCH_UENV` in their `.bashrc` gets unexpected behaviour when calling `srun` from a CLI `uenv run` session.
+
+The deciding factor is how CI/CD jobs are structured: if they always go through `sbatch`, option B is safe; if they call `srun` directly without a prior allocation, option B would be a breaking change. Awaiting input from the CI/CD team before deciding.

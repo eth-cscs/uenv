@@ -68,8 +68,9 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         return 1;
     }
 
-    const auto env = concretise_env(resolved.value(), args.view_description,
-                                    !args.disable_default_view);
+    const auto env = concretise_env(
+        resolved.value(), args.view_description, args.uenv_description,
+        settings.config.repos, !args.disable_default_view);
 
     if (!env) {
         term::error("{}", env.error());

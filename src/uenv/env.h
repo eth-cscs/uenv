@@ -21,6 +21,18 @@ struct env {
     // the order of views matters: views are initialised in order
     std::vector<qualified_view_description> views;
 
+    //
+    // the repos and uenv_arg are used to set the UENV and UENV_REPO environment
+    // variables in the patch() function.
+    //
+
+    // the list of repositories that were used to look up environments
+    repo_list repos;
+
+    // the argument passed to --uenv/uenv run/uenv start to look up
+    std::string uenv_arg;
+
+    // the environment variable patch
     envvars::patch patch() const;
 };
 
@@ -94,12 +106,11 @@ resolve_uenv_args(const std::string& uenv_description, const repo_list& repos,
 util::expected<env, std::string>
 concretise_env(const std::vector<resolved_uenv>& uenvs,
                const std::optional<std::string>& view_args,
+               const std::string& uenv_description, const repo_list& repos,
                bool use_default_views);
 
 envvars::state generate_environment(const env&, const envvars::state&,
                                     std::optional<std::string> = std::nullopt);
-
-void patch_slurm_environment(const env&, const envvars::state&);
 
 // returns true iff in a running uenv session
 bool in_uenv_session(const envvars::state&);
