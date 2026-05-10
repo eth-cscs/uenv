@@ -441,6 +441,13 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         // derive telemetry information from the calling environment
         telemetry_g = uenv::slurm::telemetry_from_env(calling_environment);
 
+        // load elastic config so telemetry can be posted (the new-mount path
+        // does this too; passthrough must do it here since it skips that branch)
+        if (auto full_config =
+                uenv::load_config({}, {}, calling_environment)) {
+            config_g = uenv::generate_configuration(full_config.value());
+        }
+
         // srun called from login node with a uenv loaded
         //      - UENV_*  set
         //      - SLURM_* not set

@@ -116,13 +116,14 @@ def cmd_count(args):
 
 
 def cmd_wait(args):
-    p = Path(args.capture_file)
     deadline = time.monotonic() + args.timeout
     while time.monotonic() < deadline:
-        if p.exists() and p.stat().st_size > 0:
+        if len(_records(args.capture_file)) >= args.count:
             sys.exit(0)
         time.sleep(0.1)
-    print(f"error: no records received within {args.timeout}s", file=sys.stderr)
+    actual = len(_records(args.capture_file))
+    print(f"error: expected {args.count} record(s), got {actual} within {args.timeout}s",
+          file=sys.stderr)
     sys.exit(1)
 
 
@@ -179,9 +180,11 @@ def main():
     sp = sub.add_parser("count", help="print number of records received")
     sp.add_argument("capture_file")
 
-    sp = sub.add_parser("wait", help="wait until at least one record is received")
+    sp = sub.add_parser("wait", help="wait until at least N records are received")
     sp.add_argument("capture_file")
     sp.add_argument("--timeout", type=float, default=10.0, metavar="SECONDS")
+    sp.add_argument("--count", type=int, default=1, metavar="N",
+                    help="number of records to wait for (default: 1)")
 
     sp = sub.add_parser("get", help="pretty-print a record")
     sp.add_argument("capture_file")

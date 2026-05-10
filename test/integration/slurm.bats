@@ -334,3 +334,112 @@ EOF
     run elastic_mock assert "$elastic_capture" mount /user-tools
     assert_success
 }
+
+@test "elastic: srun passthrough" {
+    # srun called inside a uenv run session (no --uenv flag to srun).
+    # The plugin takes the passthrough path: telemetry is reconstructed from
+    # UENV_MOUNT_LIST/UENV_VIEW (UENV_TELEMETRY is not set by the CLI), so
+    # name="unknown" but mount is recoverable.
+    local RP=$REPOS/apptool
+
+    local elastic_port
+    elastic_port=$(elastic_mock free-port)
+    local elastic_capture
+    elastic_capture=$(mktemp)
+
+    start_elastic_mock "$elastic_capture" "$elastic_port"
+
+    mkdir -p "${XDG_CONFIG_HOME}/uenv"
+    printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
+        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+
+    run uenv --repo="$RP" run --view=tool tool -- srun -n1 --oversubscribe echo hello
+    assert_success
+
+    assert wait_elastic_post "$elastic_capture" 10
+
+    run elastic_mock count "$elastic_capture"
+    assert_output "1"
+
+    # UENV_TELEMETRY is set by uenv run so name is fully resolved
+    run elastic_mock assert "$elastic_capture" name tool
+    assert_success
+    run elastic_mock assert "$elastic_capture" mount /user-tools
+    assert_success
+}
+
+@test "elastic: sbatch uenv preamble with nested srun" {
+    # sbatch with #SBATCH --uenv preamble, then srun inside with no flags.
+    # sbatch runs in S_CTX_ALLOCATOR so slurm_spank_local_user_init is never
+    # called for it — only the nested srun (S_CTX_LOCAL) posts telemetry.
+    # One record expected.
+    local RP=$REPOS/apptool
+
+    local elastic_port
+    elastic_port=$(elastic_mock free-port)
+    local elastic_capture
+    elastic_capture=$(mktemp)
+
+    start_elastic_mock "$elastic_capture" "$elastic_port"
+
+    mkdir -p "${XDG_CONFIG_HOME}/uenv"
+    printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
+        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+
+    run_sbatch --repo="$RP" <<'EOF'
+#!/bin/bash
+#SBATCH --uenv=tool
+#SBATCH --view=tool
+srun echo hello
+EOF
+
+    # one record: srun step inside the batch job (passthrough path)
+    assert wait_elastic_post "$elastic_capture" 15
+
+    run elastic_mock count "$elastic_capture"
+    assert_output "1"
+
+    run elastic_mock assert "$elastic_capture" name tool
+    assert_success
+    run elastic_mock assert "$elastic_capture" mount /user-tools
+    assert_success
+}
+
+@test "elastic: sbatch multiple explicit srun steps" {
+    # sbatch with no --uenv preamble; each srun step uses an explicit --uenv.
+    # Two records expected, one per srun step (both take the new-mount path).
+    local RP=$REPOS/apptool
+
+    local elastic_port
+    elastic_port=$(elastic_mock free-port)
+    local elastic_capture
+    elastic_capture=$(mktemp)
+
+    start_elastic_mock "$elastic_capture" "$elastic_port"
+
+    mkdir -p "${XDG_CONFIG_HOME}/uenv"
+    printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
+        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+
+    run_sbatch <<EOF
+#!/bin/bash
+srun --repo=$RP --uenv=tool --view=tool echo hello
+srun --repo=$RP --uenv=app/42.0 --view=app app
+EOF
+
+    # wait for both async POSTs (one per srun step, sequential so order is deterministic)
+    assert wait_elastic_post "$elastic_capture" 15 2
+
+    run elastic_mock count "$elastic_capture"
+    assert_output "2"
+
+    run elastic_mock assert "$elastic_capture" name tool --record 0
+    assert_success
+    run elastic_mock assert "$elastic_capture" mount /user-tools --record 0
+    assert_success
+
+    run elastic_mock assert "$elastic_capture" name app --record 1
+    assert_success
+    run elastic_mock assert "$elastic_capture" mount /user-environment --record 1
+    assert_success
+}

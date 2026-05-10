@@ -32,10 +32,10 @@ function stop_elastic_mock() {
     fi
 }
 
-# wait_elastic_post CAPTURE_FILE [TIMEOUT_SECONDS]
-# Returns 0 once at least one POST has been captured, 1 on timeout.
+# wait_elastic_post CAPTURE_FILE [TIMEOUT_SECONDS [COUNT]]
+# Returns 0 once at least COUNT POSTs have been captured, 1 on timeout.
 function wait_elastic_post() {
-    elastic_mock wait "$1" --timeout "${2:-10}"
+    elastic_mock wait "$1" --timeout "${2:-10}" --count "${3:-1}"
 }
 
 function run_srun_unchecked() {
