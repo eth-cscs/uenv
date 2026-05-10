@@ -3,7 +3,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <uenv/parse.h>
 #include <uenv/telemetry.h>
+#include <uenv/uenv.h>
 #include <util/expected.h>
 
 namespace uenv {
@@ -35,7 +37,6 @@ std::string to_string(const std::vector<telemetry_data>& telemetry) {
 
 util::expected<std::vector<telemetry_data>, std::string>
 parse_telemetry(const std::string& s) {
-    // TODO: apply validation to all of the values in a telemetry field
     try {
         const auto data = nlohmann::json::parse(s);
 
@@ -53,12 +54,56 @@ parse_telemetry(const std::string& s) {
         }
         std::vector<telemetry_data> result;
         for (auto& entry : data) {
-            result.push_back({.mount = entry["mount"],
-                              .sqfs = entry["sqfs"],
-                              .digest = to_optional(entry["digest"]),
-                              .views = entry["views"],
-                              .label = to_optional(entry["label"]),
-                              .name = entry["name"]});
+            telemetry_data T;
+
+            const std::string mount = entry["mount"];
+            const auto mount_r = uenv::parse_path(mount);
+            if (!mount_r) {
+                return util::unexpected{fmt::format("invalid mount '{}': {}",
+                                                    mount,
+                                                    mount_r.error().message())};
+            }
+            T.mount = mount_r.value();
+
+            const std::string sqfs = entry["sqfs"];
+            const auto sqfs_r = uenv::parse_path(sqfs);
+            if (!sqfs_r) {
+                return util::unexpected{fmt::format(
+                    "invalid sqfs '{}': {}", sqfs, sqfs_r.error().message())};
+            }
+            T.sqfs = sqfs_r.value();
+
+            T.digest = to_optional(entry["digest"]);
+            if (T.digest && !uenv::is_sha(T.digest.value(), 64)) {
+                return util::unexpected{fmt::format(
+                    "invalid digest '{}': expected 64-character hex string",
+                    T.digest.value())};
+            }
+
+            T.label = to_optional(entry["label"]);
+            if (T.label) {
+                const auto label_r = uenv::parse_uenv_label(T.label.value());
+                if (!label_r) {
+                    return util::unexpected{
+                        fmt::format("invalid label '{}': {}", T.label.value(),
+                                    label_r.error().message())};
+                }
+                T.label = fmt::format("{}", label_r.value());
+            }
+
+            T.name = entry["name"].get<std::string>();
+            if (T.name.empty()) {
+                return util::unexpected{"uenv name is empty"};
+            }
+
+            T.views = entry["views"].get<std::vector<std::string>>();
+            for (const auto& v : T.views) {
+                if (v.empty()) {
+                    return util::unexpected{"view name is empty"};
+                }
+            }
+
+            result.push_back(std::move(T));
         }
 
         return result;

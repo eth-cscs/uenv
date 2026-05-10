@@ -43,14 +43,12 @@ bool in_slurm_uenv_session(const envvars::state& env) {
 std::vector<telemetry_data>
 telemetry_from_env(const envvars::state& calling_environment) {
     if (const auto var = calling_environment.get("UENV_TELEMETRY")) {
-        if (const auto result = parse_telemetry(*var)) {
-            return *result;
+        if (const auto result = parse_telemetry(var.value())) {
+            return result.value();
         }
+        slurm_error("UENV_TELEMETRY is set but could not be parsed; "
+                    "falling back to UENV_MOUNT_LIST");
     }
-
-    // TODO: we now record UENV_REPO: can this be used?
-    // ... it probably doesn't provide us with much more information because we
-    // still do not have the label.
 
     if (const auto mounts_var = calling_environment.get("UENV_MOUNT_LIST")) {
         const auto views = parse_env_view_description(
@@ -75,6 +73,9 @@ telemetry_from_env(const envvars::state& calling_environment) {
                 telemetry.push_back(std::move(T));
             }
             return telemetry;
+        } else {
+            slurm_error("UENV_MOUNT_LIST is malformed: %s",
+                        mounts.error().message().c_str());
         }
     }
 
@@ -123,14 +124,13 @@ void patch_slurm_environment(const uenv::env& environment,
         }
     }
 
-    // TODO: do we set these variables as empty strings when they are not set?
-    // set the SLURM_UENV* variables that indicate the status of uenv set by
-    // the plugin
     std::string view_v =
         full_env.get("UENV_VIEW").value_or(args.view_description.value_or(""));
     std::string repo_v =
         full_env.get("UENV_REPO").value_or(args.repo_description.value_or(""));
-    ::setenv("SLURM_UENV", args.uenv_description.value_or("").c_str(), 1);
+    std::string uenv_v =
+        full_env.get("UENV").value_or(args.uenv_description.value_or(""));
+    ::setenv("SLURM_UENV", uenv_v.c_str(), 1);
     ::setenv("SLURM_UENV_VIEW", view_v.c_str(), 1);
     ::setenv("SLURM_UENV_REPO", repo_v.c_str(), 1);
 }

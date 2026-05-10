@@ -355,12 +355,13 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
 
     // Slurm replays allocation-level SPANK options (e.g. --uenv=tool set via
     // #SBATCH) for every srun step. Inside a running Slurm uenv job this would
-    // set args.uenv_description to the allocation's value, causing the plugin to
-    // re-apply view patches on every step instead of entering passthrough mode.
-    // Detect the replay by comparing to SLURM_UENV: if they match the user did
-    // not override the uenv on this srun invocation, so clear the args to get
-    // passthrough behaviour. A mismatch means a genuine explicit override (e.g.
-    // srun --uenv=other inside a job allocated with --uenv=tool).
+    // set args.uenv_description to the allocation's value, causing the plugin
+    // to re-apply view patches on every step instead of entering passthrough
+    // mode. Detect the replay by comparing to SLURM_UENV: if they match the
+    // user did not override the uenv on this srun invocation, so clear the args
+    // to get passthrough behaviour. A mismatch means a genuine explicit
+    // override (e.g. srun --uenv=other inside a job allocated with
+    // --uenv=tool).
     if (in_srun && uenv::slurm::in_slurm_uenv_session(calling_environment)) {
         const auto slurm_uenv = calling_environment.get("SLURM_UENV");
         if (slurm_uenv && args.uenv_description &&
@@ -431,7 +432,8 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     if (pass_through) {
         // verify that the mounts provided by UENV_MOUNT_LIST are valid
         const auto mount_var = calling_environment.get("UENV_MOUNT_LIST");
-        if (auto mount_list = uenv::parse_and_validate_mounts(*mount_var);
+        if (auto mount_list =
+                uenv::parse_and_validate_mounts(mount_var.value());
             !mount_list) {
             slurm_error("invalid UENV_MOUNT_LIST: %s",
                         mount_list.error().c_str());
@@ -442,9 +444,9 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         telemetry_g = uenv::slurm::telemetry_from_env(calling_environment);
 
         // load elastic config so telemetry can be posted (the new-mount path
-        // does this too; passthrough must do it here since it skips that branch)
-        if (auto full_config =
-                uenv::load_config({}, {}, calling_environment)) {
+        // does this too; passthrough must do it here since it skips that
+        // branch)
+        if (auto full_config = uenv::load_config({}, {}, calling_environment)) {
             config_g = uenv::generate_configuration(full_config.value());
         }
 
@@ -455,11 +457,22 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         if (!uenv::slurm::in_slurm_uenv_session(calling_environment)) {
             const auto view_var = calling_environment.get("UENV_VIEW");
             const auto repo_var = calling_environment.get("UENV_REPO");
+            const auto uenv_var = calling_environment.get("UENV");
             // TODO: we need to record the arguments passed by the user at
             // source: SLURM_UENV is a record of the user request, not the
             // realised result.
-            ::setenv("SLURM_UENV", "", 1);
-            ::setenv("SLURM_UENV_VIEW", view_var.value_or("").c_str(), 1);
+            std::string view_forwarded;
+            if (view_var) {
+                if (const auto r =
+                        uenv::parse_env_view_description(view_var.value())) {
+                    view_forwarded = view_var.value();
+                } else {
+                    slurm_error("UENV_VIEW is malformed, ignoring: %s",
+                                r.error().message().c_str());
+                }
+            }
+            ::setenv("SLURM_UENV", uenv_var.value_or("").c_str(), 1);
+            ::setenv("SLURM_UENV_VIEW", view_forwarded.c_str(), 1);
             ::setenv("SLURM_UENV_REPO", repo_var.value_or("").c_str(), 1);
         }
     }
