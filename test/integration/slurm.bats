@@ -20,13 +20,19 @@ function setup() {
     rm -rf $TMP
     mkdir -p $TMP
 
+    # use an isolated XDG_CONFIG_HOME so tests are not affected by the
+    # developer's real uenv config (e.g. an elastic URL that would cause
+    # unexpected telemetry posts)
+    export XDG_CONFIG_HOME=$(mktemp -d)
+
     # remove the bash function uenv, if an older version of uenv is installed on
     # the system
     unset -f uenv
 }
 
 function teardown() {
-    :
+    stop_elastic_mock
+    rm -rf "${XDG_CONFIG_HOME:-}"
 }
 
 @test "noargs" {
@@ -294,4 +300,37 @@ fi
 # squashfs must be mounted in the remote context
 srun -n1 findmnt /user-tools
 EOF
+}
+
+@test "elastic telemetry" {
+    local RP=$REPOS/apptool
+
+    local elastic_port
+    elastic_port=$(elastic_mock free-port)
+
+    local elastic_capture
+    elastic_capture=$(mktemp)
+
+    start_elastic_mock "$elastic_capture" "$elastic_port"
+
+    # write elastic config into the isolated XDG_CONFIG_HOME created in setup()
+    mkdir -p "${XDG_CONFIG_HOME}/uenv"
+    printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
+        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+
+    # run a full-setup srun (explicit --uenv triggers new-mount path which loads
+    # config and populates config_g.elastic_config)
+    run_srun_unchecked --repo="$RP" --uenv=tool --view=tool echo hello
+    assert_success
+
+    # wait for the asynchronous child process to POST to the mock server
+    assert wait_elastic_post "$elastic_capture" 10
+
+    run elastic_mock count "$elastic_capture"
+    assert_output "1"
+
+    run elastic_mock assert "$elastic_capture" name tool
+    assert_success
+    run elastic_mock assert "$elastic_capture" mount /user-tools
+    assert_success
 }

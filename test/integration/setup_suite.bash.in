@@ -13,13 +13,16 @@ function setup_suite() {
     export BUILD_PATH=@build_path@
 
     # BIN_PATH is the path that contains binaries (uenv, squashfs-mount, etc, to test)
-    # It can be overriden at runtime 
+    # It can be overriden at runtime
     export BIN_PATH="${STAGING_PATH/bin-$BUILD_PATH}"
     if [ -n "$STAGING_PATH" ]; then
         export UENV_BIN_PATH="$STAGING_PATH/bin"
     else
         export UENV_BIN_PATH="$BUILD_PATH"
     fi
+
+    # test/elastic_mock and other test-only tools live in the test build dir
+    export PATH="$BUILD_PATH/test:${PATH}"
 }
 
 function teardown_suite() {

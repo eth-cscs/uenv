@@ -30,6 +30,13 @@ if uenv_cli
   fs.copyfile('integration/cli.bats', 'cli.bats')
 endif
 if uenv_slurm_plugin
+  custom_target('elastic-mock',
+      input: 'integration/elastic_mock',
+      output: 'elastic_mock',
+      command: ['install', '-m', '755', '@INPUT@', '@OUTPUT@'],
+      build_by_default: true,
+      install: false,
+  )
   fs.copyfile('integration/slurm.bats', 'slurm.bats')
 endif
 if uenv_squashfs_mount
@@ -40,11 +47,12 @@ suite_input = integration_path + '/setup_suite.bash.in'
 suite_ouput = meson.current_build_dir() + '/setup_suite.bash'
 setup_suite = custom_target (
     'setup-suite',
+    input: suite_input,
     output: 'setup_suite.bash',
     command: [
         integration_path + '/install-setup_suite.sh',
-        suite_input,
-        suite_ouput,
+        '@INPUT@',
+        '@OUTPUT@',
         meson.source_root(),
         meson.build_root(),
     ],
