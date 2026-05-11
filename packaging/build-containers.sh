@@ -4,7 +4,7 @@
 # Run this script whenever the Dockerfiles change, on each target architecture.
 #
 # Before pushing, authenticate with GHCR:
-#   echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+#   echo $GITHUB_TOKEN | podman login ghcr.io -u USERNAME --password-stdin
 
 set -euo pipefail
 
@@ -19,10 +19,10 @@ Options:
   -h, --help        show this help
   --os VERSION      build only this SLES version (default: all)
   --push            push image to GHCR after building
-  --registry REG    registry prefix (default: ghcr.io/eth-cscs)
+  --registry REG    registry prefix (default: ghcr.io/bcumming)
 "
 
-registry="ghcr.io/eth-cscs"
+registry="ghcr.io/bcumming"
 oslist="15.5 15.6"
 do_push=false
 
@@ -49,9 +49,9 @@ arch=$(uname -m)
 for os in $oslist; do
     image="$registry/uenv-build-sles$os:$arch"
     echo "=== building $image"
-    docker build -f "$scriptdir/dockerfiles/sles$os" -t "$image" "$scriptdir"
+    podman build -f "$scriptdir/dockerfiles/sles$os" -t "$image" "$scriptdir"
     if $do_push; then
         echo "=== pushing $image"
-        docker push "$image"
+        podman push "$image"
     fi
 done
