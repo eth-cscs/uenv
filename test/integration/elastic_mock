@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""elastic_mock — fake Elastic HTTP endpoint for integration tests.
+
+Subcommands
+-----------
+free-port                           print a free TCP port and exit
+serve  CAPTURE_FILE PORT            run HTTP server on 127.0.0.1:PORT;
+                                    appends each POST body as a JSON line
+                                    to CAPTURE_FILE; writes PID to
+                                    CAPTURE_FILE.pid on startup
+wait-server PORT [--timeout N]      wait until server is accepting connections
+                                    (default timeout: 5 s)
+kill   CAPTURE_FILE                 stop a serve process via its PID file
+count  CAPTURE_FILE                 print number of records received
+wait   CAPTURE_FILE [--timeout N]   wait until at least one record is received
+                                    (default timeout: 10 s)
+get    CAPTURE_FILE [N]             pretty-print record N (default: last)
+assert CAPTURE_FILE KEY VALUE       assert data[KEY] == VALUE in record N
+       [--record N]                 (default record: 0); exits 1 on mismatch
+"""
+import argparse
+import json
+import os
+import signal
+import socket
+import sys
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+
+def _pid_path(capture_file: str) -> Path:
+    return Path(capture_file).with_suffix(".pid")
+
+
+def _records(capture_file: str) -> list:
+    p = Path(capture_file)
+    if not p.exists():
+        return []
+    return [json.loads(line) for line in p.read_text().splitlines() if line.strip()]
+
+
+# ── subcommands ───────────────────────────────────────────────────────────────
+
+def cmd_free_port(_args):
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("", 0))
+    port = s.getsockname()[1]
+    s.close()
+    print(port)
+
+
+def cmd_serve(args):
+    capture_file = args.capture_file
+    pid_path = _pid_path(capture_file)
+    pid_path.write_text(str(os.getpid()))
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            with open(capture_file, "a") as f:
+                f.write(body.decode("utf-8") + "\n")
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *_):
+            pass
+
+    def cleanup(sig, frame):
+        pid_path.unlink(missing_ok=True)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, cleanup)
+    signal.signal(signal.SIGINT, cleanup)
+
+    try:
+        HTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
+    finally:
+        pid_path.unlink(missing_ok=True)
+
+
+def cmd_wait_server(args):
+    deadline = time.monotonic() + args.timeout
+    while time.monotonic() < deadline:
+        try:
+            s = socket.socket()
+            s.settimeout(0.2)
+            s.connect(("127.0.0.1", args.port))
+            s.close()
+            sys.exit(0)
+        except OSError:
+            pass
+        time.sleep(0.1)
+    print(f"error: server on port {args.port} did not start within {args.timeout}s",
+          file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_kill(args):
+    pid_path = _pid_path(args.capture_file)
+    if not pid_path.exists():
+        print(f"error: no PID file found for {args.capture_file}", file=sys.stderr)
+        sys.exit(1)
+    pid = int(pid_path.read_text().strip())
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    pid_path.unlink(missing_ok=True)
+
+
+def cmd_count(args):
+    print(len(_records(args.capture_file)))
+
+
+def cmd_wait(args):
+    deadline = time.monotonic() + args.timeout
+    while time.monotonic() < deadline:
+        if len(_records(args.capture_file)) >= args.count:
+            sys.exit(0)
+        time.sleep(0.1)
+    actual = len(_records(args.capture_file))
+    print(f"error: expected {args.count} record(s), got {actual} within {args.timeout}s",
+          file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_get(args):
+    records = _records(args.capture_file)
+    if not records:
+        print("error: no records in capture file", file=sys.stderr)
+        sys.exit(1)
+    n = args.n if args.n is not None else len(records) - 1
+    if n < 0 or n >= len(records):
+        print(f"error: record {n} out of range (0..{len(records) - 1})", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(records[n], indent=2))
+
+
+def cmd_assert(args):
+    records = _records(args.capture_file)
+    if not records:
+        print("error: no records in capture file", file=sys.stderr)
+        sys.exit(1)
+    n = args.record
+    if n >= len(records):
+        print(f"error: record {n} out of range (0..{len(records) - 1})", file=sys.stderr)
+        sys.exit(1)
+    data = records[n]
+    actual = data.get(args.key)
+    if str(actual) != args.value:
+        print(f"assert failed: {args.key!r} = {actual!r}, expected {args.value!r}",
+              file=sys.stderr)
+        print(f"  full record: {json.dumps(data)}", file=sys.stderr)
+        sys.exit(1)
+
+
+# ── argument parsing ──────────────────────────────────────────────────────────
+
+def main():
+    p = argparse.ArgumentParser(prog="elastic_mock",
+                                description="Fake Elastic HTTP endpoint for integration tests.")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("free-port", help="print a free TCP port and exit")
+
+    sp = sub.add_parser("serve", help="run the mock HTTP server")
+    sp.add_argument("capture_file", help="file to append POST bodies to")
+    sp.add_argument("port", type=int, help="port to listen on")
+
+    sp = sub.add_parser("wait-server", help="wait until server is accepting connections")
+    sp.add_argument("port", type=int)
+    sp.add_argument("--timeout", type=float, default=5.0, metavar="SECONDS")
+
+    sp = sub.add_parser("kill", help="stop a serve process via its PID file")
+    sp.add_argument("capture_file")
+
+    sp = sub.add_parser("count", help="print number of records received")
+    sp.add_argument("capture_file")
+
+    sp = sub.add_parser("wait", help="wait until at least N records are received")
+    sp.add_argument("capture_file")
+    sp.add_argument("--timeout", type=float, default=10.0, metavar="SECONDS")
+    sp.add_argument("--count", type=int, default=1, metavar="N",
+                    help="number of records to wait for (default: 1)")
+
+    sp = sub.add_parser("get", help="pretty-print a record")
+    sp.add_argument("capture_file")
+    sp.add_argument("n", type=int, nargs="?", default=None,
+                    help="record index (default: last)")
+
+    sp = sub.add_parser("assert", help="assert a field value in a record")
+    sp.add_argument("capture_file")
+    sp.add_argument("key")
+    sp.add_argument("value")
+    sp.add_argument("--record", type=int, default=0, metavar="N",
+                    help="record index to check (default: 0)")
+
+    args = p.parse_args()
+    dispatch = {
+        "free-port":   cmd_free_port,
+        "serve":       cmd_serve,
+        "wait-server": cmd_wait_server,
+        "kill":        cmd_kill,
+        "count":       cmd_count,
+        "wait":        cmd_wait,
+        "get":         cmd_get,
+        "assert":      cmd_assert,
+    }
+    dispatch[args.cmd](args)
+
+
+if __name__ == "__main__":
+    main()

@@ -20,13 +20,19 @@ function setup() {
     rm -rf $TMP
     mkdir -p $TMP
 
+    # use an isolated XDG_CONFIG_HOME so tests are not affected by the
+    # developer's real uenv config (e.g. an elastic URL that would cause
+    # unexpected telemetry posts)
+    export XDG_CONFIG_HOME=$(mktemp -d)
+
     # remove the bash function uenv, if an older version of uenv is installed on
     # the system
     unset -f uenv
 }
 
 function teardown() {
-    :
+    stop_elastic_mock
+    rm -rf "${XDG_CONFIG_HOME:-}"
 }
 
 @test "noargs" {
@@ -46,7 +52,7 @@ function teardown() {
     run_srun_unchecked --repo=$RP  --uenv=app/42.0 bash -c 'findmnt -r | grep /user-environment'
     assert_output --partial '/user-environment'
 
-    SLURM_UENV=app/42.0 run_srun_unchecked  --repo=$RP bash -c 'findmnt -r | grep /user-environment'
+    SBATCH_UENV=app/42.0 run_srun_unchecked --repo=$RP bash -c 'findmnt -r | grep /user-environment'
     assert_output --partial '/user-environment'
 
     # tool has default mount /user-tools
@@ -57,9 +63,9 @@ function teardown() {
     run_srun_unchecked --repo=$RP --uenv=app/42.0 --view=app app
     assert_output --partial 'hello app'
 
-    # check SLURM_UENV, SLURM_UENV_VIEW env variables
+    # check SLURM_UENV, SBATCH_UENV_VIEW, SBATCH_UENV_REPO env variables
     # if the view is mounted, the app should be visible
-    SLURM_UENV=app/42.0 SLURM_UENV_VIEW=app run_srun_unchecked --repo=$RP app
+    SBATCH_UENV=app/42.0 SBATCH_UENV_REPO=$RP SBATCH_UENV_VIEW=app run_srun_unchecked app
     assert_output --partial 'hello app'
 
     # if the view is mounted, the app should be visible
@@ -192,9 +198,47 @@ function teardown() {
 #SBATCH --uenv=app/42.0,tool
 #SBATCH --repo=$REPOS/apptool
 set -e
+
+# this returns non-zero if nothing is mounted
 srun findmnt /user-environment
 srun findmnt /user-tools
+
+# fails if the env var is not set
+env | grep ^UENV_MOUNT_LIST=
+env | grep ^UENV_REPO=
+env | grep ^UENV_VIEW=
+env | grep ^UENV_TELEMETRY=
+env | grep ^UENV=
+env | grep ^SLURM_UENV=
+env | grep ^SLURM_UENV_VIEW=
+env | grep ^SLURM_UENV_REPO=
 EOF
+
+    slurm_log=$(mktemp)
+    run uenv --repo=$REPOS/apptool run --view=tool tool -- sbatch --wait --output "${slurm_log}" --uenv-passthrough=use <<'EOF'
+#!/bin/bash
+set -e
+tool
+EOF
+    assert_success
+
+    # no need to wait because this should faile hard and fast
+    slurm_log=$(mktemp)
+    run uenv --repo=$REPOS/apptool run --view=tool tool -- sbatch <<'EOF'
+#!/bin/bash
+echo "should not get here"
+EOF
+    assert_failure
+
+    slurm_log=$(mktemp)
+    run uenv --repo=$REPOS/apptool run --view=tool tool -- sbatch --wait --output "${slurm_log}" --uenv-passthrough=ignore <<'EOF'
+#!/bin/bash
+set -e
+# squashfs must not be mounted: PATH still has view entries but the
+# mount point is empty, so findmnt must find nothing
+srun bash -c '! findmnt /user-tools'
+EOF
+    assert_success
 }
 
 @test "sbatch override in srun" {
@@ -228,32 +272,174 @@ EOF
     assert_output --partial "'uenv start' must be run in an interactive shell"
 }
 
-@test "sbatch UENV_MOUNT_LIST with no --uenv" {
-    # this should be independent of the repo
-    unset UENV_REPO_PATH
-
-    export UENV_MOUNT_LIST=$SQFS_LIB/apptool/tool/store.squashfs:/user-tools
-    run_sbatch <<EOF
+@test "srun does not re-apply view inside sbatch job" {
+    # Verify two things when srun is called inside an sbatch job that has a uenv:
+    #   1. the squashfs IS mounted in the remote context (srun's job)
+    #   2. the view's PATH entries are NOT prepended again by srun
+    #      (patches were applied once at allocation time; re-applying would push
+    #      any PATH modifications made inside the job back behind the view entries)
+    run_sbatch --repo=$REPOS/apptool <<'EOF'
 #!/bin/bash
+#SBATCH --uenv=tool
+#SBATCH --view=tool
 set -e
-srun findmnt /user-tools
-srun bash -c '! findmnt /user-environment'
-EOF
 
-    # sbatch should error if sqfs does not exist (there is a typo "toool" in sqfs name)
-    export UENV_MOUNT_LIST=$SQFS_LIB/apptool/toool/store.squashfs:/user-tools
-    run run_sbatch <<EOF
-#!/bin/bash
-echo "should not get here"
-EOF
-    [ "${status}" -eq "1" ]
+# the tool view has prepended its entries to PATH; now prepend /usr/wombat
+export PATH=/usr/wombat:$PATH
 
-    # sbatch should error if mount does not exist
-    export UENV_MOUNT_LIST=$SQFS_LIB/apptool/tool/store.squashfs:/user-toooools
-    run run_sbatch <<EOF
-#!/bin/bash
-echo "should not get here"
+# capture PATH as seen inside the srun remote context
+srun_path=$(srun -n1 bash -c 'echo $PATH')
+
+# /usr/wombat must still lead: if srun had re-applied the view it would have
+# been pushed behind the view's entries
+if [[ "$srun_path" != /usr/wombat:* ]]; then
+    echo "FAIL: view was re-applied by srun, PATH=$srun_path"
+    exit 1
+fi
+
+# squashfs must be mounted in the remote context
+srun -n1 findmnt /user-tools
 EOF
-    [ "${status}" -eq "1" ]
 }
 
+@test "elastic telemetry" {
+    local RP=$REPOS/apptool
+
+    local elastic_port
+    elastic_port=$(elastic_mock free-port)
+
+    local elastic_capture
+    elastic_capture=$(mktemp)
+
+    start_elastic_mock "$elastic_capture" "$elastic_port"
+
+    # write elastic config into the isolated XDG_CONFIG_HOME created in setup()
+    mkdir -p "${XDG_CONFIG_HOME}/uenv"
+    printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
+        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+
+    # run a full-setup srun (explicit --uenv triggers new-mount path which loads
+    # config and populates config_g.elastic_config)
+    run_srun_unchecked --repo="$RP" --uenv=tool --view=tool echo hello
+    assert_success
+
+    # wait for the asynchronous child process to POST to the mock server
+    assert wait_elastic_post "$elastic_capture" 10
+
+    run elastic_mock count "$elastic_capture"
+    assert_output "1"
+
+    run elastic_mock assert "$elastic_capture" name tool
+    assert_success
+    run elastic_mock assert "$elastic_capture" mount /user-tools
+    assert_success
+}
+
+@test "elastic: srun passthrough" {
+    # srun called inside a uenv run session (no --uenv flag to srun).
+    # The plugin takes the passthrough path: telemetry is reconstructed from
+    # UENV_MOUNT_LIST/UENV_VIEW (UENV_TELEMETRY is not set by the CLI), so
+    # name="unknown" but mount is recoverable.
+    local RP=$REPOS/apptool
+
+    local elastic_port
+    elastic_port=$(elastic_mock free-port)
+    local elastic_capture
+    elastic_capture=$(mktemp)
+
+    start_elastic_mock "$elastic_capture" "$elastic_port"
+
+    mkdir -p "${XDG_CONFIG_HOME}/uenv"
+    printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
+        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+
+    run uenv --repo="$RP" run --view=tool tool -- srun -n1 --oversubscribe echo hello
+    assert_success
+
+    assert wait_elastic_post "$elastic_capture" 10
+
+    run elastic_mock count "$elastic_capture"
+    assert_output "1"
+
+    # UENV_TELEMETRY is set by uenv run so name is fully resolved
+    run elastic_mock assert "$elastic_capture" name tool
+    assert_success
+    run elastic_mock assert "$elastic_capture" mount /user-tools
+    assert_success
+}
+
+@test "elastic: sbatch uenv preamble with nested srun" {
+    # sbatch with #SBATCH --uenv preamble, then srun inside with no flags.
+    # sbatch runs in S_CTX_ALLOCATOR so slurm_spank_local_user_init is never
+    # called for it — only the nested srun (S_CTX_LOCAL) posts telemetry.
+    # One record expected.
+    local RP=$REPOS/apptool
+
+    local elastic_port
+    elastic_port=$(elastic_mock free-port)
+    local elastic_capture
+    elastic_capture=$(mktemp)
+
+    start_elastic_mock "$elastic_capture" "$elastic_port"
+
+    mkdir -p "${XDG_CONFIG_HOME}/uenv"
+    printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
+        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+
+    run_sbatch --repo="$RP" <<'EOF'
+#!/bin/bash
+#SBATCH --uenv=tool
+#SBATCH --view=tool
+srun echo hello
+EOF
+
+    # one record: srun step inside the batch job (passthrough path)
+    assert wait_elastic_post "$elastic_capture" 15
+
+    run elastic_mock count "$elastic_capture"
+    assert_output "1"
+
+    run elastic_mock assert "$elastic_capture" name tool
+    assert_success
+    run elastic_mock assert "$elastic_capture" mount /user-tools
+    assert_success
+}
+
+@test "elastic: sbatch multiple explicit srun steps" {
+    # sbatch with no --uenv preamble; each srun step uses an explicit --uenv.
+    # Two records expected, one per srun step (both take the new-mount path).
+    local RP=$REPOS/apptool
+
+    local elastic_port
+    elastic_port=$(elastic_mock free-port)
+    local elastic_capture
+    elastic_capture=$(mktemp)
+
+    start_elastic_mock "$elastic_capture" "$elastic_port"
+
+    mkdir -p "${XDG_CONFIG_HOME}/uenv"
+    printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
+        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+
+    run_sbatch <<EOF
+#!/bin/bash
+srun --repo=$RP --uenv=tool --view=tool echo hello
+srun --repo=$RP --uenv=app/42.0 --view=app app
+EOF
+
+    # wait for both async POSTs (one per srun step, sequential so order is deterministic)
+    assert wait_elastic_post "$elastic_capture" 15 2
+
+    run elastic_mock count "$elastic_capture"
+    assert_output "2"
+
+    run elastic_mock assert "$elastic_capture" name tool --record 0
+    assert_success
+    run elastic_mock assert "$elastic_capture" mount /user-tools --record 0
+    assert_success
+
+    run elastic_mock assert "$elastic_capture" name app --record 1
+    assert_success
+    run elastic_mock assert "$elastic_capture" mount /user-environment --record 1
+    assert_success
+}

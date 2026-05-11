@@ -54,7 +54,7 @@ int main(int argc, char** argv, char** envp) {
     cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
     cli.add_flag("--version", print_version, "print version");
     cli.add_option("-s,--sqfs", raw_mounts,
-                   "comma separated list of uenv to mount");
+                   "comma separated list of squashfs files to mount");
     cli.add_option("commands", commands,
                    "the command to run, including with arguments");
 
@@ -159,8 +159,7 @@ int main(int argc, char** argv, char** envp) {
         }
     }
 
-    // add UENV environment variables
-    runtime_env.set("UENV_MOUNT_LIST", uenv_mount_list);
+    runtime_env.set("SQUASHFS_MOUNT_LIST", uenv_mount_list);
 
     auto cenv = runtime_env.c_env();
     auto error = util::exec(*commands, cenv);
