@@ -112,9 +112,9 @@ uenv_version=$(sed 's/-.*//' "${srcdir}/VERSION")
 prerelease=$(sed 's/^[^-]*-\?//' "${srcdir}/VERSION")
 slurm_tag=slurm$(echo $slurm_version | sed 's|\.[0-9]\+$||; s|\.||')
 if [[ -n "$prerelease" ]]; then
-    uenv_release="${slurm_tag}~${prerelease}"
+    uenv_release="${slurm_tag}~${prerelease}.SLES${rpm_os}"
 else
-    uenv_release="${slurm_tag}"
+    uenv_release="${slurm_tag}.SLES${rpm_os}"
 fi
 
 echo '======================================================='
