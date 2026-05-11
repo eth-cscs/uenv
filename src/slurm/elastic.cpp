@@ -68,6 +68,7 @@ slurm_elastic_payload(const std::vector<telemetry_data>& uenv_data,
 
         // this looks a bit funny because parse_cluster_name returns
         // expected<optional<string>>
+        // - nullopt implies "all clusters" in other parts of uenv
         data["vcluster"] =
             parse_cluster_name(cluster_name).value_or("").value_or("");
         data["hostname"] =

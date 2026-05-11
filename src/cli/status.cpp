@@ -14,6 +14,7 @@
 #include <spdlog/spdlog.h>
 
 #include <uenv/env.h>
+#include <uenv/parse.h>
 #include <util/strings.h>
 
 #include "help.h"
@@ -61,29 +62,7 @@ int status([[maybe_unused]] const status_args& args,
     std::string mount_desc =
         settings.calling_environment.get("UENV_MOUNT_LIST").value();
     std::string view_literal =
-        settings.calling_environment.get("UENV_VIEW").value();
-
-    // the UENV_VIEW environment variable is a comma-separated list of the form
-    //   mount:uenv-name:view-name
-    // concretise_uenv requires a comma-separated list of the form
-    //   uenv-name:view-name
-    std::string view_string = "";
-    for (auto view : util::split(view_literal, ',', true)) {
-        auto terms = util::split(view, ':', true);
-        if (terms.size() != 3) {
-            // just skip incorrectly formatted view description
-            spdlog::warn(
-                "incorrectly formatted view description in UENV_VIEW: '{}'",
-                view);
-            continue;
-        }
-        view_string += fmt::format("{}:{},", terms[1], terms[2]);
-    }
-    std::optional<std::string> view_desc;
-    if (!view_string.empty()) {
-        view_desc = view_string;
-    }
-    spdlog::debug("derived view description from UENV_VIEW {}", view_desc);
+        settings.calling_environment.get("UENV_VIEW").value_or("");
 
     const auto resolved = resolve_uenv_args(mount_desc, settings.config.repos);
     if (!resolved) {
@@ -92,7 +71,25 @@ int status([[maybe_unused]] const status_args& args,
         return 1;
     }
 
-    const auto env = concretise_env(resolved.value(), view_desc, false);
+    // the UENV_VIEW environment variable is a comma-separated list of the form
+    //   mount:uenv-name:view-name
+    // concretise_uenv requires a comma-separated list of the form
+    //   uenv-name:view-name
+    std::optional<std::string> view_desc;
+    if (auto views = parse_env_view_description(view_literal)) {
+        std::string view_string = "";
+        for (auto& v : *views) {
+            view_string += fmt::format("{}:{},", v.uenv, v.name);
+        }
+        view_desc = std::move(view_string);
+    } else {
+        spdlog::warn("unable to parse UENV_VIEW environment variable '{}'",
+                     view_desc);
+    }
+    spdlog::debug("derived view description from UENV_VIEW {}", view_desc);
+
+    const auto env = concretise_env(resolved.value(), view_desc, mount_desc,
+                                    settings.config.repos, false);
 
     if (!env) {
         term::error("could not interpret environment: {}", env.error());

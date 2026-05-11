@@ -26,6 +26,16 @@ struct qualified_view_description {
     std::string name;
 };
 
+/// A fully qualified uenv view
+struct env_view_description {
+    /// the mount point of the uenv that provides the view
+    std::string mount;
+    /// name of the uenv that provides the view
+    std::string uenv;
+    /// name of the view
+    std::string name;
+};
+
 struct concrete_view {
     /// the name of the view
     std::string name;

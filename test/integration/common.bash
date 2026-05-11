@@ -8,9 +8,39 @@ function logf() {
   printf "${@}\n" >&2
 }
 
+# ──────────────────────────── elastic mock helpers ───────────────────────────
+
+ELASTIC_MOCK_PID=""
+
+# start_elastic_mock CAPTURE_FILE PORT
+# Starts the elastic_mock server on 127.0.0.1:PORT and waits until it accepts
+# connections.  The server PID is stored in ELASTIC_MOCK_PID.
+# Use `elastic_mock free-port` to obtain a free port before calling this.
+function start_elastic_mock() {
+    local capture_file="$1"
+    local port="$2"
+    elastic_mock serve "$capture_file" "$port" &
+    ELASTIC_MOCK_PID=$!
+    elastic_mock wait-server "$port" --timeout 5
+}
+
+function stop_elastic_mock() {
+    if [[ -n "${ELASTIC_MOCK_PID:-}" ]]; then
+        kill "$ELASTIC_MOCK_PID" 2>/dev/null || true
+        wait "$ELASTIC_MOCK_PID" 2>/dev/null || true
+        ELASTIC_MOCK_PID=""
+    fi
+}
+
+# wait_elastic_post CAPTURE_FILE [TIMEOUT_SECONDS [COUNT]]
+# Returns 0 once at least COUNT POSTs have been captured, 1 on timeout.
+function wait_elastic_post() {
+    elastic_mock wait "$1" --timeout "${2:-10}" --count "${3:-1}"
+}
+
 function run_srun_unchecked() {
   log "+ srun $@"
-  run srun -N1 --oversubscribe "$@"
+  run srun -n1 --oversubscribe "$@"
 
   log "${output}"
 
@@ -24,7 +54,7 @@ function run_srun() {
 
 function run_sbatch_unchecked() {
   slurm_log=$(mktemp)
-  run sbatch --wait -o "${slurm_log}" "$@"
+  run sbatch --wait --output "${slurm_log}" "$@"
   log "${output}"
   logf "+ job log (${slurm_log}):\n$(cat ${slurm_log})"
 }

@@ -167,6 +167,31 @@ parse_view_description(lex::lexer& L) {
     return view_description{{}, name1};
 }
 
+// env_view_description is parsed from the UENV_VIEW environemnt variable
+// which has the form:
+// mount:uenv-name:view-name
+util::expected<env_view_description, parse_error>
+parse_env_view_description(lex::lexer& L) {
+    env_view_description result;
+    PARSE(L, path, result.mount);
+    if (L != lex::tok::colon) {
+        return util::unexpected(
+            parse_error{L.string(), "expected ':'", L.peek()});
+    }
+    // eat colon
+    L.next();
+    PARSE(L, name, result.uenv);
+    if (L != lex::tok::colon) {
+        return util::unexpected(
+            parse_error{L.string(), "expected ':'", L.peek()});
+    }
+    // eat colon
+    L.next();
+    PARSE(L, name, result.name);
+
+    return result;
+}
+
 util::expected<uenv_label, parse_error> parse_uenv_label(lex::lexer& L) {
     uenv_label result;
 
@@ -371,6 +396,50 @@ parse_view_args(const std::string& arg) {
 
     return views;
 }
+
+// env_view_description is parsed from the UENV_VIEW environemnt variable
+// which has the form:
+// mount:uenv-name:view-name
+util::expected<std::vector<env_view_description>, parse_error>
+parse_env_view_description(const std::string& arg) {
+    spdlog::trace("parsing env view description {}", arg);
+
+    const std::string sanitised = util::strip(arg);
+    std::vector<env_view_description> views;
+
+    // an empty string is valid input: it is possible to have zero views loaded.
+    if (sanitised.empty()) {
+        return views;
+    }
+    auto L = lex::lexer(sanitised);
+
+    while (true) {
+        env_view_description v;
+        PARSE(L, env_view_description, v);
+        views.push_back(std::move(v));
+
+        if (L.current_kind() != lex::tok::comma) {
+            break;
+        }
+        // eat the comma
+        L.next();
+
+        // handle trailing comma elegantly
+        if (L.peek().kind == lex::tok::end) {
+            break;
+        }
+    }
+
+    // if parsing finished and the string has not been
+    // consumed, and invalid token was encountered
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
+    }
+
+    return views;
+}
+
 // parse a comma-separated list of uenv descriptions
 util::expected<std::vector<uenv_description>, parse_error>
 parse_uenv_args(const std::string& arg) {

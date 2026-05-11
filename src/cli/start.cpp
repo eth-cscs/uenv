@@ -105,8 +105,9 @@ will not work, because it starts a new interactive shell.)",
         return 1;
     }
 
-    const auto env = concretise_env(resolved.value(), args.view_description,
-                                    !args.disable_default_view);
+    const auto env = concretise_env(
+        resolved.value(), args.view_description, args.uenv_description,
+        settings.config.repos, !args.disable_default_view);
 
     if (!env) {
         term::error("{}", env.error());
