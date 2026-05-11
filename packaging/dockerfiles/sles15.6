@@ -14,7 +14,8 @@ RUN zypper install -y \
     libmount-devel    \
     bubblewrap        \
     rpm-build         \
-    python311
+    python311         \
+    vim
 
 RUN python3.11 -m ensurepip && \
     python3.11 -m pip install --upgrade pip && \
