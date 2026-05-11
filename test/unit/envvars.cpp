@@ -1,8 +1,8 @@
-#include <catch2/catch_all.hpp>
-
+#include <unistd.h>
 #include <vector>
 
-// #include <uenv/envvars.h>
+#include <catch2/catch_all.hpp>
+
 #include <util/envvars.h>
 
 TEST_CASE("prefix_path update", "[envvars]") {
