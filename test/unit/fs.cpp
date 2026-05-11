@@ -1,3 +1,5 @@
+#include <unistd.h>
+
 #include <filesystem>
 
 #include <catch2/catch_all.hpp>
