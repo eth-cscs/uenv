@@ -8,13 +8,13 @@ namespace uenv::slurm {
 // Marks what to do when srun/sbatch/salloc are called from an environment that
 // has a uenv mounted.
 //
-// drop: ignore and do not use the mounted uenv
-// keep: forward the mounted uenv (if an alternative is not explicitly
-//       requested)
-// error: treat as an error
-// none: this is the "default" setting
-//          - in local (srun) context the default is keep
-//          - in allocator (sbatch/salloc) context the default is error
+// use      : ignore and do not use the mounted uenv
+// ignore   : forward the mounted uenv (if an alternative is not explicitly
+//            requested)
+// disable  : treat as an error
+// none     : this is the "default" setting
+//            - in local (srun) context the default is use
+//            - in allocator (sbatch/salloc) context the default is disable
 enum class passthrough_policy { use, ignore, disable, none };
 
 struct arg_pack {

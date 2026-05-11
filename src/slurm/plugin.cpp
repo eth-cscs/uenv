@@ -453,20 +453,18 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         // srun called from login node with a uenv loaded
         //      - UENV_*  set
         //      - SLURM_* not set
-        // we set SLURM_UENV variables as best we can
+        // try to set SLURM_UENV variables as best we can
         if (!uenv::slurm::in_slurm_uenv_session(calling_environment)) {
             const auto view_var = calling_environment.get("UENV_VIEW");
             const auto repo_var = calling_environment.get("UENV_REPO");
             const auto uenv_var = calling_environment.get("UENV");
-            // TODO: we need to record the arguments passed by the user at
-            // source: SLURM_UENV is a record of the user request, not the
-            // realised result.
             std::string view_forwarded;
             if (view_var) {
                 if (const auto r =
                         uenv::parse_env_view_description(view_var.value())) {
                     view_forwarded = view_var.value();
                 } else {
+                    // do not treat this as a hard error, but log it clearly.
                     slurm_error("UENV_VIEW is malformed, ignoring: %s",
                                 r.error().message().c_str());
                 }
@@ -480,8 +478,9 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     else {
         // assert that a uenv has been explicitly requested
         if (!has_uenv_args) {
-            slurm_error("fatal error: unable to mount uenv if none requested. "
-                        "File a ticket");
+            slurm_error(
+                "fatal error: unable to mount uenv because none requested. "
+                "File a ticket at https://support.cscs.ch");
             return -ESPANK_ERROR;
         }
         // parse the repo flag if it was passed
@@ -526,7 +525,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         // patch the environment variables in the calling environment: calls
         // the setenv and unsetenv to adjust the variables in the calling
         // environment.
-        // also sets
+        // Also sets SLURM_UENV* variables.
         patch_slurm_environment(*env, calling_environment, args);
 
         telemetry_g = uenv::make_telemetry(*env);

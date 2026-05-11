@@ -207,7 +207,6 @@ function teardown() {
     #
     # check that run looks up images in the repo and mounts at the correct location
     #
-    findmnt &>3
     run uenv -v --repo=$REPOS/apptool run tool -- findmnt /user-tools
     assert_success
     assert_output --regexp "meta"
