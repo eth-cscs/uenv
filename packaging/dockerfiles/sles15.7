@@ -1,0 +1,27 @@
+FROM opensuse/leap:15.7
+
+RUN zypper install -y \
+    make              \
+    gcc12             \
+    gcc12-c++         \
+    curl              \
+    tar               \
+    bzip2             \
+    git               \
+    wget              \
+    xz-devel          \
+    libopenssl-devel  \
+    libmount-devel    \
+    bubblewrap        \
+    rpm-build         \
+    python311         \
+    vim
+
+RUN python3.11 -m ensurepip && \
+    python3.11 -m pip install --upgrade pip && \
+    python3.11 -m pip install meson ninja && \
+    ln -sf /usr/local/bin/meson /usr/bin/meson && \
+    ln -sf /usr/bin/python3.11 /usr/bin/python3
+
+# rpmbuild meson macros are not available on this platform
+COPY ./macros/macros.meson /usr/lib/rpm/macros.d/macros.meson

@@ -11,7 +11,7 @@ Options:
 -r,--ref           git reference (default HEAD implies use the current source)
 --remote           uenv github repo (defaults to eth-cscs/uenv)
 --slurm-version    slurm version to use
---os               the suse version (one of 15.5 or 15.6)
+--os               the suse version (one of 15.5, 15.6 or 15.7)
 "
 
 # A temporary variable to hold the output of `getopt`

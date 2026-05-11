@@ -4,7 +4,7 @@ uenv_version=$(cat ../VERSION)
 token=$(cat ~/.ssh/jfrog_token)
 arch=$(uname -m)
 
-oslist='15.5 15.6'
+oslist='15.5 15.6 15.7'
 slurmlist='23.02.7 24.05.4 25.05.4'
 
 for os in $oslist

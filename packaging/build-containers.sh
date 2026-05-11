@@ -23,7 +23,7 @@ Options:
 "
 
 registry="ghcr.io/bcumming"
-oslist="15.5 15.6"
+oslist="15.5 15.6 15.7"
 do_push=false
 
 TEMP=$(getopt -o h --long help,os:,push,registry: -- "$@")

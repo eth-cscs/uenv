@@ -10,7 +10,7 @@ scriptdir=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 registry="ghcr.io/eth-cscs"
 
 arch=$(uname -m)
-oslist="15.5 15.6"
+oslist="15.5 15.6 15.7"
 slurmlist=$(grep -v '^#' "$scriptdir/slurm-versions" | grep -v '^$')
 
 echo "==== creating RPMs for uenv $(cat "$scriptdir/../VERSION")"
