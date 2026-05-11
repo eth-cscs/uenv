@@ -42,7 +42,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull build container
-        run: docker pull ghcr.io/eth-cscs/uenv-build-sles${{ matrix.os }}:${{ matrix.arch.label }}
+        run: docker pull ghcr.io/${{ github.repository_owner }}/uenv-build-sles${{ matrix.os }}:${{ matrix.arch.label }}
 
       - name: Build RPM
         run: |
@@ -50,7 +50,7 @@ jobs:
             -v "${{ github.workspace }}/packaging:/work" \
             -v "${{ github.workspace }}:/source:ro" \
             -w /work \
-            ghcr.io/eth-cscs/uenv-build-sles${{ matrix.os }}:${{ matrix.arch.label }} \
+            ghcr.io/${{ github.repository_owner }}/uenv-build-sles${{ matrix.os }}:${{ matrix.arch.label }} \
             ./suse-build.sh \
               --slurm-version=${{ matrix.slurm }} \
               --ref=HEAD \
