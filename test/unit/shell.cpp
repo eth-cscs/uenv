@@ -1,6 +1,7 @@
+#include <unistd.h>
+
 #include <catch2/catch_all.hpp>
 
-// #include <uenv/envvars.h>
 #include <util/envvars.h>
 #include <util/fs.h>
 #include <util/shell.h>

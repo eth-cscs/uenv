@@ -2,6 +2,9 @@
 
 ## 10.0.0
 
+- #150 [fix] fix missing headers in gcc 16
+- #149 [feature] generate RPMs in github actions
+- #148 [feature] support advanced slurm workflows
 - #147 [feature] support using '*' as cluster name in configuration files and --system flag
 - #145 [feature] move nearly all cscs-specific logic into configuration files
 - #144 [fix] fix latent bug parsing date strings
