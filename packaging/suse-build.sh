@@ -98,6 +98,9 @@ mkdir -p "${builddir}"
 # otherwise, clone 
 if [[ "$git_ref" == "HEAD" ]]; then
     srcdir=$(realpath ${scriptdir}/../source)
+    # The source directory may be a bind-mount owned by a different user (e.g.
+    # when running inside Docker as root). Tell git to trust it explicitly.
+    git config --global --add safe.directory "$srcdir"
 else
     srcdir=$workdir/src
     git clone --quiet --branch $git_ref $git_remote $srcdir
