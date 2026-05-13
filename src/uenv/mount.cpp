@@ -1,18 +1,18 @@
 #include <algorithm>
 #include <array>
+#include <cerrno>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <ranges>
 #include <string>
 #include <vector>
 
-#include <err.h>
 #include <fcntl.h>
-#include <sched.h>
 
 #include <linux/loop.h>
+#include <sys/ioctl.h>
 #include <sys/mount.h>
-#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -20,7 +20,6 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
-#include <libmount/libmount.h>
 #include <spdlog/spdlog.h>
 
 #include <uenv/mount.h>
@@ -194,40 +193,79 @@ do_mount(const std::vector<mount_pair>& mount_entries) {
                                     mount_point);
         }
 
-        auto cxt = mnt_new_context();
-
-        if (mnt_context_disable_mtab(cxt, 1) != 0) {
-            return util::unexpected("Failed to disable mtab");
+        // Get a free loop device number via the loop control device.
+        // We use direct loop ioctls + mount(2) instead of libmount's context
+        // API because libmount >= 2.42 marks any setuid process as "restricted"
+        // (via AT_SECURE / is_privileged_execution) and refuses to mount
+        // without a matching /etc/fstab entry, even after setreuid(0,0).
+        int ctrl_fd = open("/dev/loop-control", O_RDWR | O_CLOEXEC);
+        if (ctrl_fd < 0) {
+            return util::unexpected(
+                fmt::format("{}: open /dev/loop-control: {}", mount_point,
+                            strerror(errno)));
+        }
+        int loopnum = ioctl(ctrl_fd, LOOP_CTL_GET_FREE);
+        int saved_errno = errno;
+        close(ctrl_fd);
+        if (loopnum < 0) {
+            return util::unexpected(
+                fmt::format("{}: LOOP_CTL_GET_FREE: {}", mount_point,
+                            strerror(saved_errno)));
         }
 
-        if (mnt_context_set_fstype(cxt, "squashfs") != 0) {
-            return util::unexpected("Failed to set fstype to squashfs");
+        std::string loopdev = fmt::format("/dev/loop{}", loopnum);
+
+        // The loop device must be opened O_RDWR to perform LOOP_SET_FD, even
+        // though the loop device itself will be configured read-only below.
+        int loop_fd = open(loopdev.c_str(), O_RDWR | O_CLOEXEC);
+        if (loop_fd < 0) {
+            return util::unexpected(fmt::format("{}: open {}: {}", mount_point,
+                                                loopdev, strerror(errno)));
         }
 
-        if (mnt_context_append_options(cxt, "loop,nosuid,nodev,ro") != 0) {
-            return util::unexpected("Failed to set mount options");
+        int sqfs_fd = open(squashfs_file.c_str(), O_RDONLY | O_CLOEXEC);
+        if (sqfs_fd < 0) {
+            saved_errno = errno;
+            close(loop_fd);
+            return util::unexpected(
+                fmt::format("{}: open squashfs: {}", mount_point,
+                            strerror(saved_errno)));
         }
 
-        if (mnt_context_set_source(cxt, squashfs_file.c_str()) != 0) {
-            return util::unexpected("Failed to set source");
+        if (ioctl(loop_fd, LOOP_SET_FD, sqfs_fd) < 0) {
+            saved_errno = errno;
+            close(sqfs_fd);
+            close(loop_fd);
+            return util::unexpected(fmt::format("{}: LOOP_SET_FD: {}", loopdev,
+                                                strerror(saved_errno)));
+        }
+        close(sqfs_fd);
+
+        struct loop_info64 info = {};
+        // LO_FLAGS_AUTOCLEAR detaches the loop device automatically once the
+        // last mount using it is gone (i.e. when the mount namespace exits).
+        info.lo_flags = LO_FLAGS_READ_ONLY | LO_FLAGS_AUTOCLEAR;
+        strncpy(reinterpret_cast<char*>(info.lo_file_name),
+                squashfs_file.c_str(), LO_NAME_SIZE - 1);
+        if (ioctl(loop_fd, LOOP_SET_STATUS64, &info) < 0) {
+            saved_errno = errno;
+            ioctl(loop_fd, LOOP_CLR_FD, 0);
+            close(loop_fd);
+            return util::unexpected(
+                fmt::format("{}: LOOP_SET_STATUS64: {}", loopdev,
+                            strerror(saved_errno)));
         }
 
-        if (mnt_context_set_target(cxt, mount_point.c_str()) != 0) {
-            return util::unexpected("Failed to set target");
+        if (::mount(loopdev.c_str(), mount_point.c_str(), "squashfs",
+                    MS_RDONLY | MS_NOSUID | MS_NODEV, nullptr) != 0) {
+            saved_errno = errno;
+            ioctl(loop_fd, LOOP_CLR_FD, 0);
+            close(loop_fd);
+            return util::unexpected(
+                fmt::format("{}: {}", mount_point, strerror(saved_errno)));
         }
 
-        // https://ftp.ntu.edu.tw/pub/linux/utils/util-linux/v2.38/libmount-docs/libmount-Mount-context.html#mnt-context-mount
-        const int rc = mnt_context_mount(cxt);
-        const bool success = rc == 0 && mnt_context_get_status(cxt) == 1;
-        if (!success) {
-            char code_buf[256];
-            mnt_context_get_excode(cxt, rc, code_buf, sizeof(code_buf));
-            const char* target_buf = mnt_context_get_target(cxt);
-            // careful: mnt_context_get_target can return NULL
-            std::string target = (target_buf == nullptr) ? "?" : target_buf;
-
-            return util::unexpected(target + ": " + code_buf);
-        }
+        close(loop_fd);
     }
 
     return {};
