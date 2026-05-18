@@ -66,7 +66,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull build container
-        run: docker pull ghcr.io/${{ github.repository_owner }}/uenv-build-sles${{ matrix.os }}:${{ matrix.arch.label }}
+        run: docker pull ghcr.io/bcumming/uenv-build-sles${{ matrix.os }}:${{ matrix.arch.label }}
 
       - name: Build RPM
         run: |
