@@ -2,6 +2,7 @@
 
 ## 10.0.0
 
+- #151 [fix] change error to warning when meta data is not attached to images in a registry
 - #150 [fix] fix missing headers in gcc 16
 - #149 [feature] generate RPMs in github actions
 - #148 [feature] support advanced slurm workflows
