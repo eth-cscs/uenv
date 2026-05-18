@@ -1,0 +1,7 @@
+# Slurm versions to build RPMs for.
+# One patch release per major.minor: Slurm guarantees ABI compatibility across
+# patch releases, so a single RPM built against e.g. 24.05.4 will work on any
+# 24.05.x cluster.
+23.02.7
+24.05.4
+25.05.0

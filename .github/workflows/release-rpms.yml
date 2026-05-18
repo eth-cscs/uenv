@@ -1,0 +1,112 @@
+name: Release RPMs
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to attach RPMs to (e.g. v10.0.0)'
+        required: true
+      slurm-version:
+        description: 'Single Slurm version to build (e.g. 24.11.1). Leave empty to build all versions from packaging/slurm-versions.'
+        required: false
+        default: ''
+
+jobs:
+  # Read packaging/slurm-versions and expose as a JSON array for the build matrix.
+  # When triggered manually with a specific slurm-version input, use only that version.
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      slurm-versions: ${{ steps.slurm.outputs.versions }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: slurm
+        run: |
+          if [[ -n "${{ inputs.slurm-version }}" ]]; then
+            versions=$(echo '${{ inputs.slurm-version }}' | jq -R . | jq -sc .)
+          else
+            versions=$(grep -v '^#' packaging/slurm-versions | grep -v '^$' | jq -R . | jq -sc .)
+          fi
+          echo "versions=$versions" >> $GITHUB_OUTPUT
+      - id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+  build-rpms:
+    needs: config
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['15.5', '15.6', '15.7']
+        slurm: ${{ fromJSON(needs.config.outputs.slurm-versions) }}
+        arch:
+          - runner: ubuntu-24.04
+            label: x86_64
+          - runner: ubuntu-24.04-arm
+            label: aarch64
+    runs-on: ${{ matrix.arch.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.config.outputs.tag }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull build container
+        run: docker pull ghcr.io/${{ github.repository_owner }}/uenv-build-sles${{ matrix.os }}:${{ matrix.arch.label }}
+
+      - name: Build RPM
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/packaging:/work" \
+            -v "${{ github.workspace }}:/source:ro" \
+            -w /work \
+            ghcr.io/${{ github.repository_owner }}/uenv-build-sles${{ matrix.os }}:${{ matrix.arch.label }} \
+            ./suse-build.sh \
+              --slurm-version=${{ matrix.slurm }} \
+              --ref=HEAD \
+              --os=${{ matrix.os }}
+
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-sles${{ matrix.os }}-${{ matrix.slurm }}-${{ matrix.arch.label }}
+          path: packaging/artifacts/**/*.rpm
+          if-no-files-found: error
+
+  release:
+    needs: [config, build-rpms]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rpm-*
+          merge-multiple: true
+          path: rpms/
+
+      - name: List RPMs
+        run: find rpms/ -name '*.rpm' | sort
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.config.outputs.tag }}
+          files: rpms/**/*.rpm
+          fail_on_unmatched_files: true
+          generate_release_notes: ${{ github.event_name != 'workflow_dispatch' }}
+          prerelease: ${{ contains(needs.config.outputs.tag, '-') }}

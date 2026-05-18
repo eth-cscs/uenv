@@ -155,6 +155,55 @@ sudo meson install --destdir=$STAGE --no-rebuild --skip-subprojects
 # run the unit tests
 ./test/unit
 ```
+## Deployment
+
+RPMs for SLES 15.5, 15.6 and 15.7 are built automatically by GitHub Actions and attached to each release.
+Builds are produced for all Slurm versions listed in `packaging/slurm-versions` and for both x86_64 and aarch64.
+
+### Cutting a release
+
+Update the `VERSION` file, commit, and push a tag:
+
+```bash
+echo "10.1.0" > VERSION
+git commit -am "release 10.1.0"
+git tag v10.1.0
+git push origin v10.1.0
+```
+
+The `release-rpms` workflow triggers automatically, builds RPMs for every OS/Slurm/arch combination, and attaches them to the GitHub release.
+
+Pre-release versions (e.g. `10.1.0-rc1` in `VERSION`, tag `v10.1.0-rc1`) are automatically marked as pre-release on GitHub and produce RPM release strings like `slurm2405~rc1`, which sort correctly below the final release.
+
+### Adding a new Slurm version
+
+Add the patch release to `packaging/slurm-versions` and push a new release tag.
+One patch release per major.minor is sufficient — Slurm guarantees ABI compatibility across patch releases.
+
+```
+# packaging/slurm-versions
+24.11.1
+```
+
+### Backfilling RPMs for an existing release
+
+When a cluster is upgraded to a Slurm version not covered by a prior release, trigger a manual build via the GitHub Actions UI:
+
+1. Go to **Actions → Release RPMs → Run workflow**
+2. Set **tag** to the existing release (e.g. `v10.0.0`)
+3. Set **Slurm version** to the new version (e.g. `24.11.1`)
+4. Run — the new RPMs are uploaded and attached to the existing release
+
+### Updating the build containers
+
+The build containers (`ghcr.io/eth-cscs/uenv-build-sles15.{5,6,7}`) need to be rebuilt and pushed whenever the Dockerfiles in `packaging/dockerfiles/` change.
+Build and push from both an x86_64 and an aarch64 host:
+
+```bash
+podman login ghcr.io -u USERNAME --password $GITHUB_TOKEN
+./packaging/build-containers.sh --push
+```
+
 **NOTE**: never build using sudo, i.e. do not `sudo meson compile` or `sudo ninja`. Instead build without root, then install in the staging path as root.
 This avoids running any of the scripts called in the main build as root.
 

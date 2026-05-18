@@ -1,9 +1,9 @@
-FROM opensuse/leap:15.5
+FROM registry.suse.com/bci/bci-base:15.7
 
 RUN zypper install -y \
     make              \
-    gcc12             \
-    gcc12-c++         \
+    gcc14             \
+    gcc14-c++         \
     curl              \
     tar               \
     bzip2             \
@@ -21,7 +21,9 @@ RUN python3.11 -m ensurepip && \
     python3.11 -m pip install --upgrade pip && \
     python3.11 -m pip install meson ninja && \
     ln -sf /usr/local/bin/meson /usr/bin/meson && \
-    ln -sf /usr/bin/python3.11 /usr/bin/python3
+    ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
+    ln -sf /usr/bin/gcc-14 /usr/bin/gcc-12 && \
+    ln -sf /usr/bin/g++-14 /usr/bin/g++-12
 
 # rpmbuild meson macros are not available on this platform
 COPY ./macros/macros.meson /usr/lib/rpm/macros.d/macros.meson
