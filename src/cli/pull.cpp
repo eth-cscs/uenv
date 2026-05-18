@@ -179,8 +179,7 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
             if (pull_meta) {
                 // the digests returned by oras::discover is a list of artifacts
                 // that have been "oras attach"ed to our squashfs image. This
-                // would be empty if no meta data was attached - currently we
-                // assume that meta data has been attached
+                // would be empty if no meta data was attached.
                 auto digests =
                     oras::discover(rego_url, nspace, record, credentials);
                 if (!digests) {
@@ -189,27 +188,34 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
                     return 1;
                 }
                 if (digests->empty()) {
-                    term::error("unable to pull uenv: no metadata in manifest");
-                    return 1;
-                }
-                spdlog::debug("manifests: {}", fmt::join(*digests, ", "));
+                    // No metadata attached in the registry.
+                    // If the user explicitly requested metadata (--only-meta or
+                    // sqfs already exists), this is an error. Otherwise, warn
+                    // and continue to pull the squashfs.
+                    if (!pull_sqfs) {
+                        term::error("uenv exists in registry but has no "
+                                    "attached metadata");
+                        return 1;
+                    }
+                    term::warn(
+                        "uenv exists in registry but has no attached metadata");
+                } else {
+                    spdlog::debug("manifests: {}", fmt::join(*digests, ", "));
 
-                // We assume that there is one, and only, digest attached to the
-                // squashfs image: the meta data directory.
-                // pull_digetst will download the digest: in the case of meta
-                // data it will unpack the meta path into paths.store.
-                //
-                // This will change in the future, when we may attache multiple
-                // or zero items to the squashfs image.
-                const auto digest = *(digests->begin());
+                    // We assume that there is one, and only, digest attached to
+                    // the squashfs image: the meta data directory.
+                    // pull_digest will download the digest: in the case of meta
+                    // data it will unpack the meta path into paths.store.
+                    const auto digest = *(digests->begin());
 
-                if (auto okay =
-                        oras::pull_digest(rego_url, nspace, record, digest,
-                                          paths.store, credentials);
-                    !okay) {
-                    term::error("unable to pull uenv.\n{}",
-                                okay.error().message);
-                    return 1;
+                    if (auto okay =
+                            oras::pull_digest(rego_url, nspace, record, digest,
+                                              paths.store, credentials);
+                        !okay) {
+                        term::error("unable to pull uenv.\n{}",
+                                    okay.error().message);
+                        return 1;
+                    }
                 }
             }
 
