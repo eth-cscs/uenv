@@ -285,6 +285,7 @@ int repo_status(const repo_status_args& args, const global_settings& settings) {
             json json_entry;
             json_entry["name"] = repo.name;
             json_entry["path"] = repo.path.string();
+            json_entry["priority"] = repo.priority;
             json_entry["fstype"] = lustre_state ? "lustre" : "unknown";
             json_entry["updates"] = json::array();
             if (lustre_state && !lustre_state.value()) {
