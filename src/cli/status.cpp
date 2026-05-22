@@ -75,20 +75,22 @@ int status([[maybe_unused]] const status_args& args,
     //   mount:uenv-name:view-name
     // concretise_uenv requires a comma-separated list of the form
     //   uenv-name:view-name
-    std::optional<std::string> view_desc;
+    std::optional<std::string> view_arg;
     if (auto views = parse_env_view_description(view_literal)) {
         std::string view_string = "";
         for (auto& v : *views) {
             view_string += fmt::format("{}:{},", v.uenv, v.name);
         }
-        view_desc = std::move(view_string);
+        if (!view_string.empty()) {
+            view_arg = view_string;
+        }
     } else {
         spdlog::warn("unable to parse UENV_VIEW environment variable '{}'",
-                     view_desc);
+                     view_literal);
     }
-    spdlog::debug("derived view description from UENV_VIEW {}", view_desc);
+    spdlog::debug("derived view description from UENV_VIEW {}", view_arg);
 
-    const auto env = concretise_env(resolved.value(), view_desc, mount_desc,
+    const auto env = concretise_env(resolved.value(), view_arg, mount_desc,
                                     settings.config.repos, false);
 
     if (!env) {
