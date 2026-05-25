@@ -15,6 +15,7 @@
 
 #include <uenv/env.h>
 #include <uenv/parse.h>
+#include <uenv/telemetry.h>
 #include <util/strings.h>
 
 #include "help.h"
@@ -57,48 +58,9 @@ int status([[maybe_unused]] const status_args& args,
         return args.error_if_unset ? 1 : 0;
     }
 
-    // assume that the environment variables have been set, because this is
-    // implied by the call to in_uenv_session passing
-    std::string mount_desc =
-        settings.calling_environment.get("UENV_MOUNT_LIST").value();
-    std::string view_literal =
-        settings.calling_environment.get("UENV_VIEW").value_or("");
+    auto telemetry = uenv::telem
 
-    const auto resolved = resolve_uenv_args(mount_desc, settings.config.repos);
-    if (!resolved) {
-        term::error("could not interpret UENV_MOUNT_LIST: {}",
-                    resolved.error());
-        return 1;
-    }
-
-    // the UENV_VIEW environment variable is a comma-separated list of the form
-    //   mount:uenv-name:view-name
-    // concretise_uenv requires a comma-separated list of the form
-    //   uenv-name:view-name
-    std::optional<std::string> view_arg;
-    if (auto views = parse_env_view_description(view_literal)) {
-        std::string view_string = "";
-        for (auto& v : *views) {
-            view_string += fmt::format("{}:{},", v.uenv, v.name);
-        }
-        if (!view_string.empty()) {
-            view_arg = view_string;
-        }
-    } else {
-        spdlog::warn("unable to parse UENV_VIEW environment variable '{}'",
-                     view_literal);
-    }
-    spdlog::debug("derived view description from UENV_VIEW {}", view_arg);
-
-    const auto env = concretise_env(resolved.value(), view_arg, mount_desc,
-                                    settings.config.repos, false);
-
-    if (!env) {
-        term::error("could not interpret environment: {}", env.error());
-        return 1;
-    }
-
-    if (args.format == full) {
+        if (args.format == full) {
         for (auto& [name, E] : env->uenvs) {
             term::msg("{}:{}", color::cyan(name), color::white(E.mount_path));
             if (E.description) {
@@ -119,7 +81,8 @@ int status([[maybe_unused]] const status_args& args,
                 }
             }
         }
-    } else if (args.format == views) {
+    }
+    else if (args.format == views) {
         // print `<name1>:<view1>|..|<nameN>:<viewN>`
         std::unordered_map<std::string, std::vector<std::string>> uenv_views;
         // make sure there is an entry also for a mounted uenv without activated
@@ -141,7 +104,8 @@ int status([[maybe_unused]] const status_args& args,
             });
         term::msg("{}", fmt::join(name_views, ","));
         return 0;
-    } else if (args.format == name) {
+    }
+    else if (args.format == name) {
         // print `<name1>|..|<nameN>`
         term::msg(
             "{}",
