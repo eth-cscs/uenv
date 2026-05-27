@@ -3,6 +3,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <spdlog/spdlog.h>
+
 #include <uenv/parse.h>
 #include <uenv/telemetry.h>
 #include <uenv/uenv.h>
@@ -135,6 +137,50 @@ std::vector<telemetry_data> make_telemetry(const env& E) {
     }
 
     return telemetry;
+}
+
+util::expected<std::vector<telemetry_data>, std::string>
+telemetry_from_env(const envvars::state& calling_environment) {
+    if (const auto var = calling_environment.get("UENV_TELEMETRY")) {
+        if (const auto result = parse_telemetry(var.value())) {
+            return result.value();
+        }
+        spdlog::warn("UENV_TELEMETRY is set but could not be parsed; "
+                     "falling back to UENV_MOUNT_LIST");
+    }
+
+    if (const auto mounts_var = calling_environment.get("UENV_MOUNT_LIST")) {
+        const auto views = parse_env_view_description(
+            calling_environment.get("UENV_VIEW").value_or(""));
+        if (const auto mounts = uenv::parse_mount_list(*mounts_var)) {
+            std::vector<telemetry_data> telemetry;
+            for (auto& m : *mounts) {
+                telemetry_data T{};
+                T.mount = m.mount_path;
+                T.sqfs = m.sqfs_path;
+                T.digest = std::nullopt;
+                T.label = std::nullopt;
+                if (views) {
+                    for (auto& v : *views) {
+                        if (v.mount == m.mount_path) {
+                            T.views.push_back(v.name);
+                        }
+                    }
+                }
+                // TODO: we could peek inside the squashfs
+                T.name = "unknown";
+                telemetry.push_back(std::move(T));
+            }
+            return telemetry;
+        } else {
+            return util::unexpected{
+                fmt::format("UENV_MOUNT_LIST is malformed: {}",
+                            mounts.error().message().c_str())};
+        }
+    }
+    return util::unexpected{"unable to load uenv information from environment: "
+                            "neither UENV_TELEMETRY nor UENV_MOUNT_LIST are "
+                            "available and configured correctly"};
 }
 
 } // namespace uenv

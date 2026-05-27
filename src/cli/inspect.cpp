@@ -12,6 +12,7 @@
 #include <uenv/env.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <util/color.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
@@ -215,22 +216,25 @@ int image_inspect(const image_inspect_args& args,
             info.record ? fmt::format("{}", info.record.value())
                         : info.sqfs_path.string();
         if (info.repo) {
-            fmt::print("repo {}:{}\n", info.repo->name,
-                       info.repo->path.string());
+            fmt::print("{} {}:{}\n", color::blue("repo"),
+                       color::yellow(info.repo->name),
+                       color::cyan(info.repo->path.string()));
         }
         if (info.meta) {
-            fmt::print("{} mount at {}\n", label_str, info.meta->mount);
+            fmt::print("{} mount at {}\n", color::yellow(label_str),
+                       color::cyan(info.meta->mount));
             const auto& views = info.meta->views;
             const std::string default_view =
                 info.meta->default_view ? info.meta->default_view.value()
                                         : std::string("");
             if (!views.empty()) {
-                fmt::print("views:\n");
+                term::msg("{}:", color::blue("views"));
                 for (const auto& [_, view] : views) {
                     fmt::print("  {}: {}\n",
                                (view.name != default_view
-                                    ? view.name
-                                    : view.name + " (default)"),
+                                    ? color::yellow(view.name)
+                                    : color::yellow(view.name) +
+                                          color::red(" (default)")),
                                view.description);
                 }
             } else {

@@ -58,61 +58,47 @@ int status([[maybe_unused]] const status_args& args,
         return args.error_if_unset ? 1 : 0;
     }
 
-    auto telemetry = uenv::telem
+    auto telemetry = uenv::telemetry_from_env(settings.calling_environment);
 
-        if (args.format == full) {
-        for (auto& [name, E] : env->uenvs) {
-            term::msg("{}:{}", color::cyan(name), color::white(E.mount_path));
-            if (E.description) {
-                term::msg("  {}", *E.description);
-            }
+    if (!telemetry) {
+        term::error("unable to find uenv status");
+        return 1;
+    }
+
+    if (args.format == full) {
+        for (auto& E : *telemetry) {
+            term::msg("{}:{}", color::yellow(E.name), color::white(E.mount));
             if (!E.views.empty()) {
-                term::msg("  {}:", color::white("views"));
-                for (auto& [name, view] : E.views) {
-                    const bool loaded =
-                        std::ranges::find_if(
-                            env->views, [name, uenv = E.name](auto& p) {
-                                return p.name == name && p.uenv == uenv;
-                            }) != env->views.end();
-                    std::string status =
-                        loaded ? color::yellow(" (loaded)") : "";
-                    term::msg("    {}{}: {}", color::cyan(name), status,
-                              view.description);
-                }
+                term::msg("  {}: [{}]", color::white("views"),
+                          fmt::join(E.views | std::views::transform(
+                                                  [](const auto& v) {
+                                                      return color::cyan(v);
+                                                  }),
+                                    ", "));
             }
         }
-    }
-    else if (args.format == views) {
-        // print `<name1>:<view1>|..|<nameN>:<viewN>`
-        std::unordered_map<std::string, std::vector<std::string>> uenv_views;
-        // make sure there is an entry also for a mounted uenv without activated
-        // view
-        for (auto x : env->uenvs) {
-            uenv_views.try_emplace(x.first, std::vector<std::string>{});
-        }
-        for (auto x : env->views) {
-            uenv_views.try_emplace(x.uenv, std::vector<std::string>{});
-            uenv_views[x.uenv].push_back(x.name);
-        }
-        auto name_views =
-            uenv_views | std::views::transform([](const auto& pair) {
-                const auto& [name, views] = pair;
-                if (views.size() == 0) {
-                    return fmt::format("{}", name);
-                }
-                return fmt::format("{}[{}]", name, fmt::join(views, ","));
-            });
-        term::msg("{}", fmt::join(name_views, ","));
-        return 0;
-    }
-    else if (args.format == name) {
-        // print `<name1>|..|<nameN>`
+    } else if (args.format == views) {
         term::msg(
             "{}",
-            fmt::join(env->uenvs | std::views::transform([](const auto& pair) {
-                          return fmt::format("{}", pair.first);
-                      }),
+            fmt::join(*telemetry | std::views::transform([](const auto& u) {
+                if (u.views.empty()) {
+                    return fmt::format("{}", color::yellow(u.name));
+                }
+                return fmt::format(
+                    "{}[{}]", color::yellow(u.name),
+                    fmt::join(u.views |
+                                  std::views::transform([](const auto& v) {
+                                      return color::cyan(v);
+                                  }),
+                              ","));
+            }),
                       ","));
+    } else if (args.format == name) {
+        // print <name1>,..,<nameN>`
+        term::msg("{}", fmt::join(*telemetry |
+                                      std::views::transform(
+                                          [](const auto& u) { return u.name; }),
+                                  ","));
     }
 
     return 0;
