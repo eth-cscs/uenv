@@ -332,7 +332,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // the arguments passed via --uenv and --view take precedence
     args.uenv_description = args.uenv_description
                                 ? args.uenv_description
-                                : calling_environment.get("SBATCH_UENV_ARG");
+                                : calling_environment.get("SBATCH_UENV");
     args.view_description = args.view_description
                                 ? args.view_description
                                 : calling_environment.get("SBATCH_UENV_VIEW");
@@ -363,7 +363,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     // override (e.g. srun --uenv=other inside a job allocated with
     // --uenv=tool).
     if (in_srun && uenv::slurm::in_slurm_uenv_session(calling_environment)) {
-        const auto slurm_uenv = calling_environment.get("SLURM_UENV_ARG");
+        const auto slurm_uenv = calling_environment.get("SLURM_UENV");
         if (slurm_uenv && args.uenv_description &&
             *args.uenv_description == *slurm_uenv) {
             args.uenv_description = std::nullopt;
@@ -376,7 +376,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
 
     // clear any SBATCH env variables: these should not propogate to nested
     // srun/sbatch calls.
-    ::unsetenv("SBATCH_UENV_ARG");
+    ::unsetenv("SBATCH_UENV");
     ::unsetenv("SBATCH_UENV_VIEW");
     ::unsetenv("SBATCH_UENV_REPO");
 
@@ -397,7 +397,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         ::unsetenv("UENV_VIEW");
         ::unsetenv("UENV_REPO");
         ::unsetenv("UENV_TELEMETRY");
-        ::unsetenv("SLURM_UENV_ARG");
+        ::unsetenv("SLURM_UENV");
         ::unsetenv("SLURM_UENV_VIEW");
         ::unsetenv("SLURM_UENV_REPO");
         return ESPANK_SUCCESS;
@@ -471,7 +471,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
                                 r.error().message().c_str());
                 }
             }
-            ::setenv("SLURM_UENV_ARG", uenv_var.value_or("").c_str(), 1);
+            ::setenv("SLURM_UENV", uenv_var.value_or("").c_str(), 1);
             ::setenv("SLURM_UENV_VIEW", view_forwarded.c_str(), 1);
             ::setenv("SLURM_UENV_REPO", repo_var.value_or("").c_str(), 1);
         }
