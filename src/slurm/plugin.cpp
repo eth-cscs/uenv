@@ -441,7 +441,9 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         }
 
         // derive telemetry information from the calling environment
-        telemetry_g = uenv::slurm::telemetry_from_env(calling_environment);
+        if (auto result = uenv::telemetry_from_env(calling_environment)) {
+            telemetry_g = result.value();
+        }
 
         // load elastic config so telemetry can be posted (the new-mount path
         // does this too; passthrough must do it here since it skips that

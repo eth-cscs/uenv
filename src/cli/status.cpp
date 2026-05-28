@@ -67,15 +67,13 @@ int status([[maybe_unused]] const status_args& args,
 
     if (args.format == full) {
         for (auto& E : *telemetry) {
-            term::msg("{}:{}", color::yellow(E.name), color::white(E.mount));
-            if (!E.views.empty()) {
-                term::msg("  {}: [{}]", color::white("views"),
-                          fmt::join(E.views | std::views::transform(
-                                                  [](const auto& v) {
-                                                      return color::cyan(v);
-                                                  }),
-                                    ", "));
-            }
+            term::msg(
+                "uenv  {}\n  mount  {}\n  views  [{}]", color::yellow(E.name),
+                color::cyan(E.mount),
+                fmt::join(E.views | std::views::transform([](const auto& v) {
+                              return color::cyan(v);
+                          }),
+                          ", "));
         }
     } else if (args.format == views) {
         term::msg(
@@ -94,7 +92,6 @@ int status([[maybe_unused]] const status_args& args,
             }),
                       ","));
     } else if (args.format == name) {
-        // print <name1>,..,<nameN>`
         term::msg("{}", fmt::join(*telemetry |
                                       std::views::transform(
                                           [](const auto& u) { return u.name; }),

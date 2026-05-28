@@ -40,50 +40,6 @@ bool in_slurm_uenv_session(const envvars::state& env) {
     return uenv::in_uenv_session(env) && env.get("SLURM_UENV");
 }
 
-std::vector<telemetry_data>
-telemetry_from_env(const envvars::state& calling_environment) {
-    if (const auto var = calling_environment.get("UENV_TELEMETRY")) {
-        if (const auto result = parse_telemetry(var.value())) {
-            return result.value();
-        }
-        slurm_error("UENV_TELEMETRY is set but could not be parsed; "
-                    "falling back to UENV_MOUNT_LIST");
-    }
-
-    if (const auto mounts_var = calling_environment.get("UENV_MOUNT_LIST")) {
-        const auto views = parse_env_view_description(
-            calling_environment.get("UENV_VIEW").value_or(""));
-        if (const auto mounts = uenv::parse_mount_list(*mounts_var)) {
-            std::vector<telemetry_data> telemetry;
-            for (auto& m : *mounts) {
-                telemetry_data T{};
-                T.mount = m.mount_path;
-                T.sqfs = m.sqfs_path;
-                T.digest = std::nullopt;
-                T.label = std::nullopt;
-                if (views) {
-                    for (auto& v : *views) {
-                        if (v.mount == m.mount_path) {
-                            T.views.push_back(v.name);
-                        }
-                    }
-                }
-                // TODO: we could peek inside the squashfs
-                T.name = "unknown";
-                telemetry.push_back(std::move(T));
-            }
-            return telemetry;
-        } else {
-            slurm_error("UENV_MOUNT_LIST is malformed: %s",
-                        mounts.error().message().c_str());
-        }
-    }
-
-    slurm_error("unable to derive uenv telemetry from the environment");
-
-    return {};
-}
-
 // Update the calling environment to apply the environment variable updates.
 // note: making this into a nice clean function that returns state that can be
 // used by the calling slurm plugin was too hard - because slurm requires that
