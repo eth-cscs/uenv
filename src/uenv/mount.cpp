@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <ranges>
 #include <string>
 #include <vector>
@@ -29,10 +29,20 @@
 
 namespace uenv {
 
+void close_sqfs_fds(mount_list& mounts) noexcept {
+    for (auto& entry : mounts) {
+        if (entry.sqfs_fd) {
+            close(*entry.sqfs_fd);
+            entry.sqfs_fd = std::nullopt;
+        }
+    }
+}
+
 // A mount_description has string descriptions of the squashfs file path and
 // mount path taken from parsing a CLI argument or environment variable.
 // Convert this to a mount_pair by converting these to std::filesystem::path,
-// and validating that the squashfs file exists and can be read.
+// validating that the squashfs file exists, and opening an fd that the caller
+// can pass to do_mount (so NFS root_squash does not block the loop mount).
 // The existance of the mount points is not checked, because these need to be
 // checked when mounting.
 util::expected<mount_pair, std::string>
@@ -48,8 +58,8 @@ make_mount_pair(const mount_description& d) {
 
     const auto sqfs = fs::weakly_canonical(fs::path(d.sqfs_path), ec);
     if (ec) {
-        return util::unexpected{fmt::format("invalid squashfs {} ({})",
-                                            d.mount_path, ec.message())};
+        return util::unexpected{
+            fmt::format("invalid squashfs {} ({})", d.sqfs_path, ec.message())};
     }
 
     if (!fs::is_regular_file(sqfs, ec)) {
@@ -57,30 +67,28 @@ make_mount_pair(const mount_description& d) {
             "invalid squashfs {} (is not a regular file)", sqfs.string())};
     }
 
-    // A valid squashfs file contains the magic string "hsqs" in the first 4
-    // bytes.
-    if (std::filesystem::file_size(sqfs) < 4) {
+    // Open the file and verify the squashfs magic bytes ("hsqs").
+    // The fd is kept open and stored in the returned mount_pair so that
+    // do_mount can use /proc/self/fd/N as the loop source, bypassing NFS
+    // permission checks that would otherwise fire under euid=0 with
+    // root_squash.
+    const int fd = open(sqfs.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return util::unexpected{fmt::format("unable to read squashfs {} ({})",
+                                            sqfs.string(), strerror(errno))};
+    }
+
+    std::array<char, 4> magic{};
+    if (read(fd, magic.data(), magic.size()) != 4 ||
+        !(magic[0] == 'h' && magic[1] == 's' && magic[2] == 'q' &&
+          magic[3] == 's')) {
+        close(fd);
         return util::unexpected{fmt::format(
             "unable to read squashfs {} (not a valid squashfs file)",
             sqfs.string())};
     }
-    if (auto file = std::ifstream{sqfs, std::ios::binary}) {
-        std::array<char, 4> magic{};
-        file.read(reinterpret_cast<char*>(magic.data()), magic.size());
 
-        // Compare against little-endian 'hsqs'
-        if (!(magic[0] == 'h' && magic[1] == 's' && magic[2] == 'q' &&
-              magic[3] == 's')) {
-            return util::unexpected{fmt::format(
-                "unable to read squashfs {} (not a valid squashfs file)",
-                sqfs.string())};
-        }
-    } else {
-        return util::unexpected{
-            fmt::format("unable to read squashfs {}", sqfs.string())};
-    }
-
-    return mount_pair{.sqfs = sqfs, .mount = mount};
+    return mount_pair{.sqfs = sqfs, .mount = mount, .sqfs_fd = fd};
 }
 
 util::expected<std::vector<uenv::mount_pair>, std::string>
@@ -156,6 +164,7 @@ validate_mount_descriptions(const std::vector<mount_description>& input) {
     mount_list mounts;
     for (auto desc : input) {
         if (auto mount = uenv::make_mount_pair(desc); !mount) {
+            close_sqfs_fds(mounts);
             return util::unexpected{
                 fmt::format("invalid squashfs mount {}:{} - {}", desc.sqfs_path,
                             desc.mount_path, mount.error())};
@@ -164,7 +173,11 @@ validate_mount_descriptions(const std::vector<mount_description>& input) {
         }
     }
 
-    return validate_mount_list(mounts);
+    auto result = validate_mount_list(mounts);
+    if (!result) {
+        close_sqfs_fds(mounts);
+    }
+    return result;
 }
 
 util::expected<mount_list, std::string>
@@ -183,9 +196,13 @@ do_mount(const std::vector<mount_pair>& mount_entries) {
         return {};
     }
 
-    for (auto& entry : mount_entries) {
+    for (const auto& entry : mount_entries) {
         std::string mount_point = entry.mount;
-        std::string squashfs_file = entry.sqfs;
+        // Use /proc/self/fd/N when a pre-opened fd is available so the kernel
+        // does not re-check NFS permissions under the elevated euid=0.
+        const std::string squashfs_file =
+            entry.sqfs_fd ? fmt::format("/proc/self/fd/{}", *entry.sqfs_fd)
+                          : entry.sqfs.string();
 
         // Check the mount point exists inside the mount loop, because the
         // mount point may have been created inside a previous mount.

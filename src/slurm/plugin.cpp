@@ -255,17 +255,15 @@ int init_post_opt_remote(spank_t sp) {
         return ESPANK_SUCCESS;
     }
 
-    // On NFS filesystems with root_squash, root is mapped to an anonymous
-    // unprivileged user, preventing access to the squashfs file. We
-    // temporarily adopt the job's effective GID so that file opens succeed
-    // for group-readable squashfs files.
-    //
-    // The job GID is set by Slurm to the user's primary group by default,
-    // or to a user-specified group via --gid (Slurm validates membership).
-    // If the squashfs file is owned by a group other than the job GID, the
-    // user should submit their job with --gid=<group>.
-    //
-    // Note: mode 600 squashfs files on root_squash NFS are not supported.
+    // On NFS filesystems with root_squash, root (uid=0) is mapped to an
+    // anonymous unprivileged user, preventing access to the squashfs file
+    // even when the job user owns it. Temporarily adopt the job's effective
+    // UID and GID so that validation and file opens use the user's identity.
+    uid_t job_uid;
+    if (spank_get_item(sp, S_JOB_UID, &job_uid) != ESPANK_SUCCESS) {
+        slurm_error("uenv: failed to get job uid");
+        return -ESPANK_ERROR;
+    }
     gid_t job_gid;
     if (spank_get_item(sp, S_JOB_GID, &job_gid) != ESPANK_SUCCESS) {
         slurm_error("uenv: failed to get job gid");
@@ -276,18 +274,30 @@ int init_post_opt_remote(spank_t sp) {
         slurm_error("uenv: failed to set effective gid: %s", strerror(errno));
         return -ESPANK_ERROR;
     }
-    auto cleanup = util::defer(
+    auto cleanup_gid = util::defer(
         []() noexcept { [[maybe_unused]] int result = setegid(0); });
 
-    // parse and validate the mount descriptions
-    // note that it is very important to carefully validate the mount_list
-    // * check that the squashfs files exist and can be read by the user
-    // * check that the mount points exist
+    if (setegid(job_uid) != 0) {
+        slurm_error("uenv: failed to set effective gid: %s", strerror(errno));
+        return -ESPANK_ERROR;
+    }
+    auto cleanup_uid = util::defer(
+        []() noexcept { [[maybe_unused]] int result = seteuid(0); });
+
+    // parse and validate the mount descriptions, opening each squashfs file.
+    // do_moutn will use /proc/self/fd/N so the kernel does not re-check NFS
+    // permissions under euid=0
     auto mounts = uenv::parse_and_validate_mounts(mount_var.value());
     if (!mounts) {
         slurm_error("%s", mounts.error().c_str());
         return -ESPANK_ERROR;
     }
+    auto cleanup_mounts =
+        util::defer([&mounts]() noexcept { uenv::close_sqfs_fds(*mounts); });
+
+    // unshare_as_root needs CAP_SYS_ADMIN; restore euid=0 now
+    seteuid(0);
+    setegid(0);
 
     if (auto result = uenv::unshare_as_root(); !result) {
         slurm_error("%s", result.error().c_str());

@@ -1,3 +1,5 @@
+#include <cerrno>
+#include <cstring>
 #include <ranges>
 #include <string>
 #include <vector>
@@ -16,9 +18,11 @@
 #include <util/envvars.h>
 #include <util/shell.h>
 
+#include <fcntl.h>
 #include <libmount.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
+#include <unistd.h>
 
 void return_to_user_and_no_new_privs(int uid);
 void unshare_mntns_and_become_root();
@@ -97,14 +101,23 @@ int main(int argc, char** argv, char** envp) {
 
     std::string uenv_mount_list = "";
     if (raw_mounts) {
-        //
-        // validate the mount points
-        //
+        // Drop to real user before validation: the setuid binary starts with
+        // euid=0, which NFS root_squash maps to nobody. Validation and file
+        // opens must run as the real user so NFS sees the correct identity.
+        if (seteuid(uid) != 0) {
+            error_and_exit("seteuid failed: {}", strerror(errno));
+        }
 
         auto mounts = uenv::parse_and_validate_mounts(*raw_mounts);
         if (!mounts) {
             error_and_exit("{}", mounts.error());
         }
+
+        // Re-elevate before privileged mount operations.
+        if (seteuid(0) != 0) {
+            error_and_exit("seteuid failed: {}", strerror(errno));
+        }
+
         uenv_mount_list = fmt::format("{}", fmt::join(mounts.value(), ","));
 
         spdlog::info("uenv_mount_list {}", uenv_mount_list);
@@ -119,6 +132,8 @@ int main(int argc, char** argv, char** envp) {
         if (auto r = uenv::do_mount(mounts.value()); !r) {
             error_and_exit("{}", r.error());
         }
+
+        uenv::close_sqfs_fds(mounts.value());
     } else {
         spdlog::warn("nothing mounted (no --sqfs flag provided)");
     }

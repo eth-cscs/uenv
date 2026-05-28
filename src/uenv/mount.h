@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -18,6 +19,10 @@ struct mount_description {
 struct mount_pair {
     std::filesystem::path sqfs;
     std::filesystem::path mount;
+    // pre-opened read-only fd for the squashfs file, set before privilege
+    // escalation so NFS root_squash does not remap euid=0 to nobody.
+    // do_mount uses /proc/self/fd/N as the source when this is set.
+    std::optional<int> sqfs_fd = std::nullopt;
 };
 
 // convert a description to a mount_pair that has a validated squashfs path
@@ -34,6 +39,9 @@ using mount_list = std::vector<mount_pair>;
 // }
 util::expected<mount_list, std::string>
 parse_and_validate_mounts(const std::string& description);
+
+/// close any open sqfs_fd entries in the mount list and reset them to nullopt
+void close_sqfs_fds(mount_list& mounts) noexcept;
 
 /// called as root, in slurm-plugin
 util::expected<void, std::string> unshare_as_root();
