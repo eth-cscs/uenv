@@ -25,4 +25,7 @@ parse_telemetry(const std::string&);
 
 std::vector<telemetry_data> make_telemetry(const env&);
 
+util::expected<std::vector<telemetry_data>, std::string>
+telemetry_from_env(const envvars::state& calling_environment);
+
 } // namespace uenv
