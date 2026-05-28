@@ -37,7 +37,7 @@ std::optional<std::string> getenv_wrapper(spank_t sp, const char* var) {
 }
 
 bool in_slurm_uenv_session(const envvars::state& env) {
-    return uenv::in_uenv_session(env) && env.get("SLURM_UENV");
+    return uenv::in_uenv_session(env) && env.get("SLURM_UENV_ARG");
 }
 
 // Update the calling environment to apply the environment variable updates.
@@ -74,7 +74,7 @@ void patch_slurm_environment(const uenv::env& environment,
     // unset the SBATCH_UENV* environment variables, so that they can't
     // affect calls to srun and sbatch inside the called script/jobstep
     for (const auto name :
-         {"SBATCH_UENV", "SBATCH_UENV_VIEW", "SBATCH_UENV_REPO"}) {
+         {"SBATCH_UENV_ARG", "SBATCH_UENV_VIEW", "SBATCH_UENV_REPO"}) {
         if (full_env.get(name)) {
             ::unsetenv(name);
         }
@@ -85,8 +85,8 @@ void patch_slurm_environment(const uenv::env& environment,
     std::string repo_v =
         full_env.get("UENV_REPO").value_or(args.repo_description.value_or(""));
     std::string uenv_v =
-        full_env.get("UENV").value_or(args.uenv_description.value_or(""));
-    ::setenv("SLURM_UENV", uenv_v.c_str(), 1);
+        full_env.get("UENV_ARG").value_or(args.uenv_description.value_or(""));
+    ::setenv("SLURM_UENV_ARG", uenv_v.c_str(), 1);
     ::setenv("SLURM_UENV_VIEW", view_v.c_str(), 1);
     ::setenv("SLURM_UENV_REPO", repo_v.c_str(), 1);
 }
