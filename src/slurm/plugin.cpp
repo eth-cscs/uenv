@@ -459,7 +459,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         if (!uenv::slurm::in_slurm_uenv_session(calling_environment)) {
             const auto view_var = calling_environment.get("UENV_VIEW");
             const auto repo_var = calling_environment.get("UENV_REPO");
-            const auto uenv_var = calling_environment.get("UENV_ARG");
+            const auto uenv_var = calling_environment.get("UENV_LABEL");
             std::string view_forwarded;
             if (view_var) {
                 if (const auto r =
