@@ -45,8 +45,8 @@ envvars::patch env::patch() const {
         p.merge(uenvs.at(view.uenv).views.at(view.name).environment);
     }
 
-    // set UENV_ARG variable
-    p.update_scalar("UENV_ARG", uenv_arg);
+    // set UENV_LABEL variable
+    p.update_scalar("UENV_LABEL", uenv_arg);
 
     // set UENV_MOUNT_LIST variable
     auto mount_description = [](const auto& u) {

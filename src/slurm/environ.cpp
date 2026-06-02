@@ -85,7 +85,7 @@ void patch_slurm_environment(const uenv::env& environment,
     std::string repo_v =
         full_env.get("UENV_REPO").value_or(args.repo_description.value_or(""));
     std::string uenv_v =
-        full_env.get("UENV_ARG").value_or(args.uenv_description.value_or(""));
+        full_env.get("UENV_LABEL").value_or(args.uenv_description.value_or(""));
     ::setenv("SLURM_UENV", uenv_v.c_str(), 1);
     ::setenv("SLURM_UENV_VIEW", view_v.c_str(), 1);
     ::setenv("SLURM_UENV_REPO", repo_v.c_str(), 1);
