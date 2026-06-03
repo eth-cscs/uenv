@@ -67,9 +67,10 @@ int status([[maybe_unused]] const status_args& args,
 
     if (args.format == full) {
         for (auto& E : *telemetry) {
+            const std::string image = E.label ? E.label.value() : E.sqfs;
             term::msg(
-                "uenv  {}\n  mount  {}\n  views  [{}]", color::yellow(E.name),
-                color::cyan(E.mount),
+                "uenv  {}\n  image  {}\n  mount  {}\n  views  [{}]",
+                color::yellow(E.name), color::cyan(image), color::cyan(E.mount),
                 fmt::join(E.views | std::views::transform([](const auto& v) {
                               return color::cyan(v);
                           }),
