@@ -16,7 +16,7 @@
 #include <util/envvars.h>
 #include <util/shell.h>
 
-#include <libmount.h>
+#include <libmount/libmount.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
 

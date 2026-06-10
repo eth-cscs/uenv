@@ -14,7 +14,6 @@ oras_version = get_option('oras_version')
 uenv_slurm_plugin = get_option('slurm_plugin')
 uenv_cli = get_option('cli')
 uenv_squashfs_mount = get_option('squashfs_mount')
-
 conf_data = configuration_data()
 
 add_global_arguments('-Wno-missing-field-initializers', language : 'cpp')
@@ -163,14 +162,37 @@ if uenv_slurm_plugin
 endif
 
 if uenv_squashfs_mount
-    squashfs_mount = executable('squashfs-mount',
-          sources: ['src/squashfs-mount/squashfs-mount.cpp'],
-          dependencies: [uenv_dep, fmt_dep, cli11_dep],
-          c_args: [
-            '-DVERSION="@0@"'.format(version),
-          ],
-          install_mode: ['rwsr-xr-x', 'root', 'root'],
-          install: true)
+    if get_option('fuse')
+        fuse_version = get_option('fuse_version')
+        if fuse_version == '2'
+            fuse_dep = dependency('fuse', required: true)
+        elif fuse_version == '3'
+            fuse_dep = dependency('fuse3', required: true)
+        else
+            error('fuse_version must be 2 or 3')
+        endif
+        squashfuse_dep = dependency('squashfuse_ll', static: false)
+        squashfs_mount_build = executable('squashfs-mount',
+                                          sources: ['src/squashfs-mount/squashfs-mount-rootless.cpp',
+                                                    'src/squashfs-mount/rootless.cpp',
+                                                    'src/squashfs-mount/mutable-root.cpp'
+                                                   ],
+                                          dependencies: [uenv_dep, fmt_dep, cli11_dep, squashfuse_dep, fuse_dep],
+                                          c_args: [
+                                              '-DVERSION="@0@"'.format(version),
+                                          ],
+                                          install: true
+                                         )
+    else
+        squashfs_mountd = executable('squashfs-mount',
+                                     sources: ['src/squashfs-mount/squashfs-mount.cpp'],
+                                     dependencies: [uenv_dep, fmt_dep, cli11_dep],
+                                     c_args: [
+                                         '-DVERSION="@0@"'.format(version),
+                                     ],
+                                     install_mode: ['rwsr-xr-x', 'root', 'root'],
+                                     install: true)
+    endif
 endif
 
 if get_option('tests').enabled()
