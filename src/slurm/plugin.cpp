@@ -40,7 +40,9 @@ namespace impl {
 int slurm_spank_init(spank_t sp, int ac, char** av);
 int slurm_spank_init_post_opt(spank_t sp, int ac, char** av);
 int slurm_spank_local_user_init(spank_t sp, int ac, char** av);
+#if defined(UENV_FUSE)
 int slurm_spank_task_init(spank_t sp, int ac, char** av);
+#endif
 } // namespace impl
 
 //
@@ -69,9 +71,11 @@ int slurm_spank_init_post_opt(spank_t sp, int ac, char** av) {
     return impl::slurm_spank_init_post_opt(sp, ac, av);
 }
 
+#if defined(UENV_FUSE)
 int slurm_spank_task_init(spank_t sp, int ac, char** av) {
     return impl::slurm_spank_task_init(sp, ac, av);
 }
+#endif
 
 } // extern "C"
 
@@ -568,7 +572,7 @@ int slurm_spank_init_post_opt(spank_t sp, int ac [[maybe_unused]],
 
     return ESPANK_SUCCESS;
 }
-
+#if defined(UENV_FUSE)
 int slurm_spank_user_init(spank_t sp, int ac [[maybe_unused]],
                           char** av [[maybe_unused]]) {
     uenv::init_log(spdlog::level::off);
@@ -598,8 +602,8 @@ int slurm_spank_user_init(spank_t sp, int ac [[maybe_unused]],
     }
 
     for (auto mount_pair : mounts.value()) {
-        if (auto result =
-                uenv::do_sqfs_mount(mount_pair, false /*use multi threaded fuse*/);
+        if (auto result = uenv::do_sqfs_mount(
+                mount_pair, false /*use multi threaded fuse*/);
             !result) {
             slurm_error("error mounting the requested uenv image: %s",
                         result.error().c_str());
@@ -609,5 +613,6 @@ int slurm_spank_user_init(spank_t sp, int ac [[maybe_unused]],
 
     return ESPANK_SUCCESS;
 }
+#endif
 
 } // namespace impl

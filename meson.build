@@ -175,7 +175,7 @@ if uenv_squashfs_mount
         squashfs_mount_build = executable('squashfs-mount',
                                           sources: ['src/squashfs-mount/squashfs-mount-rootless.cpp',
                                                     'src/uenv/rootless.cpp',
-                                                    'src/uenv/mutable-root.cpp'
+                                                    'src/uenv/mutable_root.cpp'
                                                    ],
                                           dependencies: [uenv_dep, fmt_dep, cli11_dep, squashfuse_dep, fuse_dep],
                                           c_args: [
