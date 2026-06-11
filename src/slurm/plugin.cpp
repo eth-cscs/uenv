@@ -608,19 +608,20 @@ int slurm_spank_task_init(spank_t sp, int ac [[maybe_unused]],
         return -ESPANK_ERROR;
     }
 
-    // for (auto mount_pair : mounts.value()) {
-    //     if (auto result = uenv::do_sqfs_mount(
-    //             mount_pair, true /*use multi threaded fuse*/);
-    //         !result) {
-    //         slurm_error("error mounting the requested uenv image: %s",
-    //                     result.error().c_str());
-    //         return -ESPANK_ERROR;
-    //     }
-    // }
+    for (auto mount_pair : mounts.value()) {
+        if (auto result = uenv::do_sqfs_mount(mount_pair,
+                                              true /*use multi threaded fuse*/);
+            !result) {
+            slurm_error("error mounting the requested uenv image: %s",
+                        result.error().c_str());
+            return -ESPANK_ERROR;
+        }
+    }
 
     // exit fake-root
     if (auto r = uenv::map_effective_user(uid, gid); !r) {
-        slurm_error("failed map effective user %s %d %d", r.error().c_str(), uid, gid);
+        slurm_error("failed map effective user %s %d %d", r.error().c_str(),
+                    uid, gid);
         return -ESPANK_ERROR;
     }
 
