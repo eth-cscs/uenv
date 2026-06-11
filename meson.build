@@ -156,6 +156,18 @@ if uenv_cli
     meson.add_install_script('./meson-scripts/install-bash-completion.sh')
 endif
 
+if get_option('fuse') or get_option('slurm_fuse')
+    fuse_version = get_option('fuse_version')
+    if fuse_version == '2'
+        fuse_dep = dependency('fuse', required: true)
+    elif fuse_version == '3'
+        fuse_dep = dependency('fuse3', required: true)
+    else
+        error('fuse_version must be 2 or 3')
+    endif
+    squashfuse_dep = dependency('squashfuse_ll', static: false)
+endif
+
 if uenv_slurm_plugin
     slurm_version = get_option('slurm_version')
     subdir('src/slurm')
@@ -163,15 +175,6 @@ endif
 
 if uenv_squashfs_mount
     if get_option('fuse')
-        fuse_version = get_option('fuse_version')
-        if fuse_version == '2'
-            fuse_dep = dependency('fuse', required: true)
-        elif fuse_version == '3'
-            fuse_dep = dependency('fuse3', required: true)
-        else
-            error('fuse_version must be 2 or 3')
-        endif
-        squashfuse_dep = dependency('squashfuse_ll', static: false)
         squashfs_mount_build = executable('squashfs-mount',
                                           sources: ['src/squashfs-mount/squashfs-mount-rootless.cpp',
                                                     'src/uenv/rootless.cpp',

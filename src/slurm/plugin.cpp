@@ -27,6 +27,10 @@
 #include "environ.h"
 #include "plugin.h"
 
+#ifdef UENV_FUSE
+#include <sys/prctl.h>
+#endif
+
 extern "C" {
 #include <slurm/slurm_errno.h>
 #include <slurm/spank.h>
@@ -573,9 +577,12 @@ int slurm_spank_init_post_opt(spank_t sp, int ac [[maybe_unused]],
     return ESPANK_SUCCESS;
 }
 #if defined(UENV_FUSE)
-int slurm_spank_user_init(spank_t sp, int ac [[maybe_unused]],
+int slurm_spank_task_init(spank_t sp, int ac [[maybe_unused]],
                           char** av [[maybe_unused]]) {
     uenv::init_log(spdlog::level::off);
+
+    const uid_t uid = getuid();
+    const uid_t gid = getgid();
 
     // parse environment variables to test whether there is anything to
     // mount
@@ -601,14 +608,25 @@ int slurm_spank_user_init(spank_t sp, int ac [[maybe_unused]],
         return -ESPANK_ERROR;
     }
 
-    for (auto mount_pair : mounts.value()) {
-        if (auto result = uenv::do_sqfs_mount(
-                mount_pair, false /*use multi threaded fuse*/);
-            !result) {
-            slurm_error("error mounting the requested uenv image: %s",
-                        result.error().c_str());
-            return -ESPANK_ERROR;
-        }
+    // for (auto mount_pair : mounts.value()) {
+    //     if (auto result = uenv::do_sqfs_mount(
+    //             mount_pair, true /*use multi threaded fuse*/);
+    //         !result) {
+    //         slurm_error("error mounting the requested uenv image: %s",
+    //                     result.error().c_str());
+    //         return -ESPANK_ERROR;
+    //     }
+    // }
+
+    // exit fake-root
+    if (auto r = uenv::map_effective_user(uid, gid); !r) {
+        slurm_error("failed map effective user %s %d %d", r.error().c_str(), uid, gid);
+        return -ESPANK_ERROR;
+    }
+
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+        slurm_error("PR_SET_NO_NEW_PRIVS failed");
+        return -ESPANK_ERROR;
     }
 
     return ESPANK_SUCCESS;
