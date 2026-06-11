@@ -64,8 +64,7 @@ int main(int argc, char** argv, char** envp) {
     cli.add_option("-s,--sqfs", raw_mounts,
                    "comma separated list of uenv to mount");
     cli.add_option("commands", commands,
-                   "the command to run, including with arguments")
-        ->required();
+                   "the command to run, including with arguments");
 
     CLI11_PARSE(cli, argc, argv);
 
