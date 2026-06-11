@@ -18,6 +18,7 @@
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
+#include <uenv/rootless.h>
 #include <uenv/telemetry.h>
 #include <util/defer.h>
 #include <util/envvars.h>
@@ -39,6 +40,7 @@ namespace impl {
 int slurm_spank_init(spank_t sp, int ac, char** av);
 int slurm_spank_init_post_opt(spank_t sp, int ac, char** av);
 int slurm_spank_local_user_init(spank_t sp, int ac, char** av);
+int slurm_spank_task_init(spank_t sp, int ac, char** av);
 } // namespace impl
 
 //
@@ -65,6 +67,10 @@ int slurm_spank_local_user_init(spank_t sp, int ac, char** av) {
 
 int slurm_spank_init_post_opt(spank_t sp, int ac, char** av) {
     return impl::slurm_spank_init_post_opt(sp, ac, av);
+}
+
+int slurm_spank_task_init(spank_t sp, int ac, char** av) {
+    return impl::slurm_spank_task_init(sp, ac, av);
 }
 
 } // extern "C"
@@ -233,6 +239,7 @@ int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
     return ESPANK_SUCCESS;
 }
 
+#if not defined(UENV_FUSE)
 // Performs mounting of the squashfs images inside slurm_spank_init_post_opt in
 // the _remote_ context. The squashfs images to mount and their mount points are
 // set in the local and allocator contexts, where they are encoded in
@@ -302,6 +309,8 @@ int init_post_opt_remote(spank_t sp) {
 
     return ESPANK_SUCCESS;
 }
+
+#endif // not defined(UENV_FUSE)
 
 // Called in the local and allocator contexts in slurm_spank_init_post_opt.
 //
@@ -540,9 +549,11 @@ int slurm_spank_init_post_opt(spank_t sp, int ac [[maybe_unused]],
                               char** av [[maybe_unused]]) {
     try {
         switch (spank_context()) {
+#if not defined(UENV_FUSE)
         case spank_context_t::S_CTX_REMOTE: {
             return init_post_opt_remote(sp);
         }
+#endif
         case spank_context_t::S_CTX_LOCAL:
         case spank_context_t::S_CTX_ALLOCATOR: {
             return init_post_opt_local_allocator(sp);
@@ -553,6 +564,47 @@ int slurm_spank_init_post_opt(spank_t sp, int ac [[maybe_unused]],
     } catch (const std::exception& e) {
         slurm_error("uenv: %s", e.what());
         return -ESPANK_ERROR;
+    }
+
+    return ESPANK_SUCCESS;
+}
+
+int slurm_spank_user_init(spank_t sp, int ac [[maybe_unused]],
+                          char** av [[maybe_unused]]) {
+    uenv::init_log(spdlog::level::off);
+
+    // parse environment variables to test whether there is anything to
+    // mount
+    auto mount_var = uenv::slurm::getenv_wrapper(sp, "UENV_MOUNT_LIST");
+
+    // variable is not set - nothing to do here
+    if (!mount_var) {
+        return ESPANK_SUCCESS;
+    }
+
+    // parse and validate the mount descriptions
+    // note that it is very important to carefully validate the mount_list
+    // * check that the squashfs files exist and can be read by the user
+    // * check that the mount points exist
+    auto mounts = uenv::parse_and_validate_mounts(mount_var.value());
+    if (!mounts) {
+        slurm_error("%s", mounts.error().c_str());
+        return -ESPANK_ERROR;
+    }
+
+    if (auto result = uenv::unshare_mount_map_root(); !result) {
+        slurm_error("%s", result.error().c_str());
+        return -ESPANK_ERROR;
+    }
+
+    for (auto mount_pair : mounts.value()) {
+        if (auto result =
+                uenv::do_sqfs_mount(mount_pair, false /*use multi threaded fuse*/);
+            !result) {
+            slurm_error("error mounting the requested uenv image: %s",
+                        result.error().c_str());
+            return -ESPANK_ERROR;
+        }
     }
 
     return ESPANK_SUCCESS;

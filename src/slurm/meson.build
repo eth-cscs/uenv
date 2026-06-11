@@ -10,9 +10,15 @@ module_src = [
   'mount_slurm.cpp',
   'plugin.cpp',
 ]
+cpp_args_list = ['-Wall', '-Wpedantic', '-Wextra']
+slurm_fuse = get_option('slurm_fuse')
+if slurm_fuse
+    module_src += ['../uenv/rootless.cpp', '../uenv/mutable_root.cpp']
+    cpp_args_list += ['-DUENV_FUSE']
+endif
 
 shared_module('slurm-uenv-mount',
               sources: module_src,
               dependencies: [uenv_dep, slurm_dep],
-              cpp_args: ['-Wall', '-Wpedantic', '-Wextra'],
+              cpp_args: cpp_args_list,
               install: true)

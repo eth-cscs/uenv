@@ -1,6 +1,7 @@
 option('tests', type: 'feature', value: 'disabled')
 
 option('slurm_plugin', type: 'boolean', value: true)
+option('slurm_fuse', type: 'boolean', value: false)
 option('cli', type: 'boolean', value: true)
 option('squashfs_mount', type: 'boolean', value: false)
 option('fuse', type: 'boolean', value: true)
