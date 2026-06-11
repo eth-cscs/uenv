@@ -6,7 +6,6 @@
 #include <sched.h>
 extern "C" {
 #include <squashfuse/ll.h>
-#include <fuse_common.h>
 }
 #include <spdlog/spdlog.h>
 #include <stddef.h>
@@ -61,7 +60,8 @@ util::expected<void, std::string> unshare_mount_map_root() {
 util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
 
     if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0) {
-        return util::unexpected{"unshare(CLONE_NEWUSER|CLONE_NEWNS) failed"};
+        return util::unexpected{fmt::format(
+            "unshare(CLONE_NEWUSER|CLONE_NEWNS) failed, {}", strerror(errno))};
     }
     // map current user id to root
     char buf[256];
@@ -115,7 +115,8 @@ static void init_fs_ops(struct fuse_lowlevel_ops* sqfs_ll_ops) {
 // when the parent process exits (shell is closed).
 // Adapted from `squashfuse_ll` written by Dave Vasilevsky <dave@vasilevsky.ca>
 // Ref: https://github.com/vasi/squashfuse/blob/master/ll_main.c
-util::expected<void, std::string> do_sqfs_mount(const mount_pair& entry, bool fuse_st) {
+util::expected<void, std::string> do_sqfs_mount(const mount_pair& entry,
+                                                bool fuse_st) {
 
     spdlog::trace("do_sqfs_mount");
     // use a pipe to synchronize parent and child process
@@ -207,8 +208,8 @@ util::expected<void, std::string> do_sqfs_mount(const mount_pair& entry, bool fu
                             config.max_idle_threads = 10;
                             err = fuse_session_loop_mt(ch.session, &config);
                         }
-#else /* FUSE_USE_VERSION < 30 */
-                        if(!fuse_st) {
+#else  /* FUSE_USE_VERSION < 30 */
+                        if (!fuse_st) {
                             err = fuse_session_loop_mt(ch.session);
                         }
 #endif /* FUSE_USE_VERSION */
