@@ -1,5 +1,13 @@
 # Changelog
 
+## 10.0.1
+
+- #163 [improvement] add label/squashfs information to uenv status output
+
+## 10.0.1
+
+- #160 [fix] `uenv status` bug when no views are loaded, and only print active information about the loaded environment
+
 ## 10.0.0
 
 - #151 [fix] change error to warning when meta data is not attached to images in a registry
