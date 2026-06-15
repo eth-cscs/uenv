@@ -1,6 +1,6 @@
 # Changelog
 
-## 10.0.1
+## 10.0.2
 
 - #163 [improvement] add label/squashfs information to uenv status output
 
