@@ -37,8 +37,8 @@ squashfuse_version=0.6.2
             sed -i 's/^includedir=.*/includedir=@includedir@/' squashfuse_ll.pc.in
 
             ./configure --disable-high-level \
-                --enable-static=yes \
-                --enable-shared=no \
+                --enable-static=no \
+                --enable-shared=yes \
                 --without-lzo \
                 --without-lz4 \
                 --with-zstd=$ZSTD \
