@@ -59,6 +59,7 @@ int main(int argc, char** argv, char** envp) {
     cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
     cli.add_flag("-r,--mutable-root", mutable_root, "mutable root");
     cli.add_flag("--fuse-single", fuse_st, "fuse single threaded");
+    cli.add_flag("--version", print_version, "print version");
     cli.add_option("--tmpfs", tmpfs_str, "tmpfs[:size]");
     cli.add_option("--bind-mount", bind_mounts_str, "bind_mounts <src>:<dst>");
     cli.add_option("-s,--sqfs", raw_mounts,
