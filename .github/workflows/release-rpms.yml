@@ -23,7 +23,7 @@ jobs:
       slurm-versions: ${{ steps.slurm.outputs.versions }}
       tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - id: slurm
         run: |
           if [[ -n "${{ inputs.slurm-version }}" ]]; then
@@ -54,7 +54,7 @@ jobs:
             label: aarch64
     runs-on: ${{ matrix.arch.runner }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.config.outputs.tag }}
 
