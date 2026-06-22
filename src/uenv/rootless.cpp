@@ -230,34 +230,29 @@ util::expected<void, std::string> do_sqfs_mount(const mount_pair& entry,
             } else {
                 switch (sqfs_ret) {
                 case SQFS_ERR: {
-                    printf("SQFS_ERR\n");
-                    break;
+                    return util::unexpected{fmt::format("SQFS_ERR {} ", strerror(errno))};
                 }
                 case SQFS_BADFORMAT: {
-                    printf("SQFS_BADFORMAT (unsupported file format)\n");
-                    break;
+                    return util::unexpected{
+                        "SQFS_BADFORMAT (unsupported file format)"};
                 }
                 case SQFS_BADVERSION: {
-                    printf("SQFS_BADVERSION\n");
-                    break;
+                    return util::unexpected{"SQFS_BADVERSION\n"};
                 }
                 case SQFS_BADCOMP: {
-                    printf("SQFS_BADCOMP\n");
-                    break;
+                    return util::unexpected{"SQFS_BADCOMP\n"};
                 }
                 case SQFS_UNSUP: {
-                    printf("SQFS_UNSUP, unsupported feature\n");
-                    break;
+                    return util::unexpected{
+                        "SQFS_UNSUP, unsupported feature\n"};
                 }
                 case SQFS_OK: {
                     break;
                 }
                 }
-                util::unexpected{"sqfs_ll_mount failed.\n"};
             }
-
         } else {
-            util::unexpected{"sqfs_ll_open_failed"};
+            return util::unexpected{"sqfs_ll_open_failed"};
         }
         fuse_opt_free_args(&args);
         free(ll);
