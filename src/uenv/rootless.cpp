@@ -76,7 +76,7 @@ void sem_timedwait_relative(sem_t* sem, int timeout) {
 void join_begin(join_t& join, std::string join_tag) {
     int fd;
     join.sem_name = fmt::format("/uenv-run_sem-{}", join_tag);
-    join.shm_name = fmt::format("/uenv-run-shm-{}", join_tag);
+    join.shm_name = fmt::format("/uenv-run_shm-{}", join_tag);
 
     // Serialize.
     join.sem = sem_open(join.sem_name.c_str(), O_CREAT, 0600, 1);
@@ -86,9 +86,9 @@ void join_begin(join_t& join, std::string join_tag) {
     // Am I the winner?
     fd = shm_open(join.shm_name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
     if (fd > 0) {
-        spdlog::trace("join: I won");
+        spdlog::trace("join:: I won! PID {}", getpid());
         join.winner_p = true;
-        // WARNING: The segment is resized later in join_env_save().
+        // TODO WARNING: The segment is resized later in join_env_save().
         Z_e(ftruncate(fd, sizeof(*join.shared)));
     } else {
         std::string err{strerror(errno)};
@@ -112,23 +112,24 @@ void join_begin(join_t& join, std::string join_tag) {
 /* End coordinated section of namespace joining. */
 void join_end(join_t& join, int join_ct) {
     if (join.winner_p) { // winner still serial
-        spdlog::warn("join: winner initializing shared data");
+        spdlog::trace("join: winner initializing shared data");
         join.shared->winner_pid = getpid();
         join.shared->proc_left_ct = join_ct;
     } else // losers serialize
         sem_timedwait_relative(join.sem, JOIN_TIMEOUT);
 
     join.shared->proc_left_ct--;
-    spdlog::warn("join: {} peers left excluding myself",
-                 join.shared->proc_left_ct);
+    spdlog::trace("join: {} peers left excluding myself",
+                  join.shared->proc_left_ct);
 
     if (join.shared->proc_left_ct <= 0) {
-        spdlog::warn("join: cleaning up IPC resources");
+        spdlog::trace("join: cleaning up IPC resources");
         Tf_(join.shared->proc_left_ct == 0,
-            "expected 0 peers left but found {}", join.shared->proc_left_ct);
-        Zfe(sem_unlink(join.sem_name.c_str()), "can't unlink sem: {}",
+            "join: expected 0 peers left but found {}",
+            join.shared->proc_left_ct);
+        Zfe(sem_unlink(join.sem_name.c_str()), "join: can't unlink sem: {}",
             join.sem_name.c_str());
-        Zfe(shm_unlink(join.shm_name.c_str()), "can't unlink shm: {}",
+        Zfe(shm_unlink(join.shm_name.c_str()), "join: can't unlink shm: {}",
             join.shm_name.c_str());
     }
 
@@ -137,7 +138,7 @@ void join_end(join_t& join, int join_ct) {
     Z_e(munmap(join.shared, sizeof(*join.shared)));
     Z_e(sem_close(join.sem));
 
-    spdlog::warn("join: done");
+    spdlog::trace("join: done");
 }
 
 /// Same effect as `unshare --mount --map-root-user`
