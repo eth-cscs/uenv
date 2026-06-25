@@ -7,16 +7,138 @@
 extern "C" {
 #include <squashfuse/ll.h>
 }
+#include "macros.h"
+#include "rootless.h"
+#include <semaphore.h>
 #include <spdlog/spdlog.h>
 #include <stddef.h>
 #include <string>
+#include <sys/mman.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
 #include <uenv/mount.h>
 #include <unistd.h>
 #include <util/expected.h>
 
+/* Timeout in seconds for waiting for join semaphore. */
+#define JOIN_TIMEOUT 30
+#define VERBOSE 1
+
 namespace uenv {
+
+/* Join a specific namespace. */
+void namespace_join(pid_t pid, const char* ns) {
+    std::string path;
+    int fd;
+
+    path = fmt::format("/proc/{}/ns/{}", pid, ns);
+    fd = open(path.c_str(), O_RDONLY);
+    if (fd == -1) {
+        if (errno == ENOENT)
+            Tf_(0, "join: no PID {}: {} not found", pid, path);
+        else
+            Tfe(0, "join: can't open {}", path);
+    }
+    /* setns(2) seems to be involved in some kind of race with syslog(3).
+       Rarely, when configured with --enable-syslog, the call fails with
+       EINVAL. We never figured out a proper fix, so just retry a few times in
+       a loop. See issue #1270. */
+    for (int i = 1; setns(fd, 0) != 0; i++)
+        if (i >= 5) {
+            spdlog::error("can’t join {} namespace of pid {}", ns, pid);
+            exit(1);
+        } else {
+            spdlog::warn("can’t join {} namespace; trying again", ns);
+            sleep(1);
+        }
+}
+
+/* Join the existing namespaces containing process pid, which could be the
+   join winner or another process. */
+void namespaces_join(pid_t pid) {
+    spdlog::warn("joining namespaces of pid {}", pid);
+    namespace_join(pid, "user");
+    namespace_join(pid, "mnt");
+}
+
+/* Wait for semaphore sem for up to timeout seconds. If timeout or an error,
+   exit unsuccessfully. */
+void sem_timedwait_relative(sem_t* sem, int timeout) {
+    struct timespec deadline;
+
+    // sem_timedwait() requires a deadline rather than a timeout.
+    Z_e(clock_gettime(CLOCK_REALTIME, &deadline));
+    deadline.tv_sec += timeout;
+    Zfe(sem_timedwait(sem, &deadline), "failure waiting for join lock");
+}
+
+/* Begin coordinated section of namespace joining. */
+void join_begin(join_t& join, std::string join_tag) {
+    int fd;
+    join.sem_name = fmt::format("/uenv-run_sem-{}", join_tag);
+    join.shm_name = fmt::format("/uenv-run-shm-{}", join_tag);
+
+    // Serialize.
+    join.sem = sem_open(join.sem_name.c_str(), O_CREAT, 0600, 1);
+    T_e(join.sem != SEM_FAILED);
+    sem_timedwait_relative(join.sem, JOIN_TIMEOUT);
+
+    // Am I the winner?
+    fd = shm_open(join.shm_name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
+    if (fd > 0) {
+        spdlog::trace("join: I won");
+        join.winner_p = true;
+        // WARNING: The segment is resized later in join_env_save().
+        Z_e(ftruncate(fd, sizeof(*join.shared)));
+    } else {
+        std::string err{strerror(errno)};
+        T_e(errno == EEXIST);
+        spdlog::trace("join: I lost {}", err);
+        join.winner_p = false;
+        fd = shm_open(join.shm_name.c_str(), O_RDWR, 0);
+        T_e(fd > 0);
+    }
+
+    join.shared = static_cast<decltype(join.shared)>(mmap(
+        NULL, sizeof(*join.shared), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
+    T__(join.shared != NULL);
+    Z_e(close(fd));
+
+    // Winner keeps lock; losers parallelize (winner will be done by now).
+    if (!join.winner_p)
+        Z_e(sem_post(join.sem));
+}
+
+/* End coordinated section of namespace joining. */
+void join_end(join_t& join, int join_ct) {
+    if (join.winner_p) { // winner still serial
+        spdlog::warn("join: winner initializing shared data");
+        join.shared->winner_pid = getpid();
+        join.shared->proc_left_ct = join_ct;
+    } else // losers serialize
+        sem_timedwait_relative(join.sem, JOIN_TIMEOUT);
+
+    join.shared->proc_left_ct--;
+    spdlog::warn("join: {} peers left excluding myself",
+                 join.shared->proc_left_ct);
+
+    if (join.shared->proc_left_ct <= 0) {
+        spdlog::warn("join: cleaning up IPC resources");
+        Tf_(join.shared->proc_left_ct == 0,
+            "expected 0 peers left but found {}", join.shared->proc_left_ct);
+        Zfe(sem_unlink(join.sem_name.c_str()), "can't unlink sem: {}",
+            join.sem_name.c_str());
+        Zfe(shm_unlink(join.shm_name.c_str()), "can't unlink shm: {}",
+            join.shm_name.c_str());
+    }
+
+    Z_e(sem_post(join.sem)); // parallelize (all)
+
+    Z_e(munmap(join.shared, sizeof(*join.shared)));
+    Z_e(sem_close(join.sem));
+
+    spdlog::warn("join: done");
+}
 
 /// Same effect as `unshare --mount --map-root-user`
 util::expected<void, std::string> unshare_mount_map_root() {
@@ -230,7 +352,8 @@ util::expected<void, std::string> do_sqfs_mount(const mount_pair& entry,
             } else {
                 switch (sqfs_ret) {
                 case SQFS_ERR: {
-                    return util::unexpected{fmt::format("SQFS_ERR {} ", strerror(errno))};
+                    return util::unexpected{
+                        fmt::format("SQFS_ERR {} ", strerror(errno))};
                 }
                 case SQFS_BADFORMAT: {
                     return util::unexpected{
