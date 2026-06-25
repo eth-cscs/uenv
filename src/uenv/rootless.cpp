@@ -88,7 +88,6 @@ void join_begin(join_t& join, std::string join_tag) {
     if (fd > 0) {
         spdlog::trace("join:: I won! PID {}", getpid());
         join.winner_p = true;
-        // TODO WARNING: The segment is resized later in join_env_save().
         Z_e(ftruncate(fd, sizeof(*join.shared)));
     } else {
         std::string err{strerror(errno)};
