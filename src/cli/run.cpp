@@ -89,8 +89,9 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
                                      m.second.mount_path));
     }
 
-    const auto commands = uenv::squashfs_mount_args(
-        settings.calling_environment, mounts, args.commands, args.join);
+    const auto commands =
+        uenv::squashfs_mount_args(settings.calling_environment, mounts,
+                                  args.join, settings.verbose, args.commands);
 
     auto c_env = runtime_environment.c_env();
     auto error = util::exec(commands, c_env);
