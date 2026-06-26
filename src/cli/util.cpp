@@ -42,8 +42,13 @@ bool sqfs_mount_v9(const envvars::state& calling_environment) {
 std::vector<std::string>
 squashfs_mount_args(const envvars::state& calling_environment,
                     const std::vector<std::string>& mounts,
-                    const std::vector<std::string>& args) {
+                    const std::vector<std::string>& args,
+                    bool join) {
     std::vector<std::string> commands = {"squashfs-mount"};
+    if (join) {
+        commands.push_back("--join");
+    }
+
     if (!sqfs_mount_v9(calling_environment)) {
         for (auto& m : mounts) {
             commands.push_back(m);
