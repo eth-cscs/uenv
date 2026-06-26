@@ -26,8 +26,8 @@ void run_args::add_cli(CLI::App& cli, global_settings& settings) {
     auto* run_cli = cli.add_subcommand("run", "run a uenv session");
     run_cli->add_option("-v,--view", view_description,
                         "comma separated list of views to load");
-    run_cli->add_option("-j,--join", join,
-                        "comma separated list of views to load");
+    run_cli->add_flag("-j,--join", join,
+                      "comma separated list of views to load");
     run_cli
         ->add_option("uenv", uenv_description,
                      "comma separated list of uenv to mount")
