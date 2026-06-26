@@ -3,14 +3,15 @@
 set -eu
 
 squashfuse_version=0.6.2
+zstd_version=1.5.7
 
 # build static dependencies
 (
     cd extern/
-    if [ ! -d "zstd-1.5.7/install/lib/pkgconfig" ]; then
+    if [ ! -d "zstd-${zstd_version}/install/lib/pkgconfig" ]; then
         (
-            curl -L https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz | tar xzf -
-            cd zstd-1.5.7/build/meson
+            curl -L https://github.com/facebook/zstd/releases/download/v${zstd_version}/zstd-${zstd_version}.tar.gz | tar xzf -
+            cd zstd-${zstd_version}/build/meson
             CXX=g++-12 CC=gcc-12 uvx --with=meson,ninja \
                        meson setup \
                        --buildtype=release \
@@ -24,8 +25,7 @@ squashfuse_version=0.6.2
             ln -sf lib64 lib
         )
     fi
-
-    export ZSTD=$(realpath zstd-1.5.7/install)
+    export ZSTD=$(realpath zstd-${zstd_version}/install)
 
     if [ ! -d "squashfuse-${squashfuse_version}/install/lib/pkgconfig" ]; then
         (
@@ -48,7 +48,7 @@ squashfuse_version=0.6.2
     fi
 )
 
-PKG_CONFIG_PATH=$(realpath extern/zstd-1.5.7/install/lib/pkgconfig):$(realpath extern/squashfuse-${squashfuse_version}/install/lib/pkgconfig):${PKG_CONFIG_PATH:-}
+PKG_CONFIG_PATH=$(realpath extern/zstd-${zstd_version}/install/lib/pkgconfig):$(realpath extern/squashfuse-${squashfuse_version}/install/lib/pkgconfig):${PKG_CONFIG_PATH:-}
 export PKG_CONFIG_PATH
 
 arch=$(uname -m)
