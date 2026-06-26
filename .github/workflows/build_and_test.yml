@@ -48,7 +48,8 @@ jobs:
                curl \
                ninja-build \
                locales \
-               xxd
+               xxd \
+               sudo
 
             locale-gen en_US.UTF-8
             update-locale LANG=en_US.UTF-8
