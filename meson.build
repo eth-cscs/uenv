@@ -38,6 +38,12 @@ toml_dep = declare_dependency(
   dependencies: toml_base,
   compile_args: ['-DTOML_EXCEPTIONS=0', '-DTOML_HEADER_ONLY=0'],
 )
+# zlib: needed for gzip handling in the native OCI registry client that will
+# replace the oras binary. Always built from the vendored wrapdb subproject
+# (never the system copy) and statically linked, so the binary is self-contained.
+# Built *before* curl so its override_dependency('zlib') is in place and curl
+# links the same vendored static zlib rather than the system copy.
+zlib_dep = subproject('zlib', default_options: ['warning_level=0', 'werror=false', 'default_library=static']).get_variable('zlib_dep')
 subproject('curl', default_options: ['werror=false', 'warning_level=0', 'tests=disabled', 'unittests=disabled', 'tool=disabled'])
 curl_dep = dependency('libcurl', required: true)
 barkeep_dep = declare_dependency(
@@ -70,6 +76,7 @@ lib_src = [
         'src/util/lex.cpp',
         'src/util/lustre.cpp',
         'src/util/semver.cpp',
+        'src/util/sha256.cpp',
         'src/util/shell.cpp',
         'src/util/signal.cpp',
         'src/util/strings.cpp',
@@ -82,12 +89,12 @@ lib_uenv = static_library(
         'uenv',
         lib_src,
         include_directories: lib_inc,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
+        dependencies: [curl_dep, zlib_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
 )
 
 uenv_dep = declare_dependency(
         link_with: lib_uenv,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep, toml_dep],
+        dependencies: [curl_dep, zlib_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep, toml_dep],
         include_directories: lib_inc
 )
 

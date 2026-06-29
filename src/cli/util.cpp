@@ -7,6 +7,7 @@
 
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/sha256.h>
 #include <util/shell.h>
 #include <util/subprocess.h>
 
@@ -82,19 +83,13 @@ validate_squashfs_image(const std::string& path) {
         spdlog::info("no meta data in {}", img.sqfs);
     }
 
-    auto proc = util::run({"sha256sum", img.sqfs.string()});
-    if (!proc) {
-        spdlog::error("{}", proc.error());
+    auto hash = util::sha256_file(img.sqfs);
+    if (!hash) {
+        spdlog::error("{}", hash.error());
         return util::unexpected{fmt::format(
             "unable to calculate sha256 of squashfs file {}", img.sqfs)};
     }
-    auto success = proc->wait();
-    if (success != 0) {
-        return util::unexpected{fmt::format(
-            "unable to calculate sha256 of squashfs file {}", img.sqfs)};
-    }
-    auto raw = *proc->out.getline();
-    img.hash = raw.substr(0, 64);
+    img.hash = hash->hex();
 
     return img;
 }
