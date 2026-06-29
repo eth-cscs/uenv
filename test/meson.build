@@ -69,6 +69,8 @@ unit_src = [
         'unit/lex.cpp',
         'unit/main.cpp',
         'unit/mount.cpp',
+        'unit/oci_auth.cpp',
+        'unit/oci_client.cpp',
         'unit/parse.cpp',
         'unit/shell.cpp',
         'unit/signal.cpp',
