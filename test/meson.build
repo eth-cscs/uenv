@@ -61,6 +61,7 @@ setup_suite = custom_target (
 )
 
 unit_src = [
+        'unit/curl.cpp',
         'unit/dates.cpp',
         'unit/env.cpp',
         'unit/envvars.cpp',
