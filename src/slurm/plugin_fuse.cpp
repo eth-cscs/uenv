@@ -1,11 +1,10 @@
 #include "environ.h"
-#include "plugin.h"
+#include <fmt/ranges.h>
 #include <slurm/spank.h>
 #include <spdlog/spdlog.h>
-#include <uenv/log.h>
 #include <sys/prctl.h>
 #include <sys/wait.h>
-#include <fmt/ranges.h>
+#include <uenv/log.h>
 #include <uenv/rootless.h>
 
 namespace impl {
