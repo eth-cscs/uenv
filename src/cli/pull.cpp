@@ -12,8 +12,8 @@
 #include <spdlog/spdlog.h>
 
 #include <site/site.h>
-#include <uenv/oci/client.h>
-#include <uenv/oci/pull.h>
+#include <oci/client.h>
+#include <oci/pull.h>
 #include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>

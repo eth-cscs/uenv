@@ -13,7 +13,6 @@
 #include "client.h"
 #include "pull.h"
 
-namespace uenv {
 namespace oci {
 
 namespace fs = std::filesystem;
@@ -192,4 +191,3 @@ pull_meta(client& c, const std::string& manifest_digest, const fs::path& store) 
 }
 
 } // namespace oci
-} // namespace uenv

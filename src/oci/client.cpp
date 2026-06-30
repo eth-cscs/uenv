@@ -13,7 +13,6 @@
 
 #include "client.h"
 
-namespace uenv {
 namespace oci {
 
 // --- pure helpers -------------------------------------------------------
@@ -410,4 +409,3 @@ client::put_manifest(const std::string& reference, const std::string& body,
 }
 
 } // namespace oci
-} // namespace uenv

@@ -1,11 +1,11 @@
 #include <catch2/catch_all.hpp>
 
-#include <uenv/oci/auth.h>
+#include <oci/auth.h>
 
-using uenv::oci::parse_bearer_challenge;
-using uenv::oci::parse_token_response;
-using uenv::oci::repository_scope;
-using uenv::oci::token_url;
+using oci::parse_bearer_challenge;
+using oci::parse_token_response;
+using oci::repository_scope;
+using oci::token_url;
 
 TEST_CASE("oci parse_bearer_challenge from jfrog", "[oci][auth]") {
     // the exact challenge the CSCS jfrog registry returns (spike step 1)
@@ -58,7 +58,7 @@ TEST_CASE("oci parse_bearer_challenge is scheme-case-insensitive",
 }
 
 TEST_CASE("oci token_url", "[oci][auth]") {
-    uenv::oci::bearer_challenge c{
+    oci::bearer_challenge c{
         .realm = "https://jfrog.svc.cscs.ch/v2/token",
         .service = "jfrog.svc.cscs.ch",
         .scopes = {}};
@@ -74,7 +74,7 @@ TEST_CASE("oci token_url", "[oci][auth]") {
             "&scope=repository:a:pull&scope=repository:b:push");
 
     // a realm that already carries a query continues with '&'
-    uenv::oci::bearer_challenge q{
+    oci::bearer_challenge q{
         .realm = "https://r/token?foo=bar", .service = "reg", .scopes = {}};
     REQUIRE(token_url(q, {}) == "https://r/token?foo=bar&service=reg");
 }

@@ -1,9 +1,9 @@
 #include <catch2/catch_all.hpp>
 
-#include <uenv/oci/client.h>
+#include <oci/client.h>
 #include <util/sha256.h>
 
-using namespace uenv::oci;
+using namespace oci;
 
 TEST_CASE("oci digest_string", "[oci][client]") {
     auto d = util::sha256_string("abc");

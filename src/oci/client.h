@@ -9,11 +9,10 @@
 #include <string_view>
 #include <vector>
 
-#include <uenv/oci/auth.h>
+#include <oci/auth.h>
 #include <util/expected.h>
 #include <util/sha256.h>
 
-namespace uenv {
 namespace oci {
 
 // common OCI media types
@@ -151,4 +150,3 @@ class client {
 };
 
 } // namespace oci
-} // namespace uenv

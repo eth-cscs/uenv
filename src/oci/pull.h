@@ -5,10 +5,9 @@
 #include <functional>
 #include <string>
 
-#include <uenv/oci/client.h>
+#include <oci/client.h>
 #include <util/expected.h>
 
-namespace uenv {
 namespace oci {
 
 // progress callback for the squashfs download: (bytes_downloaded, bytes_total).
@@ -32,4 +31,3 @@ pull_meta(client& c, const std::string& manifest_digest,
           const std::filesystem::path& store);
 
 } // namespace oci
-} // namespace uenv

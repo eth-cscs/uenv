@@ -13,7 +13,6 @@
 
 #include "auth.h"
 
-namespace uenv {
 namespace oci {
 
 namespace {
@@ -266,4 +265,3 @@ authenticate(const std::string& registry_url,
 }
 
 } // namespace oci
-} // namespace uenv

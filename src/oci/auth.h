@@ -7,7 +7,6 @@
 
 #include <util/expected.h>
 
-namespace uenv {
 namespace oci {
 
 // HTTP basic-auth credentials used to obtain a push/private-pull token.
@@ -77,4 +76,3 @@ authenticate(const std::string& registry_url,
              const std::optional<credentials>& creds = std::nullopt);
 
 } // namespace oci
-} // namespace uenv
