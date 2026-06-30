@@ -27,10 +27,11 @@ struct sha256_digest {
 //
 // An opaque state blob you sha256_init() once, feed bytes into with
 // sha256_update(), then sha256_final(). Stack-allocatable and trivially
-// copyable; the internal layout lives entirely in sha256.cpp, so the FIPS
-// implementation never leaks into this header. Use this when data must be
+// copyable.
+// Use this when data must be
 // digested incrementally (e.g. streaming a multi-GB squashfs) without holding
 // it all in memory.
+// implementation never leaks into this header.
 struct sha256_state {
     // opaque storage - do not inspect or modify directly. sized and aligned to
     // hold the implementation state (asserted in sha256.cpp).

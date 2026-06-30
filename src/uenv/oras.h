@@ -66,10 +66,6 @@ copy(const std::string& registry, const std::string& src_nspace,
      const uenv_record& dst_uenv,
      const std::optional<credentials> token = std::nullopt);
 
-util::expected<std::optional<credentials>, std::string>
-get_credentials(std::optional<std::string> username,
-                std::optional<std::string> token);
-
 } // namespace oras
 } // namespace uenv
 

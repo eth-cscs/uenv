@@ -1,7 +1,6 @@
 #include <unistd.h>
 
 #include <filesystem>
-#include <fstream>
 #include <string>
 #include <vector>
 
@@ -499,56 +498,6 @@ copy(const std::string& registry, const std::string& src_nspace,
     }
 
     return {};
-}
-
-util::expected<std::optional<credentials>, std::string>
-get_credentials(std::optional<std::string> username,
-                std::optional<std::string> token) {
-    namespace fs = std::filesystem;
-    namespace oras = uenv::oras;
-
-    if (!token) {
-        return std::nullopt;
-    }
-
-    fs::path token_path{token.value()};
-    if (!fs::exists(token_path)) {
-        return util::unexpected{fmt::format(
-            "the token '{}' is not a path or file.", token_path.string())};
-    }
-
-    if (fs::is_directory(token_path)) {
-        token_path = token_path / "TOKEN";
-        if (!fs::exists(token_path)) {
-            return util::unexpected{fmt::format(
-                "the token file '{}' does not exist.", token_path.string())};
-        }
-    }
-
-    if (util::file_access_level(token_path) < util::file_level::readonly) {
-        return util::unexpected{fmt::format(
-            "you do not have permission to read the token file '{}'",
-            token_path.string())};
-    }
-
-    std::string token_string{};
-    if (std::ifstream fid{token_path}) {
-        std::getline(fid, token_string);
-    } else {
-        return util::unexpected{fmt::format("unable to read a token from '{}'",
-                                            token_path.string())};
-    }
-
-    if (username) {
-        return oras::credentials{.username = username.value(),
-                                 .token = token_string};
-    }
-    if (auto name = getlogin()) {
-        return oras::credentials{.username = name, .token = token_string};
-    }
-
-    return util::unexpected{
-        "provide a username with --username for the --token."};
 }
 
 } // namespace oras

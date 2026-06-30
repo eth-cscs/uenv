@@ -1,4 +1,7 @@
+#include <unistd.h>
+
 #include <cctype>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -10,35 +13,13 @@
 
 #include <util/curl.h>
 #include <util/expected.h>
-
-#include "auth.h"
+#include <util/fs.h>
+#include <util/strings.h>
+#include <oci/auth.h>
 
 namespace oci {
 
 namespace {
-
-std::string to_lower(std::string_view s) {
-    std::string out;
-    out.reserve(s.size());
-    for (char c : s) {
-        out.push_back(
-            static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-    }
-    return out;
-}
-
-std::string_view trim(std::string_view s) {
-    auto is_space = [](char c) {
-        return std::isspace(static_cast<unsigned char>(c)) != 0;
-    };
-    while (!s.empty() && is_space(s.front())) {
-        s.remove_prefix(1);
-    }
-    while (!s.empty() && is_space(s.back())) {
-        s.remove_suffix(1);
-    }
-    return s;
-}
 
 // split a scope value on spaces (the OCI spec permits a single scope parameter
 // carrying a space-separated list).
@@ -62,9 +43,14 @@ void append_scopes(std::vector<std::string>& out, std::string_view value) {
 
 } // namespace
 
+// --- pure helpers (no network; unit-tested) -----------------------------
+// Kept out of the public auth.h interface; tests redeclare these prototypes
+// inside namespace oci::impl (see test/unit/oci_auth.cpp).
+namespace impl {
+
 std::optional<bearer_challenge>
 parse_bearer_challenge(std::string_view v) {
-    std::string_view s = trim(v);
+    std::string_view s = util::trim(v);
 
     // case-insensitive "Bearer" scheme, followed by whitespace
     constexpr std::string_view scheme = "bearer";
@@ -80,7 +66,7 @@ parse_bearer_challenge(std::string_view v) {
     if (!s.empty() && !std::isspace(static_cast<unsigned char>(s.front()))) {
         return std::nullopt; // e.g. "BearerX" is not the Bearer scheme
     }
-    s = trim(s);
+    s = util::trim(s);
 
     bearer_challenge challenge;
 
@@ -91,7 +77,8 @@ parse_bearer_challenge(std::string_view v) {
         while (i < s.size() && s[i] != '=' && s[i] != ',') {
             ++i;
         }
-        std::string key = to_lower(trim(s.substr(key_start, i - key_start)));
+        std::string key =
+            util::to_lower(util::trim(s.substr(key_start, i - key_start)));
 
         std::string value;
         if (i < s.size() && s[i] == '=') {
@@ -117,7 +104,8 @@ parse_bearer_challenge(std::string_view v) {
                 while (i < s.size() && s[i] != ',') {
                     ++i;
                 }
-                value = std::string(trim(s.substr(val_start, i - val_start)));
+                value = std::string(
+                    util::trim(s.substr(val_start, i - val_start)));
             }
         }
 
@@ -136,7 +124,7 @@ parse_bearer_challenge(std::string_view v) {
         if (i < s.size() && s[i] == ',') {
             ++i;
         }
-        s = trim(s.substr(i));
+        s = util::trim(s.substr(i));
         i = 0;
     }
 
@@ -184,6 +172,8 @@ std::string repository_scope(std::string_view repository,
     return fmt::format("repository:{}:{}", repository, actions);
 }
 
+} // namespace impl
+
 util::expected<bearer_challenge, std::string>
 discover_challenge(const std::string& registry_url) {
     // normalise: drop any trailing '/' before appending the v2 base path.
@@ -215,7 +205,7 @@ discover_challenge(const std::string& registry_url) {
         return util::unexpected{fmt::format(
             "{} returned 401 with no WWW-Authenticate header", req.url)};
     }
-    auto challenge = parse_bearer_challenge(*header);
+    auto challenge = impl::parse_bearer_challenge(*header);
     if (!challenge) {
         return util::unexpected{fmt::format(
             "could not parse WWW-Authenticate header: {}", *header)};
@@ -228,7 +218,7 @@ fetch_token(const bearer_challenge& challenge,
             const std::vector<std::string>& scopes,
             const std::optional<credentials>& creds) {
     util::curl::request req;
-    req.url = token_url(challenge, scopes);
+    req.url = impl::token_url(challenge, scopes);
     if (creds) {
         req.username = creds->username;
         req.password = creds->password;
@@ -245,7 +235,7 @@ fetch_token(const bearer_challenge& challenge,
             fmt::format("token request to {} failed with status {}: {}",
                         req.url, resp->status, resp->body)};
     }
-    auto token = parse_token_response(resp->body);
+    auto token = impl::parse_token_response(resp->body);
     if (!token) {
         return util::unexpected{
             "token endpoint response did not contain a token"};
@@ -262,6 +252,53 @@ authenticate(const std::string& registry_url,
         return util::unexpected{challenge.error()};
     }
     return fetch_token(*challenge, scopes, creds);
+}
+
+util::expected<std::optional<credentials>, std::string>
+get_credentials(std::optional<std::string> username,
+                std::optional<std::string> token) {
+    namespace fs = std::filesystem;
+
+    if (!token) {
+        return std::nullopt;
+    }
+
+    fs::path token_path{token.value()};
+    if (!fs::exists(token_path)) {
+        return util::unexpected{fmt::format(
+            "the token '{}' is not a path or file.", token_path.string())};
+    }
+
+    if (fs::is_directory(token_path)) {
+        token_path = token_path / "TOKEN";
+        if (!fs::exists(token_path)) {
+            return util::unexpected{fmt::format(
+                "the token file '{}' does not exist.", token_path.string())};
+        }
+    }
+
+    if (util::file_access_level(token_path) < util::file_level::readonly) {
+        return util::unexpected{fmt::format(
+            "you do not have permission to read the token file '{}'",
+            token_path.string())};
+    }
+
+    auto token_string = util::read_single_line_file(token_path);
+    if (!token_string) {
+        return util::unexpected{fmt::format("unable to read a token from '{}'",
+                                            token_path.string())};
+    }
+
+    if (username) {
+        return credentials{.username = username.value(),
+                           .password = *token_string};
+    }
+    if (auto name = getlogin()) {
+        return credentials{.username = name, .password = *token_string};
+    }
+
+    return util::unexpected{
+        "provide a username with --username for the --token."};
 }
 
 } // namespace oci

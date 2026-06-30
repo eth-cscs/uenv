@@ -10,6 +10,7 @@
 #include <spdlog/spdlog.h>
 
 #include <site/site.h>
+#include <oci/auth.h>
 #include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
@@ -64,12 +65,18 @@ int image_push([[maybe_unused]] const image_push_args& args,
     }
     const auto& registry_cfg = *settings.config.registry;
 
-    std::optional<uenv::oras::credentials> credentials;
-    if (auto c = oras::get_credentials(args.username, args.token)) {
+    std::optional<oci::credentials> credentials;
+    if (auto c = oci::get_credentials(args.username, args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());
         return 1;
+    }
+    // push still runs on oras; adapt the credentials at the legacy boundary.
+    std::optional<uenv::oras::credentials> oras_creds;
+    if (credentials) {
+        oras_creds = uenv::oras::credentials{credentials->username,
+                                             credentials->password};
     }
 
     // parse and validate the destination (i.e. the label in the registry)
@@ -130,7 +137,7 @@ int image_push([[maybe_unused]] const image_push_args& args,
 
         // Push the SquashFS image
         auto push_result = oras::push_tag(rego_url, nspace, dst_label.label,
-                                          sqfs->sqfs, credentials);
+                                          sqfs->sqfs, oras_creds);
         if (!push_result) {
             term::error("unable to push uenv.\n{}",
                         push_result.error().message);
@@ -144,7 +151,7 @@ int image_push([[maybe_unused]] const image_push_args& args,
 
             auto meta_result =
                 oras::push_meta(rego_url, nspace, dst_label.label,
-                                sqfs->meta.value(), credentials);
+                                sqfs->meta.value(), oras_creds);
             if (!meta_result) {
                 spdlog::warn("unable to push metadata.\n{}",
                              meta_result.error().message);

@@ -10,6 +10,7 @@
 #include <spdlog/spdlog.h>
 
 #include <site/site.h>
+#include <oci/auth.h>
 #include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
@@ -59,12 +60,18 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
     }
     const auto& registry_cfg = *settings.config.registry;
 
-    std::optional<uenv::oras::credentials> credentials;
-    if (auto c = oras::get_credentials(args.username, args.token)) {
+    std::optional<oci::credentials> credentials;
+    if (auto c = oci::get_credentials(args.username, args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());
         return 1;
+    }
+    // copy still runs on oras; adapt the credentials at the legacy boundary.
+    std::optional<uenv::oras::credentials> oras_creds;
+    if (credentials) {
+        oras_creds = uenv::oras::credentials{credentials->username,
+                                             credentials->password};
     }
 
     uenv_nslabel src_label{};
@@ -175,7 +182,7 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
     spdlog::debug("registry url: {}", rego_url);
     if (auto result =
             oras::copy(rego_url, src_label.nspace.value(), src_record,
-                       dst_label.nspace.value(), dst_record, credentials);
+                       dst_label.nspace.value(), dst_record, oras_creds);
         !result) {
         term::error("unable to copy uenv.\n{}", result.error().message);
         return 1;

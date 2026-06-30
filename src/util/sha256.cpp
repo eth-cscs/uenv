@@ -31,8 +31,8 @@ inline uint32_t rotr(uint32_t x, uint32_t n) {
     return (x >> n) | (x << (32 - n));
 }
 
-// The real digest state. Lives only in this translation unit; callers see it as
-// the opaque sha256_state blob.
+// The digest state.
+// Callers see it as the opaque sha256_state blob.
 struct sha256_impl {
     uint32_t state[8];
     uint64_t bitlen;

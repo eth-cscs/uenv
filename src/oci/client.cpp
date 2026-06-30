@@ -10,12 +10,18 @@
 
 #include <util/curl.h>
 #include <util/expected.h>
-
-#include "client.h"
+#include <oci/client.h>
 
 namespace oci {
 
-// --- pure helpers -------------------------------------------------------
+// pure helpers (no network; unit-tested). Kept out of the public client.h
+// interface; tests redeclare these prototypes inside namespace oci::impl (see
+// test/unit/oci_client.cpp).
+namespace impl {
+
+// defined in auth.cpp (also part of oci::impl).
+std::string repository_scope(std::string_view repository,
+                             std::string_view actions);
 
 std::string digest_string(const util::sha256_digest& d) {
     return "sha256:" + d.hex();
@@ -112,6 +118,8 @@ std::optional<std::vector<descriptor>> parse_referrers(std::string_view body) {
     return out;
 }
 
+} // namespace impl
+
 // --- client -------------------------------------------------------------
 
 util::expected<client, std::string>
@@ -138,7 +146,7 @@ util::expected<std::string, std::string> client::token_for(bool write) {
     if (cache) {
         return *cache;
     }
-    auto scope = repository_scope(repository_, write ? "pull,push" : "pull");
+    auto scope = impl::repository_scope(repository_, write ? "pull,push" : "pull");
     auto token = fetch_token(challenge_, {scope}, creds_);
     if (!token) {
         return util::unexpected{token.error()};
@@ -154,7 +162,7 @@ client::blob_exists(const std::string& digest) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + blob_path(repository_, digest);
+    req.url = registry_url_ + impl::blob_path(repository_, digest);
     req.method = util::curl::http_method::head;
     req.bearer_token = *token;
 
@@ -179,7 +187,7 @@ client::get_blob(const std::string& digest) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + blob_path(repository_, digest);
+    req.url = registry_url_ + impl::blob_path(repository_, digest);
     req.bearer_token = *token;
     // registries 307-redirect blob downloads to backing storage.
     req.follow_redirects = true;
@@ -205,7 +213,7 @@ client::get_blob_to_file(
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + blob_path(repository_, digest);
+    req.url = registry_url_ + impl::blob_path(repository_, digest);
     req.bearer_token = *token;
     req.follow_redirects = true;
     req.download_file = file;
@@ -230,7 +238,7 @@ client::get_manifest(const std::string& reference) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + manifest_path(repository_, reference);
+    req.url = registry_url_ + impl::manifest_path(repository_, reference);
     req.bearer_token = *token;
     req.header_lines = {fmt::format("Accept: {}", media_type_manifest),
                         fmt::format("Accept: {}", media_type_index)};
@@ -257,7 +265,7 @@ util::expected<std::vector<std::string>, std::string> client::list_tags() {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + tags_path(repository_);
+    req.url = registry_url_ + impl::tags_path(repository_);
     req.bearer_token = *token;
 
     auto resp = util::curl::perform(req);
@@ -268,7 +276,7 @@ util::expected<std::vector<std::string>, std::string> client::list_tags() {
         return util::unexpected{fmt::format(
             "failed to list tags (status {})", resp->status)};
     }
-    auto tags = parse_tags_list(resp->body);
+    auto tags = impl::parse_tags_list(resp->body);
     if (!tags) {
         return util::unexpected{"could not parse tags/list response"};
     }
@@ -282,7 +290,7 @@ client::referrers(const std::string& digest) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + referrers_path(repository_, digest);
+    req.url = registry_url_ + impl::referrers_path(repository_, digest);
     req.bearer_token = *token;
 
     auto resp = util::curl::perform(req);
@@ -294,7 +302,7 @@ client::referrers(const std::string& digest) {
             "failed to fetch referrers of {} (status {})", digest,
             resp->status)};
     }
-    auto refs = parse_referrers(resp->body);
+    auto refs = impl::parse_referrers(resp->body);
     if (!refs) {
         return util::unexpected{"could not parse referrers response"};
     }
@@ -331,7 +339,7 @@ do_put_blob(const std::string& registry_url, const std::string& uploads,
 
     // 2. PUT the payload to <location>?digest=<digest>
     util::curl::request put;
-    put.url = resolve_upload_url(registry_url, *location, digest);
+    put.url = impl::resolve_upload_url(registry_url, *location, digest);
     put.method = util::curl::http_method::put;
     put.bearer_token = token;
     put.header_lines = {
@@ -363,7 +371,7 @@ client::put_blob(const std::string& digest,
     if (!token) {
         return util::unexpected{token.error()};
     }
-    return do_put_blob(registry_url_, uploads_path(repository_), *token, digest,
+    return do_put_blob(registry_url_, impl::uploads_path(repository_), *token, digest,
                        [&file](util::curl::request& r) {
                            r.upload_file = file;
                        });
@@ -378,7 +386,7 @@ client::put_blob_bytes(const std::string& digest, const std::string& data) {
     if (!token) {
         return util::unexpected{token.error()};
     }
-    return do_put_blob(registry_url_, uploads_path(repository_), *token, digest,
+    return do_put_blob(registry_url_, impl::uploads_path(repository_), *token, digest,
                        [&data](util::curl::request& r) { r.body = data; });
 }
 
@@ -390,7 +398,7 @@ client::put_manifest(const std::string& reference, const std::string& body,
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + manifest_path(repository_, reference);
+    req.url = registry_url_ + impl::manifest_path(repository_, reference);
     req.method = util::curl::http_method::put;
     req.bearer_token = *token;
     req.body = body;

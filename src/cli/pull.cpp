@@ -14,7 +14,6 @@
 #include <site/site.h>
 #include <oci/client.h>
 #include <oci/pull.h>
-#include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -75,8 +74,8 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
     }
     const auto& registry_cfg = *settings.config.registry;
 
-    std::optional<uenv::oras::credentials> credentials;
-    if (auto c = oras::get_credentials(args.username, args.token)) {
+    std::optional<oci::credentials> credentials;
+    if (auto c = oci::get_credentials(args.username, args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());
@@ -202,16 +201,11 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
                               record.system, record.uarch, record.name,
                               record.version);
 
-        std::optional<oci::credentials> oci_creds;
-        if (credentials) {
-            oci_creds =
-                oci::credentials{credentials->username, credentials->token};
-        }
-
         spdlog::debug("oci pull: registry={} repository={}", registry_base,
                       repository);
 
-        auto client = oci::client::create(registry_base, repository, oci_creds);
+        auto client =
+            oci::client::create(registry_base, repository, credentials);
         if (!client) {
             term::error("unable to connect to the registry:\n{}",
                         client.error());
@@ -269,7 +263,6 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
                         .no_tty = !isatty(fileno(stdout)),
                     });
 
-                util::set_signal_catcher();
                 auto progress = [&downloaded_mb](std::uint64_t now,
                                                  std::uint64_t) {
                     downloaded_mb = now / (1024 * 1024);
@@ -280,12 +273,17 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
                 // than calling signal_raised() again (which would see false and
                 // skip the cleanup, leaving a partial download behind).
                 bool aborted = false;
+                util::set_signal_catcher();
                 auto result = oci::pull_squashfs(
-                    *client, *manifest, paths.store, progress, [&aborted]() {
+                    *client, *manifest, paths.store, progress,
+                    [&aborted]() {
                         aborted = aborted || util::signal_raised();
                         return aborted;
                     });
-                downloaded_mb = total_mb;
+                if (!aborted) {
+                    // ensure that the progress bar shows %100 on completion
+                    downloaded_mb = total_mb;
+                }
                 bar->done();
 
                 if (!result) {

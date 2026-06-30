@@ -12,37 +12,11 @@
 #include <util/curl.h>
 #include <util/defer.h>
 #include <util/expected.h>
+#include <util/strings.h>
 
 namespace util {
 
 namespace curl {
-
-namespace {
-
-std::string to_lower(std::string_view s) {
-    std::string out;
-    out.reserve(s.size());
-    for (char c : s) {
-        out.push_back(static_cast<char>(
-            std::tolower(static_cast<unsigned char>(c))));
-    }
-    return out;
-}
-
-std::string_view trim(std::string_view s) {
-    auto is_space = [](char c) {
-        return std::isspace(static_cast<unsigned char>(c)) != 0;
-    };
-    while (!s.empty() && is_space(s.front())) {
-        s.remove_prefix(1);
-    }
-    while (!s.empty() && is_space(s.back())) {
-        s.remove_suffix(1);
-    }
-    return s;
-}
-
-} // namespace
 
 std::optional<std::string> headers::get(std::string_view name) const {
     if (auto it = entries.find(to_lower(name)); it != entries.end()) {

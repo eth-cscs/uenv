@@ -1,3 +1,4 @@
+#include <cctype>
 #include <numeric>
 #include <regex>
 #include <string>
@@ -8,18 +9,31 @@
 
 namespace util {
 
+std::string_view trim(std::string_view s) {
+    auto is_space = [](char c) {
+        return std::isspace(static_cast<unsigned char>(c)) != 0;
+    };
+    while (!s.empty() && is_space(s.front())) {
+        s.remove_prefix(1);
+    }
+    while (!s.empty() && is_space(s.back())) {
+        s.remove_suffix(1);
+    }
+    return s;
+}
+
 std::string strip(std::string_view input) {
-    if (input.empty()) {
-        return {};
+    return std::string{trim(input)};
+}
+
+std::string to_lower(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        out.push_back(
+            static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
     }
-    auto b = std::find_if_not(input.begin(), input.end(), std::iswspace);
-    if (b == input.end()) {
-        return {};
-    }
-    auto e = input.end();
-    while (std::iswspace(*--e))
-        ;
-    return {b, e + 1};
+    return out;
 }
 
 std::vector<std::string> split(std::string_view s, const char delim,

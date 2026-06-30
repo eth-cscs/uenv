@@ -3,7 +3,6 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
-#include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/curl.h>

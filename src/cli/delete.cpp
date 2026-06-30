@@ -9,7 +9,7 @@
 #include <spdlog/spdlog.h>
 
 #include <site/site.h>
-#include <uenv/oras.h>
+#include <oci/auth.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -62,8 +62,8 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     }
     const auto& artifactory_url = *registry_cfg.artifactory_url;
 
-    uenv::oras::credentials credentials;
-    if (auto c = oras::get_credentials(args.username, args.token)) {
+    oci::credentials credentials;
+    if (auto c = oci::get_credentials(args.username, args.token)) {
         if (!*c) {
             term::error("full credentials must be provided", c.error());
         }
@@ -126,7 +126,8 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
                                record.version, record.tag);
 
         if (auto result =
-                util::curl::del(url, credentials.username, credentials.token);
+                util::curl::del(url, credentials.username,
+                                credentials.password);
             !result) {
             term::error("unable to delete uenv: {}", result.error().message);
             return 1;

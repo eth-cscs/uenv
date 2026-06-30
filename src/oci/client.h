@@ -42,34 +42,6 @@ struct manifest_response {
     std::string media_type;
 };
 
-// --- pure helpers (no network; unit-tested) -----------------------------
-
-// "sha256:<hex>" for a digest.
-std::string digest_string(const util::sha256_digest& d);
-
-// OCI Distribution v2 path builders (each begins with "/v2/").
-std::string blob_path(std::string_view repository, std::string_view digest);
-std::string manifest_path(std::string_view repository,
-                          std::string_view reference);
-std::string uploads_path(std::string_view repository);
-std::string tags_path(std::string_view repository);
-std::string referrers_path(std::string_view repository,
-                           std::string_view digest);
-
-// Resolve a blob-upload Location (which may be absolute or registry-relative)
-// against the registry base URL, then append the monolithic-upload digest query
-// parameter, choosing '?' or '&' as appropriate.
-std::string resolve_upload_url(std::string_view registry_url,
-                               std::string_view location,
-                               std::string_view digest);
-
-// Parse a /tags/list body ({"name":...,"tags":[...]}) into the tag list.
-std::optional<std::vector<std::string>>
-parse_tags_list(std::string_view body);
-
-// Parse a referrers index body into its manifest descriptors.
-std::optional<std::vector<descriptor>> parse_referrers(std::string_view body);
-
 // --- registry client ----------------------------------------------------
 
 // A client bound to one repository on one registry. Authenticates lazily,

@@ -9,11 +9,15 @@
 #include <util/expected.h>
 #include <util/sha256.h>
 #include <util/subprocess.h>
-
-#include "client.h"
-#include "pull.h"
+#include <oci/client.h>
+#include <oci/pull.h>
 
 namespace oci {
+
+// defined in client.cpp (part of oci::impl, kept out of the public interface).
+namespace impl {
+std::string digest_string(const util::sha256_digest& d);
+}
 
 namespace fs = std::filesystem;
 
@@ -111,7 +115,7 @@ pull_squashfs(client& c, const manifest_response& manifest,
     if (!actual) {
         return util::unexpected{actual.error()};
     }
-    auto actual_digest = digest_string(*actual);
+    auto actual_digest = impl::digest_string(*actual);
     if (actual_digest != digest) {
         std::error_code ec;
         fs::remove(dest, ec);
