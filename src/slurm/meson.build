@@ -15,7 +15,7 @@ slurm_fuse = get_option('slurm_fuse')
 
 dependencies = [uenv_dep, slurm_dep]
 if slurm_fuse
-    module_src += ['../uenv/rootless.cpp', '../uenv/mutable_root.cpp']
+    module_src += ['../uenv/rootless.cpp', '../uenv/mutable_root.cpp', 'plugin_fuse.cpp']
     cpp_args_list += ['-DUENV_FUSE']
     dependencies += [squashfuse_dep, fuse_dep]
 endif
