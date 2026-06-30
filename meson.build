@@ -64,6 +64,7 @@ lib_src = [
         'src/uenv/mount.cpp',
         'src/uenv/oci/auth.cpp',
         'src/uenv/oci/client.cpp',
+        'src/uenv/oci/pull.cpp',
         'src/uenv/oras.cpp',
         'src/uenv/parse.cpp',
         'src/uenv/print.cpp',

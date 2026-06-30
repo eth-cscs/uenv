@@ -273,6 +273,25 @@ size_t header_callback(char* buffer, size_t size, size_t nitems,
     return total;
 }
 
+size_t file_write_callback(void* source, size_t size, size_t n, void* target) {
+    const size_t realsize = size * n;
+    FILE* f = static_cast<FILE*>(target);
+    return fwrite(source, 1, realsize, f);
+}
+
+int xferinfo_callback(void* p, curl_off_t dltotal, curl_off_t dlnow,
+                      curl_off_t, curl_off_t) {
+    const auto& req = *static_cast<const request*>(p);
+    if (req.on_download_progress) {
+        req.on_download_progress(static_cast<std::uint64_t>(dlnow),
+                                 static_cast<std::uint64_t>(dltotal));
+    }
+    if (req.should_abort && req.should_abort()) {
+        return 1; // non-zero aborts the transfer (CURLE_ABORTED_BY_CALLBACK)
+    }
+    return 0;
+}
+
 const char* method_name(http_method m) {
     switch (m) {
     case http_method::get:
@@ -385,11 +404,31 @@ expected<response, error> perform(const request& req) {
                                    (long)req.body->size()));
     }
 
-    // capture body
+    // capture the response body: either streamed to a file (for large blob
+    // downloads) or buffered in memory.
     std::vector<char> body;
-    body.reserve(200000);
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, memory_callback));
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEDATA, (void*)&body));
+    FILE* download = nullptr;
+    auto cleanup_download = defer([&download]() {
+        if (download) {
+            fclose(download);
+        }
+    });
+    if (req.download_file) {
+        download = fopen(req.download_file->c_str(), "wb");
+        if (!download) {
+            return unexpected{
+                error{CURLE_WRITE_ERROR,
+                      fmt::format("unable to open {} for download",
+                                  req.download_file->string())}};
+        }
+        CURL_EASY(
+            curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, file_write_callback));
+        CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEDATA, (void*)download));
+    } else {
+        body.reserve(200000);
+        CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, memory_callback));
+        CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEDATA, (void*)&body));
+    }
 
     // capture response headers
     response resp;
@@ -399,6 +438,13 @@ expected<response, error> perform(const request& req) {
     CURL_EASY(curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS,
                                req.connect_timeout_ms));
     CURL_EASY(curl_easy_setopt(h, CURLOPT_TIMEOUT_MS, req.timeout_ms));
+
+    if (req.on_download_progress || req.should_abort) {
+        CURL_EASY(curl_easy_setopt(h, CURLOPT_NOPROGRESS, 0L));
+        CURL_EASY(
+            curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, xferinfo_callback));
+        CURL_EASY(curl_easy_setopt(h, CURLOPT_XFERINFODATA, (void*)&req));
+    }
 
     CURL_EASY(curl_easy_perform(h));
 

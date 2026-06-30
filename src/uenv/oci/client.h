@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -89,6 +91,16 @@ class client {
     // fetch a blob's bytes (follows the 307 redirect to backing storage).
     util::expected<std::string, std::string>
     get_blob(const std::string& digest);
+
+    // stream a blob straight to a file, never holding it in memory (for the
+    // multi-GB squashfs layer). follows the 307 redirect to backing storage.
+    // an optional progress callback receives (bytes_downloaded, bytes_total);
+    // an optional abort predicate, polled during transfer, cancels it.
+    util::expected<void, std::string>
+    get_blob_to_file(
+        const std::string& digest, const std::filesystem::path& file,
+        std::function<void(std::uint64_t, std::uint64_t)> progress = {},
+        std::function<bool()> should_abort = {});
 
     // fetch a manifest by tag or digest.
     util::expected<manifest_response, std::string>

@@ -196,6 +196,34 @@ client::get_blob(const std::string& digest) {
     return resp->body;
 }
 
+util::expected<void, std::string>
+client::get_blob_to_file(
+    const std::string& digest, const std::filesystem::path& file,
+    std::function<void(std::uint64_t, std::uint64_t)> progress,
+    std::function<bool()> should_abort) {
+    auto token = token_for(false);
+    if (!token) {
+        return util::unexpected{token.error()};
+    }
+    util::curl::request req;
+    req.url = registry_url_ + blob_path(repository_, digest);
+    req.bearer_token = *token;
+    req.follow_redirects = true;
+    req.download_file = file;
+    req.on_download_progress = std::move(progress);
+    req.should_abort = std::move(should_abort);
+
+    auto resp = util::curl::perform(req);
+    if (!resp) {
+        return util::unexpected{resp.error().message};
+    }
+    if (resp->status != 200) {
+        return util::unexpected{fmt::format(
+            "failed to fetch blob {} (status {})", digest, resp->status)};
+    }
+    return {};
+}
+
 util::expected<manifest_response, std::string>
 client::get_manifest(const std::string& reference) {
     auto token = token_for(false);

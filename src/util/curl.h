@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -56,6 +58,19 @@ struct request {
     //  - upload_file: stream a file as the body (e.g. a squashfs layer)
     std::optional<std::string> body;
     std::optional<std::filesystem::path> upload_file;
+
+    // when set, the response body is streamed to this file instead of being
+    // buffered in memory (essential for multi-GB blob downloads). response.body
+    // is left empty in that case.
+    std::optional<std::filesystem::path> download_file;
+
+    // optional download-progress callback: (bytes_downloaded, bytes_total).
+    // bytes_total is 0 until the server reports a content length.
+    std::function<void(std::uint64_t, std::uint64_t)> on_download_progress;
+
+    // optional abort predicate, polled during transfer; returning true aborts
+    // the request (used to make a long download responsive to Ctrl-C).
+    std::function<bool()> should_abort;
 
     // follow 3xx redirects. off by default (matching libcurl), since following
     // is an SSRF/credential-leak/protocol-downgrade surface that only specific
