@@ -17,14 +17,14 @@ struct join_t {
     }* shared;
 };
 
-/* Same effect as `unshare --mount --map-root-user` */
+// Same effect as `unshare --mount --map-root-user`
 util::expected<void, std::string> unshare_mount_map_root();
 
-/* go back to effective user */
+// go back to effective user
 util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid);
 
-/* squashfs_ll mount */
-util::expected<void, std::string> do_sqfs_mount(const uenv::mount_pair&,
+// mount using squashfuse low-level interface
+util::expected<void, std::string> do_sqfs_ll_mount(const uenv::mount_pair&,
                                                 bool fuse_st);
 
 util::expected<void, std::string> make_mutable_root();

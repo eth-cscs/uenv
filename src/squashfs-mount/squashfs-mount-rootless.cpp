@@ -93,7 +93,7 @@ void setup_ns_and_mount(bool mutable_root, bool fuse_st,
         if (mutable_root) {
             fs::create_directories(mount.mount);
         }
-        if (auto r = do_sqfs_mount(mount, fuse_st); !r) {
+        if (auto r = do_sqfs_ll_mount(mount, fuse_st); !r) {
             error_and_exit("failed to mount {}", r.error());
         }
     }

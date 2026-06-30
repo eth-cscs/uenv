@@ -20,13 +20,12 @@ extern "C" {
 #include <unistd.h>
 #include <util/expected.h>
 
-/* Timeout in seconds for waiting for join semaphore. */
+// Timeout in seconds for waiting for join semaphore.
 #define JOIN_TIMEOUT 30
-#define VERBOSE 1
 
 namespace uenv {
 
-/* Join a specific namespace. */
+// Join a specific namespace.
 void namespace_join(pid_t pid, const char* ns) {
     std::string path;
     int fd;
@@ -39,10 +38,10 @@ void namespace_join(pid_t pid, const char* ns) {
         else
             Tfe(0, "join: can't open {}", path);
     }
-    /* setns(2) seems to be involved in some kind of race with syslog(3).
-       Rarely, when configured with --enable-syslog, the call fails with
-       EINVAL. We never figured out a proper fix, so just retry a few times in
-       a loop. See issue #1270. */
+    // setns(2) seems to be involved in some kind of race with syslog(3).
+    // Rarely, when configured with --enable-syslog, the call fails with
+    // EINVAL. We never figured out a proper fix, so just retry a few times in
+    // a loop. See issue #1270.
     for (int i = 1; setns(fd, 0) != 0; i++)
         if (i >= 5) {
             spdlog::error("can’t join {} namespace of pid {}", ns, pid);
@@ -53,16 +52,16 @@ void namespace_join(pid_t pid, const char* ns) {
         }
 }
 
-/* Join the existing namespaces containing process pid, which could be the
-   join winner or another process. */
+// Join the existing namespaces containing process pid, which could be the
+// join winner or another process.
 void namespaces_join(pid_t pid) {
     spdlog::warn("joining namespaces of pid {}", pid);
     namespace_join(pid, "user");
     namespace_join(pid, "mnt");
 }
 
-/* Wait for semaphore sem for up to timeout seconds. If timeout or an error,
-   exit unsuccessfully. */
+// Wait for semaphore sem for up to timeout seconds. If timeout or an error,
+// exit unsuccessfully.
 void sem_timedwait_relative(sem_t* sem, int timeout) {
     struct timespec deadline;
 
@@ -72,7 +71,7 @@ void sem_timedwait_relative(sem_t* sem, int timeout) {
     Zfe(sem_timedwait(sem, &deadline), "failure waiting for join lock");
 }
 
-/* Begin coordinated section of namespace joining. */
+// Begin coordinated section of namespace joining.
 void join_begin(join_t& join, std::string join_tag) {
     int fd;
     join.sem_name = fmt::format("/uenv-run_sem-{}", join_tag);
@@ -108,7 +107,7 @@ void join_begin(join_t& join, std::string join_tag) {
         Z_e(sem_post(join.sem));
 }
 
-/* End coordinated section of namespace joining. */
+// End coordinated section of namespace joining.
 void join_end(join_t& join, int join_ct, std::optional<pid_t> winner_pid) {
     if (join.winner_p) { // winner still serial
         spdlog::trace("join: winner initializing shared data");
@@ -143,7 +142,7 @@ void join_end(join_t& join, int join_ct, std::optional<pid_t> winner_pid) {
     spdlog::trace("join: done");
 }
 
-/// Same effect as `unshare --mount --map-root-user`
+// Same effect as `unshare --mount --map-root-user`
 util::expected<void, std::string> unshare_mount_map_root() {
     spdlog::trace("become fake root");
     int uid = getuid(); // get current uid
@@ -181,7 +180,7 @@ util::expected<void, std::string> unshare_mount_map_root() {
     return {};
 }
 
-/// go back to effective user
+// go back to effective user
 util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
 
     if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0) {
@@ -240,8 +239,8 @@ static void init_fs_ops(struct fuse_lowlevel_ops* sqfs_ll_ops) {
 // when the parent process exits (shell is closed).
 // Adapted from `squashfuse_ll` written by Dave Vasilevsky <dave@vasilevsky.ca>
 // Ref: https://github.com/vasi/squashfuse/blob/master/ll_main.c
-util::expected<void, std::string> do_sqfs_mount(const mount_pair& entry,
-                                                bool fuse_st) {
+util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
+                                                   bool fuse_st) {
 
     spdlog::trace("do_sqfs_mount");
     // use a pipe to synchronize parent and child process
@@ -274,42 +273,40 @@ util::expected<void, std::string> do_sqfs_mount(const mount_pair& entry,
         struct fuse_lowlevel_ops sqfs_ll_ops;
         init_fs_ops(&sqfs_ll_ops);
 
-        /* fuse_daemonize() will unconditionally clobber fds 0-2.
-         * If we get one of these file descriptors in sqfs_ll_open,
-         * we're going to have a bad time. Just make sure that all
-         * these fds are open before opening the image file, that way
-         * we must get a different fd.
-         */
+        // fuse_daemonize() will unconditionally clobber fds 0-2.
+        // If we get one of these file descriptors in sqfs_ll_open,
+        // we're going to have a bad time. Just make sure that all
+        // these fds are open before opening the image file, that way
+        // we must get a different fd.
         while (true) {
             int fd = open("/dev/null", O_RDONLY);
             if (fd == -1) {
-                /* Can't open /dev/null, how bizarre! However,
-                 * fuse_deamonize won't clobber fds if it can't
-                 * open /dev/null either, so we ought to be OK.
-                 */
+                // Can't open /dev/null, how bizarre! However,
+                // fuse_deamonize won't clobber fds if it can't
+                // open /dev/null either, so we ought to be OK.
                 break;
             }
             if (fd > 2) {
-                /* fds 0-2 are now guaranteed to be open. */
+                // fds 0-2 are now guaranteed to be open.
                 close(fd);
                 break;
             }
         }
 
         int idle_timeout_secs = 0;
-        /* the child process starts fuse and informs the calling process via
-         * pipe when done */
+        // the child process starts fuse and informs the calling process via
+        // pipe when done
 
         int offset = 0;
-        /* OPEN FS */
+        // OPEN FS
         err = !(ll = sqfs_ll_open(entry.sqfs.c_str(), offset));
         if (err) {
             return util::unexpected{"sqfs_ll_open failed\n"};
         }
         if (!err) {
-            /* startup fuse */
+            // startup fuse
             sqfs_ll_chan ch;
-            /* err = -1; */
+            // err = -1;
             sqfs_err sqfs_ret =
                 sqfs_ll_mount(&ch, entry.mount.c_str(), &args, &sqfs_ll_ops,
                               sizeof(sqfs_ll_ops), ll);
@@ -384,7 +381,7 @@ util::expected<void, std::string> do_sqfs_mount(const mount_pair& entry,
         free(ll);
         exit(0);
     } else {
-        /* parent block on pipe until fusemount has finished. */
+        // parent block on pipe until fusemount has finished.
         char buf[256];
         close(pipe_wait[1]);
         int res = read(pipe_wait[0], buf, 256);
