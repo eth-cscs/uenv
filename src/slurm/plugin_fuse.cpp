@@ -1,5 +1,6 @@
 #include "environ.h"
 #include <fmt/ranges.h>
+#include <optional>
 #include <slurm/spank.h>
 #include <spdlog/spdlog.h>
 #include <sys/prctl.h>
@@ -7,6 +8,9 @@
 #include <uenv/log.h>
 #include <uenv/rootless.h>
 
+//
+// Forward declare the implementation of the plugin callbacks.
+//
 namespace impl {
 int slurm_spank_task_init(spank_t sp, int ac, char** av);
 } // namespace impl
@@ -21,6 +25,7 @@ int slurm_spank_task_init(spank_t sp, int ac, char** av) {
 
 namespace impl {
 
+//
 int slurm_spank_task_init(spank_t sp, int ac [[maybe_unused]],
                           char** av [[maybe_unused]]) {
     uenv::init_log(spdlog::level::off);
@@ -48,13 +53,13 @@ int slurm_spank_task_init(spank_t sp, int ac [[maybe_unused]],
     uenv::join_t join;
     uenv::join_begin(join, join_tag);
 
-    pid_t pid = -1;
+    std::optional<pid_t> winner_pid = std::nullopt;
     if (join.winner_p) {
         const auto mount_str =
             fmt::format("{}", fmt::join(mounts.value(), ","));
 
-        pid = fork();
-        if (pid == 0) {
+        winner_pid = fork();
+        if (winner_pid.value() == 0) {
             prctl(PR_SET_PDEATHSIG, SIGHUP);
             execlp("squashfs-mount", "squashfs-mount", "--sqfs",
                    mount_str.c_str(), "--", "sh", "-c", "kill -STOP $$; exit 0",
@@ -62,14 +67,14 @@ int slurm_spank_task_init(spank_t sp, int ac [[maybe_unused]],
             slurm_error("uenv: exec squashfs-mount failed: %s",
                         strerror(errno));
             _exit(EXIT_FAILURE);
-        } else if (pid < 0) {
+        } else if (winner_pid.value() < 0) {
             slurm_error("uenv: fork failed: %s", strerror(errno));
             return -ESPANK_ERROR;
         }
 
         // wait until squashfs-mount-rootless stops itself after mounting
         siginfo_t sig_info;
-        if (waitid(P_PID, pid, &sig_info, WSTOPPED) < 0) {
+        if (waitid(P_PID, winner_pid.value(), &sig_info, WSTOPPED) < 0) {
             slurm_error("uenv: waitid failed: %s", strerror(errno));
             return -ESPANK_ERROR;
         }
@@ -77,14 +82,14 @@ int slurm_spank_task_init(spank_t sp, int ac [[maybe_unused]],
         // enter the user+mount namespace created by squashfs-mount-rootless;
         // join_end will record winner_pid = getpid() so losing tasks can join
         // the same namespace
-        uenv::namespaces_join(pid);
+        uenv::namespaces_join(winner_pid.value());
     } else {
         // winner_pid is the winner task's PID after it entered the squashfs
         // namespace, so joining its namespaces gives us the same view
         uenv::namespaces_join(join.shared->winner_pid);
     }
 
-    uenv::join_end(join, ntasks, pid);
+    uenv::join_end(join, ntasks, winner_pid /* the winner pid */);
 
     return ESPANK_SUCCESS;
 }
