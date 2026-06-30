@@ -8,6 +8,18 @@
 #include <uenv/rootless.h>
 
 namespace impl {
+int slurm_spank_task_init(spank_t sp, int ac, char** av);
+} // namespace impl
+
+extern "C" {
+
+int slurm_spank_task_init(spank_t sp, int ac, char** av) {
+    return impl::slurm_spank_task_init(sp, ac, av);
+}
+
+} // extern "C"
+
+namespace impl {
 
 int slurm_spank_task_init(spank_t sp, int ac [[maybe_unused]],
                           char** av [[maybe_unused]]) {

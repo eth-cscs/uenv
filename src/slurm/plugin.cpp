@@ -39,9 +39,6 @@ namespace impl {
 int slurm_spank_init(spank_t sp, int ac, char** av);
 int slurm_spank_init_post_opt(spank_t sp, int ac, char** av);
 int slurm_spank_local_user_init(spank_t sp, int ac, char** av);
-#if defined(UENV_FUSE)
-int slurm_spank_task_init(spank_t sp, int ac, char** av);
-#endif
 } // namespace impl
 
 //
@@ -69,12 +66,6 @@ int slurm_spank_local_user_init(spank_t sp, int ac, char** av) {
 int slurm_spank_init_post_opt(spank_t sp, int ac, char** av) {
     return impl::slurm_spank_init_post_opt(sp, ac, av);
 }
-
-#if defined(UENV_FUSE)
-int slurm_spank_task_init(spank_t sp, int ac, char** av) {
-    return impl::slurm_spank_task_init(sp, ac, av);
-}
-#endif
 
 } // extern "C"
 
