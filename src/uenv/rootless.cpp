@@ -109,10 +109,13 @@ void join_begin(join_t& join, std::string join_tag) {
 }
 
 /* End coordinated section of namespace joining. */
-void join_end(join_t& join, int join_ct) {
+void join_end(join_t& join, int join_ct, std::optional<pid_t> pid) {
     if (join.winner_p) { // winner still serial
         spdlog::trace("join: winner initializing shared data");
-        join.shared->winner_pid = getpid();
+        if (!pid)
+            join.shared->winner_pid = getpid();
+        else
+            join.shared->winner_pid = pid.value();
         join.shared->proc_left_ct = join_ct;
     } else // losers serialize
         sem_timedwait_relative(join.sem, JOIN_TIMEOUT);

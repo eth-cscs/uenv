@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <uenv/rootless.h>
@@ -217,7 +218,7 @@ int main(int argc, char** argv, char** envp) {
             ntasks = std::stoi(f->second);
             spdlog::trace("SLURM_STEP_TASKS_PER_NODE: {}", ntasks);
         }
-        uenv::join_end(join, ntasks);
+        uenv::join_end(join, ntasks, std::nullopt);
     }
 
     envvars::state runtime_env{};

@@ -30,7 +30,7 @@ util::expected<void, std::string> do_sqfs_mount(const uenv::mount_pair&,
 util::expected<void, std::string> make_mutable_root();
 
 void join_begin(join_t& join, std::string join_tag);
-void join_end(join_t& join, int join_ct);
+void join_end(join_t& join, int join_ct, std::optional<pid_t> pid);
 
 void namespaces_join(pid_t pid);
 

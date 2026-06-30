@@ -605,11 +605,12 @@ int slurm_spank_task_init(spank_t sp, int ac [[maybe_unused]],
     uenv::join_t join;
     uenv::join_begin(join, join_tag);
 
+    pid_t pid = -1;
     if (join.winner_p) {
         const auto mount_str =
             fmt::format("{}", fmt::join(mounts.value(), ","));
 
-        pid_t pid = fork();
+        pid = fork();
         if (pid == 0) {
             prctl(PR_SET_PDEATHSIG, SIGHUP);
             execlp("squashfs-mount", "squashfs-mount",
@@ -640,7 +641,7 @@ int slurm_spank_task_init(spank_t sp, int ac [[maybe_unused]],
         uenv::namespaces_join(join.shared->winner_pid);
     }
 
-    uenv::join_end(join, ntasks);
+    uenv::join_end(join, ntasks, pid);
 
     return ESPANK_SUCCESS;
 }
