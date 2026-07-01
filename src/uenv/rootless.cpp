@@ -148,7 +148,7 @@ util::expected<void, std::string> unshare_mount_map_root() {
     int uid = getuid(); // get current uid
     int gid = getgid();
     if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0)
-        err(EXIT_FAILURE, "unshare(CLONE_NEWUSER | CLONE_NEWUSER) failed");
+        err(EXIT_FAILURE, "unshare(CLONE_NEWUSER | CLONE_NEWNS) failed");
 
     if (auto r =
             mount(std::nullopt, "/", std::nullopt, MS_SHARED | MS_REC, nullptr);
