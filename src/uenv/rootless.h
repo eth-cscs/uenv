@@ -25,13 +25,15 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid);
 
 // mount using squashfuse low-level interface
 util::expected<void, std::string> do_sqfs_ll_mount(const uenv::mount_pair&,
-                                                bool fuse_st);
+                                                   bool fuse_st);
 
 util::expected<void, std::string> make_mutable_root();
 
-void join_begin(join_t& join, std::string join_tag);
-void join_end(join_t& join, int join_ct, std::optional<pid_t> winner_pid);
+util::expected<void, std::string> join_begin(join_t& join,
+                                             std::string join_tag);
+util::expected<void, std::string> join_end(join_t& join, int join_ct,
+                                           std::optional<pid_t> winner_pid);
 
-void namespaces_join(pid_t pid);
+util::expected<void, std::string> namespaces_join(pid_t pid);
 
 } // namespace uenv

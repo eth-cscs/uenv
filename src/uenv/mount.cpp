@@ -26,6 +26,7 @@
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <util/expected.h>
+#include "macros.h"
 
 namespace uenv {
 
@@ -245,12 +246,8 @@ util::expected<void, std::string> mount(std::optional<std::string> source,
                   source ? source.value().c_str() : "null", dest,
                   fstype ? fstype.value().c_str() : "null", mountflags);
     // spdlog::debug("foo bar {}", "foo");
-    if (::mount(source ? source->c_str() : nullptr, dest.c_str(),
-                fstype ? fstype->c_str() : nullptr, mountflags,
-                nullable_data) != 0) {
-        return util::unexpected(
-            fmt::format("mount failed: {}", strerror(errno)));
-    }
+    Z_e(::mount(source ? source->c_str() : nullptr, dest.c_str(),
+                fstype ? fstype->c_str() : nullptr, mountflags, nullable_data));
     return {};
 }
 

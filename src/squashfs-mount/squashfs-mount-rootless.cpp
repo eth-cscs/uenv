@@ -33,59 +33,42 @@ void error_and_exit(fmt::format_string<T...> fmt, T&&... args) {
 
 namespace fs = std::filesystem;
 
-void setup_ns_and_mount(bool mutable_root, bool fuse_st,
-                        std::vector<std::string> tmpfs_str,
-                        std::vector<std::string> bind_mounts_str,
-                        uenv::mount_list mounts) {
+util::expected<void, std::string>
+setup_ns_and_mount(bool mutable_root, bool fuse_st,
+                   std::vector<uenv::tmpfs_description> tmpfs,
+                   std::vector<uenv::bindmount_description> bind_mounts,
+                   uenv::mount_list mounts) {
 
     const uid_t uid = getuid();
     const uid_t gid = getgid();
 
     // unshare mount ns, enter fake-root
     if (auto r = uenv::unshare_mount_map_root(); !r) {
-        error_and_exit("fake-root failed {}", r.error());
+        return r;
     }
 
     // create mutable root
     if (mutable_root) {
         if (auto r = uenv::make_mutable_root(); !r) {
-            error_and_exit("mutable-root failed {}", r.error());
+            return r;
         }
     }
 
-    // tmps
-    auto tmpfs = uenv::parse_tmpfs(tmpfs_str);
-    if (!tmpfs) {
-        auto err = tmpfs.error();
-        error_and_exit("failed to parse tmpfs msg=`{}` detail=`{}` "
-                       "description=`{}`, input=`{}`",
-                       err.message(), err.detail, err.description, err.input);
-    }
-    // bind mounts
-    auto bind_mounts = uenv::parse_bindmounts(bind_mounts_str);
-    if (!bind_mounts) {
-        auto err = bind_mounts.error();
-        error_and_exit("failed to parse tmpfs msg=`{}` detail=`{}` "
-                       "description=`{}`, input=`{}`",
-                       err.message(), err.detail, err.description, err.input);
-    }
-    for (auto entry : bind_mounts.value()) {
+    for (auto entry : bind_mounts) {
         if (mutable_root) {
             fs::create_directories(entry.dst);
         }
-        auto r = uenv::bind_mount(entry.src, entry.dst);
-        if (!r) {
-            error_and_exit("bindmount failed {}", r.error());
+        if (auto r = uenv::bind_mount(entry.src, entry.dst); !r) {
+            return r;
         }
     }
 
-    for (auto& entry : tmpfs.value()) {
+    for (auto& entry : tmpfs) {
         if (mutable_root) {
             fs::create_directories(entry.mount);
         }
-        auto r = uenv::mount_tmpfs(entry.mount, entry.size);
-        if (!r) {
-            error_and_exit("tmpfs creation failed {}", r.error());
+        if (auto r = uenv::mount_tmpfs(entry.mount, entry.size); !r) {
+            return r;
         }
     }
 
@@ -94,18 +77,19 @@ void setup_ns_and_mount(bool mutable_root, bool fuse_st,
             fs::create_directories(mount.mount);
         }
         if (auto r = do_sqfs_ll_mount(mount, fuse_st); !r) {
-            error_and_exit("failed to mount {}", r.error());
+            return r;
         }
     }
 
     // exit fake-root
     if (auto r = uenv::map_effective_user(uid, gid); !r) {
-        error_and_exit("failed {}", r.error());
+        return r;
     }
 
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-        error_and_exit("PR_SET_NO_NEW_PRIVS failed");
+        return util::unexpected("PR_SET_NO_NEW_PRIVS failed");
     }
+    return {};
 }
 
 // squashfs-mount --sqfs=file:mount[,file:mount] -- cmd [args]
@@ -196,17 +180,43 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("uenv_mount_list {}", uenv_mount_list);
     spdlog::info("commands ['{}']", fmt::join(commands, "', '"));
 
+    // tmpfs
+    auto tmpfs = uenv::parse_tmpfs(tmpfs_str);
+    if (!tmpfs) {
+        auto err = tmpfs.error();
+        error_and_exit("failed to parse tmpfs msg=`{}` detail=`{}` "
+                       "description=`{}`, input=`{}`",
+                       err.message(), err.detail, err.description, err.input);
+    }
+    // bind mounts
+    auto bind_mounts = uenv::parse_bindmounts(bind_mounts_str);
+    if (!bind_mounts) {
+        auto err = bind_mounts.error();
+        error_and_exit("failed to parse tmpfs msg=`{}` detail=`{}` "
+                       "description=`{}`, input=`{}`",
+                       err.message(), err.detail, err.description, err.input);
+    }
+
     uenv::join_t join;
 
     if (tasks_join) {
-        uenv::join_begin(join, "tag");
+        auto r = uenv::join_begin(join, "tag");
+        if (!r) {
+            error_and_exit("join_begin failed {}", r.error());
+        }
     }
 
     if (!tasks_join || join.winner_p) {
-        setup_ns_and_mount(mutable_root, fuse_st, tmpfs_str, bind_mounts_str,
-                           mounts);
+        auto r = setup_ns_and_mount(mutable_root, fuse_st, tmpfs.value(),
+                                    bind_mounts.value(), mounts);
+        if (!r) {
+            error_and_exit("setup_ns_and_mount failed {}", r.error());
+        }
     } else {
-        uenv::namespaces_join(join.shared->winner_pid);
+        auto r = uenv::namespaces_join(join.shared->winner_pid);
+        if (!r) {
+            error_and_exit("namespaces_join failded {}", r.error());
+        }
     }
 
     if (tasks_join) {

@@ -26,7 +26,7 @@ extern "C" {
 namespace uenv {
 
 // Join a specific namespace.
-void namespace_join(pid_t pid, const char* ns) {
+util::expected<void, std::string> namespace_join(pid_t pid, const char* ns) {
     std::string path;
     int fd;
 
@@ -34,9 +34,10 @@ void namespace_join(pid_t pid, const char* ns) {
     fd = open(path.c_str(), O_RDONLY);
     if (fd == -1) {
         if (errno == ENOENT)
-            Tf_(0, "join: no PID {}: {} not found", pid, path);
+            return util::unexpected(
+                fmt::format("join: no PID {}: {} not found", pid, path));
         else
-            Tfe(0, "join: can't open {}", path);
+            return util::unexpected(fmt::format("join: can't open {}", path));
     }
     // setns(2) seems to be involved in some kind of race with syslog(3).
     // Rarely, when configured with --enable-syslog, the call fails with
@@ -44,35 +45,44 @@ void namespace_join(pid_t pid, const char* ns) {
     // a loop. See issue #1270.
     for (int i = 1; setns(fd, 0) != 0; i++)
         if (i >= 5) {
-            spdlog::error("can’t join {} namespace of pid {}", ns, pid);
-            exit(1);
+            return util::unexpected(
+                fmt::format("can’t join {} namespace of pid {}", ns, pid));
         } else {
             spdlog::warn("can’t join {} namespace; trying again", ns);
             sleep(1);
         }
+    return {};
 }
 
 // Join the existing namespaces containing process pid, which could be the
 // join winner or another process.
-void namespaces_join(pid_t pid) {
+util::expected<void, std::string> namespaces_join(pid_t pid) {
     spdlog::warn("joining namespaces of pid {}", pid);
-    namespace_join(pid, "user");
-    namespace_join(pid, "mnt");
+    if (auto r = namespace_join(pid, "user"); !r) {
+        return r;
+    }
+    if (auto r = namespace_join(pid, "mnt"); !r) {
+        return r;
+    }
+    return {};
 }
 
 // Wait for semaphore sem for up to timeout seconds. If timeout or an error,
 // exit unsuccessfully.
-void sem_timedwait_relative(sem_t* sem, int timeout) {
+util::expected<void, std::string> sem_timedwait_relative(sem_t* sem,
+                                                         int timeout) {
     struct timespec deadline;
 
     // sem_timedwait() requires a deadline rather than a timeout.
     Z_e(clock_gettime(CLOCK_REALTIME, &deadline));
     deadline.tv_sec += timeout;
     Zfe(sem_timedwait(sem, &deadline), "failure waiting for join lock");
+    return {};
 }
 
 // Begin coordinated section of namespace joining.
-void join_begin(join_t& join, std::string join_tag) {
+util::expected<void, std::string> join_begin(join_t& join,
+                                             std::string join_tag) {
     int fd;
     join.sem_name = fmt::format("/uenv-run_sem-{}", join_tag);
     join.shm_name = fmt::format("/uenv-run_shm-{}", join_tag);
@@ -80,7 +90,8 @@ void join_begin(join_t& join, std::string join_tag) {
     // Serialize.
     join.sem = sem_open(join.sem_name.c_str(), O_CREAT, 0600, 1);
     T_e(join.sem != SEM_FAILED);
-    sem_timedwait_relative(join.sem, JOIN_TIMEOUT);
+    if (auto r = sem_timedwait_relative(join.sem, JOIN_TIMEOUT); !r)
+        return r;
 
     // Am I the winner?
     fd = shm_open(join.shm_name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
@@ -105,10 +116,12 @@ void join_begin(join_t& join, std::string join_tag) {
     // Winner keeps lock; losers parallelize (winner will be done by now).
     if (!join.winner_p)
         Z_e(sem_post(join.sem));
+    return {};
 }
 
 // End coordinated section of namespace joining.
-void join_end(join_t& join, int join_ct, std::optional<pid_t> winner_pid) {
+util::expected<void, std::string> join_end(join_t& join, int join_ct,
+                                           std::optional<pid_t> winner_pid) {
     if (join.winner_p) { // winner still serial
         spdlog::trace("join: winner initializing shared data");
         if (!winner_pid)
@@ -140,6 +153,7 @@ void join_end(join_t& join, int join_ct, std::optional<pid_t> winner_pid) {
     Z_e(sem_close(join.sem));
 
     spdlog::trace("join: done");
+    return {};
 }
 
 // Same effect as `unshare --mount --map-root-user`
@@ -147,8 +161,9 @@ util::expected<void, std::string> unshare_mount_map_root() {
     spdlog::trace("become fake root");
     int uid = getuid(); // get current uid
     int gid = getgid();
-    if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0)
-        err(EXIT_FAILURE, "unshare(CLONE_NEWUSER | CLONE_NEWNS) failed");
+
+    Z_e(unshare(CLONE_NEWUSER | CLONE_NEWNS));
+    Z_e(prctl(PR_SET_DUMPABLE, 1));
 
     if (auto r =
             mount(std::nullopt, "/", std::nullopt, MS_SHARED | MS_REC, nullptr);
@@ -183,10 +198,7 @@ util::expected<void, std::string> unshare_mount_map_root() {
 // go back to effective user
 util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
 
-    if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0) {
-        return util::unexpected{fmt::format(
-            "unshare(CLONE_NEWUSER|CLONE_NEWNS) failed, {}", strerror(errno))};
-    }
+    Z_e(unshare(CLONE_NEWUSER | CLONE_NEWNS));
     // map current user id to root
     char buf[256];
     int proc_uid_map = openat(AT_FDCWD, "/proc/self/uid_map", O_WRONLY);
@@ -245,9 +257,7 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
     spdlog::trace("do_sqfs_mount");
     // use a pipe to synchronize parent and child process
     int pipe_wait[2];
-    if (pipe(pipe_wait) != 0) {
-        return util::unexpected{"pipe error"};
-    }
+    Z_e(pipe(pipe_wait));
 
     int pid = fork();
     if (pid == 0) {

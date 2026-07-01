@@ -1,6 +1,4 @@
-#include <spdlog/spdlog.h>
-
-#include <sstream>
+#include <fmt/format.h>
 
 /** Verify that @p x is true (non-zero); otherwise, exit with an error message
     specified by a `printf(3)` format string in the second argument along with
@@ -8,9 +6,9 @@
 #define Tf_(x, fmts, ...)                                                      \
     do {                                                                       \
         if (!(x)) {                                                            \
-            spdlog::error(fmt::runtime(std::string("{}:{} ") + fmts),          \
-                          __FILE__, __LINE__, ##__VA_ARGS__);                  \
-            exit(1);                                                           \
+            return util::unexpected(                                           \
+                fmt::format(fmt::runtime(std::string("{}:{} ") + fmts),        \
+                            __FILE__, __LINE__, ##__VA_ARGS__));               \
         }                                                                      \
     } while (0)
 
@@ -19,8 +17,8 @@
 #define T__(x)                                                                 \
     do {                                                                       \
         if (!(x)) {                                                            \
-            spdlog::error("{}:{} assertion failed", __FILE__, __LINE__);       \
-            exit(1);                                                           \
+            return util::unexpected(fmt::format(                               \
+                "Assertion {} failed in {}:{}", #x, __FILE__, __LINE__));      \
         }                                                                      \
     } while (0)
 
@@ -29,9 +27,9 @@
 #define T_e(x)                                                                 \
     do {                                                                       \
         if (!(x)) {                                                            \
-            spdlog::error("{}:{} errno: {}", __FILE__, __LINE__,               \
-                          strerror(errno));                                    \
-            exit(1);                                                           \
+            return util::unexpected(                                           \
+                fmt::format("{} failed in {}:{}, strerror(errno): {}", #x,     \
+                            __FILE__, __LINE__, strerror(errno)));             \
         }                                                                      \
     } while (0)
 
@@ -42,9 +40,9 @@
 #define Tfe(x, fmts, ...)                                                      \
     do {                                                                       \
         if (!(x)) {                                                            \
-            spdlog::error(fmt::runtime(std::string("{}:{} ") + fmts),          \
-                          __FILE__, __LINE__, errno, ##__VA_ARGS__);           \
-            exit(1);                                                           \
+            return util::unexpected(fmt::format(                               \
+                fmt::runtime(std::string("{} failed in {}:{} ") + fmts), #x,   \
+                __FILE__, __LINE__, errno, ##__VA_ARGS__));                    \
         }                                                                      \
     } while (0)
 
@@ -53,8 +51,8 @@
 #define Z__(x)                                                                 \
     do {                                                                       \
         if (x) {                                                               \
-            spdlog::error("{}:{}", __FILE__, __LINE__);                        \
-            exit(1);                                                           \
+            return util::unexpected(                                           \
+                fmt::format("{} failed in {}:{}", #x, __FILE__, __LINE__));    \
         }                                                                      \
     } while (0)
 
@@ -63,8 +61,9 @@
 #define Z_e(x)                                                                 \
     do {                                                                       \
         if (x) {                                                               \
-            spdlog::error("{}:{} errno: {}", __FILE__, __LINE__, errno);       \
-            exit(1);                                                           \
+            return util::unexpected(                                           \
+                fmt::format("{} failed in {}:{} strerror(errno): {}", #x,      \
+                            __FILE__, __LINE__, strerror(errno)));             \
         }                                                                      \
     } while (0)
 
@@ -75,9 +74,8 @@
 #define Zfe(x, fmts, ...)                                                      \
     do {                                                                       \
         if (x) {                                                               \
-            spdlog::error(                                                     \
+            return util::unexpected(fmt::format(                               \
                 fmt::runtime(std::string("{}:{} errno: {} ") + fmts),          \
-                __FILE__, __LINE__, errno, ##__VA_ARGS__);                     \
-            exit(1);                                                           \
+                __FILE__, __LINE__, errno, ##__VA_ARGS__));                    \
         }                                                                      \
     } while (0)
