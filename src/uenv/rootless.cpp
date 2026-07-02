@@ -8,6 +8,7 @@ extern "C" {
 #include <squashfuse/ll.h>
 }
 #include "macros.h"
+#include "posix_io.h"
 #include "rootless.h"
 #include <semaphore.h>
 #include <spdlog/spdlog.h>
@@ -20,7 +21,7 @@ extern "C" {
 #include <unistd.h>
 #include <util/expected.h>
 
-// Timeout in seconds for waiting for join semaphore.
+// timeout in seconds for waiting for join semaphore.
 #define JOIN_TIMEOUT 30
 
 namespace uenv {
@@ -172,21 +173,35 @@ util::expected<void, std::string> unshare_mount_map_root() {
         return r;
     }
 
-    // map current user id to root
+    // map current uid to root
     char buf[256];
-    int proc_uid_map = openat(AT_FDCWD, "/proc/self/uid_map", O_WRONLY);
-    sprintf(buf, "0 %d 1", uid);
-    write(proc_uid_map, buf, strlen(buf));
-    close(proc_uid_map);
+    auto proc_uid_map = openat(AT_FDCWD, "/proc/self/uid_map", O_WRONLY);
+    if (!proc_uid_map)
+        return util::unexpected(proc_uid_map.error());
+    snprintf(buf, sizeof(buf), "0 %d 1", uid);
+    if (auto r = write(proc_uid_map.value(), buf, strlen(buf)); !r) {
+        return r;
+    }
+    T_e(close(proc_uid_map.value()));
 
-    int proc_setgroups = openat(AT_FDCWD, "/proc/self/setgroups", O_WRONLY);
-    write(proc_setgroups, "deny", 4);
-    close(proc_setgroups);
+    // write /proc/self/gid_setgroups -> deny
+    auto proc_setgroups = openat(AT_FDCWD, "/proc/self/setgroups", O_WRONLY);
+    if (!proc_setgroups)
+        return util::unexpected(proc_setgroups.error());
+    if (auto r = write(proc_setgroups.value(), "deny", 4); !r) {
+        return r;
+    }
+    T_e(close(proc_setgroups.value()));
 
-    int proc_gid_map = openat(AT_FDCWD, "/proc/self/gid_map", O_WRONLY);
-    sprintf(buf, "0 %d 1", gid);
-    write(proc_gid_map, buf, strlen(buf));
-    close(proc_gid_map);
+    // map gid  to root group
+    auto proc_gid_map = openat(AT_FDCWD, "/proc/self/gid_map", O_WRONLY);
+    if (!proc_gid_map)
+        return util::unexpected(proc_gid_map.error());
+    snprintf(buf, sizeof(buf), "0 %d 1", gid);
+    if (auto r = write(proc_gid_map.value(), buf, strlen(buf)); !r) {
+        return r;
+    }
+    T_e(close(proc_gid_map.value()));
 
     // the following is executed by `unshare --mount --map-root-user`
     if (auto r = mount("none", "/", std::nullopt, MS_REC | MS_PRIVATE, nullptr);
@@ -202,19 +217,31 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
     Z_e(unshare(CLONE_NEWUSER | CLONE_NEWNS));
     // map current user id to root
     char buf[256];
-    int proc_uid_map = openat(AT_FDCWD, "/proc/self/uid_map", O_WRONLY);
+    auto proc_uid_map = openat(AT_FDCWD, "/proc/self/uid_map", O_WRONLY);
+    if (!proc_uid_map)
+        return util::unexpected(proc_uid_map.error());
     sprintf(buf, "%d 0 1", uid);
-    write(proc_uid_map, buf, strlen(buf));
-    close(proc_uid_map);
+    if (auto r = write(proc_uid_map.value(), buf, strlen(buf)); !r) {
+        return r;
+    }
+    T_e(close(proc_uid_map.value()));
 
-    int proc_setgroups = openat(AT_FDCWD, "/proc/self/setgroups", O_WRONLY);
-    write(proc_setgroups, "allow", 5);
-    close(proc_setgroups);
+    auto proc_setgroups = openat(AT_FDCWD, "/proc/self/setgroups", O_WRONLY);
+    if (!proc_setgroups)
+        return util::unexpected(proc_setgroups.error());
+    if (auto r = write(proc_setgroups.value(), "allow", 5); !r) {
+        return r;
+    }
+    T_e(close(proc_setgroups.value()));
 
-    int proc_gid_map = openat(AT_FDCWD, "/proc/self/gid_map", O_WRONLY);
+    auto proc_gid_map = openat(AT_FDCWD, "/proc/self/gid_map", O_WRONLY);
+    if (!proc_gid_map)
+        return util::unexpected(proc_gid_map.error());
     sprintf(buf, "%d 0 1", gid);
-    write(proc_gid_map, buf, strlen(buf));
-    close(proc_gid_map);
+    if (auto r = write(proc_gid_map.value(), buf, strlen(buf)); !r) {
+        return r;
+    }
+    T_e(close(proc_gid_map.value()));
 
     // disable coredump again (slurm policy)
     Z_e(prctl(PR_SET_DUMPABLE, 0));
@@ -226,8 +253,8 @@ static util::expected<void, std::string> write_pipe(int pipe) {
     // AppImage seems doing something more advanced:
     // https://github.com/AppImage/AppImageKit/blob/master/src/runtime.c#L138
     memset(c, 'x', sizeof(c));
-    int res = write(pipe, c, sizeof(c));
-    if (res < 0) {
+    auto res = write(pipe, c, sizeof(c));
+    if (!res) {
         return util::unexpected{"writing to pipe failed"};
     }
     return {};

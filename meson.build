@@ -58,6 +58,7 @@ lib_src = [
         'src/uenv/mount.cpp',
         'src/uenv/oras.cpp',
         'src/uenv/parse.cpp',
+        'src/uenv/posix_io.cpp',
         'src/uenv/print.cpp',
         'src/uenv/repository.cpp',
         'src/uenv/settings.cpp',

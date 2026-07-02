@@ -11,11 +11,13 @@ module_src = [
   'plugin.cpp',
 ]
 
+cpp_args_list = ['-Wall', '-Wpedantic', '-Wextra']
 if use_fuse
     module_src += ['plugin_fuse.cpp']
+    cpp_args_list += ['-DUENV_FUSE']
 endif
 
-cpp_args_list = ['-Wall', '-Wpedantic', '-Wextra']
+
 shared_module('slurm-uenv-mount',
               sources: module_src,
               dependencies: [uenv_dep, slurm_dep],
