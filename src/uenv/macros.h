@@ -1,8 +1,7 @@
 #include <fmt/format.h>
 
-/** Verify that @p x is true (non-zero); otherwise, exit with an error message
-    specified by a `printf(3)` format string in the second argument along with
-    appropriate additional arguments. */
+// Verify that @p x is true (non-zero); otherwise, return unexpected along with
+// and fmt format string in the second argument
 #define Tf_(x, fmts, ...)                                                      \
     do {                                                                       \
         if (!(x)) {                                                            \
@@ -12,8 +11,7 @@
         }                                                                      \
     } while (0)
 
-/** Verify that @p x is true (non-zero); otherwise, exit with a generic error
-    message. */
+// Verify that @p x is true (non-zero); otherwise, return unexpected
 #define T__(x)                                                                 \
     do {                                                                       \
         if (!(x)) {                                                            \
@@ -22,8 +20,8 @@
         }                                                                      \
     } while (0)
 
-/** Verify that @p x is true (non-zero); otherwise, exit with a generic error
-    message followed by errno and its stringified form. */
+// Verify that @p x is true (non-zero); otherwise, return unexpected with a
+// generic error message followed by errno and its stringified form.
 #define T_e(x)                                                                 \
     do {                                                                       \
         if (!(x)) {                                                            \
@@ -33,10 +31,10 @@
         }                                                                      \
     } while (0)
 
-/** Verify that @p x is true (non-zero); otherwise, exit with an error message
-    specified by a `printf(3)` format string in the second argument along with
-    appropriate additional arguments, followed by errno and its stringified
-    form. */
+// Verify that @p x is true (non-zero); otherwise,return unexpected with an
+// error message specified by a fmt format string in the second argument
+// along with appropriate additional arguments, followed by errno and its
+// stringified form. */
 #define Tfe(x, fmts, ...)                                                      \
     do {                                                                       \
         if (!(x)) {                                                            \
@@ -46,8 +44,8 @@
         }                                                                      \
     } while (0)
 
-/** Verify that @p x is zero (false); otherwise, exit with a generic error
-    message. */
+// Verify that @p x is zero (false); otherwise, return unexpected with a
+// generic error message.
 #define Z__(x)                                                                 \
     do {                                                                       \
         if (x) {                                                               \
@@ -56,8 +54,8 @@
         }                                                                      \
     } while (0)
 
-/** Verify that @p x is zero (false); otherwise, exit with a generic error
-    message followed by errno and its stringified form. */
+// Verify that @p x is zero (false); otherwise, exit with a generic error
+// message followed by errno and its stringified form.
 #define Z_e(x)                                                                 \
     do {                                                                       \
         if (x) {                                                               \
@@ -67,10 +65,10 @@
         }                                                                      \
     } while (0)
 
-/** Verify that @p x is zero (false); otherwise, exit with an error message
-    specified by a `printf(3)` format string in the second argument along with
-    appropriate additional arguments, followed by errno and its stringified
-    form. */
+// Verify that @p x is zero (false); otherwise, exit with an error message
+// specified by a `printf(3)` format string in the second argument along with
+// appropriate additional arguments, followed by errno and its stringified
+// form. */
 #define Zfe(x, fmts, ...)                                                      \
     do {                                                                       \
         if (x) {                                                               \
