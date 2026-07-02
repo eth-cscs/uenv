@@ -1,6 +1,4 @@
-#include <filesystem>
 #include <optional>
-#include <ranges>
 #include <string>
 #include <uenv/rootless.h>
 #include <vector>
@@ -113,8 +111,8 @@ int main(int argc, char** argv, char** envp) {
     bool tasks_join = false;
     std::string raw_mounts;
     std::vector<std::string> commands;
-    std::vector<std::string> tmpfs_str;
-    std::vector<std::string> bind_mounts_str;
+    std::vector<std::string> tmpfs_arg;
+    std::vector<std::string> bind_mounts_arg;
 
     CLI::App cli(fmt::format("squashfs-mount {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
@@ -122,8 +120,8 @@ int main(int argc, char** argv, char** envp) {
     cli.add_flag("--fuse-single", fuse_st, "fuse single threaded");
     cli.add_flag("--version", print_version, "print version");
     cli.add_flag("--join", tasks_join, "join");
-    cli.add_option("--tmpfs", tmpfs_str, "tmpfs[:size]");
-    cli.add_option("--bind-mount", bind_mounts_str, "bind_mounts <src>:<dst>");
+    cli.add_option("--tmpfs", tmpfs_arg, "tmpfs[:size]");
+    cli.add_option("--bind-mount", bind_mounts_arg, "bind_mounts <src>:<dst>");
     cli.add_option("-s,--sqfs", raw_mounts,
                    "comma separated list of uenv to mount");
     cli.add_option("commands", commands,
@@ -181,7 +179,7 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("commands ['{}']", fmt::join(commands, "', '"));
 
     // tmpfs
-    auto tmpfs = uenv::parse_tmpfs(tmpfs_str);
+    auto tmpfs = uenv::parse_tmpfs(tmpfs_arg);
     if (!tmpfs) {
         auto err = tmpfs.error();
         error_and_exit("failed to parse tmpfs msg=`{}` detail=`{}` "
@@ -189,7 +187,7 @@ int main(int argc, char** argv, char** envp) {
                        err.message(), err.detail, err.description, err.input);
     }
     // bind mounts
-    auto bind_mounts = uenv::parse_bindmounts(bind_mounts_str);
+    auto bind_mounts = uenv::parse_bindmounts(bind_mounts_arg);
     if (!bind_mounts) {
         auto err = bind_mounts.error();
         error_and_exit("failed to parse tmpfs msg=`{}` detail=`{}` "

@@ -44,7 +44,6 @@ int main(int argc, char** argv, char** envp) {
     //
     // Command line argument parsing
     //
-
     bool print_version = false;
     int verbosity = 1;
     std::optional<std::string> raw_mounts;
@@ -113,7 +112,6 @@ int main(int argc, char** argv, char** envp) {
         //
         // Mount the file systems
         //
-
         unshare_mntns_and_become_root();
 
         if (auto r = uenv::do_mount(mounts.value()); !r) {
