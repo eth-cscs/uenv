@@ -163,6 +163,7 @@ util::expected<void, std::string> unshare_mount_map_root() {
     int gid = getgid();
 
     Z_e(unshare(CLONE_NEWUSER | CLONE_NEWNS));
+    // enable coredumps, otherwise we cannot write to uid_map/gid_map etc.
     Z_e(prctl(PR_SET_DUMPABLE, 1));
 
     if (auto r =
@@ -214,6 +215,9 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
     sprintf(buf, "%d 0 1", gid);
     write(proc_gid_map, buf, strlen(buf));
     close(proc_gid_map);
+
+    // disable coredump again (slurm policy)
+    Z_e(prctl(PR_SET_DUMPABLE, 0));
     return {};
 }
 
