@@ -46,6 +46,7 @@ barkeep_dep = declare_dependency(
 
 libmount_dep = dependency('mount')
 
+
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
 lib_src = [
@@ -75,18 +76,43 @@ lib_src = [
         'src/util/subprocess.cpp',
         'src/util/toml.cpp',
 ]
+use_fuse = get_option('fuse')
+
+if use_fuse
+    fuse_version = get_option('fuse_version')
+    if fuse_version == '2'
+        fuse_dep = dependency('fuse', required: true)
+    elif fuse_version == '3'
+        fuse_dep = dependency('fuse3', required: true)
+    else
+        error('fuse_version must be 2 or 3')
+    endif
+    squashfuse_dep = dependency('squashfuse_ll', static: false)
+endif
+
+
+
+if use_fuse
+    lib_src += ['src/uenv/rootless.cpp', 'src/uenv/mutable_root.cpp']
+    # dependencies += [squashfuse_dep, fuse_dep]
+endif
+
 lib_inc = include_directories('src')
 
+uenv_deps = [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep]
+if use_fuse
+    uenv_deps += [squashfuse_dep, fuse_dep]
+endif
 lib_uenv = static_library(
-        'uenv',
-        lib_src,
-        include_directories: lib_inc,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
+    'uenv',
+    lib_src,
+    include_directories: lib_inc,
+    dependencies: uenv_deps,
 )
 
 uenv_dep = declare_dependency(
-        link_with: lib_uenv,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep, toml_dep],
+    link_with: lib_uenv,
+    dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep, toml_dep],
         include_directories: lib_inc
 )
 
@@ -154,18 +180,6 @@ if uenv_cli
     )
 
     meson.add_install_script('./meson-scripts/install-bash-completion.sh')
-endif
-
-if get_option('fuse') or get_option('slurm_fuse')
-    fuse_version = get_option('fuse_version')
-    if fuse_version == '2'
-        fuse_dep = dependency('fuse', required: true)
-    elif fuse_version == '3'
-        fuse_dep = dependency('fuse3', required: true)
-    else
-        error('fuse_version must be 2 or 3')
-    endif
-    squashfuse_dep = dependency('squashfuse_ll', static: false)
 endif
 
 if uenv_slurm_plugin

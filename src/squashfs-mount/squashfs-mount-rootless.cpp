@@ -31,11 +31,12 @@ void error_and_exit(fmt::format_string<T...> fmt, T&&... args) {
 
 namespace fs = std::filesystem;
 
+// setup user+mount namespaces, call fuse mount
 util::expected<void, std::string>
 setup_ns_and_mount(bool mutable_root, bool fuse_st,
-                   std::vector<uenv::tmpfs_description> tmpfs,
-                   std::vector<uenv::bindmount_description> bind_mounts,
-                   uenv::mount_list mounts) {
+                   const std::vector<uenv::tmpfs_tuple>& tmpfs,
+                   const std::vector<uenv::bindmount_pair>& bind_mounts,
+                   const uenv::mount_list& mounts) {
 
     const uid_t uid = getuid();
     const uid_t gid = getgid();
@@ -88,6 +89,43 @@ setup_ns_and_mount(bool mutable_root, bool fuse_st,
         return util::unexpected("PR_SET_NO_NEW_PRIVS failed");
     }
     return {};
+}
+
+// synchronize tasks, winner sets up namespaces and mounts via fuse
+void task_join_and_fuse_mount(
+    bool tasks_join, bool mutable_root, bool fuse_st,
+    const std::vector<uenv::tmpfs_tuple>& tmpfs,
+    const std::vector<uenv::bindmount_pair>& bind_mounts,
+    const uenv::mount_list& mounts, const envvars::state& calling_env) {
+    uenv::join_t join;
+
+    if (tasks_join) {
+        auto r = uenv::join_begin(join, "tag");
+        if (!r) {
+            error_and_exit("join_begin failed {}", r.error());
+        }
+    }
+
+    if (!tasks_join || join.winner_p) {
+        auto r = setup_ns_and_mount(mutable_root, fuse_st, tmpfs, bind_mounts,
+                                    mounts);
+        if (!r) {
+            error_and_exit("setup_ns_and_mount failed {}", r.error());
+        }
+    } else {
+        auto r = uenv::namespaces_join(join.shared->winner_pid);
+        if (!r) {
+            error_and_exit("namespaces_join failded {}", r.error());
+        }
+    }
+
+    if (tasks_join) {
+        int ntasks = std::stoi(
+            calling_env.get("SLURM_STEP_TASKS_PER_NODE").value_or("1"));
+        /// SLURM only at the moment
+        spdlog::trace("SLURM_STEP_TASKS_PER_NODE: {}", ntasks);
+        uenv::join_end(join, ntasks, std::nullopt);
+    }
 }
 
 // squashfs-mount --sqfs=file:mount[,file:mount] -- cmd [args]
@@ -195,39 +233,9 @@ int main(int argc, char** argv, char** envp) {
                        err.message(), err.detail, err.description, err.input);
     }
 
-    uenv::join_t join;
-
-    if (tasks_join) {
-        auto r = uenv::join_begin(join, "tag");
-        if (!r) {
-            error_and_exit("join_begin failed {}", r.error());
-        }
-    }
-
-    if (!tasks_join || join.winner_p) {
-        auto r = setup_ns_and_mount(mutable_root, fuse_st, tmpfs.value(),
-                                    bind_mounts.value(), mounts);
-        if (!r) {
-            error_and_exit("setup_ns_and_mount failed {}", r.error());
-        }
-    } else {
-        auto r = uenv::namespaces_join(join.shared->winner_pid);
-        if (!r) {
-            error_and_exit("namespaces_join failded {}", r.error());
-        }
-    }
-
-    if (tasks_join) {
-        auto env_vars = calling_env.variables();
-        int ntasks = 1;
-        /// SLURM only at the moment
-        if (auto f = env_vars.find("SLURM_STEP_TASKS_PER_NODE");
-            f != env_vars.end()) {
-            ntasks = std::stoi(f->second);
-            spdlog::trace("SLURM_STEP_TASKS_PER_NODE: {}", ntasks);
-        }
-        uenv::join_end(join, ntasks, std::nullopt);
-    }
+    task_join_and_fuse_mount(tasks_join, mutable_root, fuse_st,
+                                  tmpfs.value(), bind_mounts.value(), mounts,
+                                  calling_env);
 
     envvars::state runtime_env{};
 

@@ -61,10 +61,10 @@ parse_uenv_args(const std::string& arg);
 util::expected<std::vector<mount_description>, parse_error>
 parse_mount_list(const std::string& arg);
 
-util::expected<std::vector<tmpfs_description>, parse_error>
+util::expected<std::vector<tmpfs_tuple>, parse_error>
 parse_tmpfs(const std::vector<std::string>& args);
 
-util::expected<std::vector<bindmount_description>, parse_error>
+util::expected<std::vector<bindmount_pair>, parse_error>
 parse_bindmounts(const std::vector<std::string>& args);
 
 util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg);

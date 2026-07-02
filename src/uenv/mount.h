@@ -20,12 +20,12 @@ struct mount_pair {
     std::filesystem::path mount;
 };
 
-struct tmpfs_description {
+struct tmpfs_tuple {
     std::filesystem::path mount;
     std::optional<std::uint64_t> size;
 };
 
-struct bindmount_description {
+struct bindmount_pair {
     std::filesystem::path src;
     std::filesystem::path dst;
 };

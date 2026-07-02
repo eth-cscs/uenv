@@ -357,9 +357,9 @@ parse_mount_description(lex::lexer& L) {
     return result;
 }
 
-util::expected<tmpfs_description, parse_error>
+util::expected<tmpfs_tuple, parse_error>
 parse_tmpfs_description(lex::lexer& L) {
-    tmpfs_description result;
+    tmpfs_tuple result;
 
     PARSE(L, path, result.mount);
     // size is optional
@@ -372,9 +372,9 @@ parse_tmpfs_description(lex::lexer& L) {
     return result;
 }
 
-util::expected<bindmount_description, parse_error>
+util::expected<bindmount_pair, parse_error>
 parse_bindmount_description(lex::lexer& L) {
-    bindmount_description result;
+    bindmount_pair result;
     PARSE(L, path, result.src);
     if (L.current_kind() != lex::tok::colon) {
         return util::unexpected{
@@ -561,14 +561,14 @@ parse_mount_list(const std::string& arg) {
     return mounts;
 }
 
-util::expected<std::vector<tmpfs_description>, parse_error>
+util::expected<std::vector<tmpfs_tuple>, parse_error>
 parse_tmpfs(const std::vector<std::string>& args) {
-    std::vector<tmpfs_description> tmpfss;
+    std::vector<tmpfs_tuple> tmpfss;
     for (auto arg : args) {
         const std::string sanitised = util::strip(arg);
         spdlog::trace("parse_tmpfs sanitized `{}`", sanitised);
         auto L = lex::lexer(sanitised);
-        tmpfs_description td;
+        tmpfs_tuple td;
         PARSE(L, tmpfs_description, td);
         tmpfss.push_back(std::move(td));
         // if parsing finished and the string has not been consumed,
@@ -582,14 +582,14 @@ parse_tmpfs(const std::vector<std::string>& args) {
     return tmpfss;
 }
 
-util::expected<std::vector<bindmount_description>, parse_error>
+util::expected<std::vector<bindmount_pair>, parse_error>
 parse_bindmounts(const std::vector<std::string>& args) {
-    std::vector<bindmount_description> result;
+    std::vector<bindmount_pair> result;
     for (auto arg : args) {
         const std::string sanitised = util::strip(arg);
         spdlog::trace("parse_bindmounts sanitized `{}`", sanitised);
         auto L = lex::lexer(sanitised);
-        bindmount_description bm;
+        bindmount_pair bm;
         PARSE(L, bindmount_description, bm);
         result.push_back(std::move(bm));
         // if parsing finished and the string has not been consumed,
