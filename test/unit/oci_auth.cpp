@@ -8,68 +8,18 @@
 #include <util/fs.h>
 
 // the pure helpers are not part of the public auth.h interface; redeclare their
-// prototypes here (they live in namespace oci::impl in auth.cpp).
+// prototypes here (they live in namespace oci::impl in auth.cpp). the
+// bearer-challenge parser moved to src/oci/parse.cpp and is covered by
+// test/unit/oci_parse.cpp.
 namespace oci::impl {
-std::optional<bearer_challenge> parse_bearer_challenge(std::string_view);
 std::string token_url(const bearer_challenge&, const std::vector<std::string>&);
 std::optional<std::string> parse_token_response(std::string_view);
 std::string repository_scope(std::string_view, std::string_view);
 } // namespace oci::impl
 
-using oci::impl::parse_bearer_challenge;
 using oci::impl::parse_token_response;
 using oci::impl::repository_scope;
 using oci::impl::token_url;
-
-TEST_CASE("oci parse_bearer_challenge from jfrog", "[oci][auth]") {
-    // the exact challenge the CSCS jfrog registry returns (spike step 1)
-    auto c = parse_bearer_challenge(
-        "Bearer realm=\"https://jfrog.svc.cscs.ch/v2/token\","
-        "service=\"jfrog.svc.cscs.ch\"");
-    REQUIRE(c.has_value());
-    REQUIRE(c->realm == "https://jfrog.svc.cscs.ch/v2/token");
-    REQUIRE(c->service == "jfrog.svc.cscs.ch");
-    REQUIRE(c->scopes.empty());
-}
-
-TEST_CASE("oci parse_bearer_challenge with scope containing a comma",
-          "[oci][auth]") {
-    // the scope value itself contains a comma (pull,push) inside quotes - a
-    // naive comma split would break here.
-    auto c = parse_bearer_challenge(
-        "Bearer realm=\"https://r/token\",service=\"reg\","
-        "scope=\"repository:foo/bar:pull,push\"");
-    REQUIRE(c.has_value());
-    REQUIRE(c->realm == "https://r/token");
-    REQUIRE(c->service == "reg");
-    REQUIRE(c->scopes == std::vector<std::string>{"repository:foo/bar:pull,push"});
-}
-
-TEST_CASE("oci parse_bearer_challenge space-separated scopes", "[oci][auth]") {
-    auto c = parse_bearer_challenge(
-        "Bearer realm=\"https://r/token\",service=\"reg\","
-        "scope=\"repository:a:pull repository:b:pull\"");
-    REQUIRE(c.has_value());
-    REQUIRE(c->scopes == std::vector<std::string>{"repository:a:pull",
-                                                  "repository:b:pull"});
-}
-
-TEST_CASE("oci parse_bearer_challenge rejects non-bearer / no realm",
-          "[oci][auth]") {
-    REQUIRE_FALSE(parse_bearer_challenge("Basic realm=\"r\"").has_value());
-    REQUIRE_FALSE(parse_bearer_challenge("Bearerish realm=\"r\"").has_value());
-    REQUIRE_FALSE(parse_bearer_challenge("").has_value());
-    // a Bearer challenge without a realm is unusable
-    REQUIRE_FALSE(
-        parse_bearer_challenge("Bearer service=\"reg\"").has_value());
-}
-
-TEST_CASE("oci parse_bearer_challenge is scheme-case-insensitive",
-          "[oci][auth]") {
-    auto c = parse_bearer_challenge("bearer realm=\"https://r/token\"");
-    REQUIRE(c.has_value());
-    REQUIRE(c->realm == "https://r/token");
-}
 
 TEST_CASE("oci token_url", "[oci][auth]") {
     oci::bearer_challenge c{

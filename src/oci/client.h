@@ -10,7 +10,10 @@
 #include <vector>
 
 #include <oci/auth.h>
+#include <oci/digest.h>
+#include <oci/reference.h>
 #include <util/expected.h>
+#include <util/parse.h>
 #include <util/sha256.h>
 
 namespace oci {
@@ -23,22 +26,46 @@ inline constexpr std::string_view media_type_index =
 inline constexpr std::string_view media_type_octet_stream =
     "application/octet-stream";
 
-// An OCI content descriptor (a manifest entry / referrer record).
+// An OCI content descriptor (a manifest entry / referrer record). A descriptor
+// is not default-constructible: it must carry a valid `digest`, so a descriptor
+// value is always well-formed.
 struct descriptor {
     std::string media_type;
-    std::string digest; // "sha256:<hex>"
+    oci::digest digest;
     std::size_t size = 0;
     std::optional<std::string> artifact_type;
+    // inline base64 content (`data`), present on the empty config descriptor.
+    std::optional<std::string> data;
 
     friend bool operator==(const descriptor&, const descriptor&) = default;
 };
+
+// A registry address split into an https base URL and a repository path prefix.
+struct registry_location {
+    std::string base;   // e.g. "https://jfrog.svc.cscs.ch"
+    std::string prefix; // e.g. "uenv" (may be empty)
+};
+
+// Split a configured registry URL ("host", "host/prefix", or scheme-prefixed)
+// into an https base URL and a repository prefix. The scheme, if any, is dropped
+// and https is always used for the base (matching how pull resolves it).
+util::expected<registry_location, util::parse_error>
+split_registry(std::string_view configured_url);
+
+// Build the OCI repository path for a uenv, e.g.
+// "<prefix>/<nspace>/<system>/<uarch>/<name>/<version>" (the prefix segment is
+// omitted when empty). This mirrors the address oras formed.
+std::string repository_path(std::string_view prefix, std::string_view nspace,
+                            std::string_view system, std::string_view uarch,
+                            std::string_view name, std::string_view version);
 
 // The result of fetching a manifest: the raw bytes plus the registry-reported
 // digest and media type. The bytes are what must be re-digested locally to
 // confirm identity.
 struct manifest_response {
     std::string body;
-    std::string digest; // value of the Docker-Content-Digest header
+    // value of the Docker-Content-Digest header, when present and well-formed.
+    std::optional<oci::digest> digest;
     std::string media_type;
 };
 
@@ -57,11 +84,10 @@ class client {
            std::optional<credentials> creds = std::nullopt);
 
     // does a blob exist? HEAD; 200 -> true, 404 -> false.
-    util::expected<bool, std::string> blob_exists(const std::string& digest);
+    util::expected<bool, std::string> blob_exists(const digest& d);
 
     // fetch a blob's bytes (follows the 307 redirect to backing storage).
-    util::expected<std::string, std::string>
-    get_blob(const std::string& digest);
+    util::expected<std::string, std::string> get_blob(const digest& d);
 
     // stream a blob straight to a file, never holding it in memory (for the
     // multi-GB squashfs layer). follows the 307 redirect to backing storage.
@@ -69,36 +95,48 @@ class client {
     // an optional abort predicate, polled during transfer, cancels it.
     util::expected<void, std::string>
     get_blob_to_file(
-        const std::string& digest, const std::filesystem::path& file,
+        const digest& d, const std::filesystem::path& file,
         std::function<void(std::uint64_t, std::uint64_t)> progress = {},
         std::function<bool()> should_abort = {});
 
     // fetch a manifest by tag or digest.
     util::expected<manifest_response, std::string>
-    get_manifest(const std::string& reference);
+    get_manifest(const reference& ref);
 
     // list the repository's tags.
     util::expected<std::vector<std::string>, std::string> list_tags();
 
-    // list artifacts that refer to `digest` (replaces `oras discover`).
+    // list artifacts that refer to `d` (replaces `oras discover`).
     util::expected<std::vector<descriptor>, std::string>
-    referrers(const std::string& digest);
+    referrers(const digest& d);
+
+    // attempt a cross-repository blob mount from `from_repository` into this
+    // client's repository (POST uploads/?mount=&from=). returns true if the
+    // registry mounted the blob (201), false if it declined and wants a full
+    // upload instead (202) — the caller should then fall back to copying. no-op
+    // (returns true) if the blob already exists here.
+    util::expected<bool, std::string>
+    mount_blob(const digest& d, const std::string& from_repository);
 
     // upload a blob via the monolithic POST-then-PUT handshake. the file is
     // streamed from disk (not held in memory), so large squashfs layers are
     // fine. no-op if the blob already exists.
     util::expected<void, std::string>
-    put_blob(const std::string& digest, const std::filesystem::path& file);
+    put_blob(const digest& d, const std::filesystem::path& file);
 
     // upload an in-memory blob (config blobs, small payloads).
     util::expected<void, std::string>
-    put_blob_bytes(const std::string& digest, const std::string& data);
+    put_blob_bytes(const digest& d, const std::string& data);
 
-    // PUT a manifest under `reference` (tag or digest). returns the registry's
-    // Docker-Content-Digest (the canonical id).
-    util::expected<std::string, std::string>
-    put_manifest(const std::string& reference, const std::string& body,
+    // PUT a manifest under `ref` (tag or digest).
+    util::expected<void, std::string>
+    put_manifest(const reference& ref, const std::string& body,
                  std::string_view media_type = media_type_manifest);
+
+    // grant this client pull access to an additional repository, so its tokens
+    // carry the scope a cross-repo blob mount needs (see mount_blob). must be
+    // called before the first operation that fetches a token.
+    void add_pull_scope(std::string repository);
 
     const std::string& registry_url() const {
         return registry_url_;
@@ -119,6 +157,8 @@ class client {
     bearer_challenge challenge_;
     std::optional<std::string> pull_token_;
     std::optional<std::string> push_token_;
+    // extra repositories to request pull scope for (cross-repo mount).
+    std::vector<std::string> extra_pull_scopes_;
 };
 
 } // namespace oci

@@ -1,8 +1,9 @@
 // vim: ts=4 sts=4 sw=4 et
 
-#include <csignal>
 #include <string>
+#include <unistd.h>
 
+#include <barkeep/barkeep.h>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
@@ -11,7 +12,9 @@
 
 #include <site/site.h>
 #include <oci/auth.h>
-#include <uenv/oras.h>
+#include <oci/client.h>
+#include <oci/manifest.h>
+#include <oci/push.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -72,12 +75,6 @@ int image_push([[maybe_unused]] const image_push_args& args,
         term::error("{}", c.error());
         return 1;
     }
-    // push still runs on oras; adapt the credentials at the legacy boundary.
-    std::optional<uenv::oras::credentials> oras_creds;
-    if (credentials) {
-        oras_creds = uenv::oras::credentials{credentials->username,
-                                             credentials->password};
-    }
 
     // parse and validate the destination (i.e. the label in the registry)
     uenv_nslabel dst_label{};
@@ -131,46 +128,72 @@ int image_push([[maybe_unused]] const image_push_args& args,
     }
     spdlog::info("image_push: squashfs {}", sqfs.value());
 
-    try {
-        auto rego_url = registry_cfg.url;
-        spdlog::debug("registry url: {}", rego_url);
+    // split the configured registry "host/prefix" into a base URL + prefix and
+    // build the OCI repository path (the same address oras used).
+    auto loc = oci::split_registry(registry_cfg.url);
+    if (!loc) {
+        term::error("invalid registry url: {}", loc.error().message());
+        return 1;
+    }
+    const auto& L = dst_label.label;
+    const auto repository = oci::repository_path(
+        loc->prefix, nspace, *L.system, *L.uarch, *L.name, *L.version);
+    spdlog::debug("oci push: registry={} repository={}", loc->base, repository);
 
-        // Push the SquashFS image
-        auto push_result = oras::push_tag(rego_url, nspace, dst_label.label,
-                                          sqfs->sqfs, oras_creds);
+    auto client = oci::client::create(loc->base, repository, credentials);
+    if (!client) {
+        term::error("unable to connect to the registry:\n{}", client.error());
+        return 1;
+    }
+
+    namespace bk = barkeep;
+
+    // Push the SquashFS image. Ctrl-C is left with its default behaviour: the
+    // upload session is not committed until the manifest is PUT, so an interrupt
+    // leaves nothing referencing a partial blob.
+    std::optional<oci::digest> image_digest;
+    {
+        auto spinner = bk::Animation({
+            .message = fmt::format("pushing {} to registry",
+                                   sqfs->sqfs.filename().string()),
+            .style = bk::Ellipsis,
+            .no_tty = !isatty(fileno(stdout)),
+        });
+        auto push_result =
+            oci::push_squashfs(*client, sqfs->sqfs, oci::reference::tag(*L.tag));
+        spinner->done();
         if (!push_result) {
-            term::error("unable to push uenv.\n{}",
-                        push_result.error().message);
+            term::error("unable to push uenv.\n{}", push_result.error());
             return 1;
         }
-
-        // Check for metadata and push if available
-        if (sqfs->meta) {
-            spdlog::info("image_push: pushing metadata from {}",
-                         sqfs->meta.value().string());
-
-            auto meta_result =
-                oras::push_meta(rego_url, nspace, dst_label.label,
-                                sqfs->meta.value(), oras_creds);
-            if (!meta_result) {
-                spdlog::warn("unable to push metadata.\n{}",
-                             meta_result.error().message);
-                term::warn("unable to push metadata.\n{}",
-                           meta_result.error().message);
-                // Continue even if metadata push fails
-            } else {
-                spdlog::info("successfully pushed metadata");
-            }
-        }
-
-        term::msg("successfully pushed {}", args.source);
-        term::msg("to {}", args.dest);
-    } catch (util::signal_exception& e) {
-        spdlog::info("user interrupted the upload with ctrl-c");
-
-        // reraise the signal
-        raise(e.signal);
+        image_digest = *push_result;
     }
+    spdlog::info("image_push: pushed image manifest {}", *image_digest);
+
+    // Check for metadata and attach it if available.
+    if (sqfs->meta) {
+        spdlog::info("image_push: pushing metadata from {}",
+                     sqfs->meta.value().string());
+        auto spinner = bk::Animation({
+            .message = "pushing metadata to registry",
+            .style = bk::Ellipsis,
+            .no_tty = !isatty(fileno(stdout)),
+        });
+        auto meta_result =
+            oci::attach(*client, oci::reference::digest(*image_digest),
+                        oci::artifact_type_meta, *sqfs->meta);
+        spinner->done();
+        if (!meta_result) {
+            spdlog::warn("unable to push metadata.\n{}", meta_result.error());
+            term::warn("unable to push metadata.\n{}", meta_result.error());
+            // Continue even if metadata push fails.
+        } else {
+            spdlog::info("successfully pushed metadata");
+        }
+    }
+
+    term::msg("successfully pushed {}", args.source);
+    term::msg("to {}", args.dest);
 
     return 0;
 } // namespace uenv

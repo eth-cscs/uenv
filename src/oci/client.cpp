@@ -11,6 +11,7 @@
 #include <util/curl.h>
 #include <util/expected.h>
 #include <oci/client.h>
+#include <oci/parse.h>
 
 namespace oci {
 
@@ -22,10 +23,6 @@ namespace impl {
 // defined in auth.cpp (also part of oci::impl).
 std::string repository_scope(std::string_view repository,
                              std::string_view actions);
-
-std::string digest_string(const util::sha256_digest& d) {
-    return "sha256:" + d.hex();
-}
 
 std::string blob_path(std::string_view repository, std::string_view digest) {
     return fmt::format("/v2/{}/blobs/{}", repository, digest);
@@ -105,12 +102,15 @@ std::optional<std::vector<descriptor>> parse_referrers(std::string_view body) {
         if (!m.is_object()) {
             continue;
         }
-        descriptor d;
-        d.media_type = m.value("mediaType", "");
-        d.digest = m.value("digest", "");
-        d.size = m.value("size", std::size_t{0});
-        if (auto a = m.find("artifactType");
-            a != m.end() && a->is_string()) {
+        // a descriptor must carry a valid digest; skip malformed entries.
+        auto dg = digest::parse(m.value("digest", std::string{}));
+        if (!dg) {
+            continue;
+        }
+        descriptor d{.media_type = m.value("mediaType", std::string{}),
+                     .digest = *dg,
+                     .size = m.value("size", std::size_t{0})};
+        if (auto a = m.find("artifactType"); a != m.end() && a->is_string()) {
             d.artifact_type = a->get<std::string>();
         }
         out.push_back(std::move(d));
@@ -119,6 +119,44 @@ std::optional<std::vector<descriptor>> parse_referrers(std::string_view body) {
 }
 
 } // namespace impl
+
+// --- registry addressing helpers (pure) ---------------------------------
+
+util::expected<registry_location, util::parse_error>
+split_registry(std::string_view configured_url) {
+    // parse the configured value as a URL; the scheme, if any, is dropped and
+    // https is always used for the base. any port is preserved on the base.
+    auto u = parse_url(configured_url);
+    if (!u) {
+        return util::unexpected(u.error());
+    }
+
+    // the repository prefix is the URL path with its surrounding slashes trimmed.
+    std::string prefix = u->path;
+    if (!prefix.empty() && prefix.front() == '/') {
+        prefix.erase(prefix.begin());
+    }
+    while (!prefix.empty() && prefix.back() == '/') {
+        prefix.pop_back();
+    }
+
+    std::string base = "https://" + u->host;
+    if (u->port) {
+        base += ':' + std::to_string(*u->port);
+    }
+    return registry_location{.base = std::move(base), .prefix = std::move(prefix)};
+}
+
+std::string repository_path(std::string_view prefix, std::string_view nspace,
+                            std::string_view system, std::string_view uarch,
+                            std::string_view name, std::string_view version) {
+    if (prefix.empty()) {
+        return fmt::format("{}/{}/{}/{}/{}", nspace, system, uarch, name,
+                           version);
+    }
+    return fmt::format("{}/{}/{}/{}/{}/{}", prefix, nspace, system, uarch, name,
+                       version);
+}
 
 // --- client -------------------------------------------------------------
 
@@ -146,8 +184,14 @@ util::expected<std::string, std::string> client::token_for(bool write) {
     if (cache) {
         return *cache;
     }
-    auto scope = impl::repository_scope(repository_, write ? "pull,push" : "pull");
-    auto token = fetch_token(challenge_, {scope}, creds_);
+    std::vector<std::string> scopes;
+    scopes.push_back(
+        impl::repository_scope(repository_, write ? "pull,push" : "pull"));
+    // cross-repo blob mounts need pull scope on the source repository too.
+    for (const auto& r : extra_pull_scopes_) {
+        scopes.push_back(impl::repository_scope(r, "pull"));
+    }
+    auto token = fetch_token(challenge_, scopes, creds_);
     if (!token) {
         return util::unexpected{token.error()};
     }
@@ -155,14 +199,17 @@ util::expected<std::string, std::string> client::token_for(bool write) {
     return *cache;
 }
 
-util::expected<bool, std::string>
-client::blob_exists(const std::string& digest) {
+void client::add_pull_scope(std::string repository) {
+    extra_pull_scopes_.push_back(std::move(repository));
+}
+
+util::expected<bool, std::string> client::blob_exists(const digest& d) {
     auto token = token_for(false);
     if (!token) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::blob_path(repository_, digest);
+    req.url = registry_url_ + impl::blob_path(repository_, d.string());
     req.method = util::curl::http_method::head;
     req.bearer_token = *token;
 
@@ -176,18 +223,17 @@ client::blob_exists(const std::string& digest) {
     if (resp->status == 404) {
         return false;
     }
-    return util::unexpected{fmt::format(
-        "unexpected status {} for HEAD {}", resp->status, digest)};
+    return util::unexpected{fmt::format("unexpected status {} for HEAD {}",
+                                        resp->status, d.string())};
 }
 
-util::expected<std::string, std::string>
-client::get_blob(const std::string& digest) {
+util::expected<std::string, std::string> client::get_blob(const digest& d) {
     auto token = token_for(false);
     if (!token) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::blob_path(repository_, digest);
+    req.url = registry_url_ + impl::blob_path(repository_, d.string());
     req.bearer_token = *token;
     // registries 307-redirect blob downloads to backing storage.
     req.follow_redirects = true;
@@ -198,14 +244,14 @@ client::get_blob(const std::string& digest) {
     }
     if (resp->status != 200) {
         return util::unexpected{fmt::format(
-            "failed to fetch blob {} (status {})", digest, resp->status)};
+            "failed to fetch blob {} (status {})", d.string(), resp->status)};
     }
     return resp->body;
 }
 
 util::expected<void, std::string>
 client::get_blob_to_file(
-    const std::string& digest, const std::filesystem::path& file,
+    const digest& d, const std::filesystem::path& file,
     std::function<void(std::uint64_t, std::uint64_t)> progress,
     std::function<bool()> should_abort) {
     auto token = token_for(false);
@@ -213,7 +259,7 @@ client::get_blob_to_file(
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::blob_path(repository_, digest);
+    req.url = registry_url_ + impl::blob_path(repository_, d.string());
     req.bearer_token = *token;
     req.follow_redirects = true;
     req.download_file = file;
@@ -226,19 +272,19 @@ client::get_blob_to_file(
     }
     if (resp->status != 200) {
         return util::unexpected{fmt::format(
-            "failed to fetch blob {} (status {})", digest, resp->status)};
+            "failed to fetch blob {} (status {})", d.string(), resp->status)};
     }
     return {};
 }
 
 util::expected<manifest_response, std::string>
-client::get_manifest(const std::string& reference) {
+client::get_manifest(const reference& ref) {
     auto token = token_for(false);
     if (!token) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::manifest_path(repository_, reference);
+    req.url = registry_url_ + impl::manifest_path(repository_, ref.string());
     req.bearer_token = *token;
     req.header_lines = {fmt::format("Accept: {}", media_type_manifest),
                         fmt::format("Accept: {}", media_type_index)};
@@ -249,12 +295,16 @@ client::get_manifest(const std::string& reference) {
     }
     if (resp->status != 200) {
         return util::unexpected{fmt::format(
-            "failed to fetch manifest {} (status {})", reference,
+            "failed to fetch manifest {} (status {})", ref.string(),
             resp->status)};
     }
     manifest_response m;
     m.body = std::move(resp->body);
-    m.digest = resp->headers.get("docker-content-digest").value_or("");
+    if (auto header = resp->headers.get("docker-content-digest")) {
+        if (auto d = digest::parse(*header)) {
+            m.digest = *d;
+        }
+    }
     m.media_type = resp->headers.get("content-type").value_or("");
     return m;
 }
@@ -284,13 +334,13 @@ util::expected<std::vector<std::string>, std::string> client::list_tags() {
 }
 
 util::expected<std::vector<descriptor>, std::string>
-client::referrers(const std::string& digest) {
+client::referrers(const digest& d) {
     auto token = token_for(false);
     if (!token) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::referrers_path(repository_, digest);
+    req.url = registry_url_ + impl::referrers_path(repository_, d.string());
     req.bearer_token = *token;
 
     auto resp = util::curl::perform(req);
@@ -299,7 +349,7 @@ client::referrers(const std::string& digest) {
     }
     if (resp->status != 200) {
         return util::unexpected{fmt::format(
-            "failed to fetch referrers of {} (status {})", digest,
+            "failed to fetch referrers of {} (status {})", d.string(),
             resp->status)};
     }
     auto refs = impl::parse_referrers(resp->body);
@@ -360,45 +410,76 @@ do_put_blob(const std::string& registry_url, const std::string& uploads,
 
 } // namespace
 
-util::expected<void, std::string>
-client::put_blob(const std::string& digest,
-                 const std::filesystem::path& file) {
-    if (auto exists = blob_exists(digest); exists && *exists) {
-        spdlog::trace("oci::put_blob {} already present", digest);
-        return {};
+util::expected<bool, std::string>
+client::mount_blob(const digest& d, const std::string& from_repository) {
+    if (auto exists = blob_exists(d); exists && *exists) {
+        return true;
     }
     auto token = token_for(true);
     if (!token) {
         return util::unexpected{token.error()};
     }
-    return do_put_blob(registry_url_, impl::uploads_path(repository_), *token, digest,
-                       [&file](util::curl::request& r) {
-                           r.upload_file = file;
-                       });
+    util::curl::request post;
+    post.url = registry_url_ + impl::uploads_path(repository_) +
+               "?mount=" + d.string() + "&from=" + from_repository;
+    post.method = util::curl::http_method::post;
+    post.bearer_token = *token;
+
+    auto resp = util::curl::perform(post);
+    if (!resp) {
+        return util::unexpected{resp.error().message};
+    }
+    // 201: the blob was mounted. 202: the registry declined and opened an upload
+    // session instead (caller must copy the blob the slow way).
+    if (resp->status == 201) {
+        return true;
+    }
+    if (resp->status == 202) {
+        return false;
+    }
+    return util::unexpected{fmt::format(
+        "failed to mount blob {} from {} (status {}): {}", d.string(),
+        from_repository, resp->status, resp->body)};
 }
 
 util::expected<void, std::string>
-client::put_blob_bytes(const std::string& digest, const std::string& data) {
-    if (auto exists = blob_exists(digest); exists && *exists) {
+client::put_blob(const digest& d, const std::filesystem::path& file) {
+    if (auto exists = blob_exists(d); exists && *exists) {
+        spdlog::trace("oci::put_blob {} already present", d.string());
         return {};
     }
     auto token = token_for(true);
     if (!token) {
         return util::unexpected{token.error()};
     }
-    return do_put_blob(registry_url_, impl::uploads_path(repository_), *token, digest,
+    return do_put_blob(registry_url_, impl::uploads_path(repository_), *token,
+                       d.string(),
+                       [&file](util::curl::request& r) { r.upload_file = file; });
+}
+
+util::expected<void, std::string>
+client::put_blob_bytes(const digest& d, const std::string& data) {
+    if (auto exists = blob_exists(d); exists && *exists) {
+        return {};
+    }
+    auto token = token_for(true);
+    if (!token) {
+        return util::unexpected{token.error()};
+    }
+    return do_put_blob(registry_url_, impl::uploads_path(repository_), *token,
+                       d.string(),
                        [&data](util::curl::request& r) { r.body = data; });
 }
 
-util::expected<std::string, std::string>
-client::put_manifest(const std::string& reference, const std::string& body,
+util::expected<void, std::string>
+client::put_manifest(const reference& ref, const std::string& body,
                      std::string_view media_type) {
     auto token = token_for(true);
     if (!token) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::manifest_path(repository_, reference);
+    req.url = registry_url_ + impl::manifest_path(repository_, ref.string());
     req.method = util::curl::http_method::put;
     req.bearer_token = *token;
     req.body = body;
@@ -410,10 +491,10 @@ client::put_manifest(const std::string& reference, const std::string& body,
     }
     if (resp->status != 201) {
         return util::unexpected{fmt::format(
-            "failed to put manifest {} (status {}): {}", reference,
+            "failed to put manifest {} (status {}): {}", ref.string(),
             resp->status, resp->body)};
     }
-    return resp->headers.get("docker-content-digest").value_or("");
+    return {};
 }
 
 } // namespace oci

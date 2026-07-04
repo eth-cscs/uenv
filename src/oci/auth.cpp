@@ -16,123 +16,15 @@
 #include <util/fs.h>
 #include <util/strings.h>
 #include <oci/auth.h>
+#include <oci/parse.h>
 
 namespace oci {
 
-namespace {
-
-// split a scope value on spaces (the OCI spec permits a single scope parameter
-// carrying a space-separated list).
-void append_scopes(std::vector<std::string>& out, std::string_view value) {
-    std::size_t i = 0;
-    while (i < value.size()) {
-        while (i < value.size() &&
-               std::isspace(static_cast<unsigned char>(value[i]))) {
-            ++i;
-        }
-        std::size_t start = i;
-        while (i < value.size() &&
-               !std::isspace(static_cast<unsigned char>(value[i]))) {
-            ++i;
-        }
-        if (i > start) {
-            out.emplace_back(value.substr(start, i - start));
-        }
-    }
-}
-
-} // namespace
-
 // --- pure helpers (no network; unit-tested) -----------------------------
 // Kept out of the public auth.h interface; tests redeclare these prototypes
-// inside namespace oci::impl (see test/unit/oci_auth.cpp).
+// inside namespace oci::impl (see test/unit/oci_auth.cpp). The bearer-challenge
+// parser lives in src/oci/parse.cpp (oci::parse_bearer_challenge).
 namespace impl {
-
-std::optional<bearer_challenge>
-parse_bearer_challenge(std::string_view v) {
-    std::string_view s = util::trim(v);
-
-    // case-insensitive "Bearer" scheme, followed by whitespace
-    constexpr std::string_view scheme = "bearer";
-    if (s.size() < scheme.size()) {
-        return std::nullopt;
-    }
-    for (std::size_t i = 0; i < scheme.size(); ++i) {
-        if (std::tolower(static_cast<unsigned char>(s[i])) != scheme[i]) {
-            return std::nullopt;
-        }
-    }
-    s.remove_prefix(scheme.size());
-    if (!s.empty() && !std::isspace(static_cast<unsigned char>(s.front()))) {
-        return std::nullopt; // e.g. "BearerX" is not the Bearer scheme
-    }
-    s = util::trim(s);
-
-    bearer_challenge challenge;
-
-    std::size_t i = 0;
-    while (i < s.size()) {
-        // key = up to '=' or ','
-        std::size_t key_start = i;
-        while (i < s.size() && s[i] != '=' && s[i] != ',') {
-            ++i;
-        }
-        std::string key =
-            util::to_lower(util::trim(s.substr(key_start, i - key_start)));
-
-        std::string value;
-        if (i < s.size() && s[i] == '=') {
-            ++i; // consume '='
-            if (i < s.size() && s[i] == '"') {
-                ++i; // consume opening quote
-                std::string buf;
-                while (i < s.size() && s[i] != '"') {
-                    if (s[i] == '\\' && i + 1 < s.size()) {
-                        buf.push_back(s[i + 1]);
-                        i += 2;
-                    } else {
-                        buf.push_back(s[i]);
-                        ++i;
-                    }
-                }
-                if (i < s.size() && s[i] == '"') {
-                    ++i; // consume closing quote
-                }
-                value = std::move(buf);
-            } else {
-                std::size_t val_start = i;
-                while (i < s.size() && s[i] != ',') {
-                    ++i;
-                }
-                value = std::string(
-                    util::trim(s.substr(val_start, i - val_start)));
-            }
-        }
-
-        if (key == "realm") {
-            challenge.realm = std::move(value);
-        } else if (key == "service") {
-            challenge.service = std::move(value);
-        } else if (key == "scope") {
-            append_scopes(challenge.scopes, value);
-        }
-
-        // advance past the separating comma and any whitespace
-        while (i < s.size() && s[i] != ',') {
-            ++i;
-        }
-        if (i < s.size() && s[i] == ',') {
-            ++i;
-        }
-        s = util::trim(s.substr(i));
-        i = 0;
-    }
-
-    if (challenge.realm.empty()) {
-        return std::nullopt; // realm is mandatory
-    }
-    return challenge;
-}
 
 std::string token_url(const bearer_challenge& challenge,
                       const std::vector<std::string>& scopes) {
@@ -205,10 +97,11 @@ discover_challenge(const std::string& registry_url) {
         return util::unexpected{fmt::format(
             "{} returned 401 with no WWW-Authenticate header", req.url)};
     }
-    auto challenge = impl::parse_bearer_challenge(*header);
+    auto challenge = parse_bearer_challenge(*header);
     if (!challenge) {
         return util::unexpected{fmt::format(
-            "could not parse WWW-Authenticate header: {}", *header)};
+            "could not parse WWW-Authenticate header '{}': {}", *header,
+            challenge.error().message())};
     }
     return *challenge;
 }

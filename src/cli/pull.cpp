@@ -179,27 +179,15 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
         // "jfrog.svc.cscs.ch/uenv") into a base URL and the repository prefix,
         // then build the OCI repository name the same way the oras address was
         // formed: <prefix>/<nspace>/<system>/<uarch>/<name>/<version>.
-        std::string reg = registry_cfg.url;
-        for (const std::string scheme : {"https://", "http://"}) {
-            if (reg.rfind(scheme, 0) == 0) {
-                reg = reg.substr(scheme.size());
-                break;
-            }
+        auto loc = oci::split_registry(registry_cfg.url);
+        if (!loc) {
+            term::error("invalid registry url: {}", loc.error().message());
+            return 1;
         }
-        std::string host = reg;
-        std::string prefix;
-        if (auto slash = reg.find('/'); slash != std::string::npos) {
-            host = reg.substr(0, slash);
-            prefix = reg.substr(slash + 1);
-        }
-        const std::string registry_base = "https://" + host;
+        const std::string registry_base = loc->base;
         const std::string repository =
-            prefix.empty()
-                ? fmt::format("{}/{}/{}/{}/{}", nspace, record.system,
-                              record.uarch, record.name, record.version)
-                : fmt::format("{}/{}/{}/{}/{}/{}", prefix, nspace,
-                              record.system, record.uarch, record.name,
-                              record.version);
+            oci::repository_path(loc->prefix, nspace, record.system,
+                                 record.uarch, record.name, record.version);
 
         spdlog::debug("oci pull: registry={} repository={}", registry_base,
                       repository);
@@ -213,20 +201,28 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
         }
 
         // identify the image by its manifest digest (record.sha).
-        const std::string manifest_ref = "sha256:" + record.sha.string();
+        const auto image_digest = oci::digest::sha256(record.sha.string());
+        const auto manifest_ref = oci::reference::digest(image_digest);
 
         try {
-            // the image manifest is needed for the squashfs layer; fetch once.
-            auto manifest = client->get_manifest(manifest_ref);
-            if (!manifest) {
+            // the image manifest is needed for the squashfs layer; fetch + parse
+            // once.
+            auto response = client->get_manifest(manifest_ref);
+            if (!response) {
                 term::error("unable to fetch the image manifest:\n{}",
+                            response.error());
+                return 1;
+            }
+            auto manifest = oci::parse_manifest(response->body);
+            if (!manifest) {
+                term::error("unable to parse the image manifest:\n{}",
                             manifest.error());
                 return 1;
             }
 
             if (pull_meta) {
                 auto found =
-                    oci::pull_meta(*client, manifest_ref, paths.store);
+                    oci::pull_meta(*client, image_digest, paths.store);
                 if (!found) {
                     term::error("unable to pull meta data.\n{}", found.error());
                     return 1;

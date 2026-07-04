@@ -11,7 +11,8 @@
 
 #include <site/site.h>
 #include <oci/auth.h>
-#include <uenv/oras.h>
+#include <oci/client.h>
+#include <oci/push.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -66,12 +67,6 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
     } else {
         term::error("{}", c.error());
         return 1;
-    }
-    // copy still runs on oras; adapt the credentials at the legacy boundary.
-    std::optional<uenv::oras::credentials> oras_creds;
-    if (credentials) {
-        oras_creds = uenv::oras::credentials{credentials->username,
-                                             credentials->password};
     }
 
     uenv_nslabel src_label{};
@@ -178,13 +173,28 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
         term::warn("the destination already exists and will be overwritten");
     }
 
-    const auto rego_url = registry_cfg.url;
-    spdlog::debug("registry url: {}", rego_url);
+    // split the configured registry into a base URL + prefix, then build the
+    // source and destination OCI repository paths (the addresses oras used).
+    auto loc = oci::split_registry(registry_cfg.url);
+    if (!loc) {
+        term::error("invalid registry url: {}", loc.error().message());
+        return 1;
+    }
+    const auto src_repo = oci::repository_path(
+        loc->prefix, src_label.nspace.value(), src_record.system,
+        src_record.uarch, src_record.name, src_record.version);
+    const auto dst_repo = oci::repository_path(
+        loc->prefix, dst_label.nspace.value(), dst_record.system,
+        dst_record.uarch, dst_record.name, dst_record.version);
+    const auto src_manifest = oci::digest::sha256(src_record.sha.string());
+    spdlog::debug("oci copy: {} -> {} (tag {})", src_repo, dst_repo,
+                  dst_record.tag);
+
     if (auto result =
-            oras::copy(rego_url, src_label.nspace.value(), src_record,
-                       dst_label.nspace.value(), dst_record, oras_creds);
+            oci::copy_image(loc->base, src_repo, dst_repo, src_manifest,
+                            dst_record.tag, credentials);
         !result) {
-        term::error("unable to copy uenv.\n{}", result.error().message);
+        term::error("unable to copy uenv.\n{}", result.error());
         return 1;
     }
 

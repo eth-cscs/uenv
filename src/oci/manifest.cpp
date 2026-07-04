@@ -1,0 +1,212 @@
+#include <optional>
+#include <string>
+
+#include <fmt/format.h>
+#include <nlohmann/json.hpp>
+
+#include <oci/client.h>
+#include <oci/digest.h>
+#include <oci/manifest.h>
+
+namespace oci {
+
+descriptor empty_config_descriptor() {
+    return descriptor{.media_type = std::string{media_type_empty},
+                      .digest = digest::sha256(std::string{empty_config_hex}),
+                      .size = empty_config_body.size(),
+                      .artifact_type = std::nullopt,
+                      .data = std::string{empty_config_data}};
+}
+
+std::optional<std::string> manifest_layer::title() const {
+    if (auto it = annotations.find(std::string{annotation_title});
+        it != annotations.end()) {
+        return it->second;
+    }
+    return std::nullopt;
+}
+
+bool manifest_layer::wants_unpack() const {
+    auto it = annotations.find(std::string{annotation_unpack});
+    return it != annotations.end() && it->second == "true";
+}
+
+const manifest_layer*
+manifest::find_layer_by_title(std::string_view title) const {
+    for (const auto& l : layers) {
+        if (auto t = l.title(); t && *t == title) {
+            return &l;
+        }
+    }
+    return nullptr;
+}
+
+const manifest_layer* manifest::find_unpack_layer() const {
+    for (const auto& l : layers) {
+        if (l.wants_unpack()) {
+            return &l;
+        }
+    }
+    return nullptr;
+}
+
+// --- serialization -----------------------------------------------------------
+
+namespace {
+
+nlohmann::ordered_json descriptor_json(const descriptor& d) {
+    nlohmann::ordered_json j;
+    j["mediaType"] = d.media_type;
+    j["digest"] = d.digest.string();
+    j["size"] = d.size;
+    if (d.artifact_type) {
+        j["artifactType"] = *d.artifact_type;
+    }
+    if (d.data) {
+        j["data"] = *d.data;
+    }
+    return j;
+}
+
+nlohmann::ordered_json annotations_json(
+    const std::map<std::string, std::string>& annotations) {
+    nlohmann::ordered_json j;
+    // std::map iterates in sorted key order, matching oras.
+    for (const auto& [k, v] : annotations) {
+        j[k] = v;
+    }
+    return j;
+}
+
+} // namespace
+
+std::string serialize_manifest(const manifest& m) {
+    nlohmann::ordered_json j;
+    j["schemaVersion"] = 2;
+    j["mediaType"] = m.media_type;
+    if (!m.artifact_type.empty()) {
+        j["artifactType"] = m.artifact_type;
+    }
+    j["config"] = descriptor_json(m.config);
+
+    auto layers = nlohmann::ordered_json::array();
+    for (const auto& l : m.layers) {
+        nlohmann::ordered_json lj;
+        lj["mediaType"] = l.media_type;
+        lj["digest"] = l.digest.string();
+        lj["size"] = l.size;
+        if (!l.annotations.empty()) {
+            lj["annotations"] = annotations_json(l.annotations);
+        }
+        layers.push_back(std::move(lj));
+    }
+    j["layers"] = std::move(layers);
+
+    if (m.subject) {
+        j["subject"] = descriptor_json(*m.subject);
+    }
+    if (!m.annotations.empty()) {
+        j["annotations"] = annotations_json(m.annotations);
+    }
+
+    return j.dump();
+}
+
+std::string serialize_index(const std::vector<descriptor>& manifests) {
+    nlohmann::ordered_json j;
+    j["schemaVersion"] = 2;
+    j["mediaType"] = media_type_index;
+    auto arr = nlohmann::ordered_json::array();
+    for (const auto& d : manifests) {
+        arr.push_back(descriptor_json(d));
+    }
+    j["manifests"] = std::move(arr);
+    return j.dump();
+}
+
+// --- parsing -----------------------------------------------------------------
+
+namespace {
+
+util::expected<descriptor, std::string>
+parse_descriptor(const nlohmann::json& j) {
+    auto dg = digest::parse(j.value("digest", std::string{}));
+    if (!dg) {
+        return util::unexpected{dg.error().message()};
+    }
+    descriptor d{.media_type = j.value("mediaType", std::string{}),
+                 .digest = *dg,
+                 .size = j.value("size", std::size_t{0})};
+    if (auto a = j.find("artifactType"); a != j.end() && a->is_string()) {
+        d.artifact_type = a->get<std::string>();
+    }
+    if (auto dt = j.find("data"); dt != j.end() && dt->is_string()) {
+        d.data = dt->get<std::string>();
+    }
+    return d;
+}
+
+std::map<std::string, std::string>
+parse_annotations(const nlohmann::json& j) {
+    std::map<std::string, std::string> out;
+    if (auto a = j.find("annotations"); a != j.end() && a->is_object()) {
+        for (const auto& [k, v] : a->items()) {
+            if (v.is_string()) {
+                out[k] = v.get<std::string>();
+            }
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+util::expected<manifest, std::string> parse_manifest(std::string_view body) {
+    auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
+    if (j.is_discarded() || !j.is_object()) {
+        return util::unexpected{"could not parse manifest JSON"};
+    }
+
+    manifest m;
+    m.media_type = j.value("mediaType", std::string{media_type_manifest});
+    m.artifact_type = j.value("artifactType", std::string{});
+
+    if (auto c = j.find("config"); c != j.end() && c->is_object()) {
+        auto d = parse_descriptor(*c);
+        if (!d) {
+            return util::unexpected{
+                fmt::format("invalid config descriptor: {}", d.error())};
+        }
+        m.config = *d;
+    }
+
+    if (auto ls = j.find("layers"); ls != j.end() && ls->is_array()) {
+        for (const auto& l : *ls) {
+            auto dg = digest::parse(l.value("digest", std::string{}));
+            if (!dg) {
+                return util::unexpected{
+                    fmt::format("invalid layer digest: {}", dg.error().message())};
+            }
+            manifest_layer layer{.media_type = l.value("mediaType",
+                                                       std::string{}),
+                                 .digest = *dg,
+                                 .size = l.value("size", std::size_t{0}),
+                                 .annotations = parse_annotations(l)};
+            m.layers.push_back(std::move(layer));
+        }
+    }
+
+    if (auto s = j.find("subject"); s != j.end() && s->is_object()) {
+        auto d = parse_descriptor(*s);
+        if (!d) {
+            return util::unexpected{
+                fmt::format("invalid subject descriptor: {}", d.error())};
+        }
+        m.subject = *d;
+    }
+
+    m.annotations = parse_annotations(j);
+    return m;
+}
+
+} // namespace oci

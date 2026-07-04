@@ -3,21 +3,17 @@
 #include <string>
 
 #include <fmt/format.h>
-#include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <oci/client.h>
+#include <oci/digest.h>
+#include <oci/manifest.h>
+#include <oci/pull.h>
 #include <util/expected.h>
 #include <util/sha256.h>
 #include <util/subprocess.h>
-#include <oci/client.h>
-#include <oci/pull.h>
 
 namespace oci {
-
-// defined in client.cpp (part of oci::impl, kept out of the public interface).
-namespace impl {
-std::string digest_string(const util::sha256_digest& d);
-}
 
 namespace fs = std::filesystem;
 
@@ -43,8 +39,7 @@ util::expected<void, std::string> extract_targz(const std::string& data,
         }
     }
 
-    auto proc = util::run(
-        {"tar", "-xzf", tmp.string(), "-C", dest.string()});
+    auto proc = util::run({"tar", "-xzf", tmp.string(), "-C", dest.string()});
     if (!proc) {
         fs::remove(tmp);
         return util::unexpected{
@@ -59,52 +54,43 @@ util::expected<void, std::string> extract_targz(const std::string& data,
     return {};
 }
 
+util::expected<void, std::string> ensure_dir(const fs::path& store) {
+    if (fs::exists(store)) {
+        return {};
+    }
+    std::error_code ec;
+    fs::create_directories(store, ec);
+    if (ec) {
+        return util::unexpected{
+            fmt::format("unable to create {}: {}", store.string(), ec.message())};
+    }
+    return {};
+}
+
 } // namespace
 
 util::expected<void, std::string>
-pull_squashfs(client& c, const manifest_response& manifest,
-              const fs::path& store, progress_fn progress,
-              std::function<bool()> should_abort) {
-    auto j = nlohmann::json::parse(manifest.body, nullptr,
-                                   /*allow_exceptions=*/false);
-    if (j.is_discarded() || !j.contains("layers")) {
-        return util::unexpected{"image manifest has no layers"};
-    }
-
+pull_squashfs(client& c, const manifest& image, const fs::path& store,
+              progress_fn progress, std::function<bool()> should_abort) {
     // pick the squashfs layer: prefer the one titled "store.squashfs", else the
     // sole layer.
-    std::string digest;
-    for (const auto& layer : j["layers"]) {
-        auto ann = layer.find("annotations");
-        if (ann != layer.end()) {
-            auto title = ann->find("org.opencontainers.image.title");
-            if (title != ann->end() && title->is_string() &&
-                title->get<std::string>() == squashfs_title) {
-                digest = layer.value("digest", "");
-                break;
-            }
-        }
+    const manifest_layer* layer = image.find_layer_by_title(squashfs_title);
+    if (!layer && image.layers.size() == 1) {
+        layer = &image.layers[0];
     }
-    if (digest.empty() && j["layers"].size() == 1) {
-        digest = j["layers"][0].value("digest", "");
-    }
-    if (digest.empty()) {
+    if (!layer) {
         return util::unexpected{
             "could not find the store.squashfs layer in the manifest"};
     }
+    const digest& want = layer->digest;
 
-    if (!fs::exists(store)) {
-        std::error_code ec;
-        fs::create_directories(store, ec);
-        if (ec) {
-            return util::unexpected{fmt::format("unable to create {}: {}",
-                                                store.string(), ec.message())};
-        }
+    if (auto ok = ensure_dir(store); !ok) {
+        return util::unexpected{ok.error()};
     }
 
     const fs::path dest = store / "store.squashfs";
-    spdlog::debug("oci::pull_squashfs {} -> {}", digest, dest.string());
-    if (auto ok = c.get_blob_to_file(digest, dest, std::move(progress),
+    spdlog::debug("oci::pull_squashfs {} -> {}", want.string(), dest.string());
+    if (auto ok = c.get_blob_to_file(want, dest, std::move(progress),
                                      std::move(should_abort));
         !ok) {
         return util::unexpected{ok.error()};
@@ -115,79 +101,64 @@ pull_squashfs(client& c, const manifest_response& manifest,
     if (!actual) {
         return util::unexpected{actual.error()};
     }
-    auto actual_digest = impl::digest_string(*actual);
-    if (actual_digest != digest) {
+    auto got = digest::from_sha256(*actual);
+    if (got != want) {
         std::error_code ec;
         fs::remove(dest, ec);
         return util::unexpected{fmt::format(
-            "downloaded squashfs digest mismatch: expected {}, got {}", digest,
-            actual_digest)};
+            "downloaded squashfs digest mismatch: expected {}, got {}",
+            want.string(), got.string())};
     }
-    spdlog::debug("oci::pull_squashfs verified {}", actual_digest);
+    spdlog::debug("oci::pull_squashfs verified {}", got.string());
     return {};
 }
 
 util::expected<bool, std::string>
-pull_meta(client& c, const std::string& manifest_digest, const fs::path& store) {
+pull_meta(client& c, const digest& manifest_digest, const fs::path& store) {
     auto refs = c.referrers(manifest_digest);
     if (!refs) {
         return util::unexpected{refs.error()};
     }
 
     // find the uenv/meta referrer.
-    std::string meta_manifest_digest;
+    const descriptor* meta = nullptr;
     for (const auto& r : *refs) {
-        if (r.artifact_type == "uenv/meta") {
-            meta_manifest_digest = r.digest;
+        if (r.artifact_type == artifact_type_meta) {
+            meta = &r;
             break;
         }
     }
-    if (meta_manifest_digest.empty()) {
+    if (!meta) {
         return false; // no attached meta
     }
 
-    auto meta_manifest = c.get_manifest(meta_manifest_digest);
+    auto meta_manifest = c.get_manifest(reference::digest(meta->digest));
     if (!meta_manifest) {
         return util::unexpected{meta_manifest.error()};
     }
-    auto j = nlohmann::json::parse(meta_manifest->body, nullptr,
-                                   /*allow_exceptions=*/false);
-    if (j.is_discarded() || !j.contains("layers") || j["layers"].empty()) {
+    auto parsed = parse_manifest(meta_manifest->body);
+    if (!parsed) {
+        return util::unexpected{parsed.error()};
+    }
+
+    // the meta layer is the gzipped tar marked for unpacking (else the sole one).
+    const manifest_layer* layer = parsed->find_unpack_layer();
+    if (!layer && !parsed->layers.empty()) {
+        layer = &parsed->layers[0];
+    }
+    if (!layer) {
         return util::unexpected{"meta manifest has no layers"};
     }
 
-    // the meta layer is the gzipped tar marked for unpacking.
-    std::string digest;
-    for (const auto& layer : j["layers"]) {
-        auto ann = layer.find("annotations");
-        if (ann != layer.end()) {
-            auto unpack = ann->find("io.deis.oras.content.unpack");
-            if (unpack != ann->end() && unpack->is_string() &&
-                unpack->get<std::string>() == "true") {
-                digest = layer.value("digest", "");
-                break;
-            }
-        }
-    }
-    if (digest.empty()) {
-        digest = j["layers"][0].value("digest", "");
-    }
-
-    spdlog::debug("oci::pull_meta layer {}", digest);
-    auto blob = c.get_blob(digest);
+    spdlog::debug("oci::pull_meta layer {}", layer->digest.string());
+    auto blob = c.get_blob(layer->digest);
     if (!blob) {
         return util::unexpected{blob.error()};
     }
 
-    if (!fs::exists(store)) {
-        std::error_code ec;
-        fs::create_directories(store, ec);
-        if (ec) {
-            return util::unexpected{fmt::format("unable to create {}: {}",
-                                                store.string(), ec.message())};
-        }
+    if (auto ok = ensure_dir(store); !ok) {
+        return util::unexpected{ok.error()};
     }
-
     if (auto ok = extract_targz(*blob, store); !ok) {
         return util::unexpected{ok.error()};
     }

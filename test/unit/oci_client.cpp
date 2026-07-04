@@ -1,12 +1,14 @@
 #include <catch2/catch_all.hpp>
 
+#include <fmt/format.h>
+
 #include <oci/client.h>
+#include <oci/digest.h>
 #include <util/sha256.h>
 
 // the pure helpers are not part of the public client.h interface; redeclare
 // their prototypes here (they live in namespace oci::impl in client.cpp).
 namespace oci::impl {
-std::string digest_string(const util::sha256_digest&);
 std::string blob_path(std::string_view, std::string_view);
 std::string manifest_path(std::string_view, std::string_view);
 std::string uploads_path(std::string_view);
@@ -20,13 +22,6 @@ std::optional<std::vector<descriptor>> parse_referrers(std::string_view);
 
 using namespace oci;
 using namespace oci::impl;
-
-TEST_CASE("oci digest_string", "[oci][client]") {
-    auto d = util::sha256_string("abc");
-    REQUIRE(digest_string(d) ==
-            "sha256:"
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-}
 
 TEST_CASE("oci path builders", "[oci][client]") {
     const std::string repo = "deploy/todi/gh200/app/1.0";
@@ -80,24 +75,33 @@ TEST_CASE("oci parse_tags_list", "[oci][client]") {
 
 TEST_CASE("oci parse_referrers", "[oci][client]") {
     // an image-index body, as returned by /v2/<repo>/referrers/<digest>
-    const auto body = R"({
+    const auto digest_hex =
+        "f7f04f3b2cf562336c73542f0c53503c3b853ac459f081878843f878955cf267";
+    const auto body = fmt::format(R"({{
         "schemaVersion": 2,
         "mediaType": "application/vnd.oci.image.index.v1+json",
         "manifests": [
-            {
+            {{
                 "mediaType": "application/vnd.oci.image.manifest.v1+json",
-                "digest": "sha256:f7f04f3b",
+                "digest": "sha256:{}",
                 "size": 1234,
                 "artifactType": "application/vnd.cscs.uenv.meta"
-            }
+            }}
         ]
-    })";
+    }})",
+                                  digest_hex);
     auto refs = parse_referrers(body);
     REQUIRE(refs.has_value());
     REQUIRE(refs->size() == 1);
-    REQUIRE((*refs)[0].digest == "sha256:f7f04f3b");
+    REQUIRE((*refs)[0].digest == digest::sha256(digest_hex));
     REQUIRE((*refs)[0].size == 1234);
     REQUIRE((*refs)[0].artifact_type == "application/vnd.cscs.uenv.meta");
+
+    // an entry with a malformed digest is skipped
+    auto skipped = parse_referrers(
+        R"({"manifests":[{"digest":"sha256:short","size":1}]})");
+    REQUIRE(skipped.has_value());
+    REQUIRE(skipped->empty());
 
     // no manifests array -> empty list
     auto empty = parse_referrers(R"({"manifests":[]})");
