@@ -31,8 +31,11 @@ struct bearer_challenge {
 
 // --- network operations -------------------------------------------------
 
-// Probe `<registry_url>/v2/` and parse the Bearer challenge from the 401.
-util::expected<bearer_challenge, std::string>
+// Probe `<registry_url>/v2/` and parse the auth challenge. Returns the parsed
+// Bearer challenge on a 401, or `std::nullopt` when the registry permits
+// anonymous access (200 on /v2/, no challenge) — in which case the client
+// operates tokenless.
+util::expected<std::optional<bearer_challenge>, std::string>
 discover_challenge(const std::string& registry_url);
 
 // Request a bearer token for the given scopes, optionally authenticating with

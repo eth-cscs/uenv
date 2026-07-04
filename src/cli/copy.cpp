@@ -100,7 +100,8 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
         return 1;
     }
 
-    auto src_registry = site::registry_listing(*src_label.nspace);
+    auto src_registry =
+        site::registry_listing(registry_cfg.listing_url, *src_label.nspace);
     if (!src_registry) {
         term::error("unable to get a listing of the uenv",
                     src_registry.error());
@@ -163,7 +164,8 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
     spdlog::info("destination record: {} {}", dst_record.sha, dst_record);
 
     // check whether the destination already exists
-    auto dst_registry = site::registry_listing(*dst_label.nspace);
+    auto dst_registry =
+        site::registry_listing(registry_cfg.listing_url, *dst_label.nspace);
     if (dst_registry && dst_registry->contains(dst_record)) {
         if (!args.force) {
             term::error("the destination already exists - use the --force flag "

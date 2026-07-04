@@ -585,6 +585,7 @@ parse_registry(const toml::node& input) {
     std::optional<std::string> url{};
     std::optional<std::string> default_namespace{};
     std::optional<std::string> artifactory_url{};
+    std::optional<std::string> listing_url{};
 
     for (const auto& entry : *tbl) {
         std::string_view key = entry.first.str();
@@ -594,6 +595,13 @@ parse_registry(const toml::node& input) {
                 url = v.value();
             } else {
                 return make_config_error("registry.url must be a string",
+                                         value.source().begin.line);
+            }
+        } else if (key == "listing_url") {
+            if (auto v = value.value<std::string>()) {
+                listing_url = v.value();
+            } else {
+                return make_config_error("registry.listing_url must be a string",
                                          value.source().begin.line);
             }
         } else if (key == "default_namespace") {
@@ -629,7 +637,8 @@ parse_registry(const toml::node& input) {
     return registry_config{.url = std::move(url.value()),
                            .default_namespace =
                                std::move(default_namespace.value()),
-                           .artifactory_url = std::move(artifactory_url)};
+                           .artifactory_url = std::move(artifactory_url),
+                           .listing_url = std::move(listing_url)};
 }
 
 util::expected<config_base, config_error>

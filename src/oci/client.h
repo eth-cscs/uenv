@@ -149,12 +149,15 @@ class client {
     client() = default;
 
     // return a bearer token for this repository, fetching/caching as needed.
-    util::expected<std::string, std::string> token_for(bool write);
+    // returns std::nullopt for an anonymous registry (no auth challenge), in
+    // which case requests are sent without an Authorization header.
+    util::expected<std::optional<std::string>, std::string> token_for(bool write);
 
     std::string registry_url_; // normalised, no trailing '/'
     std::string repository_;
     std::optional<credentials> creds_;
-    bearer_challenge challenge_;
+    // the auth challenge, or nullopt when the registry permits anonymous access.
+    std::optional<bearer_challenge> challenge_;
     std::optional<std::string> pull_token_;
     std::optional<std::string> push_token_;
     // extra repositories to request pull scope for (cross-repo mount).

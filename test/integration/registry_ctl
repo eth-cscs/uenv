@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""registry_ctl — run a throwaway zot registry (a binary, no container) for tests.
+
+Subcommands
+-----------
+runtime                    print "zot" if a zot binary is available, else nothing
+free-port                  print a free TCP port
+serve STATE PORT           run zot on 127.0.0.1:PORT (anonymous, http); state
+                           (config, storage, pidfile) lives under STATE*
+wait  PORT [--timeout N]   wait until GET /v2/ answers (default 30 s)
+digest PORT REPO REF       print the stored manifest digest (bare hex)
+kill  STATE                stop a serve process via its pidfile
+"""
+import argparse
+import json
+import os
+import shutil
+import socket
+import signal
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+def _zot_binary() -> str:
+    # explicit override, then the binary meson downloads next to this script,
+    # then PATH.
+    env = os.environ.get("UENV_TEST_ZOT")
+    if env and os.access(env, os.X_OK):
+        return env
+    sibling = Path(__file__).resolve().parent / "zot"
+    if os.access(sibling, os.X_OK):
+        return str(sibling)
+    found = shutil.which("zot")
+    return found or ""
+
+
+def _pid_path(state: str) -> Path:
+    return Path(state + ".pid")
+
+
+def cmd_runtime(_args):
+    print("zot" if _zot_binary() else "")
+
+
+def cmd_free_port(_args):
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("", 0))
+    print(s.getsockname()[1])
+    s.close()
+
+
+def cmd_serve(args):
+    zot = _zot_binary()
+    if not zot:
+        print("error: no zot binary available", file=sys.stderr)
+        sys.exit(1)
+    # anonymous + plain-http: no auth/accessControl -> /v2/ returns 200.
+    state_d = Path(args.state + ".d")
+    state_d.mkdir(parents=True, exist_ok=True)
+    cfg = state_d / "config.json"
+    cfg.write_text(json.dumps({
+        "storage": {"rootDirectory": str(state_d / "registry")},
+        "http": {"address": "127.0.0.1", "port": str(args.port)},
+        "log": {"level": "error", "output": str(state_d / "zot.log")},
+    }))
+    _pid_path(args.state).write_text(str(os.getpid()))
+    os.execv(zot, [zot, "serve", str(cfg)])
+
+
+def cmd_wait(args):
+    url = f"http://127.0.0.1:{args.port}/v2/"
+    deadline = time.monotonic() + args.timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1) as resp:
+                if resp.status == 200:
+                    sys.exit(0)
+        except urllib.error.HTTPError as e:
+            if e.code in (200, 401):
+                sys.exit(0)
+        except (urllib.error.URLError, OSError):
+            pass
+        time.sleep(0.2)
+    print(f"error: registry on port {args.port} not ready within {args.timeout}s",
+          file=sys.stderr)
+    sys.exit(1)
+
+
+MANIFEST_ACCEPT = ("application/vnd.oci.image.manifest.v1+json,"
+                   "application/vnd.oci.image.index.v1+json")
+
+
+def cmd_digest(args):
+    url = f"http://127.0.0.1:{args.port}/v2/{args.repo}/manifests/{args.ref}"
+    req = urllib.request.Request(url, method="GET",
+                                 headers={"Accept": MANIFEST_ACCEPT})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            dg = resp.headers.get("Docker-Content-Digest", "")
+    except urllib.error.HTTPError as e:
+        print(f"error: manifest {args.repo}:{args.ref} not found (status {e.code})",
+              file=sys.stderr)
+        sys.exit(1)
+    if not dg:
+        print("error: no Docker-Content-Digest header", file=sys.stderr)
+        sys.exit(1)
+    if dg.startswith("sha256:"):
+        dg = dg[len("sha256:"):]
+    print(dg)
+
+
+def cmd_kill(args):
+    pid_path = _pid_path(args.state)
+    if not pid_path.exists():
+        return
+    try:
+        os.kill(int(pid_path.read_text().strip()), signal.SIGTERM)
+    except (ProcessLookupError, ValueError):
+        pass
+    pid_path.unlink(missing_ok=True)
+
+
+def main():
+    p = argparse.ArgumentParser(prog="registry_ctl")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("runtime")
+    sub.add_parser("free-port")
+
+    sp = sub.add_parser("serve")
+    sp.add_argument("state")
+    sp.add_argument("port", type=int)
+
+    sp = sub.add_parser("wait")
+    sp.add_argument("port", type=int)
+    sp.add_argument("--timeout", type=float, default=30.0)
+
+    sp = sub.add_parser("digest")
+    sp.add_argument("port", type=int)
+    sp.add_argument("repo")
+    sp.add_argument("ref")
+
+    sp = sub.add_parser("kill")
+    sp.add_argument("state")
+
+    args = p.parse_args()
+    {
+        "runtime":   cmd_runtime,
+        "free-port": cmd_free_port,
+        "serve":     cmd_serve,
+        "wait":      cmd_wait,
+        "digest":    cmd_digest,
+        "kill":      cmd_kill,
+    }[args.cmd](args)
+
+
+if __name__ == "__main__":
+    main()

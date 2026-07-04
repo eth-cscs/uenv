@@ -148,6 +148,33 @@ url = "https://my-elastic")"sv;
         REQUIRE(result->elastic_config.value() == "https://my-elastic");
     }
     {
+        // registry config incl. the optional listing_url override
+        const std::string_view input = R"(
+[registry]
+url = "jfrog.svc.cscs.ch/uenv"
+default_namespace = "deploy"
+listing_url = "http://127.0.0.1:8080/list")"sv;
+        auto result = parse_config_toml(toml::parse(input), {});
+        REQUIRE(result);
+        REQUIRE(result->registry);
+        REQUIRE(result->registry->url == "jfrog.svc.cscs.ch/uenv");
+        REQUIRE(result->registry->default_namespace == "deploy");
+        REQUIRE(result->registry->listing_url);
+        REQUIRE(result->registry->listing_url.value() ==
+                "http://127.0.0.1:8080/list");
+    }
+    {
+        // listing_url is optional
+        const std::string_view input = R"(
+[registry]
+url = "jfrog.svc.cscs.ch/uenv"
+default_namespace = "deploy")"sv;
+        auto result = parse_config_toml(toml::parse(input), {});
+        REQUIRE(result);
+        REQUIRE(result->registry);
+        REQUIRE(!result->registry->listing_url);
+    }
+    {
         const std::string_view input = R"(
 [[repositories]]
 name = "therepo"

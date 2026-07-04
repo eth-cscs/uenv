@@ -15,24 +15,27 @@
 namespace site {
 
 util::expected<uenv::repository, std::string>
-registry_listing(const std::string& nspace) {
+registry_listing(const std::optional<std::string>& listing_url,
+                 const std::string& nspace) {
     using json = nlohmann::json;
 
     // perform curl call against middleware end point
     // example of full url end point call:
     //   https://uenv-list.svc.cscs.ch/list?namespace=deploy&cluster=todi&arch=gh200&app=prgenv-gnu&version=24.7
     // we only filter on namespace, and use the database to do more querying
-    // later
-    const auto url =
-        fmt::format("https://uenv-list.svc.cscs.ch/list?namespace={}", nspace);
+    // later. the base URL can be overridden via registry.listing_url (e.g. to a
+    // local mock endpoint for testing).
+    const auto base =
+        listing_url.value_or("https://uenv-list.svc.cscs.ch/list");
+    const auto url = fmt::format("{}?namespace={}", base, nspace);
     spdlog::debug("registry_listing: {}", url);
     auto raw_records = util::curl::get(url);
 
     if (!raw_records) {
         int ec = raw_records.error().code;
         spdlog::error("curl error {}: {}", ec, raw_records.error().message);
-        return util::unexpected{"unable to reach uenv-list.svc.cscs.ch to get "
-                                "list of available uenv"};
+        return util::unexpected{fmt::format(
+            "unable to reach {} to get list of available uenv", base)};
     }
 
     std::vector<uenv::uenv_record> records;

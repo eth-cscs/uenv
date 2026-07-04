@@ -140,7 +140,10 @@ split_registry(std::string_view configured_url) {
         prefix.pop_back();
     }
 
-    std::string base = "https://" + u->host;
+    // preserve an explicit scheme (e.g. http:// for a local test registry);
+    // default to https when the config omits one (the CSCS deployment).
+    const std::string scheme = u->scheme.empty() ? "https" : u->scheme;
+    std::string base = scheme + "://" + u->host;
     if (u->port) {
         base += ':' + std::to_string(*u->port);
     }
@@ -179,7 +182,12 @@ client::create(std::string registry_url, std::string repository,
     return c;
 }
 
-util::expected<std::string, std::string> client::token_for(bool write) {
+util::expected<std::optional<std::string>, std::string>
+client::token_for(bool write) {
+    // anonymous registry: no challenge, so no token is needed or fetched.
+    if (!challenge_) {
+        return std::nullopt;
+    }
     auto& cache = write ? push_token_ : pull_token_;
     if (cache) {
         return *cache;
@@ -191,7 +199,7 @@ util::expected<std::string, std::string> client::token_for(bool write) {
     for (const auto& r : extra_pull_scopes_) {
         scopes.push_back(impl::repository_scope(r, "pull"));
     }
-    auto token = fetch_token(challenge_, scopes, creds_);
+    auto token = fetch_token(*challenge_, scopes, creds_);
     if (!token) {
         return util::unexpected{token.error()};
     }
@@ -365,7 +373,7 @@ namespace {
 // payload (carried by `body_setup`) to the returned Location with ?digest=.
 util::expected<void, std::string>
 do_put_blob(const std::string& registry_url, const std::string& uploads,
-            const std::string& token, const std::string& digest,
+            const std::optional<std::string>& token, const std::string& digest,
             const std::function<void(util::curl::request&)>& body_setup) {
     // 1. open an upload session
     util::curl::request post;

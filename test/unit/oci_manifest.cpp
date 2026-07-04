@@ -162,6 +162,13 @@ TEST_CASE("split_registry", "[oci][manifest]") {
     REQUIRE(d->base == "https://host.io");
     REQUIRE(d->prefix == "a/b");
 
+    // an explicit http scheme is preserved (e.g. a local test registry), and
+    // the port is carried through onto the base
+    auto e = split_registry("http://127.0.0.1:5000/uenv");
+    REQUIRE(e.has_value());
+    REQUIRE(e->base == "http://127.0.0.1:5000");
+    REQUIRE(e->prefix == "uenv");
+
     // invalid: empty host / whitespace
     REQUIRE_FALSE(split_registry("").has_value());
     REQUIRE_FALSE(split_registry("/uenv").has_value());

@@ -19,6 +19,16 @@ function setup() {
     rm -rf $TMP
     mkdir -p $TMP
 
+    # force the system name to arapiles via a user config file.
+    # a system config (e.g. /etc/uenv/config.toml on Alps) sets system_name and
+    # takes priority over the CLUSTER_NAME environment variable, so tests point
+    # XDG_CONFIG_HOME at a throwaway user config that wins over the system one.
+    export XDG_CONFIG_HOME=$TMP/user-config
+    mkdir -p $XDG_CONFIG_HOME/uenv
+    cat > $XDG_CONFIG_HOME/uenv/config.toml <<EOF
+system_name = 'arapiles'
+EOF
+
     # remove the bash function uenv, if an older version of uenv is installed on
     # the system
     unset -f uenv
@@ -394,6 +404,8 @@ EOF
     XDG=$TMP/xdg
     mkdir -p $XDG/uenv
     cat > $XDG/uenv/config.toml <<EOF
+system_name = 'arapiles'
+
 [[repositories]]
 name = 'first'
 path = '$RP1'

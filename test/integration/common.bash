@@ -38,6 +38,43 @@ function wait_elastic_post() {
     elastic_mock wait "$1" --timeout "${2:-10}" --count "${3:-1}"
 }
 
+# ──────────────────────── registry (zot) + listing helpers ───────────────────
+
+REGISTRY_STATE=""
+LISTING_MOCK_PID=""
+
+# start_registry STATE PORT: run a throwaway zot registry on 127.0.0.1:PORT.
+function start_registry() {
+    REGISTRY_STATE="$1"
+    local port="$2"
+    registry_ctl serve "$REGISTRY_STATE" "$port" &
+    registry_ctl wait "$port" --timeout 30
+}
+
+function stop_registry() {
+    if [[ -n "${REGISTRY_STATE:-}" ]]; then
+        registry_ctl kill "$REGISTRY_STATE" 2>/dev/null || true
+        REGISTRY_STATE=""
+    fi
+}
+
+# start_listing LISTING_FILE PORT: run the listing_mock server on 127.0.0.1:PORT.
+function start_listing() {
+    local listing_file="$1"
+    local port="$2"
+    listing_mock serve "$listing_file" "$port" &
+    LISTING_MOCK_PID=$!
+    listing_mock wait-server "$port" --timeout 5
+}
+
+function stop_listing() {
+    if [[ -n "${LISTING_MOCK_PID:-}" ]]; then
+        kill "$LISTING_MOCK_PID" 2>/dev/null || true
+        wait "$LISTING_MOCK_PID" 2>/dev/null || true
+        LISTING_MOCK_PID=""
+    fi
+}
+
 function run_srun_unchecked() {
   log "+ srun $@"
   run srun -n1 --oversubscribe "$@"

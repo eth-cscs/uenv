@@ -94,7 +94,7 @@ int image_push([[maybe_unused]] const image_push_args& args,
                   dst_label.label);
 
     const auto nspace = dst_label.nspace.value();
-    auto registry = site::registry_listing(nspace);
+    auto registry = site::registry_listing(registry_cfg.listing_url, nspace);
     if (!registry) {
         term::error("unable to get a listing of the uenv", registry.error());
         return 1;

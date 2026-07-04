@@ -25,6 +25,16 @@ function setup() {
     # unexpected telemetry posts)
     export XDG_CONFIG_HOME=$(mktemp -d)
 
+    # force the system name to arapiles via the isolated user config.
+    # a system config (e.g. /etc/uenv/config.toml on Alps) sets system_name and
+    # takes priority over the CLUSTER_NAME environment variable, so the user
+    # config must set it to override the system one. tests that write their own
+    # config.toml append to this file (>>) to keep system_name.
+    mkdir -p "${XDG_CONFIG_HOME}/uenv"
+    cat > "${XDG_CONFIG_HOME}/uenv/config.toml" <<EOF
+system_name = 'arapiles'
+EOF
+
     # remove the bash function uenv, if an older version of uenv is installed on
     # the system
     unset -f uenv
@@ -313,10 +323,11 @@ EOF
 
     start_elastic_mock "$elastic_capture" "$elastic_port"
 
-    # write elastic config into the isolated XDG_CONFIG_HOME created in setup()
+    # append elastic config to the isolated config created in setup()
+    # (>> keeps the system_name written there)
     mkdir -p "${XDG_CONFIG_HOME}/uenv"
     printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
-        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+        >> "${XDG_CONFIG_HOME}/uenv/config.toml"
 
     # run a full-setup srun (explicit --uenv triggers new-mount path which loads
     # config and populates config_g.elastic_config)
@@ -351,7 +362,7 @@ EOF
 
     mkdir -p "${XDG_CONFIG_HOME}/uenv"
     printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
-        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+        >> "${XDG_CONFIG_HOME}/uenv/config.toml"
 
     run uenv --repo="$RP" run --view=tool tool -- srun -n1 --oversubscribe echo hello
     assert_success
@@ -384,7 +395,7 @@ EOF
 
     mkdir -p "${XDG_CONFIG_HOME}/uenv"
     printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
-        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+        >> "${XDG_CONFIG_HOME}/uenv/config.toml"
 
     run_sbatch --repo="$RP" <<'EOF'
 #!/bin/bash
@@ -419,7 +430,7 @@ EOF
 
     mkdir -p "${XDG_CONFIG_HOME}/uenv"
     printf '[elastic]\nurl = "http://127.0.0.1:%s"\n' "$elastic_port" \
-        > "${XDG_CONFIG_HOME}/uenv/config.toml"
+        >> "${XDG_CONFIG_HOME}/uenv/config.toml"
 
     run_sbatch <<EOF
 #!/bin/bash

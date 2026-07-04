@@ -66,7 +66,7 @@ std::string repository_scope(std::string_view repository,
 
 } // namespace impl
 
-util::expected<bearer_challenge, std::string>
+util::expected<std::optional<bearer_challenge>, std::string>
 discover_challenge(const std::string& registry_url) {
     // normalise: drop any trailing '/' before appending the v2 base path.
     std::string base = registry_url;
@@ -84,9 +84,10 @@ discover_challenge(const std::string& registry_url) {
                                             resp.error().message)};
     }
     if (resp->status == 200) {
-        return util::unexpected{fmt::format(
-            "{} permits anonymous access and issued no auth challenge",
-            req.url)};
+        // the registry permits anonymous access and issued no challenge; the
+        // client will operate tokenless.
+        spdlog::trace("{} permits anonymous access", req.url);
+        return std::nullopt;
     }
     if (resp->status != 401) {
         return util::unexpected{fmt::format(
@@ -144,7 +145,11 @@ authenticate(const std::string& registry_url,
     if (!challenge) {
         return util::unexpected{challenge.error()};
     }
-    return fetch_token(*challenge, scopes, creds);
+    // anonymous registry: no token required.
+    if (!*challenge) {
+        return std::string{};
+    }
+    return fetch_token(**challenge, scopes, creds);
 }
 
 util::expected<std::optional<credentials>, std::string>
