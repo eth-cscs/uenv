@@ -99,9 +99,6 @@ int main(int argc, char** argv) {
     if (auto bin = util::exe_path()) {
         spdlog::info("using uenv {}", bin->string());
     }
-    if (auto oras = util::oras_path()) {
-        spdlog::info("using oras {}", oras->string());
-    }
 
     // print the version and exit if the --version flag was passed
     if (print_version) {

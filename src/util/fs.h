@@ -49,10 +49,6 @@ make_file_lock(const std::filesystem::path& path);
 // returns empty if there is an error
 std::optional<std::filesystem::path> exe_path();
 
-// return the path of the oras executable
-// returns empty if it can't be found
-std::optional<std::filesystem::path> oras_path();
-
 // for determining the level of access to a file or directory
 // if there is an error, or the file does not exist `none` is
 // returned.

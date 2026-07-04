@@ -42,7 +42,6 @@ Configure via `-Doption=value` with `meson setup`:
 - `cli=true|false` - Build CLI tool (default: true)
 - `slurm_plugin=true|false` - Build Slurm plugin (default: true)
 - `squashfs_mount=true|false` - Build squashfs-mount helper (default: false)
-- `oras_version=X.Y.Z` - ORAS version to download (default: 1.2.0)
 
 ## Testing
 
@@ -165,11 +164,11 @@ sudo meson install --destdir=$STAGE --no-rebuild --skip-subprojects
   - Parsing (`parse.h/cpp`, `lex.h` in util)
   - Mounting (`mount.h/cpp`)
   - Meta data (`meta.h/cpp`)
-  - Container registry interaction (`oras.h/cpp`)
   - Views (`view.h/cpp`)
   - Telemetry (`telemetry.h/cpp`, `elastic.h/cpp`)
   - Logging (`log.h/cpp`, `print.h/cpp`)
   - Settings management (`settings.h/cpp`)
+- `src/oci/` - Native OCI registry client (container registry interaction: pull, push, copy, manifests, auth); replaces the external `oras` binary. See "Self-contained `src/oci`" below.
 - `src/util/` - Utility libraries (color, curl, envvars, fs, lex, lustre, semver, shell, signal, strings, subprocess, toml)
 - `src/site/` - Site-specific configuration (CSCS-specific logic)
 - `src/slurm/` - Slurm plugin implementation
@@ -211,11 +210,9 @@ All dependencies are built as static libraries via meson wrap:
 - nlohmann_json - JSON parsing
 - sqlite3 - database
 - libcurl - HTTP operations
+- zlib - gzip handling in the native OCI registry client (`src/oci`)
 - Catch2 - testing (when tests enabled)
 - barkeep - progress indicators (header-only in `extern/`)
-
-The CLI build also downloads the ORAS binary for OCI registry operations.
-ORAS is installed in `prefix/libexec` for runtime use by the CLI.
 
 ## Development Notes
 

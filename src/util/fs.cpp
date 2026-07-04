@@ -187,27 +187,6 @@ std::optional<std::filesystem::path> exe_path() {
     return p;
 }
 
-std::optional<std::filesystem::path> oras_path() {
-    namespace fs = std::filesystem;
-
-    auto exe = exe_path();
-    if (!exe) {
-        return std::nullopt;
-    }
-
-    const auto prefix = exe->parent_path();
-
-    for (auto& path : {"../libexec/oras", "oras"}) {
-        const auto p = prefix / path;
-        if (fs::is_regular_file(p)) {
-            return fs::canonical(p);
-        }
-    }
-
-    // maybe this could be extended to search PATH
-    return std::nullopt;
-}
-
 file_level file_access_level(const std::filesystem::path& path) {
     namespace fs = std::filesystem;
 

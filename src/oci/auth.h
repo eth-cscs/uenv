@@ -10,8 +10,6 @@
 namespace oci {
 
 // HTTP basic-auth credentials used to obtain a push/private-pull token.
-// (defined here rather than reusing oras::credentials so the oci client does
-// not depend on the oras module it is meant to replace.)
 struct credentials {
     std::string username;
     std::string password; // password or personal access token

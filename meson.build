@@ -9,8 +9,6 @@ project('uenv', ['cpp'],
         meson_version: '>=1.4')
 version = meson.project_version()
 
-oras_version = get_option('oras_version')
-
 uenv_slurm_plugin = get_option('slurm_plugin')
 uenv_cli = get_option('cli')
 uenv_squashfs_mount = get_option('squashfs_mount')
@@ -70,7 +68,6 @@ lib_src = [
         'src/oci/pull.cpp',
         'src/oci/push.cpp',
         'src/oci/reference.cpp',
-        'src/uenv/oras.cpp',
         'src/uenv/parse.cpp',
         'src/uenv/print.cpp',
         'src/uenv/repository.cpp',
@@ -147,28 +144,6 @@ if uenv_cli
               '-DVERSION="@0@"'.format(version),
             ],
             install: true)
-
-    arch = 'amd64'
-    if host_machine.cpu_family() == 'aarch64'
-        arch = 'arm64'
-    endif
-    oras_url = 'https://github.com/oras-project/oras/releases/download/v@0@/oras_@0@_linux_@1@.tar.gz'.format(oras_version, arch)
-
-    oras_download = custom_target(
-        'oras-download',
-        output: 'oras.tar.gz',
-        command: ['wget', '--quiet', oras_url, '-O', '@OUTPUT@'],
-        install: false,
-    )
-
-    oras_extract = custom_target(
-        'oras-extract',
-        input: oras_download,
-        output: 'oras',
-        command: ['tar', 'xf', '@INPUT@', 'oras'],
-        install: true,
-        install_dir: get_option('libexecdir'),
-    )
 
     meson.add_install_script('./meson-scripts/install-bash-completion.sh')
 endif
