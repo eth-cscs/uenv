@@ -46,11 +46,12 @@ Configure via `-Doption=value` with `meson setup`:
 
 ## Testing
 
-Four test suites exist:
+Five test suites exist:
 1. **unit** - C++ unit tests using Catch2 (in `test/unit/`)
 2. **cli** - CLI integration tests using BATS (in `test/integration/cli.bats`)
 3. **slurm** - Slurm plugin tests using BATS (in `test/integration/slurm.bats`)
 4. **squashfs-mount** - setuid helper tests using BATS (in `test/integration/squashfs-mount.bats`)
+5. **registry** - `uenv push`/`pull` against a throwaway local zot registry (in `test/integration/registry.bats`); self-skips when no zot binary is available
 
 ### Running Tests
 
@@ -59,9 +60,29 @@ To run the tests, run the tests directly instead of running them through meson.
 ```bash
 # Run tests directly
 ./test/unit                      # Unit tests
-./test/bats ./test/cli.bats     # CLI tests
-./test/bats ./test/slurm.bats   # Slurm tests
+./test/bats ./test/cli.bats      # CLI tests
+./test/bats ./test/slurm.bats    # Slurm tests
+./test/bats ./test/registry.bats # Registry (push/pull) tests
 ```
+
+### System name in tests
+
+Most CLI/Slurm tests resolve uenvs by a bare label (`app/42.0`, `tool`) and rely
+on the default system being `arapiles` (the repo records are stored `@arapiles`).
+
+The default system name comes from the config layers, merged in this order (later
+wins): `CLUSTER_NAME` env var → system config (`/etc/uenv/config.toml`) → user
+config (`$XDG_CONFIG_HOME/uenv/config.toml` or `$HOME/.config/uenv/config.toml`) →
+the `--system` CLI flag. On Alps the deployed system config sets
+`system_name = 'eiger'`, which **overrides `CLUSTER_NAME=arapiles`**. So exporting
+`CLUSTER_NAME` in a test is not sufficient.
+
+To force the system name, `cli.bats` and `slurm.bats` `setup()` write a throwaway
+user config that sets `system_name = 'arapiles'` and point `XDG_CONFIG_HOME` at it
+(user config beats system config). A test that writes its own `config.toml` must
+include `system_name = 'arapiles'` (or append to the file created in `setup()`
+with `>>` rather than clobbering it with `>`). Alternatively, pass `--system` on
+the command line.
 
 ### Elastic mock (`elastic_mock`)
 
@@ -87,6 +108,28 @@ elastic_mock kill /tmp/cap.json
 ```
 
 In BATS tests the helper functions in `common.bash` wrap the common lifecycle: `start_elastic_mock CAPTURE_FILE PORT` (backgrounds `serve` and calls `wait-server`), `stop_elastic_mock` (kills by PID), and `wait_elastic_post CAPTURE_FILE [TIMEOUT]`.
+
+### Registry mock (`registry_ctl`, `listing_mock`)
+
+The `registry` suite exercises the native OCI client (`src/oci`) end-to-end against
+a real registry, without containers or the old `oras` binary. Two helper scripts
+are built into `$BUILD_PATH/test` (and so are on `PATH` in all BATS tests):
+
+- `registry_ctl` — manages the lifecycle of a throwaway [zot](https://zotregistry.dev)
+  registry (a single static binary). Subcommands include `runtime`/`zot` (report
+  the zot binary, empty if unavailable → suite self-skips), `free-port`, `serve
+  STATE PORT` (backgrounds itself), `wait PORT --timeout N`, and `kill STATE`.
+  The zot binary is fetched at build time by `test/integration/install-zot`.
+- `listing_mock` — stands in for the CSCS uenv listing service
+  (`https://uenv-list.svc.cscs.ch/list`); same `free-port`/`serve`/`wait-server`/`kill`
+  lifecycle. Point uenv at it with `registry.listing_url` in the config.
+
+`common.bash` wraps these with `start_registry STATE PORT` / `stop_registry` and
+`start_listing LISTING_FILE PORT` / `stop_listing`. `registry.bats` writes a user
+`config.toml` whose `[registry]` block sets `url`, `default_namespace`, and
+`listing_url` to point at the local zot + listing_mock. The `[registry]` unit tests
+in `test/unit/oci_registry.cpp` cover the OCI round-trip directly by starting their
+own zot.
 
 ### Testing squashfs-mount
 
