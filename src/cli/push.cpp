@@ -1,5 +1,7 @@
 // vim: ts=4 sts=4 sw=4 et
 
+#include <atomic>
+#include <filesystem>
 #include <string>
 #include <unistd.h>
 
@@ -18,6 +20,7 @@
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
+#include <util/color.h>
 #include <util/curl.h>
 #include <util/expected.h>
 #include <util/fs.h>
@@ -155,15 +158,39 @@ int image_push([[maybe_unused]] const image_push_args& args,
     // interrupt leaves nothing referencing a partial blob.
     std::optional<oci::digest> image_digest;
     {
-        auto spinner = bk::Animation({
-            .message = fmt::format("pushing {} to registry",
-                                   sqfs->sqfs.filename().string()),
-            .style = bk::Ellipsis,
-            .no_tty = !isatty(fileno(stdout)),
-        });
-        auto push_result = oci::push_squashfs(*client, sqfs->sqfs,
-                                              oci::reference::tag(*L.tag));
-        spinner->done();
+        // atomic: written by curl's progress callback on the main thread, read
+        // concurrently by barkeep's display thread.
+        std::atomic<std::size_t> uploaded_mb{0u};
+        std::error_code ec;
+        auto size_byte = std::filesystem::file_size(sqfs->sqfs, ec);
+        // round up so total_mb is never zero
+        std::size_t total_mb{
+            ec ? 0u : (size_byte + (1024 * 1024 - 1)) / (1024 * 1024)};
+        auto bar = bk::ProgressBar(
+            &uploaded_mb,
+            {
+                .total = total_mb,
+                .message = fmt::format("pushing {} to registry",
+                                       sqfs->sqfs.filename().string()),
+                .speed = 0.1,
+                .speed_unit = "MB/s",
+                .style = color::use_color() ? bk::ProgressBarStyle::Rich
+                                            : bk::ProgressBarStyle::Bars,
+                .no_tty = !isatty(fileno(stdout)),
+            });
+
+        auto progress = [&uploaded_mb](std::uint64_t now, std::uint64_t) {
+            uploaded_mb = now / (1024 * 1024);
+        };
+        auto push_result = oci::push_squashfs(
+            *client, sqfs->sqfs, oci::reference::tag(*L.tag), progress);
+        if (push_result) {
+            // ensure the progress bar shows 100% on completion (also covers the
+            // case where the registry already had the blob and no upload
+            // happened).
+            uploaded_mb = total_mb;
+        }
+        bar->done();
         if (!push_result) {
             term::error("unable to push uenv.\n{}", push_result.error());
             return 1;

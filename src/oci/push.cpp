@@ -242,7 +242,8 @@ void maintain_referrers_tag(client& c, const digest& subject,
 } // namespace
 
 util::expected<digest, std::string>
-push_squashfs(client& c, const fs::path& squashfs, const reference& ref) {
+push_squashfs(client& c, const fs::path& squashfs, const reference& ref,
+              std::function<void(std::uint64_t, std::uint64_t)> progress) {
     auto layer_digest = digest_of_file(squashfs);
     if (!layer_digest) {
         return util::unexpected{layer_digest.error()};
@@ -258,7 +259,8 @@ push_squashfs(client& c, const fs::path& squashfs, const reference& ref) {
                   layer_digest->string(), size, ref.string());
 
     // upload the squashfs blob (streamed) and the empty config.
-    if (auto ok = c.put_blob(*layer_digest, squashfs); !ok) {
+    if (auto ok = c.put_blob(*layer_digest, squashfs, std::move(progress));
+        !ok) {
         return util::unexpected{ok.error()};
     }
     if (auto ok = put_empty_config(c); !ok) {

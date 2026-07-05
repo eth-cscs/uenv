@@ -70,6 +70,10 @@ struct request {
     // bytes_total is 0 until the server reports a content length.
     std::function<void(std::uint64_t, std::uint64_t)> on_download_progress;
 
+    // optional upload-progress callback: (bytes_uploaded, bytes_total).
+    // driven from the same xferinfo callback; used for the upload_file path.
+    std::function<void(std::uint64_t, std::uint64_t)> on_upload_progress;
+
     // optional tap on the response body as it streams to download_file: called
     // with each chunk actually written, before returning to libcurl. lets a
     // caller hash the blob on the fly and so verify its digest without a second

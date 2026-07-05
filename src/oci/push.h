@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -20,7 +21,8 @@ namespace oci {
 // manifest digest — the canonical image id.
 util::expected<digest, std::string>
 push_squashfs(client& c, const std::filesystem::path& squashfs,
-              const reference& ref);
+              const reference& ref,
+              std::function<void(std::uint64_t, std::uint64_t)> progress = {});
 
 // Attach typed side-data to an existing image as an OCI referrer (the native
 // replacement for `oras attach`). `subject` identifies the target image (tag or

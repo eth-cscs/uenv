@@ -120,9 +120,11 @@ class client {
 
     // upload a blob via the monolithic POST-then-PUT handshake. the file is
     // streamed from disk (not held in memory), so large squashfs layers are
-    // fine. no-op if the blob already exists.
+    // fine. no-op if the blob already exists. an optional progress callback
+    // receives (bytes_uploaded, bytes_total) during the PUT.
     util::expected<void, std::string>
-    put_blob(const digest& d, const std::filesystem::path& file);
+    put_blob(const digest& d, const std::filesystem::path& file,
+             std::function<void(std::uint64_t, std::uint64_t)> progress = {});
 
     // upload an in-memory blob (config blobs, small payloads).
     util::expected<void, std::string> put_blob_bytes(const digest& d,

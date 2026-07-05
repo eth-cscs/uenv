@@ -264,12 +264,16 @@ size_t file_write_callback(void* source, size_t size, size_t n, void* target) {
     return written;
 }
 
-int xferinfo_callback(void* p, curl_off_t dltotal, curl_off_t dlnow, curl_off_t,
-                      curl_off_t) {
+int xferinfo_callback(void* p, curl_off_t dltotal, curl_off_t dlnow,
+                      curl_off_t ultotal, curl_off_t ulnow) {
     const auto& req = *static_cast<const request*>(p);
     if (req.on_download_progress) {
         req.on_download_progress(static_cast<std::uint64_t>(dlnow),
                                  static_cast<std::uint64_t>(dltotal));
+    }
+    if (req.on_upload_progress) {
+        req.on_upload_progress(static_cast<std::uint64_t>(ulnow),
+                               static_cast<std::uint64_t>(ultotal));
     }
     if (req.should_abort && req.should_abort()) {
         return 1; // non-zero aborts the transfer (CURLE_ABORTED_BY_CALLBACK)
@@ -426,7 +430,8 @@ expected<response, error> perform(const request& req) {
         curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, req.connect_timeout_ms));
     CURL_EASY(curl_easy_setopt(h, CURLOPT_TIMEOUT_MS, req.timeout_ms));
 
-    if (req.on_download_progress || req.should_abort) {
+    if (req.on_download_progress || req.on_upload_progress ||
+        req.should_abort) {
         CURL_EASY(curl_easy_setopt(h, CURLOPT_NOPROGRESS, 0L));
         CURL_EASY(
             curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, xferinfo_callback));

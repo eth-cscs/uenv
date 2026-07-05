@@ -496,7 +496,8 @@ client::mount_blob(const digest& d, const std::string& from_repository) {
 }
 
 util::expected<void, std::string>
-client::put_blob(const digest& d, const std::filesystem::path& file) {
+client::put_blob(const digest& d, const std::filesystem::path& file,
+                 std::function<void(std::uint64_t, std::uint64_t)> progress) {
     if (util::file_access_level(file) < util::file_level::readonly) {
         return util::unexpected{fmt::format(
             "cannot upload blob: {} is not a readable file", file.string())};
@@ -509,9 +510,13 @@ client::put_blob(const digest& d, const std::filesystem::path& file) {
     if (!token) {
         return util::unexpected{token.error()};
     }
-    return do_put_blob(
-        registry_url_, impl::uploads_path(repository_), *token, d.string(),
-        [&file](util::curl::request& r) { r.upload_file = file; });
+    return do_put_blob(registry_url_, impl::uploads_path(repository_), *token,
+                       d.string(), [&file, &progress](util::curl::request& r) {
+                           r.upload_file = file;
+                           if (progress) {
+                               r.on_upload_progress = progress;
+                           }
+                       });
 }
 
 util::expected<void, std::string>
