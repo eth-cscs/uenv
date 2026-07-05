@@ -79,7 +79,10 @@ package_directory(const fs::path& dir) {
     const auto name = dir.filename().string();
 
     auto work = util::make_temp_dir();
-    const auto tar_path = work / "payload.tar";
+    if (!work) {
+        return util::unexpected{work.error()};
+    }
+    const auto tar_path = *work / "payload.tar";
 
     auto tar = util::run({"tar", "--sort=name", "--format=posix", "--mtime=@0",
                           "--owner=0", "--group=0", "--numeric-owner", "-cf",
@@ -130,7 +133,7 @@ package_directory(const fs::path& dir) {
                                       tar_digest->string()},
                                      {std::string{annotation_unpack}, "true"},
                                      {std::string{annotation_title}, name}}},
-        .scratch = work};
+        .scratch = *work};
 }
 
 // Package a single file as a raw blob layer (no unpack), titled with its
@@ -190,7 +193,10 @@ copy_blob(client& src, client& dst, const std::string& from_repo,
     // fallback: pull the blob to a scratch file, then push it.
     spdlog::debug("copy_blob streaming {} (mount declined)", d.string());
     auto work = util::make_temp_dir();
-    const auto tmp = work / "blob";
+    if (!work) {
+        return util::unexpected{work.error()};
+    }
+    const auto tmp = *work / "blob";
     if (auto ok = src.get_blob_to_file(d, tmp); !ok) {
         return util::unexpected{ok.error()};
     }
@@ -279,9 +285,18 @@ push_squashfs(client& c, const fs::path& squashfs, const reference& ref) {
 util::expected<descriptor, std::string>
 attach(client& c, const reference& subject, std::string_view artifact_type,
        const fs::path& payload) {
-    if (!fs::exists(payload)) {
+    // stat the payload once, and branch file-vs-directory off that single
+    // result (avoids a TOCTOU between exists() and is_directory()).
+    std::error_code ec;
+    auto payload_status = fs::status(payload, ec);
+    if (ec || !fs::exists(payload_status)) {
         return util::unexpected{
             fmt::format("payload {} does not exist", payload.string())};
+    }
+    const bool payload_is_dir = fs::is_directory(payload_status);
+    if (util::file_access_level(payload) < util::file_level::readonly) {
+        return util::unexpected{
+            fmt::format("payload {} is not readable", payload.string())};
     }
 
     // resolve the subject (the image we annotate).
@@ -298,8 +313,7 @@ attach(client& c, const reference& subject, std::string_view artifact_type,
 
     // package the payload.
     util::expected<packaged_layer, std::string> packaged =
-        fs::is_directory(payload) ? package_directory(payload)
-                                  : package_file(payload);
+        payload_is_dir ? package_directory(payload) : package_file(payload);
     if (!packaged) {
         return util::unexpected{packaged.error()};
     }

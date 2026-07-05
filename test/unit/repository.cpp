@@ -97,7 +97,7 @@ TEST_CASE("find", "[repository]") {
 }
 
 TEST_CASE("existing", "[repository]") {
-    auto repo_dir = util::make_temp_dir();
+    auto repo_dir = util::make_temp_dir().value();
     auto repo = create_mini_repo(repo_dir);
     REQUIRE(repo);
 
@@ -249,7 +249,7 @@ TEST_CASE("remove label", "[repository]") {
 }
 
 TEST_CASE("create disk repo", "[repository]") {
-    auto repo_dir = util::make_temp_dir();
+    auto repo_dir = util::make_temp_dir().value();
     {
         auto R = create_mini_repo(repo_dir);
         REQUIRE(R);

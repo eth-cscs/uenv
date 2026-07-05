@@ -100,7 +100,12 @@ int build(const build_args& args,
         return 1;
     }
 
-    auto recipe_tar_path = util::make_temp_dir() / "recipe.tar.gz";
+    auto tmp_dir = util::make_temp_dir();
+    if (!tmp_dir) {
+        term::error("{}", tmp_dir.error());
+        return 1;
+    }
+    auto recipe_tar_path = *tmp_dir / "recipe.tar.gz";
     auto proc = util::run({"env", "--chdir", recipe_path.string(), "tar",
                            "--dereference", "-czf", recipe_tar_path, "."});
     if (proc->rvalue() > 0) {

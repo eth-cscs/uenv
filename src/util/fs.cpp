@@ -1,3 +1,5 @@
+#include <cerrno>
+#include <cstring>
 #include <deque>
 #include <filesystem>
 #include <optional>
@@ -55,14 +57,19 @@ bool is_temp_dir(const std::filesystem::path& path) {
     return false;
 }
 
-std::filesystem::path make_temp_dir() {
+util::expected<std::filesystem::path, std::string> make_temp_dir() {
     namespace fs = std::filesystem;
     auto tmp_template =
         fs::temp_directory_path().string() + "/uenv-XXXXXXXXXXXX";
     std::vector<char> base(tmp_template.data(),
                            tmp_template.data() + tmp_template.size() + 1);
 
-    fs::path tmp_path = mkdtemp(base.data());
+    if (mkdtemp(base.data()) == nullptr) {
+        return unexpected(fmt::format("unable to create a temporary directory "
+                                      "from template {}: {}",
+                                      tmp_template, strerror(errno)));
+    }
+    fs::path tmp_path = base.data();
 
     spdlog::debug("make_temp_dir: created {}", tmp_path.string(),
                   fs::is_directory(tmp_path));
@@ -70,6 +77,30 @@ std::filesystem::path make_temp_dir() {
     tmp_dir_cache.emplace_back(tmp_path);
 
     return tmp_path;
+}
+
+util::expected<void, std::string>
+ensure_directory(const std::filesystem::path& path) {
+    namespace fs = std::filesystem;
+
+    std::error_code ec;
+    fs::create_directories(path, ec);
+    if (ec) {
+        return unexpected(
+            fmt::format("unable to create {}: {}", path.string(), ec.message()));
+    }
+
+    if (!fs::is_directory(path, ec)) {
+        return unexpected(fmt::format(
+            "{} exists but is not a directory", path.string()));
+    }
+
+    if (file_access_level(path) != file_level::readwrite) {
+        return unexpected(
+            fmt::format("the directory {} is not writable", path.string()));
+    }
+
+    return {};
 }
 
 util::expected<std::filesystem::path, std::string>
@@ -83,8 +114,12 @@ unsquashfs_tmp(const std::filesystem::path& sqfs,
     }
 
     auto base = make_temp_dir();
+    if (!base) {
+        return unexpected(
+            fmt::format("unsquashfs_tmp: {}", base.error()));
+    }
     std::vector<std::string> command{
-        "unsquashfs", "-no-exit", "-d", base.string(),
+        "unsquashfs", "-no-exit", "-d", base->string(),
         // single threaded to avoid resource contention.
         "-processors", "1", sqfs.string(), contents.string()};
     spdlog::debug("unsquashfs_tmp: attempting to unpack {} from {}",
@@ -111,8 +146,8 @@ unsquashfs_tmp(const std::filesystem::path& sqfs,
     }
 
     spdlog::info("unsquashfs_tmp: unpacked {} from {} to {}", contents.string(),
-                 sqfs.string(), base.string());
-    return base;
+                 sqfs.string(), base->string());
+    return *base;
 }
 
 util::expected<std::tm, std::string>

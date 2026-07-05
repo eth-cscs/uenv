@@ -82,7 +82,7 @@ struct zot_instance {
     zot_instance() {
         const auto zot = zot_binary();
         const int port = free_port();
-        state = util::make_temp_dir();
+        state = util::make_temp_dir().value();
         const auto cfg = state / "config.json";
         {
             std::ofstream f{cfg};
@@ -144,7 +144,7 @@ TEST_CASE("oci registry push/pull round-trip", "[registry]") {
         SKIP("no zot binary available for the registry tests");
     }
 
-    auto dir = util::make_temp_dir();
+    auto dir = util::make_temp_dir().value();
     const auto sqfs = dir / "store.squashfs";
     const std::string payload = "squashfs-bytes-round-trip";
     write_file(sqfs, payload);
@@ -167,7 +167,7 @@ TEST_CASE("oci registry push/pull round-trip", "[registry]") {
     // pull the layer back; pull_squashfs self-verifies its digest internally.
     auto image = oci::parse_manifest(resp->body);
     REQUIRE(image.has_value());
-    auto store = util::make_temp_dir();
+    auto store = util::make_temp_dir().value();
     auto pulled = oci::pull_squashfs(*c, *image, store);
     REQUIRE(pulled.has_value());
     REQUIRE(read_file(store / "store.squashfs") == payload);
@@ -179,7 +179,7 @@ TEST_CASE("oci registry attach + referrers + pull_meta", "[registry]") {
         SKIP("no zot binary available for the registry tests");
     }
 
-    auto dir = util::make_temp_dir();
+    auto dir = util::make_temp_dir().value();
     const auto sqfs = dir / "store.squashfs";
     write_file(sqfs, "sqfs");
     const auto meta = dir / "meta";
@@ -205,7 +205,7 @@ TEST_CASE("oci registry attach + referrers + pull_meta", "[registry]") {
     }
     REQUIRE(found_meta);
 
-    auto store = util::make_temp_dir();
+    auto store = util::make_temp_dir().value();
     auto got = oci::pull_meta(*c, *pushed, store);
     REQUIRE(got.has_value());
     REQUIRE(*got);
@@ -219,7 +219,7 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
         SKIP("no zot binary available for the registry tests");
     }
 
-    auto dir = util::make_temp_dir();
+    auto dir = util::make_temp_dir().value();
     const auto sqfs = dir / "store.squashfs";
     write_file(sqfs, "copy-me");
 

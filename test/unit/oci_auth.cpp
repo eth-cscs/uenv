@@ -69,7 +69,7 @@ void write_file(const std::filesystem::path& path, std::string_view content) {
 } // namespace
 
 TEST_CASE("oci get_credentials reads a token file", "[oci][auth]") {
-    auto dir = util::make_temp_dir();
+    auto dir = util::make_temp_dir().value();
     auto token_file = dir / "mytoken";
     // only the first line is used as the token
     write_file(token_file, "s3cr3t-token\nsecond line ignored\n");
@@ -104,7 +104,7 @@ TEST_CASE("oci get_credentials errors on a missing token path",
 }
 
 TEST_CASE("oci get_credentials reads <dir>/TOKEN", "[oci][auth]") {
-    auto dir = util::make_temp_dir();
+    auto dir = util::make_temp_dir().value();
     write_file(dir / "TOKEN", "dir-token\n");
 
     // passing a directory reads its TOKEN entry
@@ -117,14 +117,14 @@ TEST_CASE("oci get_credentials reads <dir>/TOKEN", "[oci][auth]") {
 
 TEST_CASE("oci get_credentials errors when <dir>/TOKEN is absent",
           "[oci][auth]") {
-    auto dir = util::make_temp_dir(); // empty directory, no TOKEN
+    auto dir = util::make_temp_dir().value(); // empty directory, no TOKEN
     auto c = oci::get_credentials(std::optional<std::string>{"alice"},
                                   std::optional<std::string>{dir.string()});
     REQUIRE_FALSE(c);
 }
 
 TEST_CASE("oci get_credentials falls back to the login name", "[oci][auth]") {
-    auto dir = util::make_temp_dir();
+    auto dir = util::make_temp_dir().value();
     auto token_file = dir / "tok";
     write_file(token_file, "tok\n");
 

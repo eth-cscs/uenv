@@ -13,6 +13,7 @@
 
 #include <util/curl.h>
 #include <util/expected.h>
+#include <util/fs.h>
 #include <util/sha256.h>
 #include <oci/client.h>
 #include <oci/parse.h>
@@ -266,6 +267,16 @@ client::get_blob_to_file(
     const digest& d, const std::filesystem::path& file,
     std::function<void(std::uint64_t, std::uint64_t)> progress,
     std::function<bool()> should_abort) {
+    // check the destination directory is writable up front, so a bad target
+    // surfaces as a clear error rather than a curl write failure.
+    const auto parent = file.parent_path();
+    if (!parent.empty() &&
+        util::file_access_level(parent) != util::file_level::readwrite) {
+        return util::unexpected{fmt::format(
+            "cannot write blob to {}: {} is not a writable directory",
+            file.string(), parent.string())};
+    }
+
     auto token = token_for(false);
     if (!token) {
         return util::unexpected{token.error()};
@@ -482,6 +493,10 @@ client::mount_blob(const digest& d, const std::string& from_repository) {
 
 util::expected<void, std::string>
 client::put_blob(const digest& d, const std::filesystem::path& file) {
+    if (util::file_access_level(file) < util::file_level::readonly) {
+        return util::unexpected{fmt::format(
+            "cannot upload blob: {} is not a readable file", file.string())};
+    }
     if (auto exists = blob_exists(d); exists && *exists) {
         spdlog::trace("oci::put_blob {} already present", d.string());
         return {};

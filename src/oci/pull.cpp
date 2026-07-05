@@ -10,6 +10,7 @@
 #include <oci/manifest.h>
 #include <oci/pull.h>
 #include <util/expected.h>
+#include <util/fs.h>
 #include <util/subprocess.h>
 
 namespace oci {
@@ -24,7 +25,13 @@ constexpr std::string_view squashfs_title = "store.squashfs";
 // extract a gzipped tar (held in memory) into `dest`, using the system tar.
 util::expected<void, std::string> extract_targz(const std::string& data,
                                                 const fs::path& dest) {
-    auto tmp = dest / ".uenv-meta.tar.gz";
+    // stage the archive in a private temp dir (unique name, not a predictable
+    // path inside `dest`) before handing it to tar.
+    auto work = util::make_temp_dir();
+    if (!work) {
+        return util::unexpected{work.error()};
+    }
+    auto tmp = *work / "meta.tar.gz";
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
         if (!out) {
@@ -38,30 +45,18 @@ util::expected<void, std::string> extract_targz(const std::string& data,
         }
     }
 
+    std::error_code ec;
     auto proc = util::run({"tar", "-xzf", tmp.string(), "-C", dest.string()});
     if (!proc) {
-        fs::remove(tmp);
+        fs::remove(tmp, ec);
         return util::unexpected{
             fmt::format("unable to run tar to unpack meta: {}", proc.error())};
     }
     auto rc = proc->wait();
-    fs::remove(tmp);
+    fs::remove(tmp, ec);
     if (rc != 0) {
         return util::unexpected{
             fmt::format("tar failed to unpack meta (exit {})", rc)};
-    }
-    return {};
-}
-
-util::expected<void, std::string> ensure_dir(const fs::path& store) {
-    if (fs::exists(store)) {
-        return {};
-    }
-    std::error_code ec;
-    fs::create_directories(store, ec);
-    if (ec) {
-        return util::unexpected{
-            fmt::format("unable to create {}: {}", store.string(), ec.message())};
     }
     return {};
 }
@@ -83,7 +78,7 @@ pull_squashfs(client& c, const manifest& image, const fs::path& store,
     }
     const digest& want = layer->digest;
 
-    if (auto ok = ensure_dir(store); !ok) {
+    if (auto ok = util::ensure_directory(store); !ok) {
         return util::unexpected{ok.error()};
     }
 
@@ -142,7 +137,7 @@ pull_meta(client& c, const digest& manifest_digest, const fs::path& store) {
         return util::unexpected{blob.error()};
     }
 
-    if (auto ok = ensure_dir(store); !ok) {
+    if (auto ok = util::ensure_directory(store); !ok) {
         return util::unexpected{ok.error()};
     }
     if (auto ok = extract_targz(*blob, store); !ok) {

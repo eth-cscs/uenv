@@ -8,9 +8,15 @@
 
 namespace util {
 
-std::filesystem::path make_temp_dir();
+util::expected<std::filesystem::path, std::string> make_temp_dir();
 
 bool is_temp_dir(const std::filesystem::path& path);
+
+// Ensure `path` is a writable directory, creating it (and any missing parents)
+// if necessary. Succeeds only when the final path exists, is a directory, and
+// is writable.
+util::expected<void, std::string>
+ensure_directory(const std::filesystem::path& path);
 
 util::expected<std::filesystem::path, std::string>
 unsquashfs_tmp(const std::filesystem::path& sqfs,

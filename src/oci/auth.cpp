@@ -162,14 +162,15 @@ get_credentials(std::optional<std::string> username,
     }
 
     fs::path token_path{token.value()};
-    if (!fs::exists(token_path)) {
+    std::error_code ec;
+    if (!fs::exists(token_path, ec)) {
         return util::unexpected{fmt::format(
             "the token '{}' is not a path or file.", token_path.string())};
     }
 
-    if (fs::is_directory(token_path)) {
+    if (fs::is_directory(token_path, ec)) {
         token_path = token_path / "TOKEN";
-        if (!fs::exists(token_path)) {
+        if (!fs::exists(token_path, ec)) {
             return util::unexpected{fmt::format(
                 "the token file '{}' does not exist.", token_path.string())};
         }
