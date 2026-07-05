@@ -247,10 +247,21 @@ size_t header_callback(char* buffer, size_t size, size_t nitems,
     return total;
 }
 
+// download sink for the file path: the FILE* to write to, plus an optional tap
+// (request::on_download_data) that observes each chunk written.
+struct file_sink {
+    FILE* file;
+    const std::function<void(const char*, std::size_t)>* on_data;
+};
+
 size_t file_write_callback(void* source, size_t size, size_t n, void* target) {
     const size_t realsize = size * n;
-    FILE* f = static_cast<FILE*>(target);
-    return fwrite(source, 1, realsize, f);
+    auto& sink = *static_cast<file_sink*>(target);
+    const size_t written = fwrite(source, 1, realsize, sink.file);
+    if (written > 0 && sink.on_data && *sink.on_data) {
+        (*sink.on_data)(static_cast<const char*>(source), written);
+    }
+    return written;
 }
 
 int xferinfo_callback(void* p, curl_off_t dltotal, curl_off_t dlnow,
@@ -382,6 +393,7 @@ expected<response, error> perform(const request& req) {
     // downloads) or buffered in memory.
     std::vector<char> body;
     FILE* download = nullptr;
+    file_sink download_sink{};
     auto cleanup_download = defer([&download]() {
         if (download) {
             fclose(download);
@@ -395,9 +407,11 @@ expected<response, error> perform(const request& req) {
                       fmt::format("unable to open {} for download",
                                   req.download_file->string())}};
         }
+        download_sink.file = download;
+        download_sink.on_data = &req.on_download_data;
         CURL_EASY(
             curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, file_write_callback));
-        CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEDATA, (void*)download));
+        CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEDATA, (void*)&download_sink));
     } else {
         body.reserve(200000);
         CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, memory_callback));

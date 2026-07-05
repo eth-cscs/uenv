@@ -68,6 +68,12 @@ struct request {
     // bytes_total is 0 until the server reports a content length.
     std::function<void(std::uint64_t, std::uint64_t)> on_download_progress;
 
+    // optional tap on the response body as it streams to download_file: called
+    // with each chunk actually written, before returning to libcurl. lets a
+    // caller hash the blob on the fly and so verify its digest without a second
+    // read pass over a multi-GB file. only invoked on the download_file path.
+    std::function<void(const char* data, std::size_t len)> on_download_data;
+
     // optional abort predicate, polled during transfer; returning true aborts
     // the request (used to make a long download responsive to Ctrl-C).
     std::function<bool()> should_abort;

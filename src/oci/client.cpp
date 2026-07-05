@@ -1,5 +1,8 @@
+#include <cstddef>
+#include <filesystem>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -10,6 +13,7 @@
 
 #include <util/curl.h>
 #include <util/expected.h>
+#include <util/sha256.h>
 #include <oci/client.h>
 #include <oci/parse.h>
 
@@ -274,6 +278,19 @@ client::get_blob_to_file(
     req.on_download_progress = std::move(progress);
     req.should_abort = std::move(should_abort);
 
+    // hash the blob as it streams to disk so its content can be verified against
+    // the requested digest without a second read pass over a multi-GB file.
+    const bool verify = d.algorithm() == "sha256";
+    util::sha256_state hash;
+    if (verify) {
+        util::sha256_init(hash);
+        req.on_download_data = [&hash](const char* p, std::size_t n) {
+            util::sha256_update(
+                hash, std::span<const std::byte>{
+                          reinterpret_cast<const std::byte*>(p), n});
+        };
+    }
+
     auto resp = util::curl::perform(req);
     if (!resp) {
         return util::unexpected{resp.error().message};
@@ -281,6 +298,19 @@ client::get_blob_to_file(
     if (resp->status != 200) {
         return util::unexpected{fmt::format(
             "failed to fetch blob {} (status {})", d.string(), resp->status)};
+    }
+
+    if (verify) {
+        const auto got = digest::from_sha256(util::sha256_final(hash));
+        if (got != d) {
+            std::error_code ec;
+            std::filesystem::remove(file, ec);
+            return util::unexpected{
+                fmt::format("downloaded blob digest mismatch: expected {}, "
+                            "got {}",
+                            d.string(), got.string())};
+        }
+        spdlog::debug("oci::get_blob_to_file verified {}", got.string());
     }
     return {};
 }

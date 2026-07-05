@@ -10,7 +10,6 @@
 #include <oci/manifest.h>
 #include <oci/pull.h>
 #include <util/expected.h>
-#include <util/sha256.h>
 #include <util/subprocess.h>
 
 namespace oci {
@@ -90,26 +89,13 @@ pull_squashfs(client& c, const manifest& image, const fs::path& store,
 
     const fs::path dest = store / "store.squashfs";
     spdlog::debug("oci::pull_squashfs {} -> {}", want.string(), dest.string());
+    // get_blob_to_file streams the layer to disk and verifies its digest on the
+    // fly (hashing as it downloads).
     if (auto ok = c.get_blob_to_file(want, dest, std::move(progress),
                                      std::move(should_abort));
         !ok) {
         return util::unexpected{ok.error()};
     }
-
-    // self-verify: the on-disk file must re-digest to the layer digest.
-    auto actual = util::sha256_file(dest);
-    if (!actual) {
-        return util::unexpected{actual.error()};
-    }
-    auto got = digest::from_sha256(*actual);
-    if (got != want) {
-        std::error_code ec;
-        fs::remove(dest, ec);
-        return util::unexpected{fmt::format(
-            "downloaded squashfs digest mismatch: expected {}, got {}",
-            want.string(), got.string())};
-    }
-    spdlog::debug("oci::pull_squashfs verified {}", got.string());
     return {};
 }
 
