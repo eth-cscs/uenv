@@ -10,7 +10,20 @@
 #include <util/envvars.h>
 #include <util/expected.h>
 
+#include <oci/auth.h>
+
 namespace uenv {
+
+// Resolve registry credentials for the registry named by `registry_url`, trying
+// (in order) an explicit --token, the uenv token store
+// ($XDG_CONFIG_HOME/uenv/tokens/<host>), and ~/.docker/config.json. Returns
+// std::nullopt for anonymous access. This assembles the uenv/environment paths
+// and delegates to oci::resolve_credentials.
+util::expected<std::optional<oci::credentials>, std::string>
+resolve_registry_credentials(const envvars::state& env,
+                             const std::string& registry_url,
+                             std::optional<std::string> username,
+                             std::optional<std::string> token);
 
 struct squashfs_image {
     // the absolute path of the squashfs file

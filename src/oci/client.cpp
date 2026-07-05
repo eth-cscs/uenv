@@ -257,7 +257,8 @@ util::expected<std::string, std::string> client::get_blob(const digest& d) {
     }
     if (resp->status != 200) {
         return util::unexpected{fmt::format(
-            "failed to fetch blob {} (status {})", d.string(), resp->status)};
+            "failed to fetch blob {} (status {}): {}", d.string(), resp->status,
+            util::curl::http_message(resp->status))};
     }
     return resp->body;
 }
@@ -308,7 +309,8 @@ client::get_blob_to_file(
     }
     if (resp->status != 200) {
         return util::unexpected{fmt::format(
-            "failed to fetch blob {} (status {})", d.string(), resp->status)};
+            "failed to fetch blob {} (status {}): {}", d.string(), resp->status,
+            util::curl::http_message(resp->status))};
     }
 
     if (verify) {
@@ -344,8 +346,8 @@ client::get_manifest(const reference& ref) {
     }
     if (resp->status != 200) {
         return util::unexpected{fmt::format(
-            "failed to fetch manifest {} (status {})", ref.string(),
-            resp->status)};
+            "failed to fetch manifest {} (status {}): {}", ref.string(),
+            resp->status, util::curl::http_message(resp->status))};
     }
     manifest_response m;
     m.body = std::move(resp->body);
@@ -398,8 +400,8 @@ client::referrers(const digest& d) {
     }
     if (resp->status != 200) {
         return util::unexpected{fmt::format(
-            "failed to fetch referrers of {} (status {})", d.string(),
-            resp->status)};
+            "failed to fetch referrers of {} (status {}): {}", d.string(),
+            resp->status, util::curl::http_message(resp->status))};
     }
     auto refs = impl::parse_referrers(resp->body);
     if (!refs) {
@@ -427,8 +429,8 @@ do_put_blob(const std::string& registry_url, const std::string& uploads,
     }
     if (opened->status != 202) {
         return util::unexpected{fmt::format(
-            "failed to open upload session (status {}): {}", opened->status,
-            opened->body)};
+            "failed to open upload session (status {}): {} {}", opened->status,
+            util::curl::http_message(opened->status), opened->body)};
     }
     auto location = opened->headers.get("location");
     if (!location) {
@@ -451,8 +453,8 @@ do_put_blob(const std::string& registry_url, const std::string& uploads,
     }
     if (done->status != 201) {
         return util::unexpected{fmt::format(
-            "failed to upload blob {} (status {}): {}", digest, done->status,
-            done->body)};
+            "failed to upload blob {} (status {}): {} {}", digest, done->status,
+            util::curl::http_message(done->status), done->body)};
     }
     return {};
 }
@@ -544,8 +546,8 @@ client::put_manifest(const reference& ref, const std::string& body,
     }
     if (resp->status != 201) {
         return util::unexpected{fmt::format(
-            "failed to put manifest {} (status {}): {}", ref.string(),
-            resp->status, resp->body)};
+            "failed to put manifest {} (status {}): {} {}", ref.string(),
+            resp->status, util::curl::http_message(resp->status), resp->body)};
     }
     return {};
 }

@@ -99,6 +99,11 @@ struct response {
 
 expected<response, error> perform(const request& req);
 
+// a friendly, user-facing explanation for an HTTP status code (e.g. a hint that
+// 403 means invalid credentials). falls back to a generic message. intended to
+// enrich the terse "status N" errors reported by the OCI client.
+std::string http_message(long code);
+
 // parse a single raw HTTP header line ("Name: value\r\n") into a headers map.
 // status lines and blank separators are ignored. exposed for unit testing.
 void parse_header_line(headers& h, std::string_view line);

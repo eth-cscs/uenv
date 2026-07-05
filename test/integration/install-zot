@@ -21,7 +21,7 @@ url="https://github.com/project-zot/zot/releases/download/${version}/zot-linux-$
 # download to a temp file then move into place, so a failed/partial download
 # does not leave a broken "zot" that looks complete to ninja.
 tmp="${output}.download"
-if curl -fL "$url" -o "$tmp" 2>/dev/null; then
+if curl -fL --retry 3 --retry-delay 2 "$url" -o "$tmp" 2>/dev/null; then
   chmod +x "$tmp"
   mv "$tmp" "$output"
 else

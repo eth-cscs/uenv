@@ -149,3 +149,113 @@ TEST_CASE("oci credentials formatter redacts the password", "[oci][auth]") {
     REQUIRE(s.find("secret") == std::string::npos); // password must not leak
     REQUIRE(s.find("XXXXXX") != std::string::npos);  // 6 chars -> 6 'X'
 }
+
+TEST_CASE("oci resolve_credentials precedence", "[oci][auth]") {
+    const std::string host = "reg.example.com";
+
+    // an explicit --token wins over everything else.
+    SECTION("explicit token") {
+        auto dir = util::make_temp_dir().value();
+        auto tok = dir / "tok";
+        write_file(tok, "explicit-tok\n");
+        oci::credential_sources src;
+        src.explicit_token = tok;
+        src.username = "alice";
+        src.uenv_token_dir = dir; // present but must be ignored
+        auto c = oci::resolve_credentials(host, src);
+        REQUIRE(c);
+        REQUIRE(c->has_value());
+        REQUIRE((*c)->username == "alice");
+        REQUIRE((*c)->password == "explicit-tok");
+    }
+
+    // the uenv token store: <dir>/<host>.
+    SECTION("uenv token store") {
+        auto dir = util::make_temp_dir().value();
+        write_file(dir / host, "store-tok\n");
+        oci::credential_sources src;
+        src.username = "bob";
+        src.uenv_token_dir = dir;
+        auto c = oci::resolve_credentials(host, src);
+        REQUIRE(c);
+        REQUIRE(c->has_value());
+        REQUIRE((*c)->username == "bob");
+        REQUIRE((*c)->password == "store-tok");
+    }
+
+    // docker config.json auths[host].auth is base64(user:pass).
+    SECTION("docker config fallback") {
+        auto dir = util::make_temp_dir().value();
+        auto cfg = dir / "config.json";
+        // echo -n carol:pw | base64 -> Y2Fyb2w6cHc=
+        write_file(cfg, R"({"auths":{"reg.example.com":{"auth":"Y2Fyb2w6cHc="}}})");
+        oci::credential_sources src;
+        src.docker_config = cfg;
+        auto c = oci::resolve_credentials(host, src);
+        REQUIRE(c);
+        REQUIRE(c->has_value());
+        REQUIRE((*c)->username == "carol");
+        REQUIRE((*c)->password == "pw");
+    }
+
+    // docker keys may carry a scheme/path; matching is on the bare host.
+    SECTION("docker config host normalisation") {
+        auto dir = util::make_temp_dir().value();
+        auto cfg = dir / "config.json";
+        write_file(cfg,
+                   R"({"auths":{"https://reg.example.com/v2/":{"auth":"Y2Fyb2w6cHc="}}})");
+        oci::credential_sources src;
+        src.docker_config = cfg;
+        auto c = oci::resolve_credentials(host, src);
+        REQUIRE(c);
+        REQUIRE(c->has_value());
+        REQUIRE((*c)->username == "carol");
+    }
+
+    // no matching source -> anonymous (nullopt), not an error.
+    SECTION("no source is anonymous") {
+        auto dir = util::make_temp_dir().value(); // empty store, no host file
+        oci::credential_sources src;
+        src.uenv_token_dir = dir;
+        src.docker_config = dir / "does-not-exist.json";
+        auto c = oci::resolve_credentials(host, src);
+        REQUIRE(c);
+        REQUIRE_FALSE(c->has_value());
+    }
+
+    // a config entry with no host match -> anonymous.
+    SECTION("docker config host miss") {
+        auto dir = util::make_temp_dir().value();
+        auto cfg = dir / "config.json";
+        write_file(cfg, R"({"auths":{"other.example.com":{"auth":"Y2Fyb2w6cHc="}}})");
+        oci::credential_sources src;
+        src.docker_config = cfg;
+        auto c = oci::resolve_credentials(host, src);
+        REQUIRE(c);
+        REQUIRE_FALSE(c->has_value());
+    }
+
+    // a credsStore-only entry (no `auth`) is skipped, not an error.
+    SECTION("docker config credsStore entry skipped") {
+        auto dir = util::make_temp_dir().value();
+        auto cfg = dir / "config.json";
+        write_file(cfg,
+                   R"({"auths":{"reg.example.com":{}},"credsStore":"desktop"})");
+        oci::credential_sources src;
+        src.docker_config = cfg;
+        auto c = oci::resolve_credentials(host, src);
+        REQUIRE(c);
+        REQUIRE_FALSE(c->has_value());
+    }
+
+    // malformed base64 in the auth field is an error.
+    SECTION("docker config malformed auth") {
+        auto dir = util::make_temp_dir().value();
+        auto cfg = dir / "config.json";
+        write_file(cfg, R"({"auths":{"reg.example.com":{"auth":"@@@@"}}})");
+        oci::credential_sources src;
+        src.docker_config = cfg;
+        auto c = oci::resolve_credentials(host, src);
+        REQUIRE_FALSE(c);
+    }
+}

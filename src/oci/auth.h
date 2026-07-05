@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -62,6 +63,31 @@ authenticate(const std::string& registry_url,
 util::expected<std::optional<credentials>, std::string>
 get_credentials(std::optional<std::string> username,
                 std::optional<std::string> token);
+
+// The candidate sources consulted by `resolve_credentials`, in precedence order.
+// The CLI populates these (it owns the uenv-specific and environment-specific
+// paths); this keeps `src/oci` free of any dependency on `src/uenv`.
+struct credential_sources {
+    // an explicit --token path (a file, or a directory holding a `TOKEN` file).
+    std::optional<std::filesystem::path> explicit_token;
+    // an explicit --username; when unset the OS login name is used.
+    std::optional<std::string> username;
+    // the uenv token store directory, e.g. $XDG_CONFIG_HOME/uenv/tokens. The
+    // token for a registry is read from <dir>/<registry-host>.
+    std::optional<std::filesystem::path> uenv_token_dir;
+    // a docker config.json path (e.g. ~/.docker/config.json) for interop.
+    std::optional<std::filesystem::path> docker_config;
+};
+
+// Resolve credentials for `registry_host` from `src`, trying, in order:
+//   1. an explicit --token (delegates to get_credentials),
+//   2. the uenv token store <uenv_token_dir>/<registry_host>,
+//   3. the docker config.json `auths[<registry_host>].auth` entry.
+// Returns std::nullopt when no credentials are found (anonymous access), or an
+// error string when a source was present but could not be used.
+util::expected<std::optional<credentials>, std::string>
+resolve_credentials(std::string_view registry_host,
+                    const credential_sources& src);
 
 } // namespace oci
 

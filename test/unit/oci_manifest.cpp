@@ -126,6 +126,22 @@ TEST_CASE("parse_manifest rejects malformed", "[oci][manifest]") {
                       .has_value());
 }
 
+TEST_CASE("parse_manifest rejects image indexes", "[oci][manifest]") {
+    // by media type
+    REQUIRE_FALSE(
+        parse_manifest(
+            R"({"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[]})")
+            .has_value());
+    // by docker manifest-list media type
+    REQUIRE_FALSE(
+        parse_manifest(
+            R"({"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.list.v2+json"})")
+            .has_value());
+    // by the presence of a `manifests` array even without an index media type
+    REQUIRE_FALSE(
+        parse_manifest(R"({"schemaVersion":2,"manifests":[]})").has_value());
+}
+
 TEST_CASE("serialize image index", "[oci][manifest]") {
     descriptor d{.media_type = std::string{media_type_manifest},
                  .digest = digest::sha256(image_manifest_hex),

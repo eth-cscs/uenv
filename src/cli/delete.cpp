@@ -21,6 +21,7 @@
 #include "delete.h"
 #include "help.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -63,7 +64,9 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     const auto& artifactory_url = *registry_cfg.artifactory_url;
 
     oci::credentials credentials;
-    if (auto c = oci::get_credentials(args.username, args.token)) {
+    if (auto c = resolve_registry_credentials(settings.calling_environment,
+                                              artifactory_url, args.username,
+                                              args.token)) {
         if (!*c) {
             term::error("full credentials must be provided", c.error());
         }

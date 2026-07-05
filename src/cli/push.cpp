@@ -69,7 +69,9 @@ int image_push([[maybe_unused]] const image_push_args& args,
     const auto& registry_cfg = *settings.config.registry;
 
     std::optional<oci::credentials> credentials;
-    if (auto c = oci::get_credentials(args.username, args.token)) {
+    if (auto c = resolve_registry_credentials(settings.calling_environment,
+                                              registry_cfg.url, args.username,
+                                              args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());
@@ -217,8 +219,9 @@ std::string image_push_footer() {
         help::block{xmpl, "use a token for the registry"},
         help::block{code,   "uenv image push --token=/opt/cscs/uenv/tokens/vasp6 \\"},
         help::block{code,   "                ./store.squashfs prgenv-gnu/24.11:v3%gh200@daint"},
-        help::block{note, "this is required if you have not configured ~/.docker/config.json" },
-        help::block{none, "with the token for the registry." },
+        help::block{note, "credentials are resolved in order: --token, then the" },
+        help::block{none, "uenv token store $XDG_CONFIG_HOME/uenv/tokens/<registry>," },
+        help::block{none, "then ~/.docker/config.json." },
         // clang-format on
     };
 

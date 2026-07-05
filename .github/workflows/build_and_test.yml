@@ -52,11 +52,24 @@ jobs:
         run: sudo ./meson/meson install -Cbuild --destdir=$PWD/staging --no-rebuild --skip-subprojects
       - name: create mount points for tests
         run: sudo mkdir /user-tools /user-environment
+      - name: verify zot is available for registry tests
+        # the zot binary is fetched at build time by test/integration/install-zot,
+        # which tolerates a failed download so local/offline builds still work (the
+        # registry suite then self-skips). in CI we require it, so live OCI
+        # round-trip coverage cannot silently vanish on a download hiccup.
+        run: |
+          test -x build/test/zot || {
+            echo "::error::zot binary missing (build/test/zot) - registry tests would silently skip" >&2
+            exit 1
+          }
       - name: unit tests
         run: ./meson/meson test -Cbuild --verbose unit
       - name: cli integration tests
         run: |
           UENV_BATS_SKIP_START=on STAGING_PATH=$PWD/staging/usr/local ./meson/meson test -Cbuild --verbose cli
+      - name: registry integration tests
+        run: |
+          UENV_BATS_SKIP_START=on STAGING_PATH=$PWD/staging/usr/local ./meson/meson test -Cbuild --verbose registry
       - name: squashfs-mount integration tests
         run: |
           UENV_BATS_SKIP_START=on STAGING_PATH=$PWD/staging/usr/local ./meson/meson test -Cbuild --verbose squashfs-mount

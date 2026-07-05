@@ -171,6 +171,17 @@ util::expected<manifest, std::string> parse_manifest(std::string_view body) {
     m.media_type = j.value("mediaType", std::string{media_type_manifest});
     m.artifact_type = j.value("artifactType", std::string{});
 
+    // reject multi-arch image indexes / manifest lists: they carry a `manifests`
+    // array of per-platform descriptors instead of `layers`, so treating one as
+    // an image manifest would silently yield an empty layer set. uenv only ever
+    // deals with single-platform artifacts.
+    if (m.media_type == media_type_index ||
+        m.media_type == "application/vnd.docker.distribution.manifest.list.v2+json" ||
+        j.contains("manifests")) {
+        return util::unexpected{
+            "multi-arch image indexes (manifest lists) are not supported"};
+    }
+
     if (auto c = j.find("config"); c != j.end() && c->is_object()) {
         auto d = parse_descriptor(*c);
         if (!d) {

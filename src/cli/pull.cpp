@@ -26,6 +26,7 @@
 #include "help.h"
 #include "pull.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -75,7 +76,9 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
     const auto& registry_cfg = *settings.config.registry;
 
     std::optional<oci::credentials> credentials;
-    if (auto c = oci::get_credentials(args.username, args.token)) {
+    if (auto c = resolve_registry_credentials(settings.calling_environment,
+                                              registry_cfg.url, args.username,
+                                              args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());

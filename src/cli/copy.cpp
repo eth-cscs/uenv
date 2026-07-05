@@ -24,6 +24,7 @@
 #include "copy.h"
 #include "help.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -62,7 +63,9 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
     const auto& registry_cfg = *settings.config.registry;
 
     std::optional<oci::credentials> credentials;
-    if (auto c = oci::get_credentials(args.username, args.token)) {
+    if (auto c = resolve_registry_credentials(settings.calling_environment,
+                                              registry_cfg.url, args.username,
+                                              args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());

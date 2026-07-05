@@ -109,4 +109,45 @@ bool is_sha(const std::string& str) {
     return false;
 }
 
+std::optional<std::string> base64_decode(std::string_view input) {
+    auto value = [](unsigned char c) -> int {
+        if (c >= 'A' && c <= 'Z') {
+            return c - 'A';
+        }
+        if (c >= 'a' && c <= 'z') {
+            return c - 'a' + 26;
+        }
+        if (c >= '0' && c <= '9') {
+            return c - '0' + 52;
+        }
+        if (c == '+') {
+            return 62;
+        }
+        if (c == '/') {
+            return 63;
+        }
+        return -1;
+    };
+
+    std::string out;
+    int buffer = 0;
+    int bits = 0;
+    for (unsigned char c : input) {
+        if (c == '=' || std::isspace(c)) {
+            continue; // padding / whitespace: ignore
+        }
+        int v = value(c);
+        if (v < 0) {
+            return std::nullopt; // invalid character
+        }
+        buffer = (buffer << 6) | v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<char>((buffer >> bits) & 0xFF));
+        }
+    }
+    return out;
+}
+
 } // namespace util

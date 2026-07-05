@@ -36,8 +36,8 @@ toml_dep = declare_dependency(
   dependencies: toml_base,
   compile_args: ['-DTOML_EXCEPTIONS=0', '-DTOML_HEADER_ONLY=0'],
 )
-# zlib: needed for gzip handling in the native OCI registry client that will
-# replace the oras binary. Always built from the vendored wrapdb subproject
+# zlib: needed for gzip handling in the native OCI registry client that
+# replaced the oras binary. Always built from the vendored wrapdb subproject
 # (never the system copy) and statically linked, so the binary is self-contained.
 # Built *before* curl so its override_dependency('zlib') is in place and curl
 # links the same vendored static zlib rather than the system copy.

@@ -115,16 +115,18 @@ a real registry, without containers or the old `oras` binary. Two helper scripts
 are built into `$BUILD_PATH/test` (and so are on `PATH` in all BATS tests):
 
 - `registry_ctl` — manages the lifecycle of a throwaway [zot](https://zotregistry.dev)
-  registry (a single static binary). Subcommands include `runtime`/`zot` (report
+  registry (a single static binary). Subcommands include `runtime` (report
   the zot binary, empty if unavailable → suite self-skips), `free-port`, `serve
-  STATE PORT` (backgrounds itself), `wait PORT --timeout N`, and `kill STATE`.
+  STATE PORT` (backgrounds itself), `wait PORT --timeout N`, `digest PORT REPO REF`,
+  and `kill STATE`.
   The zot binary is fetched at build time by `test/integration/install-zot`.
 - `listing_mock` — stands in for the CSCS uenv listing service
   (`https://uenv-list.svc.cscs.ch/list`); same `free-port`/`serve`/`wait-server`/`kill`
   lifecycle. Point uenv at it with `registry.listing_url` in the config.
 
-`common.bash` wraps these with `start_registry STATE PORT` / `stop_registry` and
-`start_listing LISTING_FILE PORT` / `stop_listing`. `registry.bats` writes a user
+`registry.bats` drives `registry_ctl serve` / `listing_mock serve` directly from
+its `setup_file` (the servers must outlive individual tests, so their state is
+exported rather than held in `common.bash` helper vars). It writes a user
 `config.toml` whose `[registry]` block sets `url`, `default_namespace`, and
 `listing_url` to point at the local zot + listing_mock. The `[registry]` unit tests
 in `test/unit/oci_registry.cpp` cover the OCI round-trip directly by starting their
