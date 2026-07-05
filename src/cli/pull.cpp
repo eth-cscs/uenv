@@ -1,5 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
+#include <atomic>
 #include <csignal>
 #include <filesystem>
 #include <string>
@@ -245,7 +246,9 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
 
             if (pull_sqfs) {
                 namespace bk = barkeep;
-                std::size_t downloaded_mb{0u};
+                // atomic: written by curl's progress callback on the main
+                // thread, read concurrently by barkeep's display thread.
+                std::atomic<std::size_t> downloaded_mb{0u};
                 // round up so total_mb is never zero
                 std::size_t total_mb{(record.size_byte + (1024 * 1024 - 1)) /
                                      (1024 * 1024)};
