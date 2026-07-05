@@ -10,11 +10,11 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
-#include <site/site.h>
 #include <oci/auth.h>
 #include <oci/client.h>
 #include <oci/manifest.h>
 #include <oci/push.h>
+#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -138,8 +138,8 @@ int image_push([[maybe_unused]] const image_push_args& args,
         return 1;
     }
     const auto& L = dst_label.label;
-    const auto repository = oci::repository_path(
-        loc->prefix, nspace, *L.system, *L.uarch, *L.name, *L.version);
+    const auto repository = oci::repository_path(loc->prefix, nspace, *L.system,
+                                                 *L.uarch, *L.name, *L.version);
     spdlog::debug("oci push: registry={} repository={}", loc->base, repository);
 
     auto client = oci::client::create(loc->base, repository, credentials);
@@ -151,8 +151,8 @@ int image_push([[maybe_unused]] const image_push_args& args,
     namespace bk = barkeep;
 
     // Push the SquashFS image. Ctrl-C is left with its default behaviour: the
-    // upload session is not committed until the manifest is PUT, so an interrupt
-    // leaves nothing referencing a partial blob.
+    // upload session is not committed until the manifest is PUT, so an
+    // interrupt leaves nothing referencing a partial blob.
     std::optional<oci::digest> image_digest;
     {
         auto spinner = bk::Animation({
@@ -161,8 +161,8 @@ int image_push([[maybe_unused]] const image_push_args& args,
             .style = bk::Ellipsis,
             .no_tty = !isatty(fileno(stdout)),
         });
-        auto push_result =
-            oci::push_squashfs(*client, sqfs->sqfs, oci::reference::tag(*L.tag));
+        auto push_result = oci::push_squashfs(*client, sqfs->sqfs,
+                                              oci::reference::tag(*L.tag));
         spinner->done();
         if (!push_result) {
             term::error("unable to push uenv.\n{}", push_result.error());

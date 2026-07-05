@@ -21,11 +21,12 @@ TEST_CASE("curl parse_header_line", "[curl]") {
 
     // the OCI-relevant headers the registry client needs to capture
     util::curl::parse_header_line(
-        h, "WWW-Authenticate: Bearer realm=\"https://r/token\",service=\"r\"\r\n");
+        h,
+        "WWW-Authenticate: Bearer realm=\"https://r/token\",service=\"r\"\r\n");
     util::curl::parse_header_line(
         h, "Location: https://r/v2/x/blobs/uploads/abc123\r\n");
-    util::curl::parse_header_line(
-        h, "Docker-Content-Digest: sha256:deadbeef\r\n");
+    util::curl::parse_header_line(h,
+                                  "Docker-Content-Digest: sha256:deadbeef\r\n");
 
     REQUIRE(h.get("www-authenticate") ==
             "Bearer realm=\"https://r/token\",service=\"r\"");
@@ -43,7 +44,8 @@ TEST_CASE("curl parse_header_line edge cases", "[curl]") {
 
     // surrounding whitespace is trimmed from name and value; a value may itself
     // contain a colon (e.g. a URL or digest).
-    util::curl::parse_header_line(h, "  Location :  https://host:443/path \r\n");
+    util::curl::parse_header_line(h,
+                                  "  Location :  https://host:443/path \r\n");
     REQUIRE(h.get("location") == "https://host:443/path");
 
     // empty value is preserved

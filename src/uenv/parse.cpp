@@ -241,8 +241,7 @@ parse_uenv_nslabel(const std::string& in) {
             ++i;
         }
         // check for following colons
-        if (L.peek(i) == lex::tok::colon &&
-            L.peek(i + 1) == lex::tok::colon) {
+        if (L.peek(i) == lex::tok::colon && L.peek(i + 1) == lex::tok::colon) {
             // parse the namespace name
             PARSE(L, name, nspace);
             // gobble the ::

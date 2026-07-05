@@ -47,8 +47,9 @@ struct registry_location {
 };
 
 // Split a configured registry URL ("host", "host/prefix", or scheme-prefixed)
-// into an https base URL and a repository prefix. The scheme, if any, is dropped
-// and https is always used for the base (matching how pull resolves it).
+// into an https base URL and a repository prefix. The scheme, if any, is
+// dropped and https is always used for the base (matching how pull resolves
+// it).
 util::expected<registry_location, util::parse_error>
 split_registry(std::string_view configured_url);
 
@@ -93,8 +94,7 @@ class client {
     // multi-GB squashfs layer). follows the 307 redirect to backing storage.
     // an optional progress callback receives (bytes_downloaded, bytes_total);
     // an optional abort predicate, polled during transfer, cancels it.
-    util::expected<void, std::string>
-    get_blob_to_file(
+    util::expected<void, std::string> get_blob_to_file(
         const digest& d, const std::filesystem::path& file,
         std::function<void(std::uint64_t, std::uint64_t)> progress = {},
         std::function<bool()> should_abort = {});
@@ -125,8 +125,8 @@ class client {
     put_blob(const digest& d, const std::filesystem::path& file);
 
     // upload an in-memory blob (config blobs, small payloads).
-    util::expected<void, std::string>
-    put_blob_bytes(const digest& d, const std::string& data);
+    util::expected<void, std::string> put_blob_bytes(const digest& d,
+                                                     const std::string& data);
 
     // PUT a manifest under `ref` (tag or digest).
     util::expected<void, std::string>
@@ -151,12 +151,14 @@ class client {
     // return a bearer token for this repository, fetching/caching as needed.
     // returns std::nullopt for an anonymous registry (no auth challenge), in
     // which case requests are sent without an Authorization header.
-    util::expected<std::optional<std::string>, std::string> token_for(bool write);
+    util::expected<std::optional<std::string>, std::string>
+    token_for(bool write);
 
     std::string registry_url_; // normalised, no trailing '/'
     std::string repository_;
     std::optional<credentials> creds_;
-    // the auth challenge, or nullopt when the registry permits anonymous access.
+    // the auth challenge, or nullopt when the registry permits anonymous
+    // access.
     std::optional<bearer_challenge> challenge_;
     std::optional<std::string> pull_token_;
     std::optional<std::string> push_token_;

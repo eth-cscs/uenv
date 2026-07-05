@@ -28,10 +28,11 @@ class digest {
     // input that might be malformed.
     static digest sha256(std::string hex);
 
-    // parse "<algorithm>:<hex>". rejects an unknown algorithm, and a value whose
-    // length does not match the algorithm or that is not lowercase hex. a thin
-    // forwarder to oci::parse_digest.
-    static util::expected<digest, util::parse_error> parse(std::string_view text);
+    // parse "<algorithm>:<hex>". rejects an unknown algorithm, and a value
+    // whose length does not match the algorithm or that is not lowercase hex. a
+    // thin forwarder to oci::parse_digest.
+    static util::expected<digest, util::parse_error>
+    parse(std::string_view text);
 
     const std::string& algorithm() const {
         return algorithm_;
@@ -44,7 +45,7 @@ class digest {
 
     friend bool operator==(const digest&, const digest&) = default;
     friend util::expected<digest, util::parse_error>
-    parse_digest(std::string_view);
+        parse_digest(std::string_view);
 
   private:
     digest(std::string algorithm, std::string hex)

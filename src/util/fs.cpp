@@ -86,13 +86,13 @@ ensure_directory(const std::filesystem::path& path) {
     std::error_code ec;
     fs::create_directories(path, ec);
     if (ec) {
-        return unexpected(
-            fmt::format("unable to create {}: {}", path.string(), ec.message()));
+        return unexpected(fmt::format("unable to create {}: {}", path.string(),
+                                      ec.message()));
     }
 
     if (!fs::is_directory(path, ec)) {
-        return unexpected(fmt::format(
-            "{} exists but is not a directory", path.string()));
+        return unexpected(
+            fmt::format("{} exists but is not a directory", path.string()));
     }
 
     if (file_access_level(path) != file_level::readwrite) {
@@ -115,8 +115,7 @@ unsquashfs_tmp(const std::filesystem::path& sqfs,
 
     auto base = make_temp_dir();
     if (!base) {
-        return unexpected(
-            fmt::format("unsquashfs_tmp: {}", base.error()));
+        return unexpected(fmt::format("unsquashfs_tmp: {}", base.error()));
     }
     std::vector<std::string> command{
         "unsquashfs", "-no-exit", "-d", base->string(),

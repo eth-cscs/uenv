@@ -20,11 +20,10 @@ TEST_CASE("sha256 known vectors", "[sha256]") {
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
     REQUIRE(util::sha256_string("abc").hex() ==
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-    REQUIRE(
-        util::sha256_string(
-            "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")
-            .hex() ==
-        "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+    REQUIRE(util::sha256_string(
+                "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")
+                .hex() ==
+            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
 }
 
 TEST_CASE("sha256 zero-byte input", "[sha256]") {
@@ -88,7 +87,8 @@ TEST_CASE("sha256 update splits do not change the digest", "[sha256]") {
     for (std::size_t split = 0; split <= msg.size(); ++split) {
         util::sha256_state s;
         util::sha256_init(s);
-        util::sha256_update(s, as_bytes(std::string_view{msg}.substr(0, split)));
+        util::sha256_update(s,
+                            as_bytes(std::string_view{msg}.substr(0, split)));
         util::sha256_update(s, as_bytes(std::string_view{msg}.substr(split)));
         REQUIRE(util::sha256_final(s).hex() == whole);
     }

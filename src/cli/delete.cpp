@@ -8,8 +8,8 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
-#include <site/site.h>
 #include <oci/auth.h>
+#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -128,9 +128,8 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
                                record.system, record.uarch, record.name,
                                record.version, record.tag);
 
-        if (auto result =
-                util::curl::del(url, credentials.username,
-                                credentials.password);
+        if (auto result = util::curl::del(url, credentials.username,
+                                          credentials.password);
             !result) {
             term::error("unable to delete uenv: {}", result.error().message);
             return 1;

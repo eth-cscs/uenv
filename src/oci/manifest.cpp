@@ -68,8 +68,8 @@ nlohmann::ordered_json descriptor_json(const descriptor& d) {
     return j;
 }
 
-nlohmann::ordered_json annotations_json(
-    const std::map<std::string, std::string>& annotations) {
+nlohmann::ordered_json
+annotations_json(const std::map<std::string, std::string>& annotations) {
     nlohmann::ordered_json j;
     // std::map iterates in sorted key order, matching oras.
     for (const auto& [k, v] : annotations) {
@@ -146,8 +146,7 @@ parse_descriptor(const nlohmann::json& j) {
     return d;
 }
 
-std::map<std::string, std::string>
-parse_annotations(const nlohmann::json& j) {
+std::map<std::string, std::string> parse_annotations(const nlohmann::json& j) {
     std::map<std::string, std::string> out;
     if (auto a = j.find("annotations"); a != j.end() && a->is_object()) {
         for (const auto& [k, v] : a->items()) {
@@ -171,12 +170,13 @@ util::expected<manifest, std::string> parse_manifest(std::string_view body) {
     m.media_type = j.value("mediaType", std::string{media_type_manifest});
     m.artifact_type = j.value("artifactType", std::string{});
 
-    // reject multi-arch image indexes / manifest lists: they carry a `manifests`
-    // array of per-platform descriptors instead of `layers`, so treating one as
-    // an image manifest would silently yield an empty layer set. uenv only ever
-    // deals with single-platform artifacts.
+    // reject multi-arch image indexes / manifest lists: they carry a
+    // `manifests` array of per-platform descriptors instead of `layers`, so
+    // treating one as an image manifest would silently yield an empty layer
+    // set. uenv only ever deals with single-platform artifacts.
     if (m.media_type == media_type_index ||
-        m.media_type == "application/vnd.docker.distribution.manifest.list.v2+json" ||
+        m.media_type ==
+            "application/vnd.docker.distribution.manifest.list.v2+json" ||
         j.contains("manifests")) {
         return util::unexpected{
             "multi-arch image indexes (manifest lists) are not supported"};
@@ -195,11 +195,11 @@ util::expected<manifest, std::string> parse_manifest(std::string_view body) {
         for (const auto& l : *ls) {
             auto dg = digest::parse(l.value("digest", std::string{}));
             if (!dg) {
-                return util::unexpected{
-                    fmt::format("invalid layer digest: {}", dg.error().message())};
+                return util::unexpected{fmt::format("invalid layer digest: {}",
+                                                    dg.error().message())};
             }
-            manifest_layer layer{.media_type = l.value("mediaType",
-                                                       std::string{}),
+            manifest_layer layer{.media_type =
+                                     l.value("mediaType", std::string{}),
                                  .digest = *dg,
                                  .size = l.value("size", std::size_t{0}),
                                  .annotations = parse_annotations(l)};

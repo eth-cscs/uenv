@@ -46,13 +46,15 @@ TEST_CASE("oci resolve_upload_url", "[oci][client]") {
             "deadbeef");
 
     // relative Location that already carries a query -> '&'
-    REQUIRE(resolve_upload_url(reg, "/v2/r/blobs/uploads/abc?_state=xyz", dig) ==
-            "https://jfrog.svc.cscs.ch/v2/r/blobs/uploads/abc?_state=xyz&digest="
-            "sha256:deadbeef");
+    REQUIRE(
+        resolve_upload_url(reg, "/v2/r/blobs/uploads/abc?_state=xyz", dig) ==
+        "https://jfrog.svc.cscs.ch/v2/r/blobs/uploads/abc?_state=xyz&digest="
+        "sha256:deadbeef");
 
     // absolute Location (e.g. redirected to storage) is used verbatim
-    REQUIRE(resolve_upload_url(reg, "https://store.example/up/abc?sig=1", dig) ==
-            "https://store.example/up/abc?sig=1&digest=sha256:deadbeef");
+    REQUIRE(
+        resolve_upload_url(reg, "https://store.example/up/abc?sig=1", dig) ==
+        "https://store.example/up/abc?sig=1&digest=sha256:deadbeef");
 
     // trailing slash on the registry base is not doubled
     REQUIRE(resolve_upload_url("https://reg/", "/v2/x", dig) ==
@@ -60,8 +62,7 @@ TEST_CASE("oci resolve_upload_url", "[oci][client]") {
 }
 
 TEST_CASE("oci parse_tags_list", "[oci][client]") {
-    auto tags =
-        parse_tags_list(R"({"name":"r","tags":["v1","v2","latest"]})");
+    auto tags = parse_tags_list(R"({"name":"r","tags":["v1","v2","latest"]})");
     REQUIRE(tags.has_value());
     REQUIRE(*tags == std::vector<std::string>{"v1", "v2", "latest"});
 

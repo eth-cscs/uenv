@@ -44,11 +44,13 @@ resolve_registry_credentials(const envvars::state& env,
     }
     sources.username = std::move(username);
 
-    // the uenv token store: $XDG_CONFIG_HOME/uenv/tokens or ~/.config/uenv/tokens.
+    // the uenv token store: $XDG_CONFIG_HOME/uenv/tokens or
+    // ~/.config/uenv/tokens.
     if (auto xdg = env.get("XDG_CONFIG_HOME")) {
         sources.uenv_token_dir = fs::path{*xdg} / "uenv" / "tokens";
     } else if (auto home = env.get("HOME")) {
-        sources.uenv_token_dir = fs::path{*home} / ".config" / "uenv" / "tokens";
+        sources.uenv_token_dir =
+            fs::path{*home} / ".config" / "uenv" / "tokens";
     }
 
     // docker config.json fallback: $DOCKER_CONFIG/config.json or

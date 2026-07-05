@@ -601,8 +601,9 @@ parse_registry(const toml::node& input) {
             if (auto v = value.value<std::string>()) {
                 listing_url = v.value();
             } else {
-                return make_config_error("registry.listing_url must be a string",
-                                         value.source().begin.line);
+                return make_config_error(
+                    "registry.listing_url must be a string",
+                    value.source().begin.line);
             }
         } else if (key == "default_namespace") {
             if (auto v = value.value<std::string>()) {

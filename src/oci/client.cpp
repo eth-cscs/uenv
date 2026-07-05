@@ -11,12 +11,12 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <oci/client.h>
+#include <oci/parse.h>
 #include <util/curl.h>
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/sha256.h>
-#include <oci/client.h>
-#include <oci/parse.h>
 
 namespace oci {
 
@@ -55,7 +55,8 @@ std::string resolve_upload_url(std::string_view registry_url,
                                std::string_view location,
                                std::string_view digest) {
     std::string url;
-    // the Location may be absolute (https://...) or registry-relative (/v2/...).
+    // the Location may be absolute (https://...) or registry-relative
+    // (/v2/...).
     if (location.rfind("http://", 0) == 0 ||
         location.rfind("https://", 0) == 0) {
         url = std::string{location};
@@ -76,8 +77,7 @@ std::string resolve_upload_url(std::string_view registry_url,
     return url;
 }
 
-std::optional<std::vector<std::string>>
-parse_tags_list(std::string_view body) {
+std::optional<std::vector<std::string>> parse_tags_list(std::string_view body) {
     auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
     if (j.is_discarded() || !j.is_object()) {
         return std::nullopt;
@@ -136,7 +136,8 @@ split_registry(std::string_view configured_url) {
         return util::unexpected(u.error());
     }
 
-    // the repository prefix is the URL path with its surrounding slashes trimmed.
+    // the repository prefix is the URL path with its surrounding slashes
+    // trimmed.
     std::string prefix = u->path;
     if (!prefix.empty() && prefix.front() == '/') {
         prefix.erase(prefix.begin());
@@ -152,7 +153,8 @@ split_registry(std::string_view configured_url) {
     if (u->port) {
         base += ':' + std::to_string(*u->port);
     }
-    return registry_location{.base = std::move(base), .prefix = std::move(prefix)};
+    return registry_location{.base = std::move(base),
+                             .prefix = std::move(prefix)};
 }
 
 std::string repository_path(std::string_view prefix, std::string_view nspace,
@@ -256,15 +258,14 @@ util::expected<std::string, std::string> client::get_blob(const digest& d) {
         return util::unexpected{resp.error().message};
     }
     if (resp->status != 200) {
-        return util::unexpected{fmt::format(
-            "failed to fetch blob {} (status {}): {}", d.string(), resp->status,
-            util::curl::http_message(resp->status))};
+        return util::unexpected{
+            fmt::format("failed to fetch blob {} (status {}): {}", d.string(),
+                        resp->status, util::curl::http_message(resp->status))};
     }
     return resp->body;
 }
 
-util::expected<void, std::string>
-client::get_blob_to_file(
+util::expected<void, std::string> client::get_blob_to_file(
     const digest& d, const std::filesystem::path& file,
     std::function<void(std::uint64_t, std::uint64_t)> progress,
     std::function<bool()> should_abort) {
@@ -290,16 +291,17 @@ client::get_blob_to_file(
     req.on_download_progress = std::move(progress);
     req.should_abort = std::move(should_abort);
 
-    // hash the blob as it streams to disk so its content can be verified against
-    // the requested digest without a second read pass over a multi-GB file.
+    // hash the blob as it streams to disk so its content can be verified
+    // against the requested digest without a second read pass over a multi-GB
+    // file.
     const bool verify = d.algorithm() == "sha256";
     util::sha256_state hash;
     if (verify) {
         util::sha256_init(hash);
         req.on_download_data = [&hash](const char* p, std::size_t n) {
-            util::sha256_update(
-                hash, std::span<const std::byte>{
-                          reinterpret_cast<const std::byte*>(p), n});
+            util::sha256_update(hash,
+                                std::span<const std::byte>{
+                                    reinterpret_cast<const std::byte*>(p), n});
         };
     }
 
@@ -308,9 +310,9 @@ client::get_blob_to_file(
         return util::unexpected{resp.error().message};
     }
     if (resp->status != 200) {
-        return util::unexpected{fmt::format(
-            "failed to fetch blob {} (status {}): {}", d.string(), resp->status,
-            util::curl::http_message(resp->status))};
+        return util::unexpected{
+            fmt::format("failed to fetch blob {} (status {}): {}", d.string(),
+                        resp->status, util::curl::http_message(resp->status))};
     }
 
     if (verify) {
@@ -374,8 +376,8 @@ util::expected<std::vector<std::string>, std::string> client::list_tags() {
         return util::unexpected{resp.error().message};
     }
     if (resp->status != 200) {
-        return util::unexpected{fmt::format(
-            "failed to list tags (status {})", resp->status)};
+        return util::unexpected{
+            fmt::format("failed to list tags (status {})", resp->status)};
     }
     auto tags = impl::parse_tags_list(resp->body);
     if (!tags) {
@@ -480,17 +482,17 @@ client::mount_blob(const digest& d, const std::string& from_repository) {
     if (!resp) {
         return util::unexpected{resp.error().message};
     }
-    // 201: the blob was mounted. 202: the registry declined and opened an upload
-    // session instead (caller must copy the blob the slow way).
+    // 201: the blob was mounted. 202: the registry declined and opened an
+    // upload session instead (caller must copy the blob the slow way).
     if (resp->status == 201) {
         return true;
     }
     if (resp->status == 202) {
         return false;
     }
-    return util::unexpected{fmt::format(
-        "failed to mount blob {} from {} (status {}): {}", d.string(),
-        from_repository, resp->status, resp->body)};
+    return util::unexpected{
+        fmt::format("failed to mount blob {} from {} (status {}): {}",
+                    d.string(), from_repository, resp->status, resp->body)};
 }
 
 util::expected<void, std::string>
@@ -507,9 +509,9 @@ client::put_blob(const digest& d, const std::filesystem::path& file) {
     if (!token) {
         return util::unexpected{token.error()};
     }
-    return do_put_blob(registry_url_, impl::uploads_path(repository_), *token,
-                       d.string(),
-                       [&file](util::curl::request& r) { r.upload_file = file; });
+    return do_put_blob(
+        registry_url_, impl::uploads_path(repository_), *token, d.string(),
+        [&file](util::curl::request& r) { r.upload_file = file; });
 }
 
 util::expected<void, std::string>

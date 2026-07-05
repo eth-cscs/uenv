@@ -122,7 +122,8 @@ pull_meta(client& c, const digest& manifest_digest, const fs::path& store) {
         return util::unexpected{parsed.error()};
     }
 
-    // the meta layer is the gzipped tar marked for unpacking (else the sole one).
+    // the meta layer is the gzipped tar marked for unpacking (else the sole
+    // one).
     const manifest_layer* layer = parsed->find_unpack_layer();
     if (!layer && !parsed->layers.empty()) {
         layer = &parsed->layers[0];

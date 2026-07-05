@@ -12,9 +12,9 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
-#include <site/site.h>
 #include <oci/client.h>
 #include <oci/pull.h>
+#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -209,8 +209,8 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
         const auto manifest_ref = oci::reference::digest(image_digest);
 
         try {
-            // the image manifest is needed for the squashfs layer; fetch + parse
-            // once.
+            // the image manifest is needed for the squashfs layer; fetch +
+            // parse once.
             auto response = client->get_manifest(manifest_ref);
             if (!response) {
                 term::error("unable to fetch the image manifest:\n{}",
@@ -225,8 +225,7 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
             }
 
             if (pull_meta) {
-                auto found =
-                    oci::pull_meta(*client, image_digest, paths.store);
+                auto found = oci::pull_meta(*client, image_digest, paths.store);
                 if (!found) {
                     term::error("unable to pull meta data.\n{}", found.error());
                     return 1;
@@ -256,7 +255,8 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
                     &downloaded_mb,
                     {
                         .total = total_mb,
-                        .message = fmt::format("pulling {}", record.id.string()),
+                        .message =
+                            fmt::format("pulling {}", record.id.string()),
                         .speed = 0.1,
                         .speed_unit = "MB/s",
                         .style = color::use_color()
@@ -271,14 +271,14 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
                 };
                 // util::signal_raised() consumes (resets) the flag, so it must
                 // be checked exactly once. latch the result here in the abort
-                // predicate; the post-download check then reads the latch rather
-                // than calling signal_raised() again (which would see false and
-                // skip the cleanup, leaving a partial download behind).
+                // predicate; the post-download check then reads the latch
+                // rather than calling signal_raised() again (which would see
+                // false and skip the cleanup, leaving a partial download
+                // behind).
                 bool aborted = false;
                 util::set_signal_catcher();
                 auto result = oci::pull_squashfs(
-                    *client, *manifest, paths.store, progress,
-                    [&aborted]() {
+                    *client, *manifest, paths.store, progress, [&aborted]() {
                         aborted = aborted || util::signal_raised();
                         return aborted;
                     });
@@ -292,7 +292,8 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
                     // a Ctrl-C during the download aborts the transfer; surface
                     // it as a signal so the cleanup below runs.
                     if (aborted) {
-                        throw util::signal_exception(util::last_signal_raised());
+                        throw util::signal_exception(
+                            util::last_signal_raised());
                     }
                     term::error("unable to pull uenv.\n{}", result.error());
                     return 1;

@@ -60,8 +60,8 @@ util::expected<void, std::string> put_empty_config(client& c) {
                             std::string{empty_config_body});
 }
 
-// A packaged payload ready to become a manifest layer: the blob on disk plus the
-// layer descriptor, and a scratch directory to clean up after upload.
+// A packaged payload ready to become a manifest layer: the blob on disk plus
+// the layer descriptor, and a scratch directory to clean up after upload.
 struct packaged_layer {
     fs::path blob;
     manifest_layer layer;
@@ -88,8 +88,8 @@ package_directory(const fs::path& dir) {
                           "--owner=0", "--group=0", "--numeric-owner", "-cf",
                           tar_path.string(), "-C", parent.string(), name});
     if (!tar) {
-        return util::unexpected{fmt::format(
-            "unable to run tar to pack {}: {}", dir.string(), tar.error())};
+        return util::unexpected{fmt::format("unable to run tar to pack {}: {}",
+                                            dir.string(), tar.error())};
     }
     if (auto rc = tar->wait(); rc != 0) {
         return util::unexpected{
@@ -105,7 +105,8 @@ package_directory(const fs::path& dir) {
     // gzip in place; -n omits the filename/timestamp for a reproducible result.
     auto gz = util::run({"gzip", "-n", tar_path.string()});
     if (!gz) {
-        return util::unexpected{fmt::format("unable to run gzip: {}", gz.error())};
+        return util::unexpected{
+            fmt::format("unable to run gzip: {}", gz.error())};
     }
     if (auto rc = gz->wait(); rc != 0) {
         return util::unexpected{fmt::format("gzip failed (exit {})", rc)};
@@ -125,14 +126,15 @@ package_directory(const fs::path& dir) {
 
     return packaged_layer{
         .blob = gz_path,
-        .layer = manifest_layer{.media_type = std::string{media_type_layer_targz},
-                                .digest = *layer_digest,
-                                .size = size,
-                                .annotations =
-                                    {{std::string{annotation_content_digest},
-                                      tar_digest->string()},
-                                     {std::string{annotation_unpack}, "true"},
-                                     {std::string{annotation_title}, name}}},
+        .layer =
+            manifest_layer{
+                .media_type = std::string{media_type_layer_targz},
+                .digest = *layer_digest,
+                .size = size,
+                .annotations = {{std::string{annotation_content_digest},
+                                 tar_digest->string()},
+                                {std::string{annotation_unpack}, "true"},
+                                {std::string{annotation_title}, name}}},
         .scratch = *work};
 }
 
@@ -146,8 +148,8 @@ util::expected<packaged_layer, std::string> package_file(const fs::path& file) {
     std::error_code ec;
     auto size = fs::file_size(file, ec);
     if (ec) {
-        return util::unexpected{fmt::format("unable to stat {}: {}",
-                                            file.string(), ec.message())};
+        return util::unexpected{
+            fmt::format("unable to stat {}: {}", file.string(), ec.message())};
     }
 
     std::string media_type{media_type_octet_stream};
@@ -157,12 +159,11 @@ util::expected<packaged_layer, std::string> package_file(const fs::path& file) {
 
     return packaged_layer{
         .blob = file,
-        .layer = manifest_layer{
-            .media_type = media_type,
-            .digest = *layer_digest,
-            .size = size,
-            .annotations = {{std::string{annotation_title},
-                             file.filename().string()}}}};
+        .layer = manifest_layer{.media_type = media_type,
+                                .digest = *layer_digest,
+                                .size = size,
+                                .annotations = {{std::string{annotation_title},
+                                                 file.filename().string()}}}};
 }
 
 // the blob digests a manifest references (config + layers).
@@ -178,9 +179,9 @@ std::vector<digest> blob_digests(const manifest& m) {
 // copy one blob from `from_repo` into `dst`'s repository, preferring a
 // server-side cross-repo mount and falling back to streaming it through a local
 // temp file when the registry declines the mount.
-util::expected<void, std::string>
-copy_blob(client& src, client& dst, const std::string& from_repo,
-          const digest& d) {
+util::expected<void, std::string> copy_blob(client& src, client& dst,
+                                            const std::string& from_repo,
+                                            const digest& d) {
     auto mounted = dst.mount_blob(d, from_repo);
     if (!mounted) {
         return util::unexpected{mounted.error()};
@@ -282,9 +283,10 @@ push_squashfs(client& c, const fs::path& squashfs, const reference& ref) {
     return digest_of_string(body);
 }
 
-util::expected<descriptor, std::string>
-attach(client& c, const reference& subject, std::string_view artifact_type,
-       const fs::path& payload) {
+util::expected<descriptor, std::string> attach(client& c,
+                                               const reference& subject,
+                                               std::string_view artifact_type,
+                                               const fs::path& payload) {
     // stat the payload once, and branch file-vs-directory off that single
     // result (avoids a TOCTOU between exists() and is_directory()).
     std::error_code ec;
@@ -306,8 +308,9 @@ attach(client& c, const reference& subject, std::string_view artifact_type,
                                             subject.string(), subj.error())};
     }
     descriptor subject_desc{
-        .media_type = subj->media_type.empty() ? std::string{media_type_manifest}
-                                               : subj->media_type,
+        .media_type = subj->media_type.empty()
+                          ? std::string{media_type_manifest}
+                          : subj->media_type,
         .digest = subj->digest ? *subj->digest : digest_of_string(subj->body),
         .size = subj->body.size()};
 
@@ -378,8 +381,9 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
     // fetch the image manifest and move its blobs.
     auto mr = src->get_manifest(reference::digest(src_manifest));
     if (!mr) {
-        return util::unexpected{fmt::format("unable to fetch source manifest {}: {}",
-                                            src_manifest.string(), mr.error())};
+        return util::unexpected{
+            fmt::format("unable to fetch source manifest {}: {}",
+                        src_manifest.string(), mr.error())};
     }
     const digest manifest_digest = mr->digest.value_or(src_manifest);
     const std::string_view manifest_media =
@@ -395,8 +399,8 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
             return util::unexpected{ok.error()};
         }
     }
-    // PUT the image manifest under the destination tag. Content is byte-for-byte
-    // identical, so the digest (identity) is preserved.
+    // PUT the image manifest under the destination tag. Content is
+    // byte-for-byte identical, so the digest (identity) is preserved.
     if (auto ok = dst->put_manifest(reference::tag(dst_tag), mr->body,
                                     manifest_media);
         !ok) {
@@ -406,7 +410,8 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
     // copy referrers (the --recursive part): meta and any other attachments.
     auto refs = src->referrers(manifest_digest);
     if (!refs) {
-        // a registry without the Referrers API just has nothing to recurse into.
+        // a registry without the Referrers API just has nothing to recurse
+        // into.
         spdlog::debug("copy_image: no referrers for {} ({})",
                       manifest_digest.string(), refs.error());
         return {};
@@ -414,9 +419,9 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
     for (const auto& r : *refs) {
         auto rm = src->get_manifest(reference::digest(r.digest));
         if (!rm) {
-            return util::unexpected{fmt::format(
-                "unable to fetch referrer {}: {}", r.digest.string(),
-                rm.error())};
+            return util::unexpected{
+                fmt::format("unable to fetch referrer {}: {}",
+                            r.digest.string(), rm.error())};
         }
         auto rparsed = parse_manifest(rm->body);
         if (!rparsed) {
@@ -427,9 +432,9 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
                 return util::unexpected{ok.error()};
             }
         }
-        const std::string_view rmedia =
-            rm->media_type.empty() ? media_type_manifest
-                                   : std::string_view{rm->media_type};
+        const std::string_view rmedia = rm->media_type.empty()
+                                            ? media_type_manifest
+                                            : std::string_view{rm->media_type};
         // the referrer's subject digest is the image manifest digest, which is
         // unchanged by the copy, so the manifest is valid verbatim in dst.
         if (auto ok = dst->put_manifest(reference::digest(r.digest), rm->body,

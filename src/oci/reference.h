@@ -22,8 +22,8 @@ class reference {
     // build a reference from a content digest.
     static reference digest(oci::digest d);
     // parse text: a valid "<algo>:<hex>" becomes a digest reference, otherwise
-    // it is validated against the OCI tag grammar and becomes a tag reference. a
-    // thin forwarder to oci::parse_reference.
+    // it is validated against the OCI tag grammar and becomes a tag reference.
+    // a thin forwarder to oci::parse_reference.
     static util::expected<reference, util::parse_error>
     parse(std::string_view text);
 

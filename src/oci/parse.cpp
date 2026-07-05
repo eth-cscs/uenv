@@ -28,8 +28,8 @@ bool is_alnum_tok(lex::tok t) {
     return t == lex::tok::symbol || t == lex::tok::integer;
 }
 
-// OCI tag grammar body: [a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}. underscore is part of
-// a symbol token.
+// OCI tag grammar body: [a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}. underscore is part
+// of a symbol token.
 bool is_tag_tok(lex::tok t) {
     return t == lex::tok::symbol || t == lex::tok::integer ||
            t == lex::tok::dot || t == lex::tok::dash;
@@ -42,7 +42,8 @@ bool is_scheme_tok(lex::tok t) {
            t == lex::tok::plus || t == lex::tok::dash || t == lex::tok::dot;
 }
 
-// a URL reg-name host component (unreserved + pct-encoded); we stop at ':', '/',
+// a URL reg-name host component (unreserved + pct-encoded); we stop at ':',
+// '/',
 // '?', '#', whitespace or end.
 bool is_regname_tok(lex::tok t) {
     return t == lex::tok::symbol || t == lex::tok::integer ||
@@ -165,21 +166,24 @@ util::expected<digest, util::parse_error> parse_digest(std::string_view text) {
     const auto want = hex_length(*algorithm);
     if (want == 0) {
         return util::unexpected(parse_error{
-            L.string(), fmt::format("unsupported digest algorithm '{}'", *algorithm),
+            L.string(),
+            fmt::format("unsupported digest algorithm '{}'", *algorithm),
             algo_tok});
     }
     if (hex->size() != want) {
-        return util::unexpected(parse_error{
-            L.string(),
-            fmt::format("expected {} hex characters, got {}", want, hex->size()),
-            hex_tok});
+        return util::unexpected(
+            parse_error{L.string(),
+                        fmt::format("expected {} hex characters, got {}", want,
+                                    hex->size()),
+                        hex_tok});
     }
     if (!is_lower_hex(*hex)) {
         return util::unexpected(parse_error{
             L.string(), "the digest value is not lowercase hex", hex_tok});
     }
 
-    // parse_digest is a friend of digest, so it can use the private constructor.
+    // parse_digest is a friend of digest, so it can use the private
+    // constructor.
     return digest{std::move(*algorithm), std::move(*hex)};
 }
 
@@ -195,8 +199,7 @@ parse_reference(std::string_view text) {
 
     const auto start = L.peek();
     // the OCI tag grammar forbids a leading '.' or '-'.
-    if (L != lex::tok::symbol &&
-        L != lex::tok::integer) {
+    if (L != lex::tok::symbol && L != lex::tok::integer) {
         return util::unexpected(parse_error{
             L.string(),
             fmt::format("'{}' is not a valid tag or digest reference", s),
@@ -249,8 +252,8 @@ util::expected<url, util::parse_error> parse_url(std::string_view text) {
     url u;
 
     // optional scheme: <scheme> "://". consume a scheme-shaped run, and only
-    // accept it as a scheme if it is followed by "://"; otherwise rewind (a bare
-    // "host/prefix" or "host:port" begins with the same tokens).
+    // accept it as a scheme if it is followed by "://"; otherwise rewind (a
+    // bare "host/prefix" or "host:port" begins with the same tokens).
     {
         const unsigned start = L.peek().loc;
         std::string scheme;
@@ -309,8 +312,8 @@ util::expected<url, util::parse_error> parse_url(std::string_view text) {
     } else {
         auto host = util::parse_string(L, "host", is_regname_tok);
         if (!host) {
-            return util::unexpected(parse_error{
-                L.string(), "the url has no host", host_tok});
+            return util::unexpected(
+                parse_error{L.string(), "the url has no host", host_tok});
         }
         u.host = std::move(*host);
     }
@@ -329,8 +332,8 @@ util::expected<url, util::parse_error> parse_url(std::string_view text) {
         const auto* last = digits.data() + digits.size();
         if (auto [ptr, ec] = std::from_chars(first, last, port);
             ec != std::errc{} || ptr != last) {
-            return util::unexpected(parse_error{
-                L.string(), "invalid port number", port_tok});
+            return util::unexpected(
+                parse_error{L.string(), "invalid port number", port_tok});
         }
         u.port = port;
     }
@@ -379,8 +382,7 @@ parse_bearer_challenge(std::string_view text) {
             full, "expected a 'Bearer' authentication scheme", scheme_tok});
     }
     L.next(); // consume the scheme
-    if (L != lex::tok::whitespace &&
-        L != lex::tok::end) {
+    if (L != lex::tok::whitespace && L != lex::tok::end) {
         const auto t = L.peek();
         return util::unexpected(parse_error{
             full, "expected whitespace after the 'Bearer' scheme", t});
@@ -394,8 +396,8 @@ parse_bearer_challenge(std::string_view text) {
         // parameter name.
         const auto key_tok = L.peek();
         if (L != lex::tok::symbol) {
-            return util::unexpected(parse_error{
-                full, "expected a parameter name", key_tok});
+            return util::unexpected(
+                parse_error{full, "expected a parameter name", key_tok});
         }
         const std::string key = util::to_lower(L.next().spelling);
 
@@ -404,8 +406,8 @@ parse_bearer_challenge(std::string_view text) {
         }
         if (L != lex::tok::equals) {
             const auto t = L.peek();
-            return util::unexpected(parse_error{
-                full, "expected '=' after the parameter name", t});
+            return util::unexpected(
+                parse_error{full, "expected '=' after the parameter name", t});
         }
         L.next(); // consume '='
         if (L == lex::tok::whitespace) {
@@ -470,8 +472,8 @@ parse_bearer_challenge(std::string_view text) {
             }
         } else if (L != lex::tok::end) {
             const auto t = L.peek();
-            return util::unexpected(parse_error{
-                full, "expected ',' between parameters", t});
+            return util::unexpected(
+                parse_error{full, "expected ',' between parameters", t});
         }
     }
 

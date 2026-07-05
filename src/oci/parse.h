@@ -13,25 +13,26 @@
 #include <util/parse.h>
 
 // Lexer-based parsers for the string types used by the OCI client. These mirror
-// the interface style of src/uenv/parse.* and share the util parsing scaffolding
-// (util::parse_error, the PARSE macro, util::parse_string) so that src/oci stays
-// self-contained on src/util. JSON documents are still parsed with nlohmann; the
-// parsers here handle the character-level string types only.
+// the interface style of src/uenv/parse.* and share the util parsing
+// scaffolding (util::parse_error, the PARSE macro, util::parse_string) so that
+// src/oci stays self-contained on src/util. JSON documents are still parsed
+// with nlohmann; the parsers here handle the character-level string types only.
 namespace oci {
 
 // parse an OCI content digest "<algorithm>:<hex>". rejects an unknown algorithm
-// and a value whose length does not match the algorithm or that is not lowercase
-// hex.
+// and a value whose length does not match the algorithm or that is not
+// lowercase hex.
 util::expected<digest, util::parse_error> parse_digest(std::string_view text);
 
-// parse a manifest reference: a valid "<algo>:<hex>" becomes a digest reference,
-// otherwise the text is validated against the OCI tag grammar and becomes a tag.
+// parse a manifest reference: a valid "<algo>:<hex>" becomes a digest
+// reference, otherwise the text is validated against the OCI tag grammar and
+// becomes a tag.
 util::expected<reference, util::parse_error>
 parse_reference(std::string_view text);
 
 // A URL parsed into its RFC-3986 components. `host` retains the surrounding
-// brackets for an IPv6 literal (e.g. "[::1]"). Percent-encoded octets are passed
-// through verbatim (not decoded).
+// brackets for an IPv6 literal (e.g. "[::1]"). Percent-encoded octets are
+// passed through verbatim (not decoded).
 struct url {
     std::string scheme;   // e.g. "https" (may be empty)
     std::string userinfo; // e.g. "user:pass" (may be empty)

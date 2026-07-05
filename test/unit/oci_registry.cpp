@@ -86,12 +86,11 @@ struct zot_instance {
         const auto cfg = state / "config.json";
         {
             std::ofstream f{cfg};
-            f << fmt::format(
-                R"({{"storage":{{"rootDirectory":"{}"}},)"
-                R"("http":{{"address":"127.0.0.1","port":"{}"}},)"
-                R"("log":{{"level":"error","output":"{}"}}}})",
-                (state / "registry").string(), port,
-                (state / "zot.log").string());
+            f << fmt::format(R"({{"storage":{{"rootDirectory":"{}"}},)"
+                             R"("http":{{"address":"127.0.0.1","port":"{}"}},)"
+                             R"("log":{{"level":"error","output":"{}"}}}})",
+                             (state / "registry").string(), port,
+                             (state / "zot.log").string());
         }
         auto p = util::run({zot, "serve", cfg.string()});
         if (!p) {
@@ -158,7 +157,8 @@ TEST_CASE("oci registry push/pull round-trip", "[registry]") {
     // the pushed digest is the sha256 of the manifest the registry stores.
     auto resp = c->get_manifest(oci::reference::tag("v1"));
     REQUIRE(resp.has_value());
-    const auto local = oci::digest::from_sha256(util::sha256_string(resp->body));
+    const auto local =
+        oci::digest::from_sha256(util::sha256_string(resp->body));
     REQUIRE(local == *pushed);
     if (resp->digest) {
         REQUIRE(*resp->digest == *pushed);
@@ -192,7 +192,8 @@ TEST_CASE("oci registry attach + referrers + pull_meta", "[registry]") {
     auto pushed = oci::push_squashfs(*c, sqfs, oci::reference::tag("v1"));
     REQUIRE(pushed.has_value());
 
-    auto att = oci::attach(*c, oci::reference::digest(*pushed), "uenv/meta", meta);
+    auto att =
+        oci::attach(*c, oci::reference::digest(*pushed), "uenv/meta", meta);
     REQUIRE(att.has_value());
 
     auto refs = c->referrers(*pushed);
@@ -231,8 +232,8 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
     auto pushed = oci::push_squashfs(*src, sqfs, oci::reference::tag("v1"));
     REQUIRE(pushed.has_value());
 
-    auto copied = oci::copy_image(base, src_repo, dst_repo, *pushed, "v1",
-                                  std::nullopt);
+    auto copied =
+        oci::copy_image(base, src_repo, dst_repo, *pushed, "v1", std::nullopt);
     REQUIRE(copied.has_value());
 
     // the destination manifest is byte-identical, so its digest is preserved.
@@ -240,6 +241,7 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
     REQUIRE(dst.has_value());
     auto resp = dst->get_manifest(oci::reference::tag("v1"));
     REQUIRE(resp.has_value());
-    const auto local = oci::digest::from_sha256(util::sha256_string(resp->body));
+    const auto local =
+        oci::digest::from_sha256(util::sha256_string(resp->body));
     REQUIRE(local == *pushed);
 }

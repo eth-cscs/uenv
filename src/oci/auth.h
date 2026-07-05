@@ -64,9 +64,10 @@ util::expected<std::optional<credentials>, std::string>
 get_credentials(std::optional<std::string> username,
                 std::optional<std::string> token);
 
-// The candidate sources consulted by `resolve_credentials`, in precedence order.
-// The CLI populates these (it owns the uenv-specific and environment-specific
-// paths); this keeps `src/oci` free of any dependency on `src/uenv`.
+// The candidate sources consulted by `resolve_credentials`, in precedence
+// order. The CLI populates these (it owns the uenv-specific and
+// environment-specific paths); this keeps `src/oci` free of any dependency on
+// `src/uenv`.
 struct credential_sources {
     // an explicit --token path (a file, or a directory holding a `TOKEN` file).
     std::optional<std::filesystem::path> explicit_token;

@@ -52,12 +52,12 @@ TEST_CASE("serialize meta referrer manifest is oras-identical",
         .digest = digest::sha256(
             "3e2e44102d0c54bc2b72295b470b994f128a89b1436d567d850dbf131fcc02db"),
         .size = 2366,
-        .annotations = {
-            {std::string{annotation_content_digest},
-             "sha256:"
-             "b751bb420ec887b245ea91483849775a8904975aab23b999473b9ea07df9571f"},
-            {std::string{annotation_unpack}, "true"},
-            {std::string{annotation_title}, "meta"}}});
+        .annotations = {{std::string{annotation_content_digest},
+                         "sha256:"
+                         "b751bb420ec887b245ea91483849775a8904975aab23b999473b9"
+                         "ea07df9571f"},
+                        {std::string{annotation_unpack}, "true"},
+                        {std::string{annotation_title}, "meta"}}});
     m.subject = descriptor{.media_type = std::string{media_type_manifest},
                            .digest = digest::sha256(image_manifest_hex),
                            .size = 588};
@@ -121,8 +121,7 @@ TEST_CASE("parse_manifest finds the unpack layer", "[oci][manifest]") {
 TEST_CASE("parse_manifest rejects malformed", "[oci][manifest]") {
     REQUIRE_FALSE(parse_manifest("not json").has_value());
     // a layer with an invalid digest is a hard error
-    REQUIRE_FALSE(parse_manifest(
-                      R"({"layers":[{"digest":"sha256:short"}]})")
+    REQUIRE_FALSE(parse_manifest(R"({"layers":[{"digest":"sha256:short"}]})")
                       .has_value());
 }
 

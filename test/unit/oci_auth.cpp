@@ -22,10 +22,9 @@ using oci::impl::repository_scope;
 using oci::impl::token_url;
 
 TEST_CASE("oci token_url", "[oci][auth]") {
-    oci::bearer_challenge c{
-        .realm = "https://jfrog.svc.cscs.ch/v2/token",
-        .service = "jfrog.svc.cscs.ch",
-        .scopes = {}};
+    oci::bearer_challenge c{.realm = "https://jfrog.svc.cscs.ch/v2/token",
+                            .service = "jfrog.svc.cscs.ch",
+                            .scopes = {}};
 
     // matches the spike's proven-working token request URL
     REQUIRE(token_url(c, {"repository:uenv/deploy/x/24.7:pull"}) ==
@@ -74,8 +73,9 @@ TEST_CASE("oci get_credentials reads a token file", "[oci][auth]") {
     // only the first line is used as the token
     write_file(token_file, "s3cr3t-token\nsecond line ignored\n");
 
-    auto c = oci::get_credentials(std::optional<std::string>{"alice"},
-                                  std::optional<std::string>{token_file.string()});
+    auto c =
+        oci::get_credentials(std::optional<std::string>{"alice"},
+                             std::optional<std::string>{token_file.string()});
     REQUIRE(c);              // no error
     REQUIRE(c->has_value()); // credentials resolved
     REQUIRE((*c)->username == "alice");
@@ -83,8 +83,8 @@ TEST_CASE("oci get_credentials reads a token file", "[oci][auth]") {
 }
 
 TEST_CASE("oci get_credentials with no token is anonymous", "[oci][auth]") {
-    // no --token -> nullopt credentials (anonymous), never an error, even when a
-    // username is supplied.
+    // no --token -> nullopt credentials (anonymous), never an error, even when
+    // a username is supplied.
     auto anon = oci::get_credentials(std::nullopt, std::nullopt);
     REQUIRE(anon);
     REQUIRE_FALSE(anon->has_value());
@@ -95,11 +95,10 @@ TEST_CASE("oci get_credentials with no token is anonymous", "[oci][auth]") {
     REQUIRE_FALSE(anon_user->has_value());
 }
 
-TEST_CASE("oci get_credentials errors on a missing token path",
-          "[oci][auth]") {
-    auto c =
-        oci::get_credentials(std::optional<std::string>{"alice"},
-                             std::optional<std::string>{"/no/such/path-xyz123"});
+TEST_CASE("oci get_credentials errors on a missing token path", "[oci][auth]") {
+    auto c = oci::get_credentials(
+        std::optional<std::string>{"alice"},
+        std::optional<std::string>{"/no/such/path-xyz123"});
     REQUIRE_FALSE(c); // a --token that is not a path/file is an error
 }
 
@@ -128,11 +127,11 @@ TEST_CASE("oci get_credentials falls back to the login name", "[oci][auth]") {
     auto token_file = dir / "tok";
     write_file(token_file, "tok\n");
 
-    auto c = oci::get_credentials(std::nullopt,
-                                  std::optional<std::string>{token_file.string()});
+    auto c = oci::get_credentials(
+        std::nullopt, std::optional<std::string>{token_file.string()});
     // getlogin() resolves a username in a normal session, but may be empty in a
-    // detached environment (e.g. some CI) -> the function then reports an error.
-    // Assert deterministically on both outcomes.
+    // detached environment (e.g. some CI) -> the function then reports an
+    // error. Assert deterministically on both outcomes.
     if (c) {
         REQUIRE(c->has_value());
         REQUIRE_FALSE((*c)->username.empty());
@@ -147,7 +146,7 @@ TEST_CASE("oci credentials formatter redacts the password", "[oci][auth]") {
     auto s = fmt::format("{}", c);
     REQUIRE(s.find("alice") != std::string::npos);
     REQUIRE(s.find("secret") == std::string::npos); // password must not leak
-    REQUIRE(s.find("XXXXXX") != std::string::npos);  // 6 chars -> 6 'X'
+    REQUIRE(s.find("XXXXXX") != std::string::npos); // 6 chars -> 6 'X'
 }
 
 TEST_CASE("oci resolve_credentials precedence", "[oci][auth]") {
@@ -188,7 +187,8 @@ TEST_CASE("oci resolve_credentials precedence", "[oci][auth]") {
         auto dir = util::make_temp_dir().value();
         auto cfg = dir / "config.json";
         // echo -n carol:pw | base64 -> Y2Fyb2w6cHc=
-        write_file(cfg, R"({"auths":{"reg.example.com":{"auth":"Y2Fyb2w6cHc="}}})");
+        write_file(cfg,
+                   R"({"auths":{"reg.example.com":{"auth":"Y2Fyb2w6cHc="}}})");
         oci::credential_sources src;
         src.docker_config = cfg;
         auto c = oci::resolve_credentials(host, src);
@@ -202,8 +202,9 @@ TEST_CASE("oci resolve_credentials precedence", "[oci][auth]") {
     SECTION("docker config host normalisation") {
         auto dir = util::make_temp_dir().value();
         auto cfg = dir / "config.json";
-        write_file(cfg,
-                   R"({"auths":{"https://reg.example.com/v2/":{"auth":"Y2Fyb2w6cHc="}}})");
+        write_file(
+            cfg,
+            R"({"auths":{"https://reg.example.com/v2/":{"auth":"Y2Fyb2w6cHc="}}})");
         oci::credential_sources src;
         src.docker_config = cfg;
         auto c = oci::resolve_credentials(host, src);
@@ -227,7 +228,8 @@ TEST_CASE("oci resolve_credentials precedence", "[oci][auth]") {
     SECTION("docker config host miss") {
         auto dir = util::make_temp_dir().value();
         auto cfg = dir / "config.json";
-        write_file(cfg, R"({"auths":{"other.example.com":{"auth":"Y2Fyb2w6cHc="}}})");
+        write_file(
+            cfg, R"({"auths":{"other.example.com":{"auth":"Y2Fyb2w6cHc="}}})");
         oci::credential_sources src;
         src.docker_config = cfg;
         auto c = oci::resolve_credentials(host, src);
@@ -239,8 +241,8 @@ TEST_CASE("oci resolve_credentials precedence", "[oci][auth]") {
     SECTION("docker config credsStore entry skipped") {
         auto dir = util::make_temp_dir().value();
         auto cfg = dir / "config.json";
-        write_file(cfg,
-                   R"({"auths":{"reg.example.com":{}},"credsStore":"desktop"})");
+        write_file(
+            cfg, R"({"auths":{"reg.example.com":{}},"credsStore":"desktop"})");
         oci::credential_sources src;
         src.docker_config = cfg;
         auto c = oci::resolve_credentials(host, src);

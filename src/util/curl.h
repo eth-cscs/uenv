@@ -27,13 +27,14 @@ struct error {
 // client (the token dance, blob HEAD/PUT, manifest PUT/GET, referrers/tags).
 // Unlike the convenience helpers below, perform() does NOT treat HTTP >= 400 as
 // an error: a 401 auth challenge or a 404 blob-miss are normal steps in the OCI
-// flow, so the status and response headers are always handed back to the caller.
+// flow, so the status and response headers are always handed back to the
+// caller.
 
 enum class http_method { get, head, post, put, patch, del };
 
 // Case-insensitive view of HTTP response headers. Header names are stored
-// lower-cased (HTTP field names are case-insensitive); the last value seen for a
-// given name wins.
+// lower-cased (HTTP field names are case-insensitive); the last value seen for
+// a given name wins.
 struct headers {
     std::unordered_map<std::string, std::string> entries;
 
@@ -53,7 +54,8 @@ struct request {
     std::optional<std::string> username;
     std::optional<std::string> password;
 
-    // request body. at most one of these should be set (used by put/post/patch):
+    // request body. at most one of these should be set (used by
+    // put/post/patch):
     //  - body:        an in-memory payload (e.g. a manifest blob)
     //  - upload_file: stream a file as the body (e.g. a squashfs layer)
     std::optional<std::string> body;

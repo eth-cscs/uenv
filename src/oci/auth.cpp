@@ -12,12 +12,12 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <oci/auth.h>
+#include <oci/parse.h>
 #include <util/curl.h>
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/strings.h>
-#include <oci/auth.h>
-#include <oci/parse.h>
 
 namespace oci {
 
@@ -91,8 +91,8 @@ discover_challenge(const std::string& registry_url) {
         return std::nullopt;
     }
     if (resp->status != 401) {
-        return util::unexpected{fmt::format(
-            "unexpected status {} probing {}", resp->status, req.url)};
+        return util::unexpected{fmt::format("unexpected status {} probing {}",
+                                            resp->status, req.url)};
     }
     auto header = resp->headers.get("www-authenticate");
     if (!header) {
@@ -101,9 +101,9 @@ discover_challenge(const std::string& registry_url) {
     }
     auto challenge = parse_bearer_challenge(*header);
     if (!challenge) {
-        return util::unexpected{fmt::format(
-            "could not parse WWW-Authenticate header '{}': {}", *header,
-            challenge.error().message())};
+        return util::unexpected{
+            fmt::format("could not parse WWW-Authenticate header '{}': {}",
+                        *header, challenge.error().message())};
     }
     return *challenge;
 }
@@ -122,8 +122,8 @@ fetch_token(const bearer_challenge& challenge,
 
     auto resp = util::curl::perform(req);
     if (!resp) {
-        return util::unexpected{fmt::format("token request failed: {}",
-                                            resp.error().message)};
+        return util::unexpected{
+            fmt::format("token request failed: {}", resp.error().message)};
     }
     if (resp->status != 200) {
         return util::unexpected{
@@ -206,18 +206,20 @@ namespace {
 // build credentials from a token string, taking the username from `username`
 // or, failing that, the OS login name.
 util::expected<credentials, std::string>
-creds_from_token(std::string token, const std::optional<std::string>& username) {
+creds_from_token(std::string token,
+                 const std::optional<std::string>& username) {
     if (username) {
         return credentials{.username = *username, .password = std::move(token)};
     }
     if (auto name = getlogin()) {
         return credentials{.username = name, .password = std::move(token)};
     }
-    return util::unexpected{"provide a username with --username for the token."};
+    return util::unexpected{
+        "provide a username with --username for the token."};
 }
 
-// normalise a docker config.json `auths` key (or a registry host) down to a bare
-// host[:port] for comparison: drop any scheme and any trailing path.
+// normalise a docker config.json `auths` key (or a registry host) down to a
+// bare host[:port] for comparison: drop any scheme and any trailing path.
 std::string normalise_host(std::string_view key) {
     auto s = key;
     if (auto p = s.find("://"); p != std::string_view::npos) {

@@ -264,8 +264,8 @@ size_t file_write_callback(void* source, size_t size, size_t n, void* target) {
     return written;
 }
 
-int xferinfo_callback(void* p, curl_off_t dltotal, curl_off_t dlnow,
-                      curl_off_t, curl_off_t) {
+int xferinfo_callback(void* p, curl_off_t dltotal, curl_off_t dlnow, curl_off_t,
+                      curl_off_t) {
     const auto& req = *static_cast<const request*>(p);
     if (req.on_download_progress) {
         req.on_download_progress(static_cast<std::uint64_t>(dlnow),
@@ -304,7 +304,8 @@ expected<response, error> perform(const request& req) {
 
     CURL* h = curl_easy_init();
     if (!h) {
-        return unexpected{error{CURLE_FAILED_INIT, "unable to initialise curl"}};
+        return unexpected{
+            error{CURLE_FAILED_INIT, "unable to initialise curl"}};
     }
     auto cleanup_handle = defer([h]() { curl_easy_cleanup(h); });
 
@@ -321,8 +322,8 @@ expected<response, error> perform(const request& req) {
         CURL_EASY(curl_easy_setopt(h, CURLOPT_NOBODY, 1L));
         break;
     default:
-        CURL_EASY(
-            curl_easy_setopt(h, CURLOPT_CUSTOMREQUEST, method_name(req.method)));
+        CURL_EASY(curl_easy_setopt(h, CURLOPT_CUSTOMREQUEST,
+                                   method_name(req.method)));
         break;
     }
 
@@ -333,8 +334,7 @@ expected<response, error> perform(const request& req) {
     if (req.follow_redirects) {
         CURL_EASY(curl_easy_setopt(h, CURLOPT_FOLLOWLOCATION, 1L));
         CURL_EASY(curl_easy_setopt(h, CURLOPT_MAXREDIRS, 10L));
-        CURL_EASY(
-            curl_easy_setopt(h, CURLOPT_REDIR_PROTOCOLS_STR, "https"));
+        CURL_EASY(curl_easy_setopt(h, CURLOPT_REDIR_PROTOCOLS_STR, "https"));
     }
 
     // assemble request headers
@@ -349,8 +349,8 @@ expected<response, error> perform(const request& req) {
     }
     if (req.bearer_token) {
         slist = curl_slist_append(
-            slist, fmt::format("Authorization: Bearer {}", *req.bearer_token)
-                       .c_str());
+            slist,
+            fmt::format("Authorization: Bearer {}", *req.bearer_token).c_str());
     }
     if (slist) {
         CURL_EASY(curl_easy_setopt(h, CURLOPT_HTTPHEADER, slist));
@@ -374,10 +374,9 @@ expected<response, error> perform(const request& req) {
     if (req.upload_file) {
         upload = fopen(req.upload_file->c_str(), "rb");
         if (!upload) {
-            return unexpected{
-                error{CURLE_READ_ERROR,
-                      fmt::format("unable to open {} for upload",
-                                  req.upload_file->string())}};
+            return unexpected{error{CURLE_READ_ERROR,
+                                    fmt::format("unable to open {} for upload",
+                                                req.upload_file->string())}};
         }
         curl_off_t file_size = std::filesystem::file_size(*req.upload_file);
         CURL_EASY(curl_easy_setopt(h, CURLOPT_UPLOAD, 1L));
@@ -385,8 +384,8 @@ expected<response, error> perform(const request& req) {
         CURL_EASY(curl_easy_setopt(h, CURLOPT_INFILESIZE_LARGE, file_size));
     } else if (req.body) {
         CURL_EASY(curl_easy_setopt(h, CURLOPT_POSTFIELDS, req.body->data()));
-        CURL_EASY(curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE,
-                                   (long)req.body->size()));
+        CURL_EASY(
+            curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE, (long)req.body->size()));
     }
 
     // capture the response body: either streamed to a file (for large blob
@@ -402,16 +401,16 @@ expected<response, error> perform(const request& req) {
     if (req.download_file) {
         download = fopen(req.download_file->c_str(), "wb");
         if (!download) {
-            return unexpected{
-                error{CURLE_WRITE_ERROR,
-                      fmt::format("unable to open {} for download",
-                                  req.download_file->string())}};
+            return unexpected{error{
+                CURLE_WRITE_ERROR, fmt::format("unable to open {} for download",
+                                               req.download_file->string())}};
         }
         download_sink.file = download;
         download_sink.on_data = &req.on_download_data;
         CURL_EASY(
             curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, file_write_callback));
-        CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEDATA, (void*)&download_sink));
+        CURL_EASY(
+            curl_easy_setopt(h, CURLOPT_WRITEDATA, (void*)&download_sink));
     } else {
         body.reserve(200000);
         CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, memory_callback));
@@ -423,8 +422,8 @@ expected<response, error> perform(const request& req) {
     CURL_EASY(curl_easy_setopt(h, CURLOPT_HEADERFUNCTION, header_callback));
     CURL_EASY(curl_easy_setopt(h, CURLOPT_HEADERDATA, (void*)&resp.headers));
 
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS,
-                               req.connect_timeout_ms));
+    CURL_EASY(
+        curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, req.connect_timeout_ms));
     CURL_EASY(curl_easy_setopt(h, CURLOPT_TIMEOUT_MS, req.timeout_ms));
 
     if (req.on_download_progress || req.should_abort) {

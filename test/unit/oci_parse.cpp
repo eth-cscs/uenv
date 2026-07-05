@@ -125,7 +125,7 @@ TEST_CASE("oci parse_url components", "[oci][parse]") {
 
 TEST_CASE("oci parse_url rejects malformed", "[oci][parse]") {
     REQUIRE_FALSE(parse_url("").has_value());
-    REQUIRE_FALSE(parse_url("/uenv").has_value());       // no host
+    REQUIRE_FALSE(parse_url("/uenv").has_value());         // no host
     REQUIRE_FALSE(parse_url("bad host/uenv").has_value()); // whitespace in host
     REQUIRE_FALSE(parse_url("host:notaport/x").has_value());
 }
@@ -159,8 +159,8 @@ TEST_CASE("oci parse_bearer_challenge space-separated scopes", "[oci][parse]") {
         "Bearer realm=\"https://r/token\",service=\"reg\","
         "scope=\"repository:a:pull repository:b:pull\"");
     REQUIRE(c.has_value());
-    REQUIRE(c->scopes == std::vector<std::string>{"repository:a:pull",
-                                                  "repository:b:pull"});
+    REQUIRE(c->scopes ==
+            std::vector<std::string>{"repository:a:pull", "repository:b:pull"});
 }
 
 TEST_CASE("oci parse_bearer_challenge rejects non-bearer / no realm",

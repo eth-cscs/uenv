@@ -15,8 +15,8 @@ namespace oci {
 
 // --- media types + the canonical empty config --------------------------------
 
-// oras-style artifact manifests carry an "empty" JSON config object. This is the
-// well-known descriptor for the two-byte body "{}".
+// oras-style artifact manifests carry an "empty" JSON config object. This is
+// the well-known descriptor for the two-byte body "{}".
 inline constexpr std::string_view media_type_empty =
     "application/vnd.oci.empty.v1+json";
 inline constexpr std::string_view empty_config_body = "{}";
@@ -89,13 +89,13 @@ struct manifest {
 // layers, optional subject, annotations.
 std::string serialize_manifest(const manifest& m);
 
-// Parse an OCI image-manifest JSON document. Fails if the JSON is malformed or a
-// descriptor digest is invalid.
+// Parse an OCI image-manifest JSON document. Fails if the JSON is malformed or
+// a descriptor digest is invalid.
 util::expected<manifest, std::string> parse_manifest(std::string_view body);
 
-// Serialize an OCI image index (application/vnd.oci.image.index.v1+json) listing
-// `manifests`. Used for the referrers-tag fallback on registries that do not
-// implement the Referrers API.
+// Serialize an OCI image index (application/vnd.oci.image.index.v1+json)
+// listing `manifests`. Used for the referrers-tag fallback on registries that
+// do not implement the Referrers API.
 std::string serialize_index(const std::vector<descriptor>& manifests);
 
 } // namespace oci
