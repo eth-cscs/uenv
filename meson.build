@@ -60,6 +60,7 @@ lib_src = [
         'src/uenv/parse.cpp',
         'src/uenv/posix_io.cpp',
         'src/uenv/print.cpp',
+        'src/uenv/ns_join.cpp',
         'src/uenv/repository.cpp',
         'src/uenv/settings.cpp',
         'src/uenv/telemetry.cpp',
@@ -94,7 +95,7 @@ endif
 
 
 if use_fuse
-    lib_src += ['src/uenv/rootless.cpp', 'src/uenv/mutable_root.cpp']
+    lib_src += ['src/uenv/rootless.cpp']
     # dependencies += [squashfuse_dep, fuse_dep]
 endif
 
@@ -191,13 +192,11 @@ endif
 if uenv_squashfs_mount
     if get_option('fuse')
         squashfs_mount_build = executable('squashfs-mount',
-                                          sources: ['src/squashfs-mount/squashfs-mount-rootless.cpp',
-                                                    'src/uenv/rootless.cpp',
-                                                    'src/uenv/mutable_root.cpp'
-                                                   ],
+                                          sources: ['src/squashfs-mount/squashfs-mount.cpp'],
                                           dependencies: [uenv_dep, fmt_dep, cli11_dep, squashfuse_dep, fuse_dep],
-                                          c_args: [
+                                          cpp_args: [
                                               '-DVERSION="@0@"'.format(version),
+                                              '-DUENV_FUSE_MOUNT=1',
                                           ],
                                           install: true
                                          )
@@ -205,7 +204,7 @@ if uenv_squashfs_mount
         squashfs_mountd = executable('squashfs-mount',
                                      sources: ['src/squashfs-mount/squashfs-mount.cpp'],
                                      dependencies: [uenv_dep, fmt_dep, cli11_dep],
-                                     c_args: [
+                                     cpp_args: [
                                          '-DVERSION="@0@"'.format(version),
                                      ],
                                      install_mode: ['rwsr-xr-x', 'root', 'root'],

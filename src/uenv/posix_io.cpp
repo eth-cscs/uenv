@@ -23,7 +23,7 @@ util::expected<void, std::string> write(int fd, const void* buf, size_t count) {
     ssize_t n = ::write(fd, buf, count);
     if (n < 0) {
         return util::unexpected(
-            fmt::format("write failed with {}", strerror(errno)));
+            fmt::format("write({}, {}, {}) failed with {}", fd, (char*)buf, count, strerror(errno)));
     }
     if (static_cast<size_t>(n) != count) {
         return util::unexpected(

@@ -7,6 +7,7 @@
 #include <sys/prctl.h>
 #include <sys/wait.h>
 #include <uenv/log.h>
+#include <uenv/ns_join.h>
 #include <uenv/rootless.h>
 
 //
@@ -153,13 +154,13 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
     }
 
     if (join.winner_p) {
-        if (auto result = uenv::unshare_mount_map_root(); !result) {
+        if (auto result = uenv::rootless::unshare_mount_map_root(); !result) {
             slurm_error("%s", result.error().c_str());
             return -ESPANK_ERROR;
         }
 
         for (auto mount_pair : mounts.value()) {
-            if (auto result = uenv::do_sqfs_ll_mount(
+            if (auto result = uenv::rootless::do_sqfs_ll_mount(
                     mount_pair, true /*use multi threaded fuse*/);
                 !result) {
                 slurm_error("error mounting the requested uenv image: %s",
@@ -169,7 +170,7 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
         }
 
         // exit fake-root
-        if (auto r = uenv::map_effective_user(uid, gid); !r) {
+        if (auto r = uenv::rootless::map_effective_user(uid, gid); !r) {
             slurm_error("failed map effective user %s %d %d", r.error().c_str(),
                         uid, gid);
             return -ESPANK_ERROR;
@@ -184,14 +185,14 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
         // namespace, so joining its namespaces gives us the same view
         auto r = uenv::namespaces_join(join.shared->winner_pid);
         if (!r) {
-          slurm_error("namespaces_join failed: %s", r.error().c_str());
-          return -ESPANK_ERROR;
+            slurm_error("namespaces_join failed: %s", r.error().c_str());
+            return -ESPANK_ERROR;
         }
     }
 
     if (auto r = uenv::join_end(join, ntasks, std::nullopt); !r) {
-      slurm_error("join_end failed %s", r.error().c_str());
-      return -ESPANK_ERROR;
+        slurm_error("join_end failed %s", r.error().c_str());
+        return -ESPANK_ERROR;
     }
 
     return ESPANK_SUCCESS;
