@@ -15,9 +15,6 @@ struct registry_config {
     std::string url;
     std::string default_namespace;
     std::optional<std::string> artifactory_url;
-    // overrides the uenv listing service base URL (default:
-    // https://uenv-list.svc.cscs.ch/list); used to point at a local/mock
-    // listing endpoint for testing.
     std::optional<std::string> listing_url;
 };
 
