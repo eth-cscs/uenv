@@ -45,8 +45,8 @@ envvars::patch env::patch() const {
         p.merge(uenvs.at(view.uenv).views.at(view.name).environment);
     }
 
-    // set UENV variable
-    p.update_scalar("UENV", uenv_arg);
+    // set UENV_LABEL variable
+    p.update_scalar("UENV_LABEL", uenv_arg);
 
     // set UENV_MOUNT_LIST variable
     auto mount_description = [](const auto& u) {
@@ -75,7 +75,7 @@ envvars::patch env::patch() const {
     p.update_scalar("UENV_REPO",
                     fmt::format("{}", fmt::join(repos | std::views::transform(
                                                             repo_description),
-                                                ",")));
+                                                "=")));
 
     // set UENV_TELEMETRY env variable
     p.update_scalar("UENV_TELEMETRY", to_string(make_telemetry(*this)));

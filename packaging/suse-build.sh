@@ -11,7 +11,7 @@ Options:
 -r,--ref           git reference (default HEAD implies use the current source)
 --remote           uenv github repo (defaults to eth-cscs/uenv)
 --slurm-version    slurm version to use
---os               the suse version (one of 15.5 or 15.6)
+--os               the suse version (one of 15.5, 15.6 or 15.7)
 "
 
 # A temporary variable to hold the output of `getopt`
@@ -98,21 +98,35 @@ mkdir -p "${builddir}"
 # otherwise, clone 
 if [[ "$git_ref" == "HEAD" ]]; then
     srcdir=$(realpath ${scriptdir}/../source)
+    # The source directory may be a bind-mount owned by a different user (e.g.
+    # when running inside Docker as root). Tell git to trust it explicitly.
+    git config --global --add safe.directory "$srcdir"
 else
     srcdir=$workdir/src
     git clone --quiet --branch $git_ref $git_remote $srcdir
 fi
 
 uenv_version=$(sed 's/-.*//' "${srcdir}/VERSION")
-uenv_release=slurm$(echo $slurm_version | sed 's|\.[0-9]\+$||; s|\.||')
+# Pre-release suffix from VERSION (e.g. "rc2" from "10.0.0-rc2"), empty for final releases.
+# RPM's ~ operator makes slurm2505~rc2 sort before slurm2505, which is the correct ordering.
+prerelease=$(sed 's/^[^-]*-\?//' "${srcdir}/VERSION")
+slurm_tag=slurm$(echo $slurm_version | sed 's|\.[0-9]\+$||; s|\.||')
+if [[ -n "$prerelease" ]]; then
+    uenv_release="${slurm_tag}~${prerelease}"
+    artifact_release="${slurm_tag}~${prerelease}.SLES${rpm_os}"
+else
+    uenv_release="${slurm_tag}"
+    artifact_release="${slurm_tag}.SLES${rpm_os}"
+fi
 
 echo '======================================================='
-echo "uenv_version   $uenv_version"
-echo "uenv_release   $uenv_release"
-echo "slurm_version  $slurm_version"
-echo "scriptdir      $scriptdir"
-echo "branch         $git_ref"
-echo "arch           $arch"
+echo "uenv_version    $uenv_version"
+echo "uenv_release    $uenv_release"
+echo "artifact_release $artifact_release"
+echo "slurm_version   $slurm_version"
+echo "scriptdir       $scriptdir"
+echo "branch          $git_ref"
+echo "arch            $arch"
 echo '======================================================='
 
 tarball=uenv-"${uenv_version}".tar.gz
@@ -149,11 +163,12 @@ tarball=uenv-"${uenv_version}".tar.gz
 
 rpm_builddir=$builddir/RPMS
 rpm_name=uenv-${uenv_version}-${uenv_release}.${arch}.rpm
+rpm_artifact_name=uenv-${uenv_version}-${artifact_release}.${arch}.rpm
 rpm_fullpath=$rpm_builddir/$arch/$rpm_name
 rpm_installpath=${scriptdir}/artifacts/opensuse-${rpm_os}/${arch}
 
 set -x
-echo "==== copying $rpm_name to $rpm_installpath"
+echo "==== copying $rpm_name to $rpm_installpath/$rpm_artifact_name"
 mkdir -p $rpm_installpath
-cp $rpm_fullpath $rpm_installpath
+cp $rpm_fullpath $rpm_installpath/$rpm_artifact_name
 

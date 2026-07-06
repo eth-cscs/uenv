@@ -43,7 +43,7 @@ Move the location to a more central location, in order to
 
 https://jfrog.svc.cscs.ch/artifactory/cscs-opensuse-$(os)-rpm/uenv/$(arch)/uenv-$(version)-$(slurm).$(arch).rpm
 
-where `os` is one of `[15.5, 15.6]`,  and `arch` is one of `[x86_64, aarch64]`
+where `os` is one of `[15.5, 15.6, 15.7]`,  and `arch` is one of `[x86_64, aarch64]`
 
 The following slurm versions were detected on the clusters
 
@@ -62,7 +62,7 @@ The following slurm versions were detected on the clusters
 
 I.e. we have the following versions: `[25.05.0 24.05.4 24.05.8 23.02.7]`
 
-The script `create-rpms.sh` will create the RPMs for sles15.5 and sles15.6 in the `artifacts` directory, for each of the supported Slurm versions.
+The script `create-rpms.sh` will create the RPMs for sles15.5, sles15.6 and sles15.7 in the `artifacts` directory, for each of the supported Slurm versions.
 
 ## uploading
 

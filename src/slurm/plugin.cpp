@@ -441,7 +441,9 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         }
 
         // derive telemetry information from the calling environment
-        telemetry_g = uenv::slurm::telemetry_from_env(calling_environment);
+        if (auto result = uenv::telemetry_from_env(calling_environment)) {
+            telemetry_g = result.value();
+        }
 
         // load elastic config so telemetry can be posted (the new-mount path
         // does this too; passthrough must do it here since it skips that
@@ -457,7 +459,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
         if (!uenv::slurm::in_slurm_uenv_session(calling_environment)) {
             const auto view_var = calling_environment.get("UENV_VIEW");
             const auto repo_var = calling_environment.get("UENV_REPO");
-            const auto uenv_var = calling_environment.get("UENV");
+            const auto uenv_var = calling_environment.get("UENV_LABEL");
             std::string view_forwarded;
             if (view_var) {
                 if (const auto r =

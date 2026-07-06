@@ -18,7 +18,7 @@ jobs:
             sanitizer: address
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Update apt repositories for ccache
         run: sudo apt update
       - name: Install dependencies
@@ -32,9 +32,9 @@ jobs:
         run: sudo apt install --no-install-recommends --yes g++-12 ninja-build
       - name: install meson
         run: |
-          wget https://github.com/mesonbuild/meson/releases/download/1.6.1/meson-1.6.1.tar.gz && \
-          tar -xzf meson-1.6.1.tar.gz && \
-          mv meson-1.6.1 meson && \
+          wget https://github.com/mesonbuild/meson/releases/download/1.4.0/meson-1.4.0.tar.gz && \
+          tar -xzf meson-1.4.0.tar.gz && \
+          mv meson-1.4.0 meson && \
           mv meson/meson.py meson/meson
       - name: Configure
         run: |

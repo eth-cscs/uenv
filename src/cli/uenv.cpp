@@ -24,6 +24,7 @@
 #include "delete.h"
 #include "help.h"
 #include "image.h"
+#include "inspect.h"
 #include "repo.h"
 #include "run.h"
 #include "start.h"
@@ -69,6 +70,10 @@ int main(int argc, char** argv) {
     start.add_cli(cli, settings);
     run.add_cli(cli, settings);
     image.add_cli(cli, settings);
+    // add the inspect command so that it can be invoked two ways
+    //   uenv image inspect ...
+    //   uenv inspect ...
+    image.inspect_args.add_cli(cli, settings);
     repo.add_cli(cli, settings);
     stat.add_cli(cli, settings);
     build.add_cli(cli, settings);

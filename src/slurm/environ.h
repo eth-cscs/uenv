@@ -23,7 +23,4 @@ void patch_slurm_environment(const uenv::env&, const envvars::state&,
 
 bool in_slurm_uenv_session(const envvars::state& env);
 
-std::vector<telemetry_data>
-telemetry_from_env(const envvars::state& calling_environment);
-
 } // namespace uenv::slurm
