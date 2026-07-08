@@ -37,6 +37,11 @@ namespace uenv {
 // and validating that the squashfs file exists and can be read.
 // The existance of the mount points is not checked, because these need to be
 // checked when mounting.
+// Note: the squashfs validation here is advisory - it produces a fast, clear
+// error before we unshare and become root. It is NOT security-relevant,
+// because the path can change between this check and the mount. The
+// authoritative check is performed on the exact fd that is bound to the loop
+// device, in attach_loop_device().
 util::expected<mount_pair, std::string>
 make_mount_pair(const mount_description& d) {
     namespace fs = std::filesystem;
@@ -220,7 +225,23 @@ struct loop_device {
 // claim the device before our LOOP_CONFIGURE.
 util::expected<loop_device, std::string>
 attach_loop_device(const std::string& squashfs_file) {
-    const int sqfs_fd = open(squashfs_file.c_str(), O_RDONLY | O_CLOEXEC);
+    // Open the backing file exactly once and use this same fd both to validate
+    // the image (below) and to bind the loop device (via LOOP_CONFIGURE).
+    // Binding the fd we validated - rather than re-opening the path - closes
+    // the time-of-check/time-of-use gap that would otherwise let an attacker
+    // swap the path between validation and bind.
+    //
+    // O_NOFOLLOW rejects a final-component symlink swap. squashfs_file is the
+    // already-canonicalized path (see make_mount_pair), so under honest use its
+    // final component is a regular file and O_NOFOLLOW never triggers; it fires
+    // only if the path was replaced by a symlink after canonicalization. This
+    // matters because the open happens as root inside the setuid helper, and
+    // mirrors util-linux's loopdev symlink-attack fix (LOOPDEV_FL_NOFOLLOW,
+    // advisory GHSA-qq4x-vfq4-9h9g). Note this only guards the final path
+    // component; intermediate directory-symlink swaps are not covered (neither
+    // does the upstream O_NOFOLLOW fix).
+    const int sqfs_fd =
+        open(squashfs_file.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
     if (sqfs_fd < 0) {
         return util::unexpected(
             fmt::format("open {}: {}", squashfs_file, strerror(errno)));
@@ -228,6 +249,29 @@ attach_loop_device(const std::string& squashfs_file) {
     // after LOOP_CONFIGURE the kernel holds its own reference to the backing
     // file, so the fd is closed on every exit path
     auto close_sqfs = util::defer([sqfs_fd] { close(sqfs_fd); });
+
+    // Validate the image on the fd we are about to bind, so what we check is
+    // exactly what we mount. make_mount_pair performs the same checks earlier
+    // by path for a fast, friendly error, but those are advisory: the path can
+    // change between then and now, so the security-relevant check is here.
+    struct stat st = {};
+    if (fstat(sqfs_fd, &st) != 0) {
+        return util::unexpected(
+            fmt::format("stat {}: {}", squashfs_file, strerror(errno)));
+    }
+    if (!S_ISREG(st.st_mode)) {
+        return util::unexpected(
+            fmt::format("{} is not a regular file", squashfs_file));
+    }
+    // A valid squashfs file starts with the little-endian magic "hsqs".
+    std::array<char, 4> magic = {};
+    if (pread(sqfs_fd, magic.data(), magic.size(), 0) !=
+            static_cast<ssize_t>(magic.size()) ||
+        !(magic[0] == 'h' && magic[1] == 's' && magic[2] == 'q' &&
+          magic[3] == 's')) {
+        return util::unexpected(
+            fmt::format("{} is not a valid squashfs file", squashfs_file));
+    }
 
     constexpr int max_acquire_attempts = 16;
     for (int attempt = 0; attempt < max_acquire_attempts; ++attempt) {
