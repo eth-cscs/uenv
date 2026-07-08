@@ -1,3 +1,4 @@
+#include <cstring>
 #include <fcntl.h>
 #include <semaphore.h>
 #include <string>
@@ -12,7 +13,7 @@
 
 namespace uenv {
 // Join a specific namespace.
-util::expected<void, std::string> namespace_join(pid_t pid, const char* ns) {
+util::expected<void, std::string> namespace_join(pid_t pid, const std::string& ns) {
     std::string path;
     int fd;
 
@@ -34,7 +35,7 @@ util::expected<void, std::string> namespace_join(pid_t pid, const char* ns) {
             return util::unexpected(
                 fmt::format("can’t join {} namespace of pid {}", ns, pid));
         } else {
-            spdlog::warn("can’t join {} namespace; trying again", ns);
+            spdlog::warn("can’t join {} namespace; trying again, {}", ns, strerror(errno));
             sleep(1);
         }
     return {};
@@ -42,13 +43,13 @@ util::expected<void, std::string> namespace_join(pid_t pid, const char* ns) {
 
 // Join the existing namespaces containing process pid, which could be the
 // join winner or another process.
-util::expected<void, std::string> namespaces_join(pid_t pid) {
-    spdlog::warn("joining namespaces of pid {}", pid);
-    if (auto r = namespace_join(pid, "user"); !r) {
-        return r;
-    }
-    if (auto r = namespace_join(pid, "mnt"); !r) {
-        return r;
+util::expected<void, std::string> namespaces_join(pid_t pid, const std::vector<std::string>& ns_names) {
+    for (auto& ns : ns_names) {
+        spdlog::warn("joining namespace {} of pid {}", ns, pid);
+        auto r = namespace_join(pid, ns);
+        if (!r) {
+            return r;
+        }
     }
     return {};
 }

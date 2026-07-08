@@ -33,6 +33,13 @@ void error_and_exit(fmt::format_string<T...> fmt, T&&... args) {
     exit(1);
 }
 
+bool is_setuid() {
+    uid_t euid = geteuid();
+    uid_t real_uid = getuid();
+
+    return euid != real_uid;
+}
+
 // synchronize tasks on the same node: the winner sets up the sandbox and
 // performs the mounts, the rest join the winner's namespaces.
 template <typename R>
@@ -52,7 +59,13 @@ void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
             error_and_exit("mount failed {}", r.error());
         }
     } else {
-        auto r = uenv::namespaces_join(join.shared->winner_pid);
+        std::vector<std::string> namespaces;
+        if (is_setuid()) {
+            namespaces = {"mnt"};
+        } else {
+            namespaces = {"user", "mnt"};
+        }
+        auto r = uenv::namespaces_join(join.shared->winner_pid, namespaces);
         if (!r) {
             error_and_exit("namespaces_join failed {}", r.error());
         }
@@ -61,13 +74,6 @@ void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
     if (tasks_join) {
         uenv::join_end(join, ntasks, std::nullopt);
     }
-}
-
-bool is_setuid() {
-    uid_t euid = geteuid();
-    uid_t real_uid = getuid();
-
-    return euid != real_uid;
 }
 
 // squashfs-mount --sqfs=file:mount[,file:mount] -- cmd [args]
@@ -102,7 +108,9 @@ int main(int argc, char** argv, char** envp) {
     bool print_version = false;
     bool mutable_root = false;
     bool tasks_join = false;
+#ifdef UENV_FUSE_MOUNT
     bool fuse_st = false;
+#endif
     int verbosity = 1;
     std::optional<std::string> raw_mounts;
     std::optional<std::vector<std::string>> commands;
@@ -115,8 +123,10 @@ int main(int argc, char** argv, char** envp) {
     cli.add_flag("--version", print_version, "print version");
     cli.add_flag("--join", tasks_join,
                  "join namespaces of tasks on the same node");
+#ifdef UENV_FUSE_MOUNT
     cli.add_flag("--fuse-single", fuse_st,
                  "fuse single threaded (ignored unless built with fuse)");
+#endif
     cli.add_option("-s,--sqfs", raw_mounts,
                    "comma separated list of squashfs files to mount");
     cli.add_option("--tmpfs", tmpfs_arg, "tmpfs mount point[:size]");
@@ -203,10 +213,10 @@ int main(int argc, char** argv, char** envp) {
     //  * setup_sandbox: unshare namespaces and gain the privileges required
     //    to perform the mounts below.
     //  * mount_sqfs: mount a single squashfs image.
-    //  * drop_privileges: return to the unprivileged calling user and
+    //  * exit_sandbox: return to the unprivileged calling user and
     //    disallow gaining any new privileges.
     // Everything else -- argument parsing, tmpfs, bind mounts, forwarding the
-    // environment, and exec'ing the command -- is shared unconditionally.
+    // environment, and exec'ing the command is shared.
     //
     using hook = std::function<util::expected<void, std::string>()>;
     using mount_hook = std::function<util::expected<void, std::string>(
@@ -216,11 +226,9 @@ int main(int argc, char** argv, char** envp) {
     hook setup_sandbox = []() {
         return uenv::rootless::unshare_mount_map_root();
     };
-    mount_hook mount_sqfs =
-        [fuse_st](const uenv::mount_pair& entry) {
-            return uenv::rootless::do_sqfs_ll_mount(entry, fuse_st);
-        }
-    ;
+    mount_hook mount_sqfs = [fuse_st](const uenv::mount_pair& entry) {
+        return uenv::rootless::do_sqfs_ll_mount(entry, fuse_st);
+    };
     hook exit_sandbox = [uid, gid]() {
         return uenv::rootless::exit_sandbox(uid, gid);
     };
@@ -281,9 +289,8 @@ int main(int argc, char** argv, char** envp) {
         !mounts.empty() || !tmpfs->empty() || !bind_mounts->empty();
 
     if (has_work) {
-        auto pipeline =
-            [&setup_sandbox, &do_mounts,
-             &exit_sandbox]() -> util::expected<void, std::string> {
+        auto pipeline = [&setup_sandbox, &do_mounts,
+                         &exit_sandbox]() -> util::expected<void, std::string> {
             if (auto r = setup_sandbox(); !r) {
                 return r;
             }
