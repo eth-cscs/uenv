@@ -23,10 +23,10 @@
 #include <libmount/libmount.h>
 #include <spdlog/spdlog.h>
 
+#include "macros.h"
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <util/expected.h>
-#include "macros.h"
 
 namespace uenv {
 
@@ -186,8 +186,8 @@ util::expected<void, std::string> unshare_and_become_root() {
         return util::unexpected("Failed to unshare the mount namespace");
     }
 
-    if (auto r = uenv::mount(std::nullopt, "/", std::nullopt,
-                             MS_SLAVE | MS_REC, nullptr);
+    if (auto r = uenv::mount(std::nullopt, "/", std::nullopt, MS_SLAVE | MS_REC,
+                             nullptr);
         !r) {
         return r;
     }
@@ -264,7 +264,8 @@ do_mount(const std::vector<mount_pair>& mount_entries) {
             // careful: mnt_context_get_target can return NULL
             std::string target = (target_buf == nullptr) ? "?" : target_buf;
 
-            return util::unexpected(target + ": " + code_buf);
+            return util::unexpected(target + ": " + code_buf +
+                                    fmt::format("{}:{}", __FILE__, __LINE__));
         }
     }
 
@@ -279,7 +280,6 @@ util::expected<void, std::string> mount(std::optional<std::string> source,
     spdlog::trace("mount({}, {}, {}, {:b})",
                   source ? source.value().c_str() : "null", dest,
                   fstype ? fstype.value().c_str() : "null", mountflags);
-    // spdlog::debug("foo bar {}", "foo");
     Z_e(::mount(source ? source->c_str() : nullptr, dest.c_str(),
                 fstype ? fstype->c_str() : nullptr, mountflags, nullable_data));
     return {};
@@ -312,7 +312,6 @@ util::expected<void, std::string> make_mutable_root() {
     // iterate over root dirs
     for (const auto& entry : fs::directory_iterator("/")) {
         if (entry.is_directory() && !entry.is_symlink()) {
-            // spdlog::info("entry {}", entry.path().c_str());
             paths.push_back(entry);
         }
         if (entry.is_directory() && entry.is_symlink()) {
@@ -344,10 +343,7 @@ util::expected<void, std::string> make_mutable_root() {
     }
     fs::create_directory("oldroot");
 
-    if (syscall(SYS_pivot_root, "/tmp", "oldroot") != 0) {
-        return util::unexpected{
-            fmt::format("{} {}: {}", __FILE__, __LINE__, strerror(errno))};
-    }
+    Z_e(syscall(SYS_pivot_root, "/tmp", "oldroot"));
     fs::current_path("/");
 
     // 1. symlinks
