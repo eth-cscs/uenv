@@ -349,7 +349,8 @@ util::expected<void, std::string> make_mutable_root() {
     // 1. symlinks
     // What bwrap does;
     // mount("/oldroot/usr/bin", "/newroot/bin", NULL, MS_BIND|MS_REC|MS_SILENT,
-    // NULL) = 0 mount("none", "/newroot/bin", NULL, //
+    // NULL) = 0
+    // mount("none", "/newroot/bin", NULL, //
     // MS_NOSUID|MS_REMOUNT|MS_BIND|MS_SILENT|MS_RELATIME, NULL) = 0
     //
     for (auto entry : symlinks) {
