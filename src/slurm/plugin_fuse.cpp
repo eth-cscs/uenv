@@ -183,7 +183,7 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
     } else {
         // winner_pid is the winner task's PID after it entered the squashfs
         // namespace, so joining its namespaces gives us the same view
-        auto r = uenv::namespaces_join(join.shared->winner_pid);
+        auto r = uenv::namespaces_join(join.shared->winner_pid, {"user", "mnt"});
         if (!r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
