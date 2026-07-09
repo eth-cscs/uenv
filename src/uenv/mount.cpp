@@ -347,11 +347,11 @@ util::expected<void, std::string> make_mutable_root() {
     fs::current_path("/");
 
     // 1. symlinks
-    /* What bwrap does;
-     * mount("/oldroot/usr/bin", "/newroot/bin", NULL, MS_BIND|MS_REC|MS_SILENT,
-     * NULL) = 0 mount("none", "/newroot/bin", NULL,
-     * MS_NOSUID|MS_REMOUNT|MS_BIND|MS_SILENT|MS_RELATIME, NULL) = 0
-     */
+    // What bwrap does;
+    // mount("/oldroot/usr/bin", "/newroot/bin", NULL, MS_BIND|MS_REC|MS_SILENT,
+    // NULL) = 0 mount("none", "/newroot/bin", NULL, //
+    // MS_NOSUID|MS_REMOUNT|MS_BIND|MS_SILENT|MS_RELATIME, NULL) = 0
+    //
     for (auto entry : symlinks) {
         auto src = fs::path("/oldroot") / entry.second.relative_path();
         auto dst = fs::path("/newroot") / entry.first.relative_path();
@@ -385,35 +385,25 @@ util::expected<void, std::string> make_mutable_root() {
             return r;
         }
 
-        // TODO
-        // // this fails for example for /tmp (tmpfs)
-        // if (auto r = mount("none", dst.c_str(), std::nullopt,
-        //                    MS_NOSUID | MS_REMOUNT | MS_BIND | MS_SILENT |
-        //                        MS_RELATIME,
-        //                    nullptr);
-        //     !r) {
-        //     return r;
-        // }
+        if (auto r = mount("none", dst.c_str(), std::nullopt,
+                           MS_NOSUID | MS_REMOUNT | MS_BIND | MS_SILENT |
+                               MS_RELATIME,
+                           nullptr);
+            !r) {
+            return r;
+        }
     }
     if (auto r = uenv::mount("oldroot", "oldroot", std::nullopt,
                              MS_REC | MS_SILENT | MS_PRIVATE, nullptr);
         !r) {
         return r;
     }
-    if (umount2("oldroot", MNT_DETACH) != 0) {
-        return util::unexpected{
-            fmt::format("{} {}: {}", __FILE__, __LINE__, strerror(errno))};
-    }
+
+    Z_e(umount2("oldroot", MNT_DETACH));
     fs::current_path("/newroot");
 
-    if (syscall(SYS_pivot_root, ".", ".") != 0) {
-        return util::unexpected{
-            fmt::format("{} {}: {}", __FILE__, __LINE__, strerror(errno))};
-    }
-    if (umount2(".", MNT_DETACH) != 0) {
-        return util::unexpected{
-            fmt::format("{} {}: {}", __FILE__, __LINE__, strerror(errno))};
-    }
+    Z_e(syscall(SYS_pivot_root, ".", "."));
+    Z_e(umount2(".", MNT_DETACH));
     fs::current_path(original_path);
 
     return {};

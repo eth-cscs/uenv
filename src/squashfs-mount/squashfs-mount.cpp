@@ -61,6 +61,7 @@ void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
     } else {
         std::vector<std::string> namespaces;
         if (is_setuid()) {
+            // the setuid version unshares the mount namespace only
             namespaces = {"mnt"};
         } else {
             namespaces = {"user", "mnt"};
