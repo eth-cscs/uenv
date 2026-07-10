@@ -1,5 +1,4 @@
 #include <filesystem>
-#include <fstream>
 #include <string>
 
 #include <fmt/format.h>
@@ -22,39 +21,16 @@ namespace {
 // title annotation oras gives the squashfs layer.
 constexpr std::string_view squashfs_title = "store.squashfs";
 
-// extract a gzipped tar (held in memory) into `dest`, using the system tar.
-util::expected<void, std::string> extract_targz(const std::string& data,
+// extract a gzipped tar into `dest`, using the system tar.
+util::expected<void, std::string> extract_targz(const fs::path& archive,
                                                 const fs::path& dest) {
-    // stage the archive in a private temp dir (unique name, not a predictable
-    // path inside `dest`) before handing it to tar.
-    auto work = util::make_temp_dir();
-    if (!work) {
-        return util::unexpected{work.error()};
-    }
-    auto tmp = *work / "meta.tar.gz";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out) {
-            return util::unexpected{
-                fmt::format("unable to write temporary {}", tmp.string())};
-        }
-        out.write(data.data(), static_cast<std::streamsize>(data.size()));
-        if (!out) {
-            return util::unexpected{
-                fmt::format("error writing temporary {}", tmp.string())};
-        }
-    }
-
-    std::error_code ec;
-    auto proc = util::run({"tar", "-xzf", tmp.string(), "-C", dest.string()});
+    auto proc =
+        util::run({"tar", "-xzf", archive.string(), "-C", dest.string()});
     if (!proc) {
-        fs::remove(tmp, ec);
         return util::unexpected{
             fmt::format("unable to run tar to unpack meta: {}", proc.error())};
     }
-    auto rc = proc->wait();
-    fs::remove(tmp, ec);
-    if (rc != 0) {
+    if (auto rc = proc->wait(); rc != 0) {
         return util::unexpected{
             fmt::format("tar failed to unpack meta (exit {})", rc)};
     }
@@ -133,15 +109,24 @@ pull_meta(client& c, const digest& manifest_digest, const fs::path& store) {
     }
 
     spdlog::debug("oci::pull_meta layer {}", layer->digest.string());
-    auto blob = c.get_blob(layer->digest);
-    if (!blob) {
-        return util::unexpected{blob.error().message};
-    }
-
     if (auto ok = util::ensure_directory(store); !ok) {
         return util::unexpected{ok.error()};
     }
-    if (auto ok = extract_targz(*blob, store); !ok) {
+
+    // stage the archive in a private temp dir (unique name, not a predictable
+    // path inside `store`) before handing it to tar; make_temp_dir registers it
+    // for removal on exit. get_blob_to_file verifies the digest as it streams:
+    // the extracted meta (env.json, views) is later sourced into user
+    // environments, so it must not be taken on trust.
+    auto work = util::make_temp_dir();
+    if (!work) {
+        return util::unexpected{work.error()};
+    }
+    const auto archive = work.value() / "meta.tar.gz";
+    if (auto ok = c.get_blob_to_file(layer->digest, archive); !ok) {
+        return util::unexpected{ok.error().message};
+    }
+    if (auto ok = extract_targz(archive, store); !ok) {
         return util::unexpected{ok.error()};
     }
     return true;
