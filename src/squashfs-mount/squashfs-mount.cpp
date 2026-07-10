@@ -287,7 +287,7 @@ int main(int argc, char** argv, char** envp) {
     };
 
     const bool has_work =
-        !mounts.empty() || !tmpfs->empty() || !bind_mounts->empty();
+        !mounts.empty() || !tmpfs->empty() || !bind_mounts->empty() || mutable_root;
 
     if (has_work) {
         auto pipeline = [&setup_sandbox, &do_mounts,
