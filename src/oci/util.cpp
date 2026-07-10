@@ -163,6 +163,68 @@ std::optional<token_response> parse_token_response(std::string_view body) {
     return out;
 }
 
+std::string normalise_host(std::string_view key) {
+    auto s = key;
+    if (auto p = s.find("://"); p != std::string_view::npos) {
+        s.remove_prefix(p + 3);
+    }
+    if (auto p = s.find('/'); p != std::string_view::npos) {
+        s = s.substr(0, p);
+    }
+    return std::string{s};
+}
+
+std::optional<std::string> helper_for_host(const nlohmann::json& cfg,
+                                           std::string_view host) {
+    const auto want = normalise_host(host);
+    if (auto helpers = cfg.find("credHelpers");
+        helpers != cfg.end() && helpers->is_object()) {
+        for (const auto& entry : helpers->items()) {
+            if (normalise_host(entry.key()) == want &&
+                entry.value().is_string()) {
+                return entry.value().get<std::string>();
+            }
+        }
+    }
+    if (auto store = cfg.find("credsStore");
+        store != cfg.end() && store->is_string()) {
+        if (auto name = store->get<std::string>(); !name.empty()) {
+            return name;
+        }
+    }
+    return std::nullopt;
+}
+
+util::expected<std::optional<credentials>, std::string>
+parse_helper_output(std::string_view body) {
+    auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
+    if (j.is_discarded() || !j.is_object()) {
+        return util::unexpected{
+            "the credential helper returned malformed JSON"};
+    }
+    auto username = json_string_or(j, "Username", "");
+    auto secret = json_string_or(j, "Secret", "");
+
+    // a helper with nothing stored for the registry answers with empty fields.
+    if (username.empty() && secret.empty()) {
+        return std::nullopt;
+    }
+    // "<token>" is the docker sentinel for an identity (refresh) token in
+    // Secret. Redeeming one needs the OAuth2 refresh_token grant, which the
+    // token handshake in this module does not implement.
+    if (username == "<token>") {
+        return util::unexpected{
+            "the credential helper returned an identity token, which uenv "
+            "cannot redeem; pass the token directly with --token"};
+    }
+    if (username.empty() || secret.empty()) {
+        return util::unexpected{
+            "the credential helper returned an incomplete credential"};
+    }
+    return credentials{.username = std::move(username),
+                       .password = std::move(secret)};
+}
+
 std::string repository_scope(std::string_view repository,
                              std::string_view actions) {
     return fmt::format("repository:{}:{}", repository, actions);
