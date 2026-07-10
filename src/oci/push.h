@@ -19,9 +19,12 @@ namespace oci {
 // blob and the empty config, builds an oras-compatible image manifest with the
 // layer titled "store.squashfs", and PUTs it under `ref` (a tag). Returns the
 // manifest digest — the canonical image id.
+// `layer_digest` is the sha256 of `squashfs`; supply it when it has already
+// been computed, else it is calculated here, which reads the whole file.
 util::expected<digest, std::string>
 push_squashfs(client& c, const std::filesystem::path& squashfs,
               const reference& ref,
+              std::optional<digest> layer_digest = std::nullopt,
               std::function<void(std::uint64_t, std::uint64_t)> progress = {});
 
 // Attach typed side-data to an existing image as an OCI referrer (the native

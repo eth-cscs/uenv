@@ -1,11 +1,9 @@
 // vim: ts=4 sts=4 sw=4 et
 
-#include <atomic>
 #include <csignal>
 #include <filesystem>
 #include <string>
 
-#include <barkeep/barkeep.h>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
@@ -244,30 +242,12 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
             }
 
             if (pull_sqfs) {
-                namespace bk = barkeep;
-                // atomic: written by curl's progress callback on the main
-                // thread, read concurrently by barkeep's display thread.
-                std::atomic<std::size_t> downloaded_mb{0u};
-                // round up so total_mb is never zero
-                std::size_t total_mb{(record.size_byte + (1024 * 1024 - 1)) /
-                                     (1024 * 1024)};
-                auto bar = bk::ProgressBar(
-                    &downloaded_mb,
-                    {
-                        .total = total_mb,
-                        .message =
-                            fmt::format("pulling {}", record.id.string()),
-                        .speed = 0.1,
-                        .speed_unit = "MB/s",
-                        .style = color::use_color()
-                                     ? bk::ProgressBarStyle::Rich
-                                     : bk::ProgressBarStyle::Bars,
-                        .no_tty = !isatty(fileno(stdout)),
-                    });
+                auto bar = uenv::make_transfer_bar(
+                    record.size_byte,
+                    fmt::format("pulling {}", record.id.string()));
 
-                auto progress = [&downloaded_mb](std::uint64_t now,
-                                                 std::uint64_t) {
-                    downloaded_mb = now / (1024 * 1024);
+                auto progress = [&bar](std::uint64_t now, std::uint64_t) {
+                    bar->update(now);
                 };
                 // util::signal_raised() consumes (resets) the flag, so it must
                 // be checked exactly once. latch the result here in the abort
@@ -283,10 +263,10 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
                         return aborted;
                     });
                 if (!aborted) {
-                    // ensure that the progress bar shows %100 on completion
-                    downloaded_mb = total_mb;
+                    bar->finish();
+                } else {
+                    bar->stop();
                 }
-                bar->done();
 
                 if (!result) {
                     // a Ctrl-C during the download aborts the transfer; surface

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -53,7 +54,11 @@ sha256_digest sha256_string(std::string_view text);
 // digest a file by streaming it in fixed-size chunks, so large files never
 // need to be held in memory. returns an error message if the file is
 // unreadable.
+// `progress`, when set, is called once per chunk with the cumulative number of
+// bytes hashed so far, so that callers can drive a progress bar over a
+// multi-GB file. It is called from this thread, and the hash is not abortable.
 util::expected<sha256_digest, std::string>
-sha256_file(const std::filesystem::path& path);
+sha256_file(const std::filesystem::path& path,
+            std::function<void(std::uint64_t bytes_hashed)> progress = {});
 
 } // namespace util

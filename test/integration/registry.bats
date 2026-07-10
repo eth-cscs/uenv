@@ -82,6 +82,11 @@ function teardown() {
     log "${output}"
     [ "${status}" -eq 0 ]
 
+    # the image is hashed, then uploaded: each phase reports its own progress
+    # bar. Even with no tty, barkeep prints the bar's first and last line.
+    assert_output --partial "preparing"
+    assert_output --partial "pushing"
+
     # register a listing record so pull can resolve the label
     local repo="${REG_PREFIX}/deploy/arapiles/zen3/app/1.0"
     local digest

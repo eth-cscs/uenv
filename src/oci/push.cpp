@@ -255,10 +255,16 @@ void maintain_referrers_tag(client& c, const digest& subject,
 
 util::expected<digest, std::string>
 push_squashfs(client& c, const fs::path& squashfs, const reference& ref,
+              std::optional<digest> layer_digest,
               std::function<void(std::uint64_t, std::uint64_t)> progress) {
-    auto layer_digest = digest_of_file(squashfs);
+    // hashing a multi-GB squashfs is expensive, so a caller that already has
+    // the digest passes it in rather than paying for a second pass.
     if (!layer_digest) {
-        return util::unexpected{layer_digest.error()};
+        auto computed = digest_of_file(squashfs);
+        if (!computed) {
+            return util::unexpected{computed.error()};
+        }
+        layer_digest = computed.value();
     }
     std::error_code ec;
     auto size = fs::file_size(squashfs, ec);
@@ -271,7 +277,8 @@ push_squashfs(client& c, const fs::path& squashfs, const reference& ref,
                   layer_digest->string(), size, ref.string());
 
     // upload the squashfs blob (streamed) and the empty config.
-    if (auto ok = c.put_blob(*layer_digest, squashfs, std::move(progress));
+    if (auto ok =
+            c.put_blob(layer_digest.value(), squashfs, std::move(progress));
         !ok) {
         return util::unexpected{ok.error().message};
     }
@@ -284,7 +291,7 @@ push_squashfs(client& c, const fs::path& squashfs, const reference& ref,
     m.annotations[std::string{annotation_created}] = rfc3339_now();
     m.layers.push_back(manifest_layer{
         .media_type = std::string{media_type_layer_tar},
-        .digest = *layer_digest,
+        .digest = layer_digest.value(),
         .size = size,
         .annotations = {{std::string{annotation_title}, "store.squashfs"}}});
 

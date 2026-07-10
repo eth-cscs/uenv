@@ -1,10 +1,14 @@
+#include <algorithm>
 #include <filesystem>
+
+#include <unistd.h>
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
+#include <util/color.h>
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/sha256.h>
@@ -105,8 +109,53 @@ squashfs_mount_args(const envvars::state& calling_environment,
     return commands;
 }
 
-util::expected<squashfs_image, std::string>
-validate_squashfs_image(const std::string& path) {
+namespace {
+// bytes -> whole megabytes, rounded up.
+std::size_t to_mb(std::uint64_t bytes) {
+    constexpr std::uint64_t mb = 1024 * 1024;
+    return static_cast<std::size_t>((bytes + mb - 1) / mb);
+}
+} // namespace
+
+transfer_bar::transfer_bar(std::uint64_t total_bytes, std::string message)
+    // never zero: barkeep divides by the total to render the bar.
+    : total_mb_{std::max<std::size_t>(1u, to_mb(total_bytes))} {
+    namespace bk = barkeep;
+    bar_ = bk::ProgressBar(&transferred_mb_,
+                           {
+                               .total = total_mb_,
+                               .message = std::move(message),
+                               .speed = 0.1,
+                               .speed_unit = "MB/s",
+                               .style = color::use_color()
+                                            ? bk::ProgressBarStyle::Rich
+                                            : bk::ProgressBarStyle::Bars,
+                               .no_tty = !isatty(fileno(stdout)),
+                           });
+}
+
+void transfer_bar::update(std::uint64_t bytes) {
+    transferred_mb_.store(to_mb(bytes), std::memory_order_relaxed);
+}
+
+void transfer_bar::finish() {
+    transferred_mb_.store(total_mb_, std::memory_order_relaxed);
+    bar_->done();
+}
+
+void transfer_bar::stop() {
+    bar_->done();
+}
+
+std::unique_ptr<transfer_bar> make_transfer_bar(std::uint64_t total_bytes,
+                                                std::string message) {
+    return std::make_unique<transfer_bar>(total_bytes, std::move(message));
+}
+
+util::expected<squashfs_image, std::string> validate_squashfs_image(
+    const std::string& path,
+    std::function<void(std::uint64_t done, std::uint64_t total)>
+        hash_progress) {
     namespace fs = std::filesystem;
 
     squashfs_image img{};
@@ -130,7 +179,18 @@ validate_squashfs_image(const std::string& path) {
         spdlog::info("no meta data in {}", img.sqfs);
     }
 
-    auto hash = util::sha256_file(img.sqfs);
+    std::error_code ec;
+    const auto total = fs::file_size(img.sqfs, ec);
+    // report the total up front, so a caller's bar appears before the first
+    // chunk is hashed rather than after it.
+    if (hash_progress) {
+        hash_progress(0u, ec ? 0u : total);
+    }
+    auto hash = util::sha256_file(img.sqfs, [&](std::uint64_t hashed) {
+        if (hash_progress) {
+            hash_progress(hashed, ec ? 0u : total);
+        }
+    });
     if (!hash) {
         spdlog::error("{}", hash.error());
         return util::unexpected{fmt::format(
