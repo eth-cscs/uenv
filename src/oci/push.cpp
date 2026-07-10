@@ -50,7 +50,7 @@ digest digest_of_string(std::string_view s) {
 }
 
 // upload the canonical empty config blob (idempotent).
-util::expected<void, std::string> put_empty_config(client& c) {
+util::expected<void, client_error> put_empty_config(client& c) {
     return c.put_blob_bytes(empty_config_descriptor().digest,
                             std::string{empty_config_body});
 }
@@ -179,7 +179,7 @@ util::expected<void, std::string> copy_blob(client& src, client& dst,
                                             const digest& d) {
     auto mounted = dst.mount_blob(d, from_repo);
     if (!mounted) {
-        return util::unexpected{mounted.error()};
+        return util::unexpected{mounted.error().message};
     }
     if (*mounted) {
         spdlog::trace("copy_blob mounted {}", d.string());
@@ -194,10 +194,10 @@ util::expected<void, std::string> copy_blob(client& src, client& dst,
     }
     const auto tmp = *work / "blob";
     if (auto ok = src.get_blob_to_file(d, tmp); !ok) {
-        return util::unexpected{ok.error()};
+        return util::unexpected{ok.error().message};
     }
     if (auto ok = dst.put_blob(d, tmp); !ok) {
-        return util::unexpected{ok.error()};
+        return util::unexpected{ok.error().message};
     }
     std::error_code ec;
     fs::remove(tmp, ec);
@@ -212,13 +212,30 @@ void maintain_referrers_tag(client& c, const digest& subject,
     const auto tag = reference::tag(subject.algorithm() + "-" + subject.hex());
 
     // read the existing index (an OCI image index, i.e. a manifests[] list) so
-    // we merge rather than clobber prior referrers. A 404/parse-miss is treated
-    // as an empty index.
+    // we merge rather than clobber prior referrers.
     std::vector<descriptor> manifests;
-    if (auto existing = c.get_manifest(tag)) {
+    auto existing = c.get_manifest(tag);
+    if (existing) {
         if (auto refs = detail::parse_referrers(existing->body)) {
             manifests = std::move(*refs);
+        } else {
+            // 200 with an unparseable body: the index is corrupt and useless
+            // to every client, so rebuilding it loses nothing.
+            spdlog::warn("referrers tag {} holds an unparseable index; "
+                         "rebuilding it",
+                         tag.string());
         }
+    } else if (existing.error().http_status == 404) {
+        // the tag has never been created: start a new index.
+        spdlog::debug("referrers tag {} not found, creating it", tag.string());
+    } else {
+        // any other failure (transport, auth, 5xx) says nothing about the
+        // tag's contents: it may hold referrers that rebuilding from scratch
+        // would silently discard, so leave it unchanged.
+        spdlog::warn("unable to read referrers tag {} ({}); leaving it "
+                     "unchanged",
+                     tag.string(), existing.error().message);
+        return;
     }
     for (const auto& d : manifests) {
         if (d.digest == referrer.digest) {
@@ -256,10 +273,10 @@ push_squashfs(client& c, const fs::path& squashfs, const reference& ref,
     // upload the squashfs blob (streamed) and the empty config.
     if (auto ok = c.put_blob(*layer_digest, squashfs, std::move(progress));
         !ok) {
-        return util::unexpected{ok.error()};
+        return util::unexpected{ok.error().message};
     }
     if (auto ok = put_empty_config(c); !ok) {
-        return util::unexpected{ok.error()};
+        return util::unexpected{ok.error().message};
     }
 
     manifest m;
@@ -273,7 +290,7 @@ push_squashfs(client& c, const fs::path& squashfs, const reference& ref,
 
     auto body = serialize_manifest(m);
     if (auto ok = c.put_manifest(ref, body); !ok) {
-        return util::unexpected{ok.error()};
+        return util::unexpected{ok.error().message};
     }
 
     // the canonical id is the digest of the manifest bytes we just PUT.
@@ -327,11 +344,11 @@ util::expected<descriptor, std::string> attach(client& c,
     // upload the layer blob and empty config.
     if (auto ok = c.put_blob(packaged->layer.digest, packaged->blob); !ok) {
         cleanup();
-        return util::unexpected{ok.error()};
+        return util::unexpected{ok.error().message};
     }
     cleanup();
     if (auto ok = put_empty_config(c); !ok) {
-        return util::unexpected{ok.error()};
+        return util::unexpected{ok.error().message};
     }
 
     // build + push the referrer manifest.
@@ -345,7 +362,7 @@ util::expected<descriptor, std::string> attach(client& c,
     const auto manifest_digest = digest_of_string(body);
     if (auto ok = c.put_manifest(reference::digest(manifest_digest), body);
         !ok) {
-        return util::unexpected{ok.error()};
+        return util::unexpected{ok.error().message};
     }
 
     descriptor referrer{.media_type = std::string{media_type_manifest},
@@ -366,11 +383,11 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
            const std::string& dst_tag, std::optional<credentials> creds) {
     auto src = client::create(registry_base, src_repo, creds);
     if (!src) {
-        return util::unexpected{src.error()};
+        return util::unexpected{src.error().message};
     }
     auto dst = client::create(registry_base, dst_repo, creds);
     if (!dst) {
-        return util::unexpected{dst.error()};
+        return util::unexpected{dst.error().message};
     }
     // dst tokens need pull scope on the source repo for cross-repo mounts.
     dst->add_pull_scope(src_repo);
@@ -401,7 +418,7 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
     if (auto ok = dst->put_manifest(reference::tag(dst_tag), mr->body,
                                     manifest_media);
         !ok) {
-        return util::unexpected{ok.error()};
+        return util::unexpected{ok.error().message};
     }
 
     // copy referrers (the --recursive part): meta and any other attachments.
@@ -437,7 +454,7 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
         if (auto ok = dst->put_manifest(reference::digest(r.digest), rm->body,
                                         rmedia);
             !ok) {
-            return util::unexpected{ok.error()};
+            return util::unexpected{ok.error().message};
         }
     }
 

@@ -242,6 +242,28 @@ TEST_CASE("oci registry attach + referrers + pull_meta", "[registry]") {
     REQUIRE(tag_refs.has_value());
     REQUIRE(*tag_refs == *refs);
 
+    // attaching a second artifact must merge into the tag index, not clobber
+    // the entry the first attach wrote.
+    const auto extra = dir / "notes.json";
+    write_file(extra, R"({"note":"x"})");
+    auto att2 =
+        oci::attach(*c, oci::reference::digest(*pushed), "uenv/extra", extra);
+    REQUIRE(att2.has_value());
+
+    auto tag_index2 = c->get_manifest(fallback_tag);
+    REQUIRE(tag_index2.has_value());
+    auto tag_refs2 = oci::detail::parse_referrers(tag_index2->body);
+    REQUIRE(tag_refs2.has_value());
+    REQUIRE(tag_refs2->size() == 2);
+    bool tag_has_meta = false;
+    bool tag_has_extra = false;
+    for (const auto& d : *tag_refs2) {
+        tag_has_meta = tag_has_meta || d.artifact_type == "uenv/meta";
+        tag_has_extra = tag_has_extra || d.artifact_type == "uenv/extra";
+    }
+    REQUIRE(tag_has_meta);
+    REQUIRE(tag_has_extra);
+
     auto store = util::make_temp_dir().value();
     auto got = oci::pull_meta(*c, *pushed, store);
     REQUIRE(got.has_value());

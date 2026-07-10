@@ -66,12 +66,12 @@ std::string repository_path(std::string_view prefix, std::string_view nspace,
 
 // --- client -------------------------------------------------------------
 
-util::expected<client, std::string>
+util::expected<client, client_error>
 client::create(std::string registry_url, std::string repository,
                std::optional<credentials> creds) {
     auto challenge = discover_challenge(registry_url);
     if (!challenge) {
-        return util::unexpected{challenge.error()};
+        return util::unexpected{client_error{challenge.error()}};
     }
 
     client c;
@@ -114,10 +114,10 @@ void client::add_pull_scope(std::string repository) {
     extra_pull_scopes_.push_back(std::move(repository));
 }
 
-util::expected<bool, std::string> client::blob_exists(const digest& d) {
+util::expected<bool, client_error> client::blob_exists(const digest& d) {
     auto token = token_for(false);
     if (!token) {
-        return util::unexpected{token.error()};
+        return util::unexpected{client_error{token.error()}};
     }
     util::curl::request req;
     req.url = registry_url_ + detail::blob_path(repository_, d.string());
@@ -126,7 +126,7 @@ util::expected<bool, std::string> client::blob_exists(const digest& d) {
 
     auto resp = util::curl::perform(req);
     if (!resp) {
-        return util::unexpected{resp.error().message};
+        return util::unexpected{client_error{resp.error().message}};
     }
     if (resp->status == 200) {
         return true;
@@ -134,14 +134,16 @@ util::expected<bool, std::string> client::blob_exists(const digest& d) {
     if (resp->status == 404) {
         return false;
     }
-    return util::unexpected{fmt::format("unexpected status {} for HEAD {}",
-                                        resp->status, d.string())};
+    return util::unexpected{
+        client_error{fmt::format("unexpected status {} for HEAD {}",
+                                 resp->status, d.string()),
+                     resp->status}};
 }
 
-util::expected<std::string, std::string> client::get_blob(const digest& d) {
+util::expected<std::string, client_error> client::get_blob(const digest& d) {
     auto token = token_for(false);
     if (!token) {
-        return util::unexpected{token.error()};
+        return util::unexpected{client_error{token.error()}};
     }
     util::curl::request req;
     req.url = registry_url_ + detail::blob_path(repository_, d.string());
@@ -151,17 +153,18 @@ util::expected<std::string, std::string> client::get_blob(const digest& d) {
 
     auto resp = util::curl::perform(req);
     if (!resp) {
-        return util::unexpected{resp.error().message};
+        return util::unexpected{client_error{resp.error().message}};
     }
     if (resp->status != 200) {
-        return util::unexpected{
+        return util::unexpected{client_error{
             fmt::format("failed to fetch blob {} (status {}): {}", d.string(),
-                        resp->status, util::curl::http_message(resp->status))};
+                        resp->status, util::curl::http_message(resp->status)),
+            resp->status}};
     }
     return resp->body;
 }
 
-util::expected<void, std::string> client::get_blob_to_file(
+util::expected<void, client_error> client::get_blob_to_file(
     const digest& d, const std::filesystem::path& file,
     std::function<void(std::uint64_t, std::uint64_t)> progress,
     std::function<bool()> should_abort) {
@@ -170,14 +173,14 @@ util::expected<void, std::string> client::get_blob_to_file(
     const auto parent = file.parent_path();
     if (!parent.empty() &&
         util::file_access_level(parent) != util::file_level::readwrite) {
-        return util::unexpected{fmt::format(
+        return util::unexpected{client_error{fmt::format(
             "cannot write blob to {}: {} is not a writable directory",
-            file.string(), parent.string())};
+            file.string(), parent.string())}};
     }
 
     auto token = token_for(false);
     if (!token) {
-        return util::unexpected{token.error()};
+        return util::unexpected{client_error{token.error()}};
     }
 
     // stream to a temporary name and rename into place only after the
@@ -210,7 +213,7 @@ util::expected<void, std::string> client::get_blob_to_file(
 
     // every error path must remove the partial download before surfacing
     // the error.
-    auto fail = [&partial](std::string msg) {
+    auto fail = [&partial](client_error err) {
         spdlog::debug("oci::get_blob_to_file removing partial download {}",
                       partial.string());
         std::error_code ec;
@@ -219,28 +222,29 @@ util::expected<void, std::string> client::get_blob_to_file(
             spdlog::warn("oci::get_blob_to_file unable to remove {}: {}",
                          partial.string(), ec.message());
         }
-        return util::unexpected{std::move(msg)};
+        return util::unexpected{std::move(err)};
     };
 
     spdlog::debug("oci::get_blob_to_file downloading {} to {}", req.url,
                   partial.string());
     auto resp = util::curl::perform(req);
     if (!resp) {
-        return fail(resp.error().message);
+        return fail({resp.error().message});
     }
     if (resp->status != 200) {
-        return fail(fmt::format("failed to fetch blob {} (status {}): {}",
-                                d.string(), resp->status,
-                                util::curl::http_message(resp->status)));
+        return fail(
+            {fmt::format("failed to fetch blob {} (status {}): {}", d.string(),
+                         resp->status, util::curl::http_message(resp->status)),
+             resp->status});
     }
 
     if (verify) {
         const auto got = digest::from_sha256(util::sha256_final(hash));
         if (got != d) {
             return fail(
-                fmt::format("downloaded blob digest mismatch: expected {}, "
-                            "got {}",
-                            d.string(), got.string()));
+                {fmt::format("downloaded blob digest mismatch: expected {}, "
+                             "got {}",
+                             d.string(), got.string())});
         }
         spdlog::debug("oci::get_blob_to_file verified {}", got.string());
     }
@@ -250,17 +254,18 @@ util::expected<void, std::string> client::get_blob_to_file(
     std::error_code ec;
     std::filesystem::rename(partial, file, ec);
     if (ec) {
-        return fail(fmt::format("unable to move downloaded blob {} to {}: {}",
-                                partial.string(), file.string(), ec.message()));
+        return fail(
+            {fmt::format("unable to move downloaded blob {} to {}: {}",
+                         partial.string(), file.string(), ec.message())});
     }
     return {};
 }
 
-util::expected<manifest_response, std::string>
+util::expected<manifest_response, client_error>
 client::get_manifest(const reference& ref) {
     auto token = token_for(false);
     if (!token) {
-        return util::unexpected{token.error()};
+        return util::unexpected{client_error{token.error()}};
     }
     util::curl::request req;
     req.url = registry_url_ + detail::manifest_path(repository_, ref.string());
@@ -270,12 +275,14 @@ client::get_manifest(const reference& ref) {
 
     auto resp = util::curl::perform(req);
     if (!resp) {
-        return util::unexpected{resp.error().message};
+        return util::unexpected{client_error{resp.error().message}};
     }
     if (resp->status != 200) {
-        return util::unexpected{fmt::format(
-            "failed to fetch manifest {} (status {}): {}", ref.string(),
-            resp->status, util::curl::http_message(resp->status))};
+        return util::unexpected{client_error{
+            fmt::format("failed to fetch manifest {} (status {}): {}",
+                        ref.string(), resp->status,
+                        util::curl::http_message(resp->status)),
+            resp->status}};
     }
     manifest_response m;
     m.body = std::move(resp->body);
@@ -288,10 +295,10 @@ client::get_manifest(const reference& ref) {
     return m;
 }
 
-util::expected<std::vector<std::string>, std::string> client::list_tags() {
+util::expected<std::vector<std::string>, client_error> client::list_tags() {
     auto token = token_for(false);
     if (!token) {
-        return util::unexpected{token.error()};
+        return util::unexpected{client_error{token.error()}};
     }
     util::curl::request req;
     req.url = registry_url_ + detail::tags_path(repository_);
@@ -299,24 +306,26 @@ util::expected<std::vector<std::string>, std::string> client::list_tags() {
 
     auto resp = util::curl::perform(req);
     if (!resp) {
-        return util::unexpected{resp.error().message};
+        return util::unexpected{client_error{resp.error().message}};
     }
     if (resp->status != 200) {
-        return util::unexpected{
-            fmt::format("failed to list tags (status {})", resp->status)};
+        return util::unexpected{client_error{
+            fmt::format("failed to list tags (status {})", resp->status),
+            resp->status}};
     }
     auto tags = detail::parse_tags_list(resp->body);
     if (!tags) {
-        return util::unexpected{"could not parse tags/list response"};
+        return util::unexpected{
+            client_error{"could not parse tags/list response"}};
     }
     return *tags;
 }
 
-util::expected<std::vector<descriptor>, std::string>
+util::expected<std::vector<descriptor>, client_error>
 client::referrers(const digest& d) {
     auto token = token_for(false);
     if (!token) {
-        return util::unexpected{token.error()};
+        return util::unexpected{client_error{token.error()}};
     }
     util::curl::request req;
     req.url = registry_url_ + detail::referrers_path(repository_, d.string());
@@ -324,7 +333,7 @@ client::referrers(const digest& d) {
 
     auto resp = util::curl::perform(req);
     if (!resp) {
-        return util::unexpected{resp.error().message};
+        return util::unexpected{client_error{resp.error().message}};
     }
     if (resp->status == 404) {
         // per the OCI 1.1 distribution spec, a 404 means the registry does
@@ -337,22 +346,25 @@ client::referrers(const digest& d) {
         return referrers_from_tag(d);
     }
     if (resp->status != 200) {
-        return util::unexpected{fmt::format(
-            "failed to fetch referrers of {} (status {}): {}", d.string(),
-            resp->status, util::curl::http_message(resp->status))};
+        return util::unexpected{client_error{
+            fmt::format("failed to fetch referrers of {} (status {}): {}",
+                        d.string(), resp->status,
+                        util::curl::http_message(resp->status)),
+            resp->status}};
     }
     auto refs = detail::parse_referrers(resp->body);
     if (!refs) {
-        return util::unexpected{"could not parse referrers response"};
+        return util::unexpected{
+            client_error{"could not parse referrers response"}};
     }
     return *refs;
 }
 
-util::expected<std::vector<descriptor>, std::string>
+util::expected<std::vector<descriptor>, client_error>
 client::referrers_from_tag(const digest& d) {
     auto token = token_for(false);
     if (!token) {
-        return util::unexpected{token.error()};
+        return util::unexpected{client_error{token.error()}};
     }
     // the tag schema names an OCI image index <algo>-<hex> in the same
     // repository as the subject (see maintain_referrers_tag in push.cpp).
@@ -366,7 +378,7 @@ client::referrers_from_tag(const digest& d) {
     spdlog::debug("oci::referrers_from_tag fetching {}", req.url);
     auto resp = util::curl::perform(req);
     if (!resp) {
-        return util::unexpected{resp.error().message};
+        return util::unexpected{client_error{resp.error().message}};
     }
     if (resp->status == 404) {
         // the tag was never created: the subject has no referrers.
@@ -375,14 +387,15 @@ client::referrers_from_tag(const digest& d) {
         return std::vector<descriptor>{};
     }
     if (resp->status != 200) {
-        return util::unexpected{
+        return util::unexpected{client_error{
             fmt::format("failed to fetch referrers tag {} (status {}): {}", tag,
-                        resp->status, util::curl::http_message(resp->status))};
+                        resp->status, util::curl::http_message(resp->status)),
+            resp->status}};
     }
     auto refs = detail::parse_referrers(resp->body);
     if (!refs) {
-        return util::unexpected{
-            fmt::format("could not parse referrers tag index {}", tag)};
+        return util::unexpected{client_error{
+            fmt::format("could not parse referrers tag index {}", tag)}};
     }
     spdlog::debug("oci::referrers_from_tag {}: {} referrer(s)", tag,
                   refs->size());
@@ -393,7 +406,7 @@ namespace {
 
 // drive the monolithic upload handshake: POST an upload session, then PUT the
 // payload (carried by `body_setup`) to the returned Location with ?digest=.
-util::expected<void, std::string>
+util::expected<void, client_error>
 do_put_blob(const std::string& registry_url, const std::string& uploads,
             const std::optional<std::string>& token, const std::string& digest,
             const std::function<void(util::curl::request&)>& body_setup) {
@@ -404,17 +417,19 @@ do_put_blob(const std::string& registry_url, const std::string& uploads,
     post.bearer_token = token;
     auto opened = util::curl::perform(post);
     if (!opened) {
-        return util::unexpected{opened.error().message};
+        return util::unexpected{client_error{opened.error().message}};
     }
     if (opened->status != 202) {
-        return util::unexpected{fmt::format(
-            "failed to open upload session (status {}): {} {}", opened->status,
-            util::curl::http_message(opened->status), opened->body)};
+        return util::unexpected{client_error{
+            fmt::format("failed to open upload session (status {}): {} {}",
+                        opened->status,
+                        util::curl::http_message(opened->status), opened->body),
+            opened->status}};
     }
     auto location = opened->headers.get("location");
     if (!location) {
         return util::unexpected{
-            "upload session response had no Location header"};
+            client_error{"upload session response had no Location header"}};
     }
 
     // 2. PUT the payload to <location>?digest=<digest>
@@ -428,26 +443,28 @@ do_put_blob(const std::string& registry_url, const std::string& uploads,
 
     auto done = util::curl::perform(put);
     if (!done) {
-        return util::unexpected{done.error().message};
+        return util::unexpected{client_error{done.error().message}};
     }
     if (done->status != 201) {
-        return util::unexpected{fmt::format(
-            "failed to upload blob {} (status {}): {} {}", digest, done->status,
-            util::curl::http_message(done->status), done->body)};
+        return util::unexpected{client_error{
+            fmt::format("failed to upload blob {} (status {}): {} {}", digest,
+                        done->status, util::curl::http_message(done->status),
+                        done->body),
+            done->status}};
     }
     return {};
 }
 
 } // namespace
 
-util::expected<bool, std::string>
+util::expected<bool, client_error>
 client::mount_blob(const digest& d, const std::string& from_repository) {
     if (auto exists = blob_exists(d); exists && *exists) {
         return true;
     }
     auto token = token_for(true);
     if (!token) {
-        return util::unexpected{token.error()};
+        return util::unexpected{client_error{token.error()}};
     }
     util::curl::request post;
     post.url = registry_url_ + detail::uploads_path(repository_) +
@@ -457,7 +474,7 @@ client::mount_blob(const digest& d, const std::string& from_repository) {
 
     auto resp = util::curl::perform(post);
     if (!resp) {
-        return util::unexpected{resp.error().message};
+        return util::unexpected{client_error{resp.error().message}};
     }
     // 201: the blob was mounted. 202: the registry declined and opened an
     // upload session instead (caller must copy the blob the slow way).
@@ -467,17 +484,18 @@ client::mount_blob(const digest& d, const std::string& from_repository) {
     if (resp->status == 202) {
         return false;
     }
-    return util::unexpected{
+    return util::unexpected{client_error{
         fmt::format("failed to mount blob {} from {} (status {}): {}",
-                    d.string(), from_repository, resp->status, resp->body)};
+                    d.string(), from_repository, resp->status, resp->body),
+        resp->status}};
 }
 
-util::expected<void, std::string>
+util::expected<void, client_error>
 client::put_blob(const digest& d, const std::filesystem::path& file,
                  std::function<void(std::uint64_t, std::uint64_t)> progress) {
     if (util::file_access_level(file) < util::file_level::readonly) {
-        return util::unexpected{fmt::format(
-            "cannot upload blob: {} is not a readable file", file.string())};
+        return util::unexpected{client_error{fmt::format(
+            "cannot upload blob: {} is not a readable file", file.string())}};
     }
     if (auto exists = blob_exists(d); exists && *exists) {
         spdlog::trace("oci::put_blob {} already present", d.string());
@@ -485,7 +503,7 @@ client::put_blob(const digest& d, const std::filesystem::path& file,
     }
     auto token = token_for(true);
     if (!token) {
-        return util::unexpected{token.error()};
+        return util::unexpected{client_error{token.error()}};
     }
     return do_put_blob(registry_url_, detail::uploads_path(repository_), *token,
                        d.string(), [&file, &progress](util::curl::request& r) {
@@ -496,26 +514,26 @@ client::put_blob(const digest& d, const std::filesystem::path& file,
                        });
 }
 
-util::expected<void, std::string>
+util::expected<void, client_error>
 client::put_blob_bytes(const digest& d, const std::string& data) {
     if (auto exists = blob_exists(d); exists && *exists) {
         return {};
     }
     auto token = token_for(true);
     if (!token) {
-        return util::unexpected{token.error()};
+        return util::unexpected{client_error{token.error()}};
     }
     return do_put_blob(registry_url_, detail::uploads_path(repository_), *token,
                        d.string(),
                        [&data](util::curl::request& r) { r.body = data; });
 }
 
-util::expected<void, std::string>
+util::expected<void, client_error>
 client::put_manifest(const reference& ref, const std::string& body,
                      std::string_view media_type) {
     auto token = token_for(true);
     if (!token) {
-        return util::unexpected{token.error()};
+        return util::unexpected{client_error{token.error()}};
     }
     util::curl::request req;
     req.url = registry_url_ + detail::manifest_path(repository_, ref.string());
@@ -526,12 +544,14 @@ client::put_manifest(const reference& ref, const std::string& body,
 
     auto resp = util::curl::perform(req);
     if (!resp) {
-        return util::unexpected{resp.error().message};
+        return util::unexpected{client_error{resp.error().message}};
     }
     if (resp->status != 201) {
-        return util::unexpected{fmt::format(
-            "failed to put manifest {} (status {}): {} {}", ref.string(),
-            resp->status, util::curl::http_message(resp->status), resp->body)};
+        return util::unexpected{client_error{
+            fmt::format("failed to put manifest {} (status {}): {} {}",
+                        ref.string(), resp->status,
+                        util::curl::http_message(resp->status), resp->body),
+            resp->status}};
     }
     return {};
 }

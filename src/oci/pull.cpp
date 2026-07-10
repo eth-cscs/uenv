@@ -89,7 +89,7 @@ pull_squashfs(client& c, const manifest& image, const fs::path& store,
     if (auto ok = c.get_blob_to_file(want, dest, std::move(progress),
                                      std::move(should_abort));
         !ok) {
-        return util::unexpected{ok.error()};
+        return util::unexpected{ok.error().message};
     }
     return {};
 }
@@ -98,7 +98,7 @@ util::expected<bool, std::string>
 pull_meta(client& c, const digest& manifest_digest, const fs::path& store) {
     auto refs = c.referrers(manifest_digest);
     if (!refs) {
-        return util::unexpected{refs.error()};
+        return util::unexpected{refs.error().message};
     }
 
     // find the uenv/meta referrer.
@@ -115,7 +115,7 @@ pull_meta(client& c, const digest& manifest_digest, const fs::path& store) {
 
     auto meta_manifest = c.get_manifest(reference::digest(meta->digest));
     if (!meta_manifest) {
-        return util::unexpected{meta_manifest.error()};
+        return util::unexpected{meta_manifest.error().message};
     }
     auto parsed = parse_manifest(meta_manifest->body);
     if (!parsed) {
@@ -135,7 +135,7 @@ pull_meta(client& c, const digest& manifest_digest, const fs::path& store) {
     spdlog::debug("oci::pull_meta layer {}", layer->digest.string());
     auto blob = c.get_blob(layer->digest);
     if (!blob) {
-        return util::unexpected{blob.error()};
+        return util::unexpected{blob.error().message};
     }
 
     if (auto ok = util::ensure_directory(store); !ok) {
