@@ -173,6 +173,30 @@ TEST_CASE("oci registry push/pull round-trip", "[registry]") {
     REQUIRE(read_file(store / "store.squashfs") == payload);
 }
 
+TEST_CASE("oci registry failed blob download leaves no file", "[registry]") {
+    const auto base = registry_base();
+    if (base.empty()) {
+        SKIP("no zot binary available for the registry tests");
+    }
+
+    auto c = oci::client::create(base, "test/app/1.0");
+    REQUIRE(c.has_value());
+
+    // a valid digest that no blob in the registry has: the download must
+    // fail, and must not leave anything at the destination path (or a
+    // .partial next to it) that a later pull would mistake for a complete
+    // blob.
+    const auto missing =
+        oci::digest::from_sha256(util::sha256_string("no-such-blob"));
+    auto store = util::make_temp_dir().value();
+    const auto dest = store / "store.squashfs";
+
+    auto pulled = c->get_blob_to_file(missing, dest);
+    REQUIRE(!pulled.has_value());
+    REQUIRE(!std::filesystem::exists(dest));
+    REQUIRE(!std::filesystem::exists(store / "store.squashfs.partial"));
+}
+
 TEST_CASE("oci registry attach + referrers + pull_meta", "[registry]") {
     const auto base = registry_base();
     if (base.empty()) {

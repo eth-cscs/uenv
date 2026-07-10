@@ -283,11 +283,18 @@ util::expected<void, std::string> client::get_blob_to_file(
     if (!token) {
         return util::unexpected{token.error()};
     }
+
+    // stream to a temporary name and rename into place only after the
+    // transfer and digest verification succeed: a failed or interrupted
+    // download must never leave a file at the final path, where a later
+    // caller would mistake it for a complete blob.
+    const std::filesystem::path partial{file.string() + ".partial"};
+
     util::curl::request req;
     req.url = registry_url_ + impl::blob_path(repository_, d.string());
     req.bearer_token = *token;
     req.follow_redirects = true;
-    req.download_file = file;
+    req.download_file = partial;
     req.on_download_progress = std::move(progress);
     req.should_abort = std::move(should_abort);
 
@@ -305,27 +312,50 @@ util::expected<void, std::string> client::get_blob_to_file(
         };
     }
 
+    // every error path must remove the partial download before surfacing
+    // the error.
+    auto fail = [&partial](std::string msg) {
+        spdlog::debug("oci::get_blob_to_file removing partial download {}",
+                      partial.string());
+        std::error_code ec;
+        std::filesystem::remove(partial, ec);
+        if (ec) {
+            spdlog::warn("oci::get_blob_to_file unable to remove {}: {}",
+                         partial.string(), ec.message());
+        }
+        return util::unexpected{std::move(msg)};
+    };
+
+    spdlog::debug("oci::get_blob_to_file downloading {} to {}", req.url,
+                  partial.string());
     auto resp = util::curl::perform(req);
     if (!resp) {
-        return util::unexpected{resp.error().message};
+        return fail(resp.error().message);
     }
     if (resp->status != 200) {
-        return util::unexpected{
-            fmt::format("failed to fetch blob {} (status {}): {}", d.string(),
-                        resp->status, util::curl::http_message(resp->status))};
+        return fail(fmt::format("failed to fetch blob {} (status {}): {}",
+                                d.string(), resp->status,
+                                util::curl::http_message(resp->status)));
     }
 
     if (verify) {
         const auto got = digest::from_sha256(util::sha256_final(hash));
         if (got != d) {
-            std::error_code ec;
-            std::filesystem::remove(file, ec);
-            return util::unexpected{
+            return fail(
                 fmt::format("downloaded blob digest mismatch: expected {}, "
                             "got {}",
-                            d.string(), got.string())};
+                            d.string(), got.string()));
         }
         spdlog::debug("oci::get_blob_to_file verified {}", got.string());
+    }
+
+    spdlog::debug("oci::get_blob_to_file moving {} to {}", partial.string(),
+                  file.string());
+    std::error_code ec;
+    std::filesystem::rename(partial, file, ec);
+    if (ec) {
+        return fail(fmt::format("unable to move downloaded blob {} to {}: {}",
+                                partial.string(), file.string(), ec.message()));
     }
     return {};
 }
