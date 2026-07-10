@@ -192,25 +192,6 @@ util::expected<bool, client_error> client::blob_exists(const digest& d) {
                      resp->status}};
 }
 
-util::expected<std::string, client_error> client::get_blob(const digest& d) {
-    util::curl::request req;
-    req.url = registry_url_ + detail::blob_path(repository_, d.string());
-    // registries 307-redirect blob downloads to backing storage.
-    req.follow_redirects = true;
-
-    auto resp = authed_perform(req, false);
-    if (!resp) {
-        return util::unexpected{resp.error()};
-    }
-    if (resp->status != 200) {
-        return util::unexpected{client_error{
-            fmt::format("failed to fetch blob {} (status {}): {}", d.string(),
-                        resp->status, util::curl::http_message(resp->status)),
-            resp->status}};
-    }
-    return resp->body;
-}
-
 util::expected<void, client_error> client::get_blob_to_file(
     const digest& d, const std::filesystem::path& file,
     std::function<void(std::uint64_t, std::uint64_t)> progress,
