@@ -102,9 +102,6 @@ class client {
     // does a blob exist? HEAD; 200 -> true, 404 -> false.
     util::expected<bool, client_error> blob_exists(const digest& d);
 
-    // fetch a blob's bytes (follows the 307 redirect to backing storage).
-    util::expected<std::string, client_error> get_blob(const digest& d);
-
     // stream a blob straight to a file, never holding it in memory (for the
     // multi-GB squashfs layer). follows the 307 redirect to backing storage.
     // an optional progress callback receives (bytes_downloaded, bytes_total);
