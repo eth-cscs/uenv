@@ -386,6 +386,22 @@ util::expected<void, std::string> make_mutable_root() {
             return r;
         }
 
+        // /proc, /sys: remounting these with MS_NOSUID can fail with EPERM
+        // (observed on daint). Real bwrap never fails here either, though
+        // not because it special-cases these by name: it reads each mount's
+        // *current* flags from /proc/self/mountinfo and only issues the
+        // remount if the desired flags aren't already set - and /proc, /sys
+        // are typically already mounted nosuid,nodev by the host, so the
+        // remount is a no-op it skips entirely. /tmp: it is always the
+        // tmpfs created above via mount("tmpfs", "/tmp", "tmpfs",
+        // MS_NOSUID|MS_NODEV, ...), so it already has MS_NOSUID set at
+        // creation time - remounting it is both redundant and, on some
+        // kernels/configs, known to fail.
+        auto name = entry.filename();
+        if (name == "proc" || name == "sys" || name == "tmp") {
+            continue;
+        }
+
         if (auto r = mount("none", dst.c_str(), std::nullopt,
                            MS_NOSUID | MS_REMOUNT | MS_BIND | MS_SILENT |
                                MS_RELATIME,
