@@ -28,6 +28,7 @@
 #include <oci/pull.h>
 #include <oci/push.h>
 #include <oci/reference.h>
+#include <oci/util.h>
 #include <util/curl.h>
 #include <util/fs.h>
 #include <util/sha256.h>
@@ -229,6 +230,17 @@ TEST_CASE("oci registry attach + referrers + pull_meta", "[registry]") {
         }
     }
     REQUIRE(found_meta);
+
+    // the referrers tag schema (<algo>-<hex>) is the fallback used by
+    // client::referrers on registries without the Referrers API; attach must
+    // maintain it, and its index must list the same referrers as the API.
+    const auto fallback_tag =
+        oci::reference::tag(pushed->algorithm() + "-" + pushed->hex());
+    auto tag_index = c->get_manifest(fallback_tag);
+    REQUIRE(tag_index.has_value());
+    auto tag_refs = oci::detail::parse_referrers(tag_index->body);
+    REQUIRE(tag_refs.has_value());
+    REQUIRE(*tag_refs == *refs);
 
     auto store = util::make_temp_dir().value();
     auto got = oci::pull_meta(*c, *pushed, store);

@@ -5,21 +5,12 @@
 #include <fmt/format.h>
 
 #include <oci/auth.h>
+#include <oci/util.h>
 #include <util/fs.h>
 
-// the pure helpers are not part of the public auth.h interface; redeclare their
-// prototypes here (they live in namespace oci::impl in auth.cpp). the
-// bearer-challenge parser moved to src/oci/parse.cpp and is covered by
-// test/unit/oci_parse.cpp.
-namespace oci::impl {
-std::string token_url(const bearer_challenge&, const std::vector<std::string>&);
-std::optional<std::string> parse_token_response(std::string_view);
-std::string repository_scope(std::string_view, std::string_view);
-} // namespace oci::impl
-
-using oci::impl::parse_token_response;
-using oci::impl::repository_scope;
-using oci::impl::token_url;
+using oci::detail::parse_token_response;
+using oci::detail::repository_scope;
+using oci::detail::token_url;
 
 TEST_CASE("oci token_url", "[oci][auth]") {
     oci::bearer_challenge c{.realm = "https://jfrog.svc.cscs.ch/v2/token",

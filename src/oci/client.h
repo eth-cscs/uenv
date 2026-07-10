@@ -106,7 +106,10 @@ class client {
     // list the repository's tags.
     util::expected<std::vector<std::string>, std::string> list_tags();
 
-    // list artifacts that refer to `d` (replaces `oras discover`).
+    // list artifacts that refer to `d` (replaces `oras discover`). registries
+    // that do not implement the OCI 1.1 Referrers API (404) are handled by
+    // falling back to the referrers tag schema (the <algo>-<hex> tag that the
+    // push side maintains); an absent tag means "no referrers".
     util::expected<std::vector<descriptor>, std::string>
     referrers(const digest& d);
 
@@ -155,6 +158,11 @@ class client {
     // which case requests are sent without an Authorization header.
     util::expected<std::optional<std::string>, std::string>
     token_for(bool write);
+
+    // read the referrers of `d` from the referrers tag schema index
+    // (<algo>-<hex>): the fallback for registries without the Referrers API.
+    util::expected<std::vector<descriptor>, std::string>
+    referrers_from_tag(const digest& d);
 
     std::string registry_url_; // normalised, no trailing '/'
     std::string repository_;

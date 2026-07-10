@@ -14,58 +14,13 @@
 
 #include <oci/auth.h>
 #include <oci/parse.h>
+#include <oci/util.h>
 #include <util/curl.h>
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/strings.h>
 
 namespace oci {
-
-// --- pure helpers (no network; unit-tested) -----------------------------
-// Kept out of the public auth.h interface; tests redeclare these prototypes
-// inside namespace oci::impl (see test/unit/oci_auth.cpp). The bearer-challenge
-// parser lives in src/oci/parse.cpp (oci::parse_bearer_challenge).
-namespace impl {
-
-std::string token_url(const bearer_challenge& challenge,
-                      const std::vector<std::string>& scopes) {
-    std::string url = challenge.realm;
-    char sep = url.find('?') == std::string::npos ? '?' : '&';
-    if (!challenge.service.empty()) {
-        url += sep;
-        url += "service=";
-        url += challenge.service;
-        sep = '&';
-    }
-    for (const auto& scope : scopes) {
-        url += sep;
-        url += "scope=";
-        url += scope;
-        sep = '&';
-    }
-    return url;
-}
-
-std::optional<std::string> parse_token_response(std::string_view body) {
-    auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
-    if (j.is_discarded() || !j.is_object()) {
-        return std::nullopt;
-    }
-    if (auto it = j.find("token"); it != j.end() && it->is_string()) {
-        return it->get<std::string>();
-    }
-    if (auto it = j.find("access_token"); it != j.end() && it->is_string()) {
-        return it->get<std::string>();
-    }
-    return std::nullopt;
-}
-
-std::string repository_scope(std::string_view repository,
-                             std::string_view actions) {
-    return fmt::format("repository:{}:{}", repository, actions);
-}
-
-} // namespace impl
 
 util::expected<std::optional<bearer_challenge>, std::string>
 discover_challenge(const std::string& registry_url) {
@@ -113,7 +68,7 @@ fetch_token(const bearer_challenge& challenge,
             const std::vector<std::string>& scopes,
             const std::optional<credentials>& creds) {
     util::curl::request req;
-    req.url = impl::token_url(challenge, scopes);
+    req.url = detail::token_url(challenge, scopes);
     if (creds) {
         req.username = creds->username;
         req.password = creds->password;
@@ -130,7 +85,7 @@ fetch_token(const bearer_challenge& challenge,
             fmt::format("token request to {} failed with status {}: {}",
                         req.url, resp->status, resp->body)};
     }
-    auto token = impl::parse_token_response(resp->body);
+    auto token = detail::parse_token_response(resp->body);
     if (!token) {
         return util::unexpected{
             "token endpoint response did not contain a token"};

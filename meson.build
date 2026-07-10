@@ -68,6 +68,7 @@ lib_src = [
         'src/oci/pull.cpp',
         'src/oci/push.cpp',
         'src/oci/reference.cpp',
+        'src/oci/util.cpp',
         'src/uenv/parse.cpp',
         'src/uenv/print.cpp',
         'src/uenv/repository.cpp',

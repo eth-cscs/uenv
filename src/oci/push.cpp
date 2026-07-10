@@ -14,18 +14,13 @@
 #include <oci/manifest.h>
 #include <oci/push.h>
 #include <oci/reference.h>
+#include <oci/util.h>
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/sha256.h>
 #include <util/subprocess.h>
 
 namespace oci {
-
-// defined in client.cpp (part of oci::impl, kept out of the public interface).
-// parses the "manifests" array of an OCI image index into descriptors.
-namespace impl {
-std::optional<std::vector<descriptor>> parse_referrers(std::string_view body);
-}
 
 namespace fs = std::filesystem;
 
@@ -221,7 +216,7 @@ void maintain_referrers_tag(client& c, const digest& subject,
     // as an empty index.
     std::vector<descriptor> manifests;
     if (auto existing = c.get_manifest(tag)) {
-        if (auto refs = impl::parse_referrers(existing->body)) {
+        if (auto refs = detail::parse_referrers(existing->body)) {
             manifests = std::move(*refs);
         }
     }

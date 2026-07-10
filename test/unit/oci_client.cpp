@@ -4,24 +4,11 @@
 
 #include <oci/client.h>
 #include <oci/digest.h>
+#include <oci/util.h>
 #include <util/sha256.h>
 
-// the pure helpers are not part of the public client.h interface; redeclare
-// their prototypes here (they live in namespace oci::impl in client.cpp).
-namespace oci::impl {
-std::string blob_path(std::string_view, std::string_view);
-std::string manifest_path(std::string_view, std::string_view);
-std::string uploads_path(std::string_view);
-std::string tags_path(std::string_view);
-std::string referrers_path(std::string_view, std::string_view);
-std::string resolve_upload_url(std::string_view, std::string_view,
-                               std::string_view);
-std::optional<std::vector<std::string>> parse_tags_list(std::string_view);
-std::optional<std::vector<descriptor>> parse_referrers(std::string_view);
-} // namespace oci::impl
-
 using namespace oci;
-using namespace oci::impl;
+using namespace oci::detail;
 
 TEST_CASE("oci path builders", "[oci][client]") {
     const std::string repo = "deploy/todi/gh200/app/1.0";

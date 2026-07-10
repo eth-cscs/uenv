@@ -13,117 +13,13 @@
 
 #include <oci/client.h>
 #include <oci/parse.h>
+#include <oci/util.h>
 #include <util/curl.h>
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/sha256.h>
 
 namespace oci {
-
-// pure helpers (no network; unit-tested). Kept out of the public client.h
-// interface; tests redeclare these prototypes inside namespace oci::impl (see
-// test/unit/oci_client.cpp).
-namespace impl {
-
-// defined in auth.cpp (also part of oci::impl).
-std::string repository_scope(std::string_view repository,
-                             std::string_view actions);
-
-std::string blob_path(std::string_view repository, std::string_view digest) {
-    return fmt::format("/v2/{}/blobs/{}", repository, digest);
-}
-
-std::string manifest_path(std::string_view repository,
-                          std::string_view reference) {
-    return fmt::format("/v2/{}/manifests/{}", repository, reference);
-}
-
-std::string uploads_path(std::string_view repository) {
-    return fmt::format("/v2/{}/blobs/uploads/", repository);
-}
-
-std::string tags_path(std::string_view repository) {
-    return fmt::format("/v2/{}/tags/list", repository);
-}
-
-std::string referrers_path(std::string_view repository,
-                           std::string_view digest) {
-    return fmt::format("/v2/{}/referrers/{}", repository, digest);
-}
-
-std::string resolve_upload_url(std::string_view registry_url,
-                               std::string_view location,
-                               std::string_view digest) {
-    std::string url;
-    // the Location may be absolute (https://...) or registry-relative
-    // (/v2/...).
-    if (location.rfind("http://", 0) == 0 ||
-        location.rfind("https://", 0) == 0) {
-        url = std::string{location};
-    } else {
-        std::string base{registry_url};
-        while (!base.empty() && base.back() == '/') {
-            base.pop_back();
-        }
-        if (!location.empty() && location.front() != '/') {
-            base.push_back('/');
-        }
-        url = base + std::string{location};
-    }
-    // append the digest query parameter the monolithic PUT requires.
-    url += (url.find('?') == std::string::npos) ? '?' : '&';
-    url += "digest=";
-    url += digest;
-    return url;
-}
-
-std::optional<std::vector<std::string>> parse_tags_list(std::string_view body) {
-    auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
-    if (j.is_discarded() || !j.is_object()) {
-        return std::nullopt;
-    }
-    std::vector<std::string> tags;
-    if (auto it = j.find("tags"); it != j.end() && it->is_array()) {
-        for (const auto& t : *it) {
-            if (t.is_string()) {
-                tags.push_back(t.get<std::string>());
-            }
-        }
-    }
-    return tags;
-}
-
-std::optional<std::vector<descriptor>> parse_referrers(std::string_view body) {
-    auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
-    if (j.is_discarded() || !j.is_object()) {
-        return std::nullopt;
-    }
-    std::vector<descriptor> out;
-    auto it = j.find("manifests");
-    if (it == j.end() || !it->is_array()) {
-        return out;
-    }
-    for (const auto& m : *it) {
-        if (!m.is_object()) {
-            continue;
-        }
-        // a descriptor must carry a valid digest; skip malformed entries.
-        auto dg = digest::parse(m.value("digest", std::string{}));
-        if (!dg) {
-            continue;
-        }
-        descriptor d{.media_type = m.value("mediaType", std::string{}),
-                     .digest = *dg,
-                     .size = m.value("size", std::size_t{0})};
-        if (auto a = m.find("artifactType"); a != m.end() && a->is_string()) {
-            d.artifact_type = a->get<std::string>();
-        }
-        out.push_back(std::move(d));
-    }
-    return out;
-}
-
-} // namespace impl
 
 // --- registry addressing helpers (pure) ---------------------------------
 
@@ -201,10 +97,10 @@ client::token_for(bool write) {
     }
     std::vector<std::string> scopes;
     scopes.push_back(
-        impl::repository_scope(repository_, write ? "pull,push" : "pull"));
+        detail::repository_scope(repository_, write ? "pull,push" : "pull"));
     // cross-repo blob mounts need pull scope on the source repository too.
     for (const auto& r : extra_pull_scopes_) {
-        scopes.push_back(impl::repository_scope(r, "pull"));
+        scopes.push_back(detail::repository_scope(r, "pull"));
     }
     auto token = fetch_token(*challenge_, scopes, creds_);
     if (!token) {
@@ -224,7 +120,7 @@ util::expected<bool, std::string> client::blob_exists(const digest& d) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::blob_path(repository_, d.string());
+    req.url = registry_url_ + detail::blob_path(repository_, d.string());
     req.method = util::curl::http_method::head;
     req.bearer_token = *token;
 
@@ -248,7 +144,7 @@ util::expected<std::string, std::string> client::get_blob(const digest& d) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::blob_path(repository_, d.string());
+    req.url = registry_url_ + detail::blob_path(repository_, d.string());
     req.bearer_token = *token;
     // registries 307-redirect blob downloads to backing storage.
     req.follow_redirects = true;
@@ -291,7 +187,7 @@ util::expected<void, std::string> client::get_blob_to_file(
     const std::filesystem::path partial{file.string() + ".partial"};
 
     util::curl::request req;
-    req.url = registry_url_ + impl::blob_path(repository_, d.string());
+    req.url = registry_url_ + detail::blob_path(repository_, d.string());
     req.bearer_token = *token;
     req.follow_redirects = true;
     req.download_file = partial;
@@ -367,7 +263,7 @@ client::get_manifest(const reference& ref) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::manifest_path(repository_, ref.string());
+    req.url = registry_url_ + detail::manifest_path(repository_, ref.string());
     req.bearer_token = *token;
     req.header_lines = {fmt::format("Accept: {}", media_type_manifest),
                         fmt::format("Accept: {}", media_type_index)};
@@ -398,7 +294,7 @@ util::expected<std::vector<std::string>, std::string> client::list_tags() {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::tags_path(repository_);
+    req.url = registry_url_ + detail::tags_path(repository_);
     req.bearer_token = *token;
 
     auto resp = util::curl::perform(req);
@@ -409,7 +305,7 @@ util::expected<std::vector<std::string>, std::string> client::list_tags() {
         return util::unexpected{
             fmt::format("failed to list tags (status {})", resp->status)};
     }
-    auto tags = impl::parse_tags_list(resp->body);
+    auto tags = detail::parse_tags_list(resp->body);
     if (!tags) {
         return util::unexpected{"could not parse tags/list response"};
     }
@@ -423,22 +319,73 @@ client::referrers(const digest& d) {
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::referrers_path(repository_, d.string());
+    req.url = registry_url_ + detail::referrers_path(repository_, d.string());
     req.bearer_token = *token;
 
     auto resp = util::curl::perform(req);
     if (!resp) {
         return util::unexpected{resp.error().message};
     }
+    if (resp->status == 404) {
+        // per the OCI 1.1 distribution spec, a 404 means the registry does
+        // not implement the Referrers API (implementing registries return 200
+        // with an empty index, even for a subject with no referrers). fall
+        // back to the referrers tag schema that the push side maintains.
+        spdlog::debug("oci::referrers {}: Referrers API unavailable (404), "
+                      "falling back to the referrers tag schema",
+                      d.string());
+        return referrers_from_tag(d);
+    }
     if (resp->status != 200) {
         return util::unexpected{fmt::format(
             "failed to fetch referrers of {} (status {}): {}", d.string(),
             resp->status, util::curl::http_message(resp->status))};
     }
-    auto refs = impl::parse_referrers(resp->body);
+    auto refs = detail::parse_referrers(resp->body);
     if (!refs) {
         return util::unexpected{"could not parse referrers response"};
     }
+    return *refs;
+}
+
+util::expected<std::vector<descriptor>, std::string>
+client::referrers_from_tag(const digest& d) {
+    auto token = token_for(false);
+    if (!token) {
+        return util::unexpected{token.error()};
+    }
+    // the tag schema names an OCI image index <algo>-<hex> in the same
+    // repository as the subject (see maintain_referrers_tag in push.cpp).
+    const auto tag = d.algorithm() + "-" + d.hex();
+    util::curl::request req;
+    req.url = registry_url_ + detail::manifest_path(repository_, tag);
+    req.bearer_token = *token;
+    req.header_lines = {fmt::format("Accept: {}", media_type_index),
+                        fmt::format("Accept: {}", media_type_manifest)};
+
+    spdlog::debug("oci::referrers_from_tag fetching {}", req.url);
+    auto resp = util::curl::perform(req);
+    if (!resp) {
+        return util::unexpected{resp.error().message};
+    }
+    if (resp->status == 404) {
+        // the tag was never created: the subject has no referrers.
+        spdlog::debug("oci::referrers_from_tag {}: tag absent, no referrers",
+                      tag);
+        return std::vector<descriptor>{};
+    }
+    if (resp->status != 200) {
+        return util::unexpected{
+            fmt::format("failed to fetch referrers tag {} (status {}): {}", tag,
+                        resp->status, util::curl::http_message(resp->status))};
+    }
+    auto refs = detail::parse_referrers(resp->body);
+    if (!refs) {
+        return util::unexpected{
+            fmt::format("could not parse referrers tag index {}", tag)};
+    }
+    spdlog::debug("oci::referrers_from_tag {}: {} referrer(s)", tag,
+                  refs->size());
     return *refs;
 }
 
@@ -472,7 +419,7 @@ do_put_blob(const std::string& registry_url, const std::string& uploads,
 
     // 2. PUT the payload to <location>?digest=<digest>
     util::curl::request put;
-    put.url = impl::resolve_upload_url(registry_url, *location, digest);
+    put.url = detail::resolve_upload_url(registry_url, *location, digest);
     put.method = util::curl::http_method::put;
     put.bearer_token = token;
     put.header_lines = {
@@ -503,7 +450,7 @@ client::mount_blob(const digest& d, const std::string& from_repository) {
         return util::unexpected{token.error()};
     }
     util::curl::request post;
-    post.url = registry_url_ + impl::uploads_path(repository_) +
+    post.url = registry_url_ + detail::uploads_path(repository_) +
                "?mount=" + d.string() + "&from=" + from_repository;
     post.method = util::curl::http_method::post;
     post.bearer_token = *token;
@@ -540,7 +487,7 @@ client::put_blob(const digest& d, const std::filesystem::path& file,
     if (!token) {
         return util::unexpected{token.error()};
     }
-    return do_put_blob(registry_url_, impl::uploads_path(repository_), *token,
+    return do_put_blob(registry_url_, detail::uploads_path(repository_), *token,
                        d.string(), [&file, &progress](util::curl::request& r) {
                            r.upload_file = file;
                            if (progress) {
@@ -558,7 +505,7 @@ client::put_blob_bytes(const digest& d, const std::string& data) {
     if (!token) {
         return util::unexpected{token.error()};
     }
-    return do_put_blob(registry_url_, impl::uploads_path(repository_), *token,
+    return do_put_blob(registry_url_, detail::uploads_path(repository_), *token,
                        d.string(),
                        [&data](util::curl::request& r) { r.body = data; });
 }
@@ -571,7 +518,7 @@ client::put_manifest(const reference& ref, const std::string& body,
         return util::unexpected{token.error()};
     }
     util::curl::request req;
-    req.url = registry_url_ + impl::manifest_path(repository_, ref.string());
+    req.url = registry_url_ + detail::manifest_path(repository_, ref.string());
     req.method = util::curl::http_method::put;
     req.bearer_token = *token;
     req.body = body;
