@@ -61,6 +61,22 @@ std::string resolve_upload_url(std::string_view registry_url,
     return url;
 }
 
+std::string json_string_or(const nlohmann::json& j, const char* key,
+                           std::string fallback) {
+    if (auto it = j.find(key); it != j.end() && it->is_string()) {
+        return it->get<std::string>();
+    }
+    return fallback;
+}
+
+std::size_t json_size_or(const nlohmann::json& j, const char* key,
+                         std::size_t fallback) {
+    if (auto it = j.find(key); it != j.end() && it->is_number_unsigned()) {
+        return it->get<std::size_t>();
+    }
+    return fallback;
+}
+
 std::optional<std::vector<std::string>> parse_tags_list(std::string_view body) {
     auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
     if (j.is_discarded() || !j.is_object()) {
@@ -92,13 +108,13 @@ std::optional<std::vector<descriptor>> parse_referrers(std::string_view body) {
             continue;
         }
         // a descriptor must carry a valid digest; skip malformed entries.
-        auto dg = digest::parse(m.value("digest", std::string{}));
+        auto dg = digest::parse(json_string_or(m, "digest", {}));
         if (!dg) {
             continue;
         }
-        descriptor d{.media_type = m.value("mediaType", std::string{}),
+        descriptor d{.media_type = json_string_or(m, "mediaType", {}),
                      .digest = *dg,
-                     .size = m.value("size", std::size_t{0})};
+                     .size = json_size_or(m, "size", 0)};
         if (auto a = m.find("artifactType"); a != m.end() && a->is_string()) {
             d.artifact_type = a->get<std::string>();
         }

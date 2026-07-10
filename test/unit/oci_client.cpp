@@ -91,6 +91,18 @@ TEST_CASE("oci parse_referrers", "[oci][client]") {
     REQUIRE(skipped.has_value());
     REQUIRE(skipped->empty());
 
+    // wrong-typed fields never throw: a non-string digest skips the entry,
+    // and a non-integer size falls back to 0
+    auto wrong_digest = parse_referrers(R"({"manifests":[{"digest":123}]})");
+    REQUIRE(wrong_digest.has_value());
+    REQUIRE(wrong_digest->empty());
+    auto wrong_size = parse_referrers(
+        fmt::format(R"({{"manifests":[{{"digest":"sha256:{}","size":"5"}}]}})",
+                    digest_hex));
+    REQUIRE(wrong_size.has_value());
+    REQUIRE(wrong_size->size() == 1);
+    REQUIRE(wrong_size->front().size == 0);
+
     // no manifests array -> empty list
     auto empty = parse_referrers(R"({"manifests":[]})");
     REQUIRE(empty.has_value());

@@ -7,6 +7,7 @@
 #include <oci/client.h>
 #include <oci/digest.h>
 #include <oci/manifest.h>
+#include <oci/util.h>
 
 namespace oci {
 
@@ -130,13 +131,13 @@ namespace {
 
 util::expected<descriptor, std::string>
 parse_descriptor(const nlohmann::json& j) {
-    auto dg = digest::parse(j.value("digest", std::string{}));
+    auto dg = digest::parse(detail::json_string_or(j, "digest", {}));
     if (!dg) {
         return util::unexpected{dg.error().message()};
     }
-    descriptor d{.media_type = j.value("mediaType", std::string{}),
+    descriptor d{.media_type = detail::json_string_or(j, "mediaType", {}),
                  .digest = *dg,
-                 .size = j.value("size", std::size_t{0})};
+                 .size = detail::json_size_or(j, "size", 0)};
     if (auto a = j.find("artifactType"); a != j.end() && a->is_string()) {
         d.artifact_type = a->get<std::string>();
     }
@@ -167,8 +168,9 @@ util::expected<manifest, std::string> parse_manifest(std::string_view body) {
     }
 
     manifest m;
-    m.media_type = j.value("mediaType", std::string{media_type_manifest});
-    m.artifact_type = j.value("artifactType", std::string{});
+    m.media_type = detail::json_string_or(j, "mediaType",
+                                          std::string{media_type_manifest});
+    m.artifact_type = detail::json_string_or(j, "artifactType", {});
 
     // reject multi-arch image indexes / manifest lists: they carry a
     // `manifests` array of per-platform descriptors instead of `layers`, so
@@ -193,15 +195,19 @@ util::expected<manifest, std::string> parse_manifest(std::string_view body) {
 
     if (auto ls = j.find("layers"); ls != j.end() && ls->is_array()) {
         for (const auto& l : *ls) {
-            auto dg = digest::parse(l.value("digest", std::string{}));
+            if (!l.is_object()) {
+                return util::unexpected{
+                    "manifest layer entry is not a JSON object"};
+            }
+            auto dg = digest::parse(detail::json_string_or(l, "digest", {}));
             if (!dg) {
                 return util::unexpected{fmt::format("invalid layer digest: {}",
                                                     dg.error().message())};
             }
             manifest_layer layer{.media_type =
-                                     l.value("mediaType", std::string{}),
+                                     detail::json_string_or(l, "mediaType", {}),
                                  .digest = *dg,
-                                 .size = l.value("size", std::size_t{0}),
+                                 .size = detail::json_size_or(l, "size", 0),
                                  .annotations = parse_annotations(l)};
             m.layers.push_back(std::move(layer));
         }

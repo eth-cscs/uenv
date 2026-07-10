@@ -6,10 +6,13 @@
 // client.h/auth.h interfaces — include this header only from src/oci/*.cpp
 // and test/unit/oci_*.cpp.
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include <oci/auth.h>
 #include <oci/client.h>
@@ -37,6 +40,20 @@ std::string referrers_path(std::string_view repository,
 std::string resolve_upload_url(std::string_view registry_url,
                                std::string_view location,
                                std::string_view digest);
+
+// --- checked JSON field accessors --------------------------------------------
+// Registry responses are untrusted input, and nlohmann's value() throws
+// json::type_error when a key is present with a mismatched type. These return
+// the fallback instead.
+
+// value of the string field `key`, or `fallback` when absent or not a string.
+std::string json_string_or(const nlohmann::json& j, const char* key,
+                           std::string fallback);
+
+// value of the non-negative integer field `key`, or `fallback` when absent or
+// not such a number.
+std::size_t json_size_or(const nlohmann::json& j, const char* key,
+                         std::size_t fallback);
 
 // --- response-body parsers -------------------------------------------------
 

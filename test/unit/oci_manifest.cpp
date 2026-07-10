@@ -125,6 +125,25 @@ TEST_CASE("parse_manifest rejects malformed", "[oci][manifest]") {
                       .has_value());
 }
 
+TEST_CASE("parse_manifest survives wrong-typed fields", "[oci][manifest]") {
+    // registry responses are untrusted: a key that is present with the wrong
+    // type must produce a parse error (or a fallback), never an uncaught
+    // nlohmann::json::type_error.
+    REQUIRE_FALSE(parse_manifest(R"({"layers":[{"digest":123}]})").has_value());
+    REQUIRE_FALSE(parse_manifest(R"({"layers":[1]})").has_value());
+    // a wrong-typed config size falls back to 0 (the digest is valid)
+    const auto cfg = fmt::format(
+        R"({{"config":{{"digest":"sha256:{}","size":"2"}}}})",
+        "f7f04f3b2cf562336c73542f0c53503c3b853ac459f081878843f878955cf267");
+    auto parsed = parse_manifest(cfg);
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->config.size == 0);
+    // a wrong-typed top-level mediaType falls back to the manifest media type
+    auto media = parse_manifest(R"({"mediaType":123})");
+    REQUIRE(media.has_value());
+    REQUIRE(media->media_type == media_type_manifest);
+}
+
 TEST_CASE("parse_manifest rejects image indexes", "[oci][manifest]") {
     // by media type
     REQUIRE_FALSE(
