@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <vector>
 
 #include <fmt/format.h>
 
@@ -216,7 +217,8 @@ sha256_digest sha256_string(std::string_view text) {
 }
 
 util::expected<sha256_digest, std::string>
-sha256_file(const std::filesystem::path& path) {
+sha256_file(const std::filesystem::path& path,
+            std::function<void(std::uint64_t)> progress) {
     std::FILE* f = std::fopen(path.c_str(), "rb");
     if (f == nullptr) {
         return util::unexpected{fmt::format("unable to open {} for reading: {}",
@@ -226,10 +228,18 @@ sha256_file(const std::filesystem::path& path) {
 
     sha256_state s;
     sha256_init(s);
-    std::array<std::byte, 1 << 16> buf;
+    // one chunk per megabyte: fine-grained enough to drive a progress bar
+    // reported in MB, without calling back hundreds of thousands of times on a
+    // multi-GB file. Heap-allocated: too large to sit on a thread stack.
+    std::vector<std::byte> buf(1 << 20);
+    std::uint64_t hashed = 0;
     std::size_t n;
     while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0) {
         sha256_update(s, std::span<const std::byte>{buf.data(), n});
+        hashed += n;
+        if (progress) {
+            progress(hashed);
+        }
     }
 
     if (std::ferror(f)) {

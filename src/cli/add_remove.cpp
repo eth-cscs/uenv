@@ -1,5 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
+#include <memory>
 #include <string>
 
 #include <fmt/core.h>
@@ -103,7 +104,24 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         sqfs = squashfs_image{env->sqfs_path, env->meta_path,
                               fmt::format("{}", env->record->sha)};
     } else {
-        sqfs = uenv::validate_squashfs_image(env->sqfs_path);
+        // hashing the image reads the whole file, so show progress for it. The
+        // bar is created on the first callback, once the size is known.
+        std::unique_ptr<uenv::transfer_bar> prepare_bar;
+        sqfs = uenv::validate_squashfs_image(
+            env->sqfs_path,
+            [&prepare_bar, &env](std::uint64_t done, std::uint64_t total) {
+                if (!prepare_bar) {
+                    prepare_bar = uenv::make_transfer_bar(
+                        total, fmt::format("preparing {}",
+                                           env->sqfs_path.filename().string()));
+                }
+                prepare_bar->update(done);
+            });
+        // stop the bar before anything else is printed, so that an error
+        // message does not land on the bar's line.
+        if (prepare_bar) {
+            prepare_bar->finish();
+        }
         if (!sqfs) {
             term::error("invalid source {}: {}", args.source, sqfs.error());
             return 1;

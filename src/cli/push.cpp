@@ -1,7 +1,7 @@
 // vim: ts=4 sts=4 sw=4 et
 
-#include <atomic>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <unistd.h>
 
@@ -125,8 +125,27 @@ int image_push([[maybe_unused]] const image_push_args& args,
         term::msg("the destination already exists and will be overwritten");
     }
 
-    // validate the source squashfs file
-    auto sqfs = uenv::validate_squashfs_image(args.source);
+    // validate the source squashfs file. This hashes the whole image, which
+    // takes minutes for a multi-GB uenv, so show a progress bar for it. The bar
+    // is created on the first callback, once the image size is known.
+    std::unique_ptr<uenv::transfer_bar> prepare_bar;
+    auto sqfs = uenv::validate_squashfs_image(
+        args.source,
+        [&prepare_bar, &args](std::uint64_t done, std::uint64_t total) {
+            if (!prepare_bar) {
+                prepare_bar = uenv::make_transfer_bar(
+                    total, fmt::format("preparing {}",
+                                       std::filesystem::path{args.source}
+                                           .filename()
+                                           .string()));
+            }
+            prepare_bar->update(done);
+        });
+    // stop the bar before anything else is printed, so that an error message
+    // does not land on the bar's line.
+    if (prepare_bar) {
+        prepare_bar->finish();
+    }
     if (!sqfs) {
         term::error("invalid squashfs file {}: {}", args.source, sqfs.error());
         return 1;
@@ -158,39 +177,27 @@ int image_push([[maybe_unused]] const image_push_args& args,
     // interrupt leaves nothing referencing a partial blob.
     std::optional<oci::digest> image_digest;
     {
-        // atomic: written by curl's progress callback on the main thread, read
-        // concurrently by barkeep's display thread.
-        std::atomic<std::size_t> uploaded_mb{0u};
         std::error_code ec;
         auto size_byte = std::filesystem::file_size(sqfs->sqfs, ec);
-        // round up so total_mb is never zero
-        std::size_t total_mb{
-            ec ? 0u : (size_byte + (1024 * 1024 - 1)) / (1024 * 1024)};
-        auto bar = bk::ProgressBar(
-            &uploaded_mb,
-            {
-                .total = total_mb,
-                .message = fmt::format("pushing {} to registry",
-                                       sqfs->sqfs.filename().string()),
-                .speed = 0.1,
-                .speed_unit = "MB/s",
-                .style = color::use_color() ? bk::ProgressBarStyle::Rich
-                                            : bk::ProgressBarStyle::Bars,
-                .no_tty = !isatty(fileno(stdout)),
-            });
+        auto bar = uenv::make_transfer_bar(
+            ec ? 0u : size_byte, fmt::format("pushing {} to registry",
+                                             sqfs->sqfs.filename().string()));
 
-        auto progress = [&uploaded_mb](std::uint64_t now, std::uint64_t) {
-            uploaded_mb = now / (1024 * 1024);
+        auto progress = [&bar](std::uint64_t now, std::uint64_t) {
+            bar->update(now);
         };
-        auto push_result = oci::push_squashfs(
-            *client, sqfs->sqfs, oci::reference::tag(*L.tag), progress);
+        // the image was hashed by validate_squashfs_image; pass that digest in
+        // rather than reading the whole file a second time.
+        auto push_result =
+            oci::push_squashfs(*client, sqfs->sqfs, oci::reference::tag(*L.tag),
+                               oci::digest::sha256(sqfs->hash), progress);
+        // fill the bar on success, which also covers the case where the
+        // registry already had the blob and no upload happened.
         if (push_result) {
-            // ensure the progress bar shows 100% on completion (also covers the
-            // case where the registry already had the blob and no upload
-            // happened).
-            uploaded_mb = total_mb;
+            bar->finish();
+        } else {
+            bar->stop();
         }
-        bar->done();
         if (!push_result) {
             term::error("unable to push uenv.\n{}", push_result.error());
             return 1;

@@ -1,10 +1,15 @@
+#include <algorithm>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <catch2/catch_all.hpp>
 
+#include <util/fs.h>
 #include <util/sha256.h>
 
 namespace {
@@ -91,5 +96,82 @@ TEST_CASE("sha256 update splits do not change the digest", "[sha256]") {
                             as_bytes(std::string_view{msg}.substr(0, split)));
         util::sha256_update(s, as_bytes(std::string_view{msg}.substr(split)));
         REQUIRE(util::sha256_final(s).hex() == whole);
+    }
+}
+
+namespace {
+// write `content` to a fresh file in a temporary directory, and return its
+// path.
+std::filesystem::path scratch_file(std::string_view content) {
+    auto dir = util::make_temp_dir().value();
+    auto path = dir / "payload.bin";
+    std::ofstream f{path, std::ios::binary};
+    f.write(content.data(), static_cast<std::streamsize>(content.size()));
+    f.close();
+    return path;
+}
+} // namespace
+
+TEST_CASE("sha256_file", "[sha256]") {
+    // sha256_file streams the file in 1 MiB chunks; size the cases around that.
+    constexpr std::size_t chunk = 1u << 20;
+
+    SECTION("matches the one-shot digest") {
+        const std::string content(3 * chunk + 12345, 'a');
+        auto d = util::sha256_file(scratch_file(content));
+        REQUIRE(d);
+        REQUIRE(d->hex() == util::sha256_string(content).hex());
+    }
+
+    SECTION("an empty file digests the empty string") {
+        auto d = util::sha256_file(scratch_file(""));
+        REQUIRE(d);
+        REQUIRE(d->hex() == util::sha256_string("").hex());
+    }
+
+    SECTION("a missing file is an error") {
+        REQUIRE_FALSE(util::sha256_file("/no/such/file-xyz123"));
+    }
+
+    // the progress callback reports cumulative bytes hashed.
+    SECTION("progress is monotonic and ends at the file size") {
+        const std::string content(3 * chunk + 12345, 'b');
+        auto path = scratch_file(content);
+
+        std::vector<std::uint64_t> seen;
+        auto d = util::sha256_file(
+            path, [&seen](std::uint64_t hashed) { seen.push_back(hashed); });
+        REQUIRE(d);
+
+        // instrumenting the read must not corrupt the digest.
+        REQUIRE(d->hex() == util::sha256_string(content).hex());
+
+        REQUIRE_FALSE(seen.empty());
+        REQUIRE(std::is_sorted(seen.begin(), seen.end()));
+        REQUIRE(std::adjacent_find(seen.begin(), seen.end()) == seen.end());
+        REQUIRE(seen.back() == content.size());
+        // 3 full chunks plus a partial one.
+        REQUIRE(seen.size() == 4);
+    }
+
+    SECTION("a file below the chunk size reports once") {
+        const std::string content(1024, 'c');
+        std::vector<std::uint64_t> seen;
+        auto d = util::sha256_file(
+            scratch_file(content),
+            [&seen](std::uint64_t hashed) { seen.push_back(hashed); });
+        REQUIRE(d);
+        REQUIRE(seen.size() == 1);
+        REQUIRE(seen.front() == content.size());
+    }
+
+    SECTION("an empty file never reports progress") {
+        std::vector<std::uint64_t> seen;
+        auto d =
+            util::sha256_file(scratch_file(""), [&seen](std::uint64_t hashed) {
+                seen.push_back(hashed);
+            });
+        REQUIRE(d);
+        REQUIRE(seen.empty());
     }
 }

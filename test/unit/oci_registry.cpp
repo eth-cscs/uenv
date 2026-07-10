@@ -331,3 +331,40 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
     REQUIRE(tag_refs->size() == 1);
     REQUIRE(tag_refs->front().artifact_type == "uenv/meta");
 }
+
+TEST_CASE("oci registry push_squashfs with a precomputed digest",
+          "[registry]") {
+    const auto base = registry_base();
+    if (base.empty()) {
+        SKIP("no zot binary available for the registry tests");
+    }
+
+    auto dir = util::make_temp_dir().value();
+    const auto sqfs = dir / "store.squashfs";
+    const std::string payload = "squashfs-bytes-precomputed-digest";
+    write_file(sqfs, payload);
+
+    auto c = oci::client::create(base, "test/precomputed/1.0");
+    REQUIRE(c.has_value());
+
+    // supplying the layer digest spares push_squashfs a full read of the file.
+    const auto layer = oci::digest::from_sha256(util::sha256_string(payload));
+    auto pushed =
+        oci::push_squashfs(*c, sqfs, oci::reference::tag("v1"), layer);
+    REQUIRE(pushed.has_value());
+
+    // the manifest records the digest we supplied, and the layer is addressable
+    // under it. (The manifest digest itself is not compared against a
+    // hash-it-yourself push: push_squashfs stamps a wall-clock `created`
+    // annotation, so two pushes need not produce identical manifests.)
+    auto resp = c->get_manifest(oci::reference::tag("v1"));
+    REQUIRE(resp.has_value());
+    auto image = oci::parse_manifest(resp->body);
+    REQUIRE(image.has_value());
+    REQUIRE(image->layers.size() == 1);
+    REQUIRE(image->layers[0].digest == layer);
+
+    const auto blob = dir / "pulled.squashfs";
+    REQUIRE(c->get_blob_to_file(layer, blob).has_value());
+    REQUIRE(read_file(blob) == payload);
+}
