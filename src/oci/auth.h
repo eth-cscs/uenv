@@ -28,6 +28,16 @@ struct bearer_challenge {
                            const bearer_challenge&) = default;
 };
 
+// A token issued by the registry's token endpoint: the raw bearer token (for
+// `Authorization: Bearer <token>`) plus its advertised lifetime in seconds,
+// when the endpoint reported one (`expires_in` is optional in the token
+// response; registries that omit it are treated as never-expiring, and an
+// expired token is instead recovered by the client's 401 retry).
+struct token_response {
+    std::string token;
+    std::optional<long> expires_in;
+};
+
 // --- network operations -------------------------------------------------
 
 // Probe `<registry_url>/v2/` and parse the auth challenge. Returns the parsed
@@ -39,8 +49,8 @@ discover_challenge(const std::string& registry_url);
 
 // Request a bearer token for the given scopes, optionally authenticating with
 // basic-auth credentials (required for push or private pull; omit for anonymous
-// pull). Returns the raw token string for use as `Authorization: Bearer <tok>`.
-util::expected<std::string, std::string>
+// pull).
+util::expected<token_response, std::string>
 fetch_token(const bearer_challenge& challenge,
             const std::vector<std::string>& scopes,
             const std::optional<credentials>& creds = std::nullopt);

@@ -290,6 +290,14 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
     auto pushed = oci::push_squashfs(*src, sqfs, oci::reference::tag("v1"));
     REQUIRE(pushed.has_value());
 
+    // attach metadata to the source image: copy must carry it across.
+    const auto meta = dir / "meta";
+    std::filesystem::create_directories(meta);
+    write_file(meta / "env.json", R"({"views":{}})");
+    auto att =
+        oci::attach(*src, oci::reference::digest(*pushed), "uenv/meta", meta);
+    REQUIRE(att.has_value());
+
     auto copied =
         oci::copy_image(base, src_repo, dst_repo, *pushed, "v1", std::nullopt);
     REQUIRE(copied.has_value());
@@ -302,4 +310,24 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
     const auto local =
         oci::digest::from_sha256(util::sha256_string(resp->body));
     REQUIRE(local == *pushed);
+
+    // the attached metadata is discoverable and pullable from the
+    // destination.
+    auto store = util::make_temp_dir().value();
+    auto got = oci::pull_meta(*dst, *pushed, store);
+    REQUIRE(got.has_value());
+    REQUIRE(*got);
+    REQUIRE(read_file(store / "meta" / "env.json") == R"({"views":{}})");
+
+    // copy must also recreate the referrers tag-schema index on the
+    // destination, so the attachment is discoverable on registries without
+    // the Referrers API.
+    const auto fallback_tag =
+        oci::reference::tag(pushed->algorithm() + "-" + pushed->hex());
+    auto tag_index = dst->get_manifest(fallback_tag);
+    REQUIRE(tag_index.has_value());
+    auto tag_refs = oci::detail::parse_referrers(tag_index->body);
+    REQUIRE(tag_refs.has_value());
+    REQUIRE(tag_refs->size() == 1);
+    REQUIRE(tag_refs->front().artifact_type == "uenv/meta");
 }

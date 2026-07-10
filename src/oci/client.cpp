@@ -93,7 +93,15 @@ client::token_for(bool write) {
     }
     auto& cache = write ? push_token_ : pull_token_;
     if (cache) {
-        return *cache;
+        if (!cache->expires_at ||
+            std::chrono::steady_clock::now() <
+                cache->expires_at.value() - token_refresh_margin) {
+            return cache->value;
+        }
+        spdlog::debug("oci::token_for cached {} token reached its advertised "
+                      "expiry, refreshing",
+                      write ? "push" : "pull");
+        cache = std::nullopt;
     }
     std::vector<std::string> scopes;
     scopes.push_back(
@@ -106,8 +114,57 @@ client::token_for(bool write) {
     if (!token) {
         return util::unexpected{token.error()};
     }
-    cache = *token;
-    return *cache;
+    cached_token entry{.value = std::move(token->token),
+                       .expires_at = std::nullopt};
+    if (token->expires_in) {
+        entry.expires_at = std::chrono::steady_clock::now() +
+                           std::chrono::seconds{token->expires_in.value()};
+        spdlog::debug("oci::token_for fetched {} token (expires in {}s)",
+                      write ? "push" : "pull", token->expires_in.value());
+    } else {
+        spdlog::debug("oci::token_for fetched {} token (no advertised expiry)",
+                      write ? "push" : "pull");
+    }
+    cache = std::move(entry);
+    return cache->value;
+}
+
+util::expected<util::curl::response, client_error>
+client::authed_perform(util::curl::request& req, bool write,
+                       const std::function<void()>& reset) {
+    auto& cache = write ? push_token_ : pull_token_;
+    const bool was_cached = cache.has_value();
+    auto token = token_for(write);
+    if (!token) {
+        return util::unexpected{client_error{token.error()}};
+    }
+    req.bearer_token = *token;
+
+    auto resp = util::curl::perform(req);
+
+    // a 401 on a token that was fetched for an earlier request usually means
+    // it expired in between (e.g. during a transfer that outlived the token's
+    // lifetime): fetch a fresh token and retry once.
+    if (resp && resp->status == 401 && was_cached && token->has_value()) {
+        spdlog::debug("oci::authed_perform 401 with a cached token: "
+                      "refreshing the token and retrying {}",
+                      req.url);
+        cache = std::nullopt;
+        token = token_for(write);
+        if (!token) {
+            return util::unexpected{client_error{token.error()}};
+        }
+        req.bearer_token = *token;
+        if (reset) {
+            reset();
+        }
+        resp = util::curl::perform(req);
+    }
+
+    if (!resp) {
+        return util::unexpected{client_error{resp.error().message}};
+    }
+    return *resp;
 }
 
 void client::add_pull_scope(std::string repository) {
@@ -115,18 +172,13 @@ void client::add_pull_scope(std::string repository) {
 }
 
 util::expected<bool, client_error> client::blob_exists(const digest& d) {
-    auto token = token_for(false);
-    if (!token) {
-        return util::unexpected{client_error{token.error()}};
-    }
     util::curl::request req;
     req.url = registry_url_ + detail::blob_path(repository_, d.string());
     req.method = util::curl::http_method::head;
-    req.bearer_token = *token;
 
-    auto resp = util::curl::perform(req);
+    auto resp = authed_perform(req, false);
     if (!resp) {
-        return util::unexpected{client_error{resp.error().message}};
+        return util::unexpected{resp.error()};
     }
     if (resp->status == 200) {
         return true;
@@ -141,19 +193,14 @@ util::expected<bool, client_error> client::blob_exists(const digest& d) {
 }
 
 util::expected<std::string, client_error> client::get_blob(const digest& d) {
-    auto token = token_for(false);
-    if (!token) {
-        return util::unexpected{client_error{token.error()}};
-    }
     util::curl::request req;
     req.url = registry_url_ + detail::blob_path(repository_, d.string());
-    req.bearer_token = *token;
     // registries 307-redirect blob downloads to backing storage.
     req.follow_redirects = true;
 
-    auto resp = util::curl::perform(req);
+    auto resp = authed_perform(req, false);
     if (!resp) {
-        return util::unexpected{client_error{resp.error().message}};
+        return util::unexpected{resp.error()};
     }
     if (resp->status != 200) {
         return util::unexpected{client_error{
@@ -178,11 +225,6 @@ util::expected<void, client_error> client::get_blob_to_file(
             file.string(), parent.string())}};
     }
 
-    auto token = token_for(false);
-    if (!token) {
-        return util::unexpected{client_error{token.error()}};
-    }
-
     // stream to a temporary name and rename into place only after the
     // transfer and digest verification succeed: a failed or interrupted
     // download must never leave a file at the final path, where a later
@@ -191,7 +233,6 @@ util::expected<void, client_error> client::get_blob_to_file(
 
     util::curl::request req;
     req.url = registry_url_ + detail::blob_path(repository_, d.string());
-    req.bearer_token = *token;
     req.follow_redirects = true;
     req.download_file = partial;
     req.on_download_progress = std::move(progress);
@@ -227,9 +268,15 @@ util::expected<void, client_error> client::get_blob_to_file(
 
     spdlog::debug("oci::get_blob_to_file downloading {} to {}", req.url,
                   partial.string());
-    auto resp = util::curl::perform(req);
+    // on a 401-retry the hash must restart from scratch: the retried request
+    // rewrites the partial file from the beginning ("wb" truncates it).
+    auto resp = authed_perform(req, false, [verify, &hash]() {
+        if (verify) {
+            util::sha256_init(hash);
+        }
+    });
     if (!resp) {
-        return fail({resp.error().message});
+        return fail(resp.error());
     }
     if (resp->status != 200) {
         return fail(
@@ -263,19 +310,14 @@ util::expected<void, client_error> client::get_blob_to_file(
 
 util::expected<manifest_response, client_error>
 client::get_manifest(const reference& ref) {
-    auto token = token_for(false);
-    if (!token) {
-        return util::unexpected{client_error{token.error()}};
-    }
     util::curl::request req;
     req.url = registry_url_ + detail::manifest_path(repository_, ref.string());
-    req.bearer_token = *token;
     req.header_lines = {fmt::format("Accept: {}", media_type_manifest),
                         fmt::format("Accept: {}", media_type_index)};
 
-    auto resp = util::curl::perform(req);
+    auto resp = authed_perform(req, false);
     if (!resp) {
-        return util::unexpected{client_error{resp.error().message}};
+        return util::unexpected{resp.error()};
     }
     if (resp->status != 200) {
         return util::unexpected{client_error{
@@ -296,17 +338,12 @@ client::get_manifest(const reference& ref) {
 }
 
 util::expected<std::vector<std::string>, client_error> client::list_tags() {
-    auto token = token_for(false);
-    if (!token) {
-        return util::unexpected{client_error{token.error()}};
-    }
     util::curl::request req;
     req.url = registry_url_ + detail::tags_path(repository_);
-    req.bearer_token = *token;
 
-    auto resp = util::curl::perform(req);
+    auto resp = authed_perform(req, false);
     if (!resp) {
-        return util::unexpected{client_error{resp.error().message}};
+        return util::unexpected{resp.error()};
     }
     if (resp->status != 200) {
         return util::unexpected{client_error{
@@ -323,17 +360,12 @@ util::expected<std::vector<std::string>, client_error> client::list_tags() {
 
 util::expected<std::vector<descriptor>, client_error>
 client::referrers(const digest& d) {
-    auto token = token_for(false);
-    if (!token) {
-        return util::unexpected{client_error{token.error()}};
-    }
     util::curl::request req;
     req.url = registry_url_ + detail::referrers_path(repository_, d.string());
-    req.bearer_token = *token;
 
-    auto resp = util::curl::perform(req);
+    auto resp = authed_perform(req, false);
     if (!resp) {
-        return util::unexpected{client_error{resp.error().message}};
+        return util::unexpected{resp.error()};
     }
     if (resp->status == 404) {
         // per the OCI 1.1 distribution spec, a 404 means the registry does
@@ -362,23 +394,18 @@ client::referrers(const digest& d) {
 
 util::expected<std::vector<descriptor>, client_error>
 client::referrers_from_tag(const digest& d) {
-    auto token = token_for(false);
-    if (!token) {
-        return util::unexpected{client_error{token.error()}};
-    }
     // the tag schema names an OCI image index <algo>-<hex> in the same
     // repository as the subject (see maintain_referrers_tag in push.cpp).
     const auto tag = d.algorithm() + "-" + d.hex();
     util::curl::request req;
     req.url = registry_url_ + detail::manifest_path(repository_, tag);
-    req.bearer_token = *token;
     req.header_lines = {fmt::format("Accept: {}", media_type_index),
                         fmt::format("Accept: {}", media_type_manifest)};
 
     spdlog::debug("oci::referrers_from_tag fetching {}", req.url);
-    auto resp = util::curl::perform(req);
+    auto resp = authed_perform(req, false);
     if (!resp) {
-        return util::unexpected{client_error{resp.error().message}};
+        return util::unexpected{resp.error()};
     }
     if (resp->status == 404) {
         // the tag was never created: the subject has no referrers.
@@ -402,22 +429,18 @@ client::referrers_from_tag(const digest& d) {
     return *refs;
 }
 
-namespace {
-
 // drive the monolithic upload handshake: POST an upload session, then PUT the
 // payload (carried by `body_setup`) to the returned Location with ?digest=.
-util::expected<void, client_error>
-do_put_blob(const std::string& registry_url, const std::string& uploads,
-            const std::optional<std::string>& token, const std::string& digest,
-            const std::function<void(util::curl::request&)>& body_setup) {
+util::expected<void, client_error> client::put_blob_impl(
+    const std::string& digest,
+    const std::function<void(util::curl::request&)>& body_setup) {
     // 1. open an upload session
     util::curl::request post;
-    post.url = registry_url + uploads;
+    post.url = registry_url_ + detail::uploads_path(repository_);
     post.method = util::curl::http_method::post;
-    post.bearer_token = token;
-    auto opened = util::curl::perform(post);
+    auto opened = authed_perform(post, true);
     if (!opened) {
-        return util::unexpected{client_error{opened.error().message}};
+        return util::unexpected{opened.error()};
     }
     if (opened->status != 202) {
         return util::unexpected{client_error{
@@ -434,16 +457,15 @@ do_put_blob(const std::string& registry_url, const std::string& uploads,
 
     // 2. PUT the payload to <location>?digest=<digest>
     util::curl::request put;
-    put.url = detail::resolve_upload_url(registry_url, *location, digest);
+    put.url = detail::resolve_upload_url(registry_url_, *location, digest);
     put.method = util::curl::http_method::put;
-    put.bearer_token = token;
     put.header_lines = {
         fmt::format("Content-Type: {}", media_type_octet_stream)};
     body_setup(put);
 
-    auto done = util::curl::perform(put);
+    auto done = authed_perform(put, true);
     if (!done) {
-        return util::unexpected{client_error{done.error().message}};
+        return util::unexpected{done.error()};
     }
     if (done->status != 201) {
         return util::unexpected{client_error{
@@ -455,26 +477,19 @@ do_put_blob(const std::string& registry_url, const std::string& uploads,
     return {};
 }
 
-} // namespace
-
 util::expected<bool, client_error>
 client::mount_blob(const digest& d, const std::string& from_repository) {
     if (auto exists = blob_exists(d); exists && *exists) {
         return true;
     }
-    auto token = token_for(true);
-    if (!token) {
-        return util::unexpected{client_error{token.error()}};
-    }
     util::curl::request post;
     post.url = registry_url_ + detail::uploads_path(repository_) +
                "?mount=" + d.string() + "&from=" + from_repository;
     post.method = util::curl::http_method::post;
-    post.bearer_token = *token;
 
-    auto resp = util::curl::perform(post);
+    auto resp = authed_perform(post, true);
     if (!resp) {
-        return util::unexpected{client_error{resp.error().message}};
+        return util::unexpected{resp.error()};
     }
     // 201: the blob was mounted. 202: the registry declined and opened an
     // upload session instead (caller must copy the blob the slow way).
@@ -501,17 +516,13 @@ client::put_blob(const digest& d, const std::filesystem::path& file,
         spdlog::trace("oci::put_blob {} already present", d.string());
         return {};
     }
-    auto token = token_for(true);
-    if (!token) {
-        return util::unexpected{client_error{token.error()}};
-    }
-    return do_put_blob(registry_url_, detail::uploads_path(repository_), *token,
-                       d.string(), [&file, &progress](util::curl::request& r) {
-                           r.upload_file = file;
-                           if (progress) {
-                               r.on_upload_progress = progress;
-                           }
-                       });
+    return put_blob_impl(d.string(),
+                         [&file, &progress](util::curl::request& r) {
+                             r.upload_file = file;
+                             if (progress) {
+                                 r.on_upload_progress = progress;
+                             }
+                         });
 }
 
 util::expected<void, client_error>
@@ -519,32 +530,22 @@ client::put_blob_bytes(const digest& d, const std::string& data) {
     if (auto exists = blob_exists(d); exists && *exists) {
         return {};
     }
-    auto token = token_for(true);
-    if (!token) {
-        return util::unexpected{client_error{token.error()}};
-    }
-    return do_put_blob(registry_url_, detail::uploads_path(repository_), *token,
-                       d.string(),
-                       [&data](util::curl::request& r) { r.body = data; });
+    return put_blob_impl(d.string(),
+                         [&data](util::curl::request& r) { r.body = data; });
 }
 
 util::expected<void, client_error>
 client::put_manifest(const reference& ref, const std::string& body,
                      std::string_view media_type) {
-    auto token = token_for(true);
-    if (!token) {
-        return util::unexpected{client_error{token.error()}};
-    }
     util::curl::request req;
     req.url = registry_url_ + detail::manifest_path(repository_, ref.string());
     req.method = util::curl::http_method::put;
-    req.bearer_token = *token;
     req.body = body;
     req.header_lines = {fmt::format("Content-Type: {}", media_type)};
 
-    auto resp = util::curl::perform(req);
+    auto resp = authed_perform(req, true);
     if (!resp) {
-        return util::unexpected{client_error{resp.error().message}};
+        return util::unexpected{resp.error()};
     }
     if (resp->status != 201) {
         return util::unexpected{client_error{

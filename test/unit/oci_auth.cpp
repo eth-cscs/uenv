@@ -34,14 +34,34 @@ TEST_CASE("oci token_url", "[oci][auth]") {
 }
 
 TEST_CASE("oci parse_token_response", "[oci][auth]") {
-    REQUIRE(parse_token_response(R"({"token":"abc123"})") == "abc123");
-    REQUIRE(parse_token_response(R"({"access_token":"xyz"})") == "xyz");
+    auto t = parse_token_response(R"({"token":"abc123"})");
+    REQUIRE(t.has_value());
+    REQUIRE(t->token == "abc123");
+    REQUIRE(!t->expires_in.has_value());
+
+    auto a = parse_token_response(R"({"access_token":"xyz"})");
+    REQUIRE(a.has_value());
+    REQUIRE(a->token == "xyz");
+
     // token preferred when both present
-    REQUIRE(parse_token_response(R"({"token":"t","access_token":"a"})") == "t");
+    auto both = parse_token_response(R"({"token":"t","access_token":"a"})");
+    REQUIRE(both.has_value());
+    REQUIRE(both->token == "t");
+
+    // the advertised lifetime is extracted when it is an integer
+    auto exp = parse_token_response(R"({"token":"t","expires_in":300})");
+    REQUIRE(exp.has_value());
+    REQUIRE(exp->expires_in == 300);
+
+    // a non-integer expires_in is ignored, not an error
+    auto bad_exp = parse_token_response(R"({"token":"t","expires_in":"300"})");
+    REQUIRE(bad_exp.has_value());
+    REQUIRE(!bad_exp->expires_in.has_value());
+
     // missing / malformed
-    REQUIRE(parse_token_response(R"({"expires_in":300})") == std::nullopt);
-    REQUIRE(parse_token_response("not json") == std::nullopt);
-    REQUIRE(parse_token_response("") == std::nullopt);
+    REQUIRE(!parse_token_response(R"({"expires_in":300})").has_value());
+    REQUIRE(!parse_token_response("not json").has_value());
+    REQUIRE(!parse_token_response("").has_value());
 }
 
 TEST_CASE("oci repository_scope", "[oci][auth]") {

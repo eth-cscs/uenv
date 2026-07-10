@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -12,6 +13,7 @@
 #include <oci/auth.h>
 #include <oci/digest.h>
 #include <oci/reference.h>
+#include <util/curl.h>
 #include <util/expected.h>
 #include <util/parse.h>
 #include <util/sha256.h>
@@ -166,16 +168,47 @@ class client {
   private:
     client() = default;
 
-    // return a bearer token for this repository, fetching/caching as needed.
-    // returns std::nullopt for an anonymous registry (no auth challenge), in
-    // which case requests are sent without an Authorization header.
+    // a cached bearer token and the deadline after which it is considered
+    // stale (absent when the token endpoint did not advertise a lifetime).
+    struct cached_token {
+        std::string value;
+        std::optional<std::chrono::steady_clock::time_point> expires_at;
+    };
+
+    // refresh a cached token this long before its advertised expiry, so a
+    // token that is about to lapse is not used to start a new request.
+    static constexpr std::chrono::seconds token_refresh_margin{30};
+
+    // return a bearer token for this repository, fetching/caching as needed;
+    // a cached token past (or within token_refresh_margin of) its advertised
+    // expiry is refetched. returns std::nullopt for an anonymous registry (no
+    // auth challenge), in which case requests are sent without an
+    // Authorization header.
     util::expected<std::optional<std::string>, std::string>
     token_for(bool write);
+
+    // set the bearer token on `req` and perform it. if the registry rejects
+    // a previously cached token with 401 — typically one whose lifetime ran
+    // out during a preceding long transfer, without the token endpoint having
+    // advertised expires_in — a fresh token is fetched and the request
+    // retried once; `reset` (when set) runs before the retry so the caller
+    // can rewind per-attempt state (e.g. a streaming hash). a 401 on a
+    // freshly fetched token is a real denial and is returned as-is.
+    util::expected<util::curl::response, client_error>
+    authed_perform(util::curl::request& req, bool write,
+                   const std::function<void()>& reset = {});
 
     // read the referrers of `d` from the referrers tag schema index
     // (<algo>-<hex>): the fallback for registries without the Referrers API.
     util::expected<std::vector<descriptor>, client_error>
     referrers_from_tag(const digest& d);
+
+    // upload a blob via the monolithic POST-then-PUT handshake; `body_setup`
+    // attaches the payload (a file to stream, or an in-memory body) to the
+    // PUT request.
+    util::expected<void, client_error>
+    put_blob_impl(const std::string& digest,
+                  const std::function<void(util::curl::request&)>& body_setup);
 
     std::string registry_url_; // normalised, no trailing '/'
     std::string repository_;
@@ -183,8 +216,8 @@ class client {
     // the auth challenge, or nullopt when the registry permits anonymous
     // access.
     std::optional<bearer_challenge> challenge_;
-    std::optional<std::string> pull_token_;
-    std::optional<std::string> push_token_;
+    std::optional<cached_token> pull_token_;
+    std::optional<cached_token> push_token_;
     // extra repositories to request pull scope for (cross-repo mount).
     std::vector<std::string> extra_pull_scopes_;
 };

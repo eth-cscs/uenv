@@ -56,9 +56,10 @@ std::optional<std::vector<descriptor>> parse_referrers(std::string_view body);
 std::string token_url(const bearer_challenge& challenge,
                       const std::vector<std::string>& scopes);
 
-// extract the token from a token endpoint response body ("token" or
-// "access_token").
-std::optional<std::string> parse_token_response(std::string_view body);
+// extract the token ("token" or "access_token") and its advertised lifetime
+// ("expires_in", when present as an integer) from a token endpoint response
+// body.
+std::optional<token_response> parse_token_response(std::string_view body);
 
 // build a "repository:<repo>:<actions>" scope string.
 std::string repository_scope(std::string_view repository,

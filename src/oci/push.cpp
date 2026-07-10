@@ -422,13 +422,15 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
     }
 
     // copy referrers (the --recursive part): meta and any other attachments.
+    // referrers() already degrades gracefully on registries without the
+    // Referrers API (tag-schema fallback, empty list when nothing is
+    // attached), so any error here is a real failure — surface it rather
+    // than silently copying the image without its metadata.
     auto refs = src->referrers(manifest_digest);
     if (!refs) {
-        // a registry without the Referrers API just has nothing to recurse
-        // into.
-        spdlog::debug("copy_image: no referrers for {} ({})",
-                      manifest_digest.string(), refs.error());
-        return {};
+        return util::unexpected{
+            fmt::format("unable to list the artifacts attached to {}: {}",
+                        manifest_digest.string(), refs.error().message)};
     }
     for (const auto& r : *refs) {
         auto rm = src->get_manifest(reference::digest(r.digest));
@@ -456,6 +458,11 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
             !ok) {
             return util::unexpected{ok.error().message};
         }
+        // referrer manifests are pushed by digest only, which registries
+        // without the Referrers API do not index: maintain the tag-schema
+        // index on the destination so the attachment stays discoverable
+        // there too.
+        maintain_referrers_tag(*dst, manifest_digest, r);
     }
 
     return {};

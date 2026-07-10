@@ -63,7 +63,7 @@ discover_challenge(const std::string& registry_url) {
     return *challenge;
 }
 
-util::expected<std::string, std::string>
+util::expected<token_response, std::string>
 fetch_token(const bearer_challenge& challenge,
             const std::vector<std::string>& scopes,
             const std::optional<credentials>& creds) {
@@ -105,7 +105,11 @@ authenticate(const std::string& registry_url,
     if (!*challenge) {
         return std::string{};
     }
-    return fetch_token(**challenge, scopes, creds);
+    auto token = fetch_token(**challenge, scopes, creds);
+    if (!token) {
+        return util::unexpected{token.error()};
+    }
+    return token->token;
 }
 
 util::expected<std::optional<credentials>, std::string>

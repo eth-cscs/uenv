@@ -126,18 +126,25 @@ std::string token_url(const bearer_challenge& challenge,
     return url;
 }
 
-std::optional<std::string> parse_token_response(std::string_view body) {
+std::optional<token_response> parse_token_response(std::string_view body) {
     auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
     if (j.is_discarded() || !j.is_object()) {
         return std::nullopt;
     }
+    token_response out;
     if (auto it = j.find("token"); it != j.end() && it->is_string()) {
-        return it->get<std::string>();
+        out.token = it->get<std::string>();
+    } else if (auto alt = j.find("access_token");
+               alt != j.end() && alt->is_string()) {
+        out.token = alt->get<std::string>();
+    } else {
+        return std::nullopt;
     }
-    if (auto it = j.find("access_token"); it != j.end() && it->is_string()) {
-        return it->get<std::string>();
+    if (auto it = j.find("expires_in");
+        it != j.end() && it->is_number_integer()) {
+        out.expires_in = it->get<long>();
     }
-    return std::nullopt;
+    return out;
 }
 
 std::string repository_scope(std::string_view repository,
