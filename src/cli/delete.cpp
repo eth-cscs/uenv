@@ -67,10 +67,14 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     if (auto c = resolve_registry_credentials(settings.calling_environment,
                                               artifactory_url, args.username,
                                               args.token)) {
-        if (!*c) {
-            term::error("full credentials must be provided", c.error());
+        // resolve_registry_credentials returns nullopt when no credentials
+        // were found; deletion is never anonymous, so this is an error.
+        if (!c->has_value()) {
+            term::error("full credentials must be provided to delete a uenv: "
+                        "see the --token and --username flags");
+            return 1;
         }
-        credentials = (*c).value();
+        credentials = c->value();
     } else {
         term::error("{}", c.error());
         return 1;
