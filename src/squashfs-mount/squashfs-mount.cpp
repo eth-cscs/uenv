@@ -109,9 +109,7 @@ int main(int argc, char** argv, char** envp) {
     bool print_version = false;
     bool mutable_root = false;
     bool tasks_join = false;
-#ifdef UENV_FUSE_MOUNT
-    bool fuse_st = false;
-#endif
+    [[maybe_unused]] bool fuse_st = false;
     int verbosity = 1;
     std::optional<std::string> raw_mounts;
     std::optional<std::vector<std::string>> commands;
@@ -124,16 +122,17 @@ int main(int argc, char** argv, char** envp) {
     cli.add_flag("--version", print_version, "print version");
     cli.add_flag("--join", tasks_join,
                  "join namespaces of tasks on the same node");
-#ifdef UENV_FUSE_MOUNT
-    cli.add_flag("--fuse-single", fuse_st,
-                 "fuse single threaded (ignored unless built with fuse)");
-#endif
     cli.add_option("-s,--sqfs", raw_mounts,
                    "comma separated list of squashfs files to mount");
     cli.add_option("--tmpfs", tmpfs_arg, "tmpfs mount point[:size]");
     cli.add_option("--bind-mount", bind_mounts_arg, "bind mount <src>:<dst>");
     cli.add_option("commands", commands,
                    "the command to run, including with arguments");
+
+    if (!is_setuid()) {
+        cli.add_flag("--fuse-single", fuse_st,
+                     "fuse single threaded (ignored unless built with fuse)");
+    }
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -154,7 +153,8 @@ int main(int argc, char** argv, char** envp) {
     }
 
     if (is_setuid() && mutable_root) {
-        error_and_exit("the mutable root option is not permitted in the setuid version.");
+        error_and_exit(
+            "the mutable root option is not permitted in the setuid version.");
     }
 
     //
@@ -290,8 +290,8 @@ int main(int argc, char** argv, char** envp) {
         return {};
     };
 
-    const bool has_work =
-        !mounts.empty() || !tmpfs->empty() || !bind_mounts->empty() || mutable_root;
+    const bool has_work = !mounts.empty() || !tmpfs->empty() ||
+                          !bind_mounts->empty() || mutable_root;
 
     if (has_work) {
         auto pipeline = [&setup_sandbox, &do_mounts,
@@ -314,14 +314,15 @@ int main(int argc, char** argv, char** envp) {
         spdlog::warn("nothing mounted (no --sqfs, --tmpfs or --bind-mount flag "
                      "provided)");
     }
-#ifndef UENV_FUSE_MOUNT
-    // the setuid binary always starts with an elevated effective uid, so
-    // it has to be dropped even when there is nothing to mount and for all
-    // tasks
-    if (auto r = uenv::return_to_user_and_no_new_privs(uid); !r) {
-        error_and_exit("{}", r.error());
+    if (is_setuid()) {
+        // the setuid binary always starts with an elevated effective uid, so
+        // it has to be dropped even when there is nothing to mount and for all
+        // tasks
+        auto r = uenv::return_to_user_and_no_new_privs(uid);
+        if (!r) {
+            error_and_exit("{}", r.error());
+        }
     }
-#endif
 
     //
     // Generate the runtime environment variables
