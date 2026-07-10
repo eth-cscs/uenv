@@ -153,6 +153,10 @@ int main(int argc, char** argv, char** envp) {
         error_and_exit("no command given");
     }
 
+    if (is_setuid() && mutable_root) {
+        error_and_exit("the mutable root option is not permitted in the setuid version.");
+    }
+
     //
     // set logging level
     //
