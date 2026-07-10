@@ -309,7 +309,6 @@ util::expected<void, std::string> make_mutable_root() {
     spdlog::info("make mutable root");
     std::vector<fs::path> paths;
     std::vector<std::pair<fs::path, fs::path>> symlinks;
-    // iterate over root dirs
     for (const auto& entry : fs::directory_iterator("/")) {
         if (entry.is_directory() && !entry.is_symlink()) {
             paths.push_back(entry);
@@ -320,12 +319,23 @@ util::expected<void, std::string> make_mutable_root() {
         }
     }
 
+    // Recursively make "/" a slave mount so that none of the bind/remount
+    // activity below propagates back into the host's mount namespace.
     if (auto r = uenv::mount(std::nullopt, "/", std::nullopt,
                              MS_REC | MS_SILENT | MS_SLAVE, nullptr);
         !r) {
         return r;
     }
 
+    // Stage the new root inside a fresh tmpfs mounted over the *original*
+    // /tmp. "newroot" is bind-mounted onto itself so that it is a distinct
+    // mount point from its parent tmpfs - pivot_root() requires new_root and
+    // put_old to be on different mounts. "oldroot" becomes the mount point
+    // the previous "/" is moved to. This mirrors bwrap's setup_newroot().
+    //
+    // Reusing the host's real /tmp as the staging tmpfs means /tmp shows up
+    // again later in the generic "paths" loop below as an already-mounted
+    // tmpfs (via /oldroot/tmp) - see the comment there.
     if (auto r = uenv::mount("tmpfs", "/tmp", "tmpfs", MS_NOSUID | MS_NODEV,
                              nullptr);
         !r) {
@@ -343,6 +353,7 @@ util::expected<void, std::string> make_mutable_root() {
     }
     fs::create_directory("oldroot");
 
+    // make /tmp the new root mount, while /oldroot contains the old root
     Z_e(syscall(SYS_pivot_root, "/tmp", "oldroot"));
     fs::current_path("/");
 
@@ -353,6 +364,11 @@ util::expected<void, std::string> make_mutable_root() {
     // mount("none", "/newroot/bin", NULL, //
     // MS_NOSUID|MS_REMOUNT|MS_BIND|MS_SILENT|MS_RELATIME, NULL) = 0
     //
+    // Diverges from bwrap here: bwrap mounts onto the *resolved* target and
+    // leaves the symlink itself intact in the new root. This instead
+    // creates a directory at the symlink's own path (dst below)
+    // and binds there, so e.g. /newroot/lib64 ends up a real directory
+    // rather than a symlink to usr/lib.
     for (auto entry : symlinks) {
         auto src = fs::path("/oldroot") / entry.second.relative_path();
         auto dst = fs::path("/newroot") / entry.first.relative_path();
@@ -376,6 +392,12 @@ util::expected<void, std::string> make_mutable_root() {
     }
 
     // 2. the rest
+    //
+    // Known divergence from bwrap: a list of hardcoded directories is skipped
+    // The corresponding bwrap implementation is:
+    // https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L469
+    //
+    // bwrap skips MS_REMOUNT depending on the old root flags
     for (auto entry : paths) {
         auto src = fs::path("/oldroot") / entry.relative_path();
         auto dst = fs::path("/newroot") / entry.relative_path();
@@ -386,19 +408,9 @@ util::expected<void, std::string> make_mutable_root() {
             return r;
         }
 
-        // /proc, /sys: remounting these with MS_NOSUID can fail with EPERM
-        // (observed on daint). Real bwrap never fails here either, though
-        // not because it special-cases these by name: it reads each mount's
-        // *current* flags from /proc/self/mountinfo and only issues the
-        // remount if the desired flags aren't already set - and /proc, /sys
-        // are typically already mounted nosuid,nodev by the host, so the
-        // remount is a no-op it skips entirely. /tmp: it is always the
-        // tmpfs created above via mount("tmpfs", "/tmp", "tmpfs",
-        // MS_NOSUID|MS_NODEV, ...), so it already has MS_NOSUID set at
-        // creation time - remounting it is both redundant and, on some
-        // kernels/configs, known to fail.
         auto name = entry.filename();
-        if (name == "proc" || name == "sys" || name == "tmp") {
+        if (name == "proc" || name == "sys" || name == "tmp" || name == "run" ||
+            name == ".rootfs_lower_ro" || name == ".rootfs_upper_ro") {
             continue;
         }
 
@@ -410,6 +422,14 @@ util::expected<void, std::string> make_mutable_root() {
             return r;
         }
     }
+
+    // Teardown, mirroring bwrap's two-step detach of the old root:
+    // 1. make "oldroot" (still reachable at "/oldroot") private and
+    //    recursively lazy-unmount it while still chdir'd at "/", so the old
+    //    root's mounts are dropped without affecting the host namespace.
+    // 2. chdir into "/newroot" and pivot_root(".", ".") onto itself, then
+    //    lazy-unmount "." again to drop the now-empty self-bind-mount of
+    //    "newroot" created earlier.
     if (auto r = uenv::mount("oldroot", "oldroot", std::nullopt,
                              MS_REC | MS_SILENT | MS_PRIVATE, nullptr);
         !r) {
