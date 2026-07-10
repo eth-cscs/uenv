@@ -65,6 +65,11 @@ class buffered_ostream {
 
     std::ostream& stream();
     void putline(std::string_view line);
+
+    // flush and close the pipe, so the child reading this stream sees EOF.
+    // Required by any protocol where the child consumes all of stdin before
+    // replying; idempotent, and also performed on destruction.
+    void close();
 };
 
 enum class proc_status { running, finished };

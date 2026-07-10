@@ -65,6 +65,54 @@ TEST_CASE("kill", "[subprocess]") {
     REQUIRE(proc->rvalue() == 9);
 }
 
+TEST_CASE("stdin", "[subprocess]") {
+    // `cat` runs until its stdin reaches EOF, so each of these would hang
+    // forever if close() failed to close the underlying pipe.
+    {
+        auto proc = util::run({"cat"});
+        REQUIRE(proc);
+        proc->in.putline("hello");
+        proc->in.close();
+        REQUIRE(proc->wait() == 0);
+        REQUIRE(proc->out.getline() == "hello");
+        REQUIRE(!proc->out.getline());
+    }
+    // several lines, and writes made through stream() rather than putline().
+    {
+        auto proc = util::run({"cat"});
+        REQUIRE(proc);
+        proc->in.putline("one");
+        proc->in.stream() << "two\n";
+        proc->in.close();
+        REQUIRE(proc->wait() == 0);
+        REQUIRE(proc->out.getline() == "one");
+        REQUIRE(proc->out.getline() == "two");
+        REQUIRE(!proc->out.getline());
+    }
+    // close() is idempotent: the destructor closes too, and callers that
+    // close early must not double-close the file descriptor.
+    {
+        auto proc = util::run({"cat"});
+        REQUIRE(proc);
+        proc->in.putline("once");
+        proc->in.close();
+        proc->in.close();
+        REQUIRE(proc->wait() == 0);
+        REQUIRE(proc->out.getline() == "once");
+    }
+    // a child that consumes stdin and ignores it still terminates.
+    {
+        auto proc = util::run({"wc", "-c"});
+        REQUIRE(proc);
+        proc->in.stream() << "12345";
+        proc->in.close();
+        REQUIRE(proc->wait() == 0);
+        auto line = proc->out.getline();
+        REQUIRE(line);
+        REQUIRE_THAT(*line, matchers::ContainsSubstring("5"));
+    }
+}
+
 TEST_CASE("stdout", "[subprocess]") {
     {
         auto proc = util::run({"echo", "hello world"});

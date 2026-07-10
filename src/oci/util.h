@@ -82,5 +82,24 @@ std::optional<token_response> parse_token_response(std::string_view body);
 std::string repository_scope(std::string_view repository,
                              std::string_view actions);
 
+// --- docker config.json helpers ---------------------------------------------
+
+// normalise a docker config.json `auths`/`credHelpers` key (or a registry host)
+// down to a bare host[:port] for comparison: drop any scheme and any trailing
+// path.
+std::string normalise_host(std::string_view key);
+
+// the credential helper configured for `host` in a parsed docker config.json.
+// A per-registry `credHelpers` entry wins over the global `credsStore`, as in
+// docker itself. Returns nullopt when neither names a helper.
+std::optional<std::string> helper_for_host(const nlohmann::json& cfg,
+                                           std::string_view host);
+
+// parse the stdout of `docker-credential-<helper> get`, which is
+// {"ServerURL":..,"Username":..,"Secret":..}. Returns nullopt when the helper
+// holds no credential for the registry (it reports empty fields).
+util::expected<std::optional<credentials>, std::string>
+parse_helper_output(std::string_view body);
+
 } // namespace detail
 } // namespace oci

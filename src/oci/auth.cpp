@@ -1,6 +1,7 @@
 #include <unistd.h>
 
 #include <cctype>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -19,6 +20,7 @@
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/strings.h>
+#include <util/subprocess.h>
 
 namespace oci {
 
@@ -177,17 +179,75 @@ creds_from_token(std::string token,
         "provide a username with --username for the token."};
 }
 
-// normalise a docker config.json `auths` key (or a registry host) down to a
-// bare host[:port] for comparison: drop any scheme and any trailing path.
-std::string normalise_host(std::string_view key) {
-    auto s = key;
-    if (auto p = s.find("://"); p != std::string_view::npos) {
-        s.remove_prefix(p + 3);
+// A credential helper that exits without consuming its stdin leaves us writing
+// the server URL into a pipe with no reader. Short writes still land in the
+// pipe buffer, but one large enough to overrun it raises SIGPIPE, which is
+// fatal by default.
+class sigpipe_guard {
+    void (*previous_)(int);
+
+  public:
+    sigpipe_guard() : previous_(std::signal(SIGPIPE, SIG_IGN)) {
     }
-    if (auto p = s.find('/'); p != std::string_view::npos) {
-        s = s.substr(0, p);
+    ~sigpipe_guard() {
+        std::signal(SIGPIPE, previous_);
     }
-    return std::string{s};
+    sigpipe_guard(const sigpipe_guard&) = delete;
+    sigpipe_guard& operator=(const sigpipe_guard&) = delete;
+};
+
+// the registry key to hand the helper on stdin. Helpers are keyed by the string
+// the user logged in with, which may carry a scheme and path (docker hub stores
+// "https://index.docker.io/v1/"), so prefer a configured key over the bare
+// host.
+std::string server_key(const nlohmann::json& cfg, const std::string& want) {
+    for (const auto* section : {"credHelpers", "auths"}) {
+        if (auto s = cfg.find(section); s != cfg.end() && s->is_object()) {
+            for (const auto& entry : s->items()) {
+                if (detail::normalise_host(entry.key()) == want) {
+                    return entry.key();
+                }
+            }
+        }
+    }
+    return want;
+}
+
+// query a docker credential helper: `docker-credential-<helper> get` takes the
+// registry on stdin and answers with a JSON credential on stdout.
+util::expected<std::optional<credentials>, std::string>
+creds_from_helper(const std::string& helper, const std::string& server) {
+    const auto program = fmt::format("docker-credential-{}", helper);
+    // WARNING: the helper's stdout carries a secret. Never log it.
+    auto proc = util::run({program, "get"});
+    if (!proc) {
+        return util::unexpected{
+            fmt::format("unable to run the credential helper {}: {}", program,
+                        proc.error())};
+    }
+    {
+        sigpipe_guard guard;
+        proc->in.putline(server);
+        // the helper reads stdin to EOF before it replies.
+        proc->in.close();
+    }
+    const auto out = proc->out.string();
+    const auto err = proc->err.string();
+
+    if (proc->wait() != 0) {
+        // the helper's way of saying it holds nothing for this registry; fall
+        // through to anonymous access rather than failing the command.
+        if (err.find("credentials not found") != std::string::npos) {
+            spdlog::debug("oci::creds_from_helper {} has no credential for {}",
+                          program, server);
+            return std::nullopt;
+        }
+        return util::unexpected{
+            fmt::format("the credential helper {} failed (exit {}): {}",
+                        program, proc->rvalue(), util::strip(err))};
+    }
+    spdlog::debug("oci::creds_from_helper {} answered for {}", program, server);
+    return detail::parse_helper_output(out);
 }
 
 // look up credentials for `host` in a docker config.json file. Returns nullopt
@@ -206,21 +266,26 @@ creds_from_docker_config(const std::filesystem::path& cfg,
         return util::unexpected{
             fmt::format("could not parse docker config {}", cfg.string())};
     }
+    const std::string want = detail::normalise_host(host);
+
+    // docker consults a credential helper before the inline auths entry: a
+    // `docker login` backed by a credential store leaves auths[host] empty.
+    if (auto helper = detail::helper_for_host(j, want)) {
+        return creds_from_helper(*helper, server_key(j, want));
+    }
+
     auto auths = j.find("auths");
     if (auths == j.end() || !auths->is_object()) {
         return std::nullopt;
     }
-    const std::string want = normalise_host(host);
     for (const auto& [key, entry] : auths->items()) {
-        if (normalise_host(key) != want || !entry.is_object()) {
+        if (detail::normalise_host(key) != want || !entry.is_object()) {
             continue;
         }
         auto a = entry.find("auth");
         if (a == entry.end() || !a->is_string()) {
-            // credsStore / credHelpers / identitytoken entries need an external
-            // helper we do not implement.
-            spdlog::warn("docker config entry for {} has no 'auth' field "
-                         "(credential helpers are not supported)",
+            spdlog::warn("docker config entry for {} has no 'auth' field and "
+                         "no credential helper is configured for it",
                          want);
             return std::nullopt;
         }
