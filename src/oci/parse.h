@@ -9,6 +9,7 @@
 #include <oci/auth.h>
 #include <oci/digest.h>
 #include <oci/reference.h>
+#include <oci/tag.h>
 #include <util/expected.h>
 #include <util/parse.h>
 
@@ -23,6 +24,11 @@ namespace oci {
 // and a value whose length does not match the algorithm or that is not
 // lowercase hex.
 util::expected<digest, util::parse_error> parse_digest(std::string_view text);
+
+// parse an OCI tag against the tag grammar
+// ([a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}). rejects a leading '.' or '-', an empty
+// value, an out-of-grammar character, and a value longer than 128 characters.
+util::expected<tag, util::parse_error> parse_tag(std::string_view text);
 
 // parse a manifest reference: a valid "<algo>:<hex>" becomes a digest
 // reference, otherwise the text is validated against the OCI tag grammar and

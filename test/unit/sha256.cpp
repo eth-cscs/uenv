@@ -21,13 +21,14 @@ std::span<const std::byte> as_bytes(std::string_view s) {
 
 TEST_CASE("sha256 known vectors", "[sha256]") {
     // canonical FIPS 180-4 / NIST test vectors
-    REQUIRE(util::sha256_string("").hex() ==
+    REQUIRE(util::sha256_string("").hex().string() ==
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
-    REQUIRE(util::sha256_string("abc").hex() ==
+    REQUIRE(util::sha256_string("abc").hex().string() ==
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     REQUIRE(util::sha256_string(
                 "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")
-                .hex() ==
+                .hex()
+                .string() ==
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
 }
 
@@ -37,24 +38,24 @@ TEST_CASE("sha256 zero-byte input", "[sha256]") {
 
     // empty (zero-length) input must hash to the canonical empty digest, via
     // every interface that accepts data.
-    REQUIRE(util::sha256_string("").hex() == empty);
-    REQUIRE(util::sha256_bytes({}).hex() == empty);
+    REQUIRE(util::sha256_string("").hex().string() == empty);
+    REQUIRE(util::sha256_bytes({}).hex().string() == empty);
 
     // low-level: init then final with no update at all.
     util::sha256_state s;
     util::sha256_init(s);
-    REQUIRE(util::sha256_final(s).hex() == empty);
+    REQUIRE(util::sha256_final(s).hex().string() == empty);
 
     // low-level: an explicit zero-length update is a no-op.
     util::sha256_state s2;
     util::sha256_init(s2);
     util::sha256_update(s2, {});
-    REQUIRE(util::sha256_final(s2).hex() == empty);
+    REQUIRE(util::sha256_final(s2).hex().string() == empty);
 
     // a single NUL byte (0x00) is distinct from empty input and has its own
     // known digest.
     const std::byte nul{0x00};
-    REQUIRE(util::sha256_bytes({&nul, 1}).hex() ==
+    REQUIRE(util::sha256_bytes({&nul, 1}).hex().string() ==
             "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d");
 }
 
@@ -79,15 +80,16 @@ TEST_CASE("sha256 multi-block and incremental", "[sha256]") {
     for (int i = 0; i < 1000; ++i) {
         util::sha256_update(s, as_bytes(chunk));
     }
-    REQUIRE(util::sha256_final(s).hex() == expected);
+    REQUIRE(util::sha256_final(s).hex().string() == expected);
 
     // same input in a single buffer must match
-    REQUIRE(util::sha256_string(std::string(1000000, 'a')).hex() == expected);
+    REQUIRE(util::sha256_string(std::string(1000000, 'a')).hex().string() ==
+            expected);
 }
 
 TEST_CASE("sha256 update splits do not change the digest", "[sha256]") {
     const std::string msg = "the quick brown fox jumps over the lazy dog";
-    const std::string whole = util::sha256_string(msg).hex();
+    const std::string whole = util::sha256_string(msg).hex().string();
 
     for (std::size_t split = 0; split <= msg.size(); ++split) {
         util::sha256_state s;
@@ -95,7 +97,7 @@ TEST_CASE("sha256 update splits do not change the digest", "[sha256]") {
         util::sha256_update(s,
                             as_bytes(std::string_view{msg}.substr(0, split)));
         util::sha256_update(s, as_bytes(std::string_view{msg}.substr(split)));
-        REQUIRE(util::sha256_final(s).hex() == whole);
+        REQUIRE(util::sha256_final(s).hex().string() == whole);
     }
 }
 

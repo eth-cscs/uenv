@@ -191,7 +191,7 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
     const auto dst_repo = oci::repository_path(
         loc->prefix, dst_label.nspace.value(), dst_record.system,
         dst_record.uarch, dst_record.name, dst_record.version);
-    const auto src_manifest = oci::digest::sha256(src_record.sha.string());
+    const auto src_manifest = oci::digest::sha256(src_record.sha);
     spdlog::debug("oci copy: {} -> {} (tag {})", src_repo, dst_repo,
                   dst_record.tag);
 

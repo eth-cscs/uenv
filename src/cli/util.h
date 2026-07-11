@@ -14,6 +14,7 @@
 
 #include <util/envvars.h>
 #include <util/expected.h>
+#include <util/sha.h>
 
 #include <oci/auth.h>
 
@@ -73,7 +74,7 @@ struct squashfs_image {
     std::optional<std::filesystem::path> meta;
 
     // the sha256 hash of the file
-    std::string hash;
+    util::sha256 hash;
 };
 
 // Hashing the squashfs reads the whole file, which takes minutes for a

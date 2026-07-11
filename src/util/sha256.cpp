@@ -181,13 +181,14 @@ sha256_digest sha256_impl::final() {
 
 } // namespace
 
-std::string sha256_digest::hex() const {
+sha256 sha256_digest::hex() const {
     std::string out;
     out.reserve(64);
     for (std::uint8_t b : bytes) {
         fmt::format_to(std::back_inserter(out), "{:02x}", b);
     }
-    return out;
+    // trusted construction: out is exactly 64 lowercase-hex characters.
+    return sha256{std::string_view{out}};
 }
 
 void sha256_init(sha256_state& state) {

@@ -12,11 +12,12 @@
 namespace oci {
 
 descriptor empty_config_descriptor() {
-    return descriptor{.media_type = std::string{media_type_empty},
-                      .digest = digest::sha256(std::string{empty_config_hex}),
-                      .size = empty_config_body.size(),
-                      .artifact_type = std::nullopt,
-                      .data = std::string{empty_config_data}};
+    return descriptor{
+        .media_type = std::string{media_type_empty},
+        .digest = digest::sha256(util::sha256::parse(empty_config_hex).value()),
+        .size = empty_config_body.size(),
+        .artifact_type = std::nullopt,
+        .data = std::string{empty_config_data}};
 }
 
 std::optional<std::string> manifest_layer::title() const {

@@ -10,6 +10,7 @@
 #include <string_view>
 
 #include <util/expected.h>
+#include <util/sha.h>
 
 namespace util {
 
@@ -17,8 +18,8 @@ namespace util {
 struct sha256_digest {
     std::array<std::uint8_t, 32> bytes;
 
-    // 64-character lowercase hex string.
-    std::string hex() const;
+    // the 64-character lowercase-hex form (always valid by construction).
+    sha256 hex() const;
 
     friend bool operator==(const sha256_digest&,
                            const sha256_digest&) = default;

@@ -81,7 +81,8 @@ TEST_CASE("oci parse_referrers", "[oci][client]") {
     auto refs = parse_referrers(body);
     REQUIRE(refs.has_value());
     REQUIRE(refs->size() == 1);
-    REQUIRE((*refs)[0].digest == digest::sha256(digest_hex));
+    REQUIRE((*refs)[0].digest ==
+            digest::sha256(util::sha256::parse(digest_hex).value()));
     REQUIRE((*refs)[0].size == 1234);
     REQUIRE((*refs)[0].artifact_type == "application/vnd.cscs.uenv.meta");
 

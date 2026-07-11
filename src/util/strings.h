@@ -48,8 +48,6 @@ std::string to_lower(std::string_view input);
 
 std::string join(std::string_view joiner, const std::vector<std::string>& list);
 
-bool is_sha(const std::string& str);
-
 // decode a standard base64 string (RFC 4648). Padding '=' and embedded
 // whitespace are ignored. Returns nullopt if the input contains a character
 // outside the base64 alphabet. Note: this is NOT the URL-safe ('-'/'_')

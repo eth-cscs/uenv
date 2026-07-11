@@ -1,6 +1,6 @@
+#include <algorithm>
 #include <cctype>
 #include <numeric>
-#include <regex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -80,33 +80,6 @@ std::string join(std::string_view joiner,
     }
 
     return result;
-}
-
-bool is_full_sha256(const std::string& str) {
-    std::regex pattern("^[a-fA-F0-9]{64}$");
-    std::smatch match;
-    std::regex_match(str, match, pattern);
-    if (!match.empty()) {
-        return true;
-    }
-    return false;
-}
-
-bool is_id(const std::string& str) {
-    std::regex pattern("^[a-fA-F0-9]{16}$");
-    std::smatch match;
-    std::regex_match(str, match, pattern);
-    if (!match.empty()) {
-        return true;
-    }
-    return false;
-}
-
-bool is_sha(const std::string& str) {
-    if (is_id(str) || is_full_sha256(str)) {
-        return true;
-    }
-    return false;
 }
 
 std::optional<std::string> base64_decode(std::string_view input) {

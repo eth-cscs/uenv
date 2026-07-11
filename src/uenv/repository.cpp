@@ -989,46 +989,70 @@ repository_impl::query(const uenv_label& label, bool partial_name) const {
             return unexpected(
                 fmt::format("invalid date {}", date.error().message()));
         }
-        return uenv_record{
-            stmnt["system"].value(),     stmnt["uarch"].value(),
-            stmnt["name"].value(),       stmnt["version"].value(),
-            stmnt["tag"].value(),        date.value(),
-            stmnt["size"].value(),       sha256(stmnt["sha256"].value()),
-            uenv_id(stmnt["id"].value())};
+        auto sha =
+            sha256::parse(static_cast<std::string>(stmnt["sha256"].value()));
+        if (!sha) {
+            return unexpected(
+                fmt::format("invalid sha256 in database: {}", sha.error()));
+        }
+        auto id = uenv_id::parse(static_cast<std::string>(stmnt["id"].value()));
+        if (!id) {
+            return unexpected(
+                fmt::format("invalid id in database: {}", id.error()));
+        }
+        return uenv_record{stmnt["system"].value(),
+                           stmnt["uarch"].value(),
+                           stmnt["name"].value(),
+                           stmnt["version"].value(),
+                           stmnt["tag"].value(),
+                           date.value(),
+                           stmnt["size"].value(),
+                           *sha,
+                           *id};
     };
 
     while (s->step()) {
-        results.push_back(record_from_query(*s).value());
+        auto record = record_from_query(*s);
+        if (!record) {
+            return unexpected(record.error());
+        }
+        results.push_back(*record);
     }
 
     // now check for id and sha search terms
     if (label.only_name()) {
         query_terms.erase(query_terms.begin());
         // search for an if name could also be an id
-        if (is_sha(*label.name, 16)) {
-            query_terms.push_back(
-                fmt::format("id = '{}'", uenv_id(*label.name).string()));
+        if (auto id = uenv_id::parse(*label.name)) {
+            query_terms.push_back(fmt::format("id = '{}'", id->string()));
             auto result =
                 create_query(fmt::format("SELECT * FROM records WHERE {}",
                                          fmt::join(query_terms, " AND ")),
                              db);
             if (result) {
                 while (result->step()) {
-                    results.push_back(record_from_query(*result).value());
+                    auto record = record_from_query(*result);
+                    if (!record) {
+                        return unexpected(record.error());
+                    }
+                    results.push_back(*record);
                 }
             }
         }
         // search for a sha if name could also be a sha256
-        else if (is_sha(*label.name, 64)) {
-            query_terms.push_back(
-                fmt::format("sha256 = '{}'", sha256(*label.name).string()));
+        else if (auto sha = sha256::parse(*label.name)) {
+            query_terms.push_back(fmt::format("sha256 = '{}'", sha->string()));
             auto result =
                 create_query(fmt::format("SELECT * FROM records WHERE {}",
                                          fmt::join(query_terms, " AND ")),
                              db);
             if (result) {
                 while (result->step()) {
-                    results.push_back(record_from_query(*result).value());
+                    auto record = record_from_query(*result);
+                    if (!record) {
+                        return unexpected(record.error());
+                    }
+                    results.push_back(*record);
                 }
             }
         }

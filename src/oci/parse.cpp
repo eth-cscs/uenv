@@ -9,6 +9,7 @@
 #include <oci/parse.h>
 #include <util/lex.h>
 #include <util/parse.h>
+#include <util/sha.h>
 #include <util/strings.h>
 
 namespace oci {
@@ -187,13 +188,7 @@ util::expected<digest, util::parse_error> parse_digest(std::string_view text) {
     return digest{std::move(*algorithm), std::move(*hex)};
 }
 
-util::expected<reference, util::parse_error>
-parse_reference(std::string_view text) {
-    // a digest is unambiguous (it contains ':'); try it first.
-    if (auto d = parse_digest(text)) {
-        return reference::digest(*d);
-    }
-
+util::expected<tag, util::parse_error> parse_tag(std::string_view text) {
     const auto s = util::strip(text);
     lex::lexer L(s);
 
@@ -201,22 +196,35 @@ parse_reference(std::string_view text) {
     // the OCI tag grammar forbids a leading '.' or '-'.
     if (L != lex::tok::symbol && L != lex::tok::integer) {
         return util::unexpected(parse_error{
-            L.string(),
-            fmt::format("'{}' is not a valid tag or digest reference", s),
-            start});
+            L.string(), fmt::format("'{}' is not a valid tag", s), start});
     }
-    auto tag = util::parse_string(L, "tag", is_tag_tok);
-    if (!tag) {
-        return util::unexpected(tag.error());
+    auto value = util::parse_string(L, "tag", is_tag_tok);
+    if (!value) {
+        return util::unexpected(value.error());
     }
-    if (auto e = expect_end(L, "reference"); !e) {
+    if (auto e = expect_end(L, "tag"); !e) {
         return util::unexpected(e.error());
     }
-    if (tag->size() > 128) {
+    if (value->size() > 128) {
         return util::unexpected(parse_error{
             L.string(), "a tag may be at most 128 characters", start});
     }
-    return reference::tag(std::move(*tag));
+    // parse_tag is a friend of tag, so it can use the private constructor.
+    return tag{std::move(*value)};
+}
+
+util::expected<reference, util::parse_error>
+parse_reference(std::string_view text) {
+    // a digest is unambiguous (it contains ':'); try it first.
+    if (auto d = parse_digest(text)) {
+        return reference::digest(*d);
+    }
+
+    auto t = parse_tag(text);
+    if (!t) {
+        return util::unexpected(t.error());
+    }
+    return reference::tag(std::move(*t));
 }
 
 std::string url::string() const {

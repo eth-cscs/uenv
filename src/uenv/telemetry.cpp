@@ -76,7 +76,7 @@ parse_telemetry(const std::string& s) {
             T.sqfs = sqfs_r.value();
 
             T.digest = to_optional(entry["digest"]);
-            if (T.digest && !uenv::is_sha(T.digest.value(), 64)) {
+            if (T.digest && !util::sha256::parse(T.digest.value())) {
                 return util::unexpected{fmt::format(
                     "invalid digest '{}': expected 64-character hex string",
                     T.digest.value())};

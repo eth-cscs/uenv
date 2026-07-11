@@ -11,6 +11,10 @@ namespace {
 std::string digest_of(const std::string& s) {
     return digest::from_sha256(util::sha256_string(s)).string();
 }
+// build a sha256 digest from a known-valid hex string.
+digest sha_digest(std::string_view hex) {
+    return digest::sha256(util::sha256::parse(hex).value());
+}
 const std::string image_layer_hex =
     "b563b338a3797eb908b1f60a3b710b7021599aaac61d02f11b273bd2ff0986d4";
 const std::string image_manifest_hex =
@@ -28,7 +32,7 @@ TEST_CASE("serialize squashfs image manifest is oras-identical",
     m.annotations[std::string{annotation_created}] = "2024-08-23T16:00:40Z";
     m.layers.push_back(manifest_layer{
         .media_type = std::string{media_type_layer_tar},
-        .digest = digest::sha256(image_layer_hex),
+        .digest = sha_digest(image_layer_hex),
         .size = 4046512128,
         .annotations = {{std::string{annotation_title}, "store.squashfs"}}});
 
@@ -49,7 +53,7 @@ TEST_CASE("serialize meta referrer manifest is oras-identical",
     m.annotations[std::string{annotation_created}] = "2024-08-23T16:01:09Z";
     m.layers.push_back(manifest_layer{
         .media_type = std::string{media_type_layer_targz},
-        .digest = digest::sha256(
+        .digest = sha_digest(
             "3e2e44102d0c54bc2b72295b470b994f128a89b1436d567d850dbf131fcc02db"),
         .size = 2366,
         .annotations = {{std::string{annotation_content_digest},
@@ -59,7 +63,7 @@ TEST_CASE("serialize meta referrer manifest is oras-identical",
                         {std::string{annotation_unpack}, "true"},
                         {std::string{annotation_title}, "meta"}}});
     m.subject = descriptor{.media_type = std::string{media_type_manifest},
-                           .digest = digest::sha256(image_manifest_hex),
+                           .digest = sha_digest(image_manifest_hex),
                            .size = 588};
 
     const std::string expected =
@@ -80,7 +84,7 @@ TEST_CASE("parse_manifest round-trips serialize_manifest", "[oci][manifest]") {
     m.annotations[std::string{annotation_created}] = "2024-08-23T16:00:40Z";
     m.layers.push_back(manifest_layer{
         .media_type = std::string{media_type_layer_tar},
-        .digest = digest::sha256(image_layer_hex),
+        .digest = sha_digest(image_layer_hex),
         .size = 4046512128,
         .annotations = {{std::string{annotation_title}, "store.squashfs"}}});
 
@@ -93,7 +97,7 @@ TEST_CASE("parse_manifest round-trips serialize_manifest", "[oci][manifest]") {
 
     const auto* layer = parsed->find_layer_by_title("store.squashfs");
     REQUIRE(layer != nullptr);
-    REQUIRE(layer->digest == digest::sha256(image_layer_hex));
+    REQUIRE(layer->digest == sha_digest(image_layer_hex));
     REQUIRE(layer->size == 4046512128);
     REQUIRE_FALSE(parsed->subject.has_value());
     REQUIRE(parsed->annotations.at(std::string{annotation_created}) ==
@@ -105,7 +109,7 @@ TEST_CASE("parse_manifest finds the unpack layer", "[oci][manifest]") {
     m.artifact_type = std::string{artifact_type_meta};
     m.layers.push_back(manifest_layer{
         .media_type = std::string{media_type_layer_targz},
-        .digest = digest::sha256(std::string(64, 'a')),
+        .digest = sha_digest(std::string(64, 'a')),
         .size = 10,
         .annotations = {{std::string{annotation_unpack}, "true"},
                         {std::string{annotation_title}, "meta"}}});
@@ -162,7 +166,7 @@ TEST_CASE("parse_manifest rejects image indexes", "[oci][manifest]") {
 
 TEST_CASE("serialize image index", "[oci][manifest]") {
     descriptor d{.media_type = std::string{media_type_manifest},
-                 .digest = digest::sha256(image_manifest_hex),
+                 .digest = sha_digest(image_manifest_hex),
                  .size = 42,
                  .artifact_type = "uenv/meta"};
 

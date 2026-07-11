@@ -49,6 +49,12 @@ registry_listing(const std::optional<std::string>& listing_url,
             if (!rg) {
                 spdlog::warn("drop due to error: {}", rg.error().message());
             } else if (rg->nspace == nspace) {
+                auto sha_value = util::sha256::parse(sha);
+                auto id_value = util::uenv_id::parse(sha.substr(0, 16));
+                if (!sha_value || !id_value) {
+                    spdlog::warn("drop due to invalid sha256 '{}'", sha);
+                    continue;
+                }
                 spdlog::trace("keep {} {}", sha.substr(0, 16), *rg);
                 records.push_back({
                     .system = rg->system,
@@ -58,8 +64,8 @@ registry_listing(const std::optional<std::string>& listing_url,
                     .tag = rg->tag,
                     .date = *date,
                     .size_byte = j["size"],
-                    .sha = uenv::sha256(sha),
-                    .id = uenv::uenv_id(sha.substr(0, 16)),
+                    .sha = *sha_value,
+                    .id = *id_value,
                 });
             } else {
                 spdlog::trace("drop {} {}", sha.substr(0, 16), *rg);
