@@ -1,10 +1,11 @@
 #pragma once
 
-#include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 
 #include <oci/digest.h>
+#include <oci/tag.h>
 #include <util/expected.h>
 #include <util/parse.h>
 
@@ -16,9 +17,8 @@ namespace oci {
 // and self-verifying — so they are kept distinct at the type level.
 class reference {
   public:
-    // build a reference from a tag. the tag is trusted (use parse() to validate
-    // untrusted input).
-    static reference tag(std::string tag);
+    // build a reference from a tag.
+    static reference tag(oci::tag t);
     // build a reference from a content digest.
     static reference digest(oci::digest d);
     // parse text: a valid "<algo>:<hex>" becomes a digest reference, otherwise
@@ -27,28 +27,23 @@ class reference {
     static util::expected<reference, util::parse_error>
     parse(std::string_view text);
 
-    bool is_digest() const {
-        return digest_.has_value();
-    }
-    bool is_tag() const {
-        return !digest_.has_value();
-    }
+    bool is_digest() const;
+    bool is_tag() const;
+    // the tag, if this reference is a tag.
+    const oci::tag& as_tag() const;
     // the digest, if this reference is a digest.
-    const std::optional<oci::digest>& as_digest() const {
-        return digest_;
-    }
+    const oci::digest& as_digest() const;
     // the text that goes into the registry path (the tag, or "<algo>:<hex>").
     std::string string() const;
 
     friend bool operator==(const reference&, const reference&) = default;
 
   private:
-    explicit reference(std::string tag) : tag_(std::move(tag)) {
+    explicit reference(oci::tag t) : value_(std::move(t)) {
     }
-    explicit reference(oci::digest d) : digest_(std::move(d)) {
+    explicit reference(oci::digest d) : value_(std::move(d)) {
     }
-    std::string tag_;
-    std::optional<oci::digest> digest_;
+    std::variant<oci::tag, oci::digest> value_;
 };
 
 } // namespace oci

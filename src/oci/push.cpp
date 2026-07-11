@@ -209,7 +209,9 @@ util::expected<void, std::string> copy_blob(client& src, client& dst,
 // Referrers API. Best-effort: failures are logged, not fatal.
 void maintain_referrers_tag(client& c, const digest& subject,
                             const descriptor& referrer) {
-    const auto tag = reference::tag(subject.algorithm() + "-" + subject.hex());
+    // the referrers-index tag is "<algo>-<hex>", valid by construction.
+    const auto tag = reference::tag(
+        oci::tag::parse(subject.algorithm() + "-" + subject.hex()).value());
 
     // read the existing index (an OCI image index, i.e. a manifests[] list) so
     // we merge rather than clobber prior referrers.
@@ -396,6 +398,12 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
     if (!dst) {
         return util::unexpected{dst.error().message};
     }
+    auto dst_ref = oci::tag::parse(dst_tag);
+    if (!dst_ref) {
+        return util::unexpected{fmt::format("invalid destination tag '{}': {}",
+                                            dst_tag,
+                                            dst_ref.error().message())};
+    }
     // dst tokens need pull scope on the source repo for cross-repo mounts.
     dst->add_pull_scope(src_repo);
 
@@ -422,7 +430,7 @@ copy_image(const std::string& registry_base, const std::string& src_repo,
     }
     // PUT the image manifest under the destination tag. Content is
     // byte-for-byte identical, so the digest (identity) is preserved.
-    if (auto ok = dst->put_manifest(reference::tag(dst_tag), mr->body,
+    if (auto ok = dst->put_manifest(reference::tag(*dst_ref), mr->body,
                                     manifest_media);
         !ok) {
         return util::unexpected{ok.error().message};

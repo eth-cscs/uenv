@@ -6,6 +6,7 @@
 #include <variant>
 
 #include <uenv/view.h>
+#include <util/sha.h>
 
 namespace uenv {
 
@@ -69,50 +70,12 @@ struct uenv_registry_entry {
     std::string tag;
 };
 
-bool is_sha(std::string_view v, std::size_t n = 0);
-
-template <unsigned N> struct sha_type {
-    std::array<char, N> value;
-
-    std::string string() const {
-        return std::string(value.begin(), value.end());
-    }
-
-    sha_type() {
-        value.fill('0');
-    }
-
-    sha_type(const sha_type&) = default;
-    sha_type(sha_type&&) = default;
-
-    sha_type(const std::string& input) {
-        // assert input.size() == N
-        // assert input values in correct range a...z,0..9
-        if (!is_sha(input, N)) {
-            throw std::range_error(
-                fmt::format("'{}' is not a valid sha of length {}", input, N));
-        }
-
-        std::copy(input.begin(), input.end(), value.begin());
-    }
-
-    sha_type& operator=(const sha_type<N>& other) = default;
-
-    friend bool operator==(const sha_type<N>& lhs, const sha_type<N>& rhs) {
-        return lhs.value == rhs.value;
-    }
-
-    friend bool operator<(const sha_type<N>& lhs, const sha_type<N>& rhs) {
-        return lhs.value < rhs.value;
-    }
-
-    std::size_t hash() const {
-        return std::hash<std::string_view>{}({value.begin(), value.end()});
-    };
-};
-
-using sha256 = sha_type<64>;
-using uenv_id = sha_type<16>;
+// the canonical fixed-length hex sha types live in util so that both uenv and
+// oci can build on them; re-export them here so the many unqualified `sha256` /
+// `uenv_id` uses across uenv and cli keep resolving.
+using util::sha256;
+using util::sha_type;
+using util::uenv_id;
 
 struct uenv_record {
     std::string system;
@@ -238,19 +201,6 @@ template <> class fmt::formatter<uenv::concrete_uenv> {
     }
 };
 
-template <unsigned N> class fmt::formatter<uenv::sha_type<N>> {
-  public:
-    // parse format specification and store it:
-    constexpr auto parse(format_parse_context& ctx) {
-        return ctx.end();
-    }
-    // format a value using stored specification:
-    template <typename FmtContext>
-    constexpr auto format(uenv::sha_type<N> const& sha, FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "{}", sha.string());
-    }
-};
-
 template <> class fmt::formatter<uenv::uenv_record> {
   public:
     // parse format specification and store it:
@@ -315,14 +265,3 @@ template <> class fmt::formatter<uenv::uenv_date> {
     // 's' = short: yyyy-mm-dd
     char mode_ = 'l';
 };
-
-namespace std {
-
-// std::hash specialisation for sha types
-template <unsigned N> struct hash<uenv::sha_type<N>> {
-    std::size_t operator()(const uenv::sha_type<N>& s) const noexcept {
-        return s.hash();
-    }
-};
-
-} // namespace std

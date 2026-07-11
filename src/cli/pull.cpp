@@ -203,7 +203,7 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
         }
 
         // identify the image by its manifest digest (record.sha).
-        const auto image_digest = oci::digest::sha256(record.sha.string());
+        const auto image_digest = oci::digest::sha256(record.sha);
         const auto manifest_ref = oci::reference::digest(image_digest);
 
         try {

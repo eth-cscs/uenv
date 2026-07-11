@@ -50,11 +50,11 @@ TEST_CASE("digest equality", "[oci][digest]") {
 }
 
 TEST_CASE("reference tag vs digest", "[oci][reference]") {
-    auto t = reference::tag("v3");
+    auto t = reference::tag(oci::tag::parse("v3").value());
     REQUIRE(t.is_tag());
     REQUIRE_FALSE(t.is_digest());
     REQUIRE(t.string() == "v3");
-    REQUIRE_FALSE(t.as_digest().has_value());
+    REQUIRE(t.as_tag().string() == "v3");
 
     auto d = digest::parse("sha256:" + std::string(64, 'a')).value();
     auto r = reference::digest(d);

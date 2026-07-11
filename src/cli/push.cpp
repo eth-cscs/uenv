@@ -172,6 +172,12 @@ int image_push([[maybe_unused]] const image_push_args& args,
 
     namespace bk = barkeep;
 
+    auto push_tag = oci::tag::parse(*L.tag);
+    if (!push_tag) {
+        term::error("invalid tag '{}': {}", *L.tag, push_tag.error().message());
+        return 1;
+    }
+
     // Push the SquashFS image. Ctrl-C is left with its default behaviour: the
     // upload session is not committed until the manifest is PUT, so an
     // interrupt leaves nothing referencing a partial blob.
@@ -188,9 +194,9 @@ int image_push([[maybe_unused]] const image_push_args& args,
         };
         // the image was hashed by validate_squashfs_image; pass that digest in
         // rather than reading the whole file a second time.
-        auto push_result =
-            oci::push_squashfs(*client, sqfs->sqfs, oci::reference::tag(*L.tag),
-                               oci::digest::sha256(sqfs->hash), progress);
+        auto push_result = oci::push_squashfs(
+            *client, sqfs->sqfs, oci::reference::tag(*push_tag),
+            oci::digest::sha256(sqfs->hash), progress);
         // fill the bar on success, which also covers the case where the
         // registry already had the blob and no upload happened.
         if (push_result) {

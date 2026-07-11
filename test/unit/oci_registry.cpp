@@ -152,11 +152,13 @@ TEST_CASE("oci registry push/pull round-trip", "[registry]") {
     auto c = oci::client::create(base, "test/app/1.0");
     REQUIRE(c.has_value());
 
-    auto pushed = oci::push_squashfs(*c, sqfs, oci::reference::tag("v1"));
+    auto pushed = oci::push_squashfs(
+        *c, sqfs, oci::reference::tag(oci::tag::parse("v1").value()));
     REQUIRE(pushed.has_value());
 
     // the pushed digest is the sha256 of the manifest the registry stores.
-    auto resp = c->get_manifest(oci::reference::tag("v1"));
+    auto resp =
+        c->get_manifest(oci::reference::tag(oci::tag::parse("v1").value()));
     REQUIRE(resp.has_value());
     const auto local =
         oci::digest::from_sha256(util::sha256_string(resp->body));
@@ -214,7 +216,8 @@ TEST_CASE("oci registry attach + referrers + pull_meta", "[registry]") {
     auto c = oci::client::create(base, "test/meta-app/1.0");
     REQUIRE(c.has_value());
 
-    auto pushed = oci::push_squashfs(*c, sqfs, oci::reference::tag("v1"));
+    auto pushed = oci::push_squashfs(
+        *c, sqfs, oci::reference::tag(oci::tag::parse("v1").value()));
     REQUIRE(pushed.has_value());
 
     auto att =
@@ -234,8 +237,8 @@ TEST_CASE("oci registry attach + referrers + pull_meta", "[registry]") {
     // the referrers tag schema (<algo>-<hex>) is the fallback used by
     // client::referrers on registries without the Referrers API; attach must
     // maintain it, and its index must list the same referrers as the API.
-    const auto fallback_tag =
-        oci::reference::tag(pushed->algorithm() + "-" + pushed->hex());
+    const auto fallback_tag = oci::reference::tag(
+        oci::tag::parse(pushed->algorithm() + "-" + pushed->hex()).value());
     auto tag_index = c->get_manifest(fallback_tag);
     REQUIRE(tag_index.has_value());
     auto tag_refs = oci::detail::parse_referrers(tag_index->body);
@@ -287,7 +290,8 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
 
     auto src = oci::client::create(base, src_repo);
     REQUIRE(src.has_value());
-    auto pushed = oci::push_squashfs(*src, sqfs, oci::reference::tag("v1"));
+    auto pushed = oci::push_squashfs(
+        *src, sqfs, oci::reference::tag(oci::tag::parse("v1").value()));
     REQUIRE(pushed.has_value());
 
     // attach metadata to the source image: copy must carry it across.
@@ -305,7 +309,8 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
     // the destination manifest is byte-identical, so its digest is preserved.
     auto dst = oci::client::create(base, dst_repo);
     REQUIRE(dst.has_value());
-    auto resp = dst->get_manifest(oci::reference::tag("v1"));
+    auto resp =
+        dst->get_manifest(oci::reference::tag(oci::tag::parse("v1").value()));
     REQUIRE(resp.has_value());
     const auto local =
         oci::digest::from_sha256(util::sha256_string(resp->body));
@@ -322,8 +327,8 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
     // copy must also recreate the referrers tag-schema index on the
     // destination, so the attachment is discoverable on registries without
     // the Referrers API.
-    const auto fallback_tag =
-        oci::reference::tag(pushed->algorithm() + "-" + pushed->hex());
+    const auto fallback_tag = oci::reference::tag(
+        oci::tag::parse(pushed->algorithm() + "-" + pushed->hex()).value());
     auto tag_index = dst->get_manifest(fallback_tag);
     REQUIRE(tag_index.has_value());
     auto tag_refs = oci::detail::parse_referrers(tag_index->body);
@@ -349,15 +354,16 @@ TEST_CASE("oci registry push_squashfs with a precomputed digest",
 
     // supplying the layer digest spares push_squashfs a full read of the file.
     const auto layer = oci::digest::from_sha256(util::sha256_string(payload));
-    auto pushed =
-        oci::push_squashfs(*c, sqfs, oci::reference::tag("v1"), layer);
+    auto pushed = oci::push_squashfs(
+        *c, sqfs, oci::reference::tag(oci::tag::parse("v1").value()), layer);
     REQUIRE(pushed.has_value());
 
     // the manifest records the digest we supplied, and the layer is addressable
     // under it. (The manifest digest itself is not compared against a
     // hash-it-yourself push: push_squashfs stamps a wall-clock `created`
     // annotation, so two pushes need not produce identical manifests.)
-    auto resp = c->get_manifest(oci::reference::tag("v1"));
+    auto resp =
+        c->get_manifest(oci::reference::tag(oci::tag::parse("v1").value()));
     REQUIRE(resp.has_value());
     auto image = oci::parse_manifest(resp->body);
     REQUIRE(image.has_value());
