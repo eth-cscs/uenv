@@ -31,7 +31,7 @@
 #include <oci/util.h>
 #include <util/curl.h>
 #include <util/fs.h>
-#include <util/sha256.h>
+#include <util/sha.h>
 #include <util/subprocess.h>
 
 namespace {
@@ -160,8 +160,7 @@ TEST_CASE("oci registry push/pull round-trip", "[registry]") {
     auto resp =
         c->get_manifest(oci::reference::tag(oci::tag::parse("v1").value()));
     REQUIRE(resp.has_value());
-    const auto local =
-        oci::digest::from_sha256(util::sha256_string(resp->body));
+    const auto local = oci::digest::sha256(util::sha256_string(resp->body));
     REQUIRE(local == *pushed);
     if (resp->digest) {
         REQUIRE(*resp->digest == *pushed);
@@ -190,7 +189,7 @@ TEST_CASE("oci registry failed blob download leaves no file", "[registry]") {
     // .partial next to it) that a later pull would mistake for a complete
     // blob.
     const auto missing =
-        oci::digest::from_sha256(util::sha256_string("no-such-blob"));
+        oci::digest::sha256(util::sha256_string("no-such-blob"));
     auto store = util::make_temp_dir().value();
     const auto dest = store / "store.squashfs";
 
@@ -312,8 +311,7 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
     auto resp =
         dst->get_manifest(oci::reference::tag(oci::tag::parse("v1").value()));
     REQUIRE(resp.has_value());
-    const auto local =
-        oci::digest::from_sha256(util::sha256_string(resp->body));
+    const auto local = oci::digest::sha256(util::sha256_string(resp->body));
     REQUIRE(local == *pushed);
 
     // the attached metadata is discoverable and pullable from the
@@ -353,7 +351,7 @@ TEST_CASE("oci registry push_squashfs with a precomputed digest",
     REQUIRE(c.has_value());
 
     // supplying the layer digest spares push_squashfs a full read of the file.
-    const auto layer = oci::digest::from_sha256(util::sha256_string(payload));
+    const auto layer = oci::digest::sha256(util::sha256_string(payload));
     auto pushed = oci::push_squashfs(
         *c, sqfs, oci::reference::tag(oci::tag::parse("v1").value()), layer);
     REQUIRE(pushed.has_value());

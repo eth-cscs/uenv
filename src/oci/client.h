@@ -16,7 +16,6 @@
 #include <util/curl.h>
 #include <util/expected.h>
 #include <util/parse.h>
-#include <util/sha256.h>
 
 namespace oci {
 

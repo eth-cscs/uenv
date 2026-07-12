@@ -2,7 +2,7 @@
 
 #include <oci/digest.h>
 #include <oci/reference.h>
-#include <util/sha256.h>
+#include <util/sha.h>
 
 using namespace oci;
 
@@ -31,14 +31,14 @@ TEST_CASE("digest parse rejects malformed", "[oci][digest]") {
     REQUIRE(digest::parse("sha512:" + std::string(128, 'f')).has_value());
 }
 
-TEST_CASE("digest from_sha256 and sha256", "[oci][digest]") {
+TEST_CASE("digest sha256", "[oci][digest]") {
     auto h = util::sha256_string("abc");
-    auto d = digest::from_sha256(h);
+    auto d = digest::sha256(h);
     REQUIRE(d.string() ==
             "sha256:"
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-    // the trusted constructor round-trips the same value.
-    REQUIRE(digest::sha256(h.hex()) == d);
+    // promoting the same sha256 yields the same digest.
+    REQUIRE(digest::sha256(h) == d);
 }
 
 TEST_CASE("digest equality", "[oci][digest]") {

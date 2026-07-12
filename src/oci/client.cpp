@@ -17,7 +17,7 @@
 #include <util/curl.h>
 #include <util/expected.h>
 #include <util/fs.h>
-#include <util/sha256.h>
+#include <util/sha.h>
 
 namespace oci {
 
@@ -223,13 +223,11 @@ util::expected<void, client_error> client::get_blob_to_file(
     // against the requested digest without a second read pass over a multi-GB
     // file.
     const bool verify = d.algorithm() == "sha256";
-    util::sha256_state hash;
+    util::sha256_hasher hash;
     if (verify) {
-        util::sha256_init(hash);
         req.on_download_data = [&hash](const char* p, std::size_t n) {
-            util::sha256_update(hash,
-                                std::span<const std::byte>{
-                                    reinterpret_cast<const std::byte*>(p), n});
+            hash.update(std::span<const std::byte>{
+                reinterpret_cast<const std::byte*>(p), n});
         };
     }
 
@@ -253,7 +251,7 @@ util::expected<void, client_error> client::get_blob_to_file(
     // rewrites the partial file from the beginning ("wb" truncates it).
     auto resp = authed_perform(req, false, [verify, &hash]() {
         if (verify) {
-            util::sha256_init(hash);
+            hash.reset();
         }
     });
     if (!resp) {
@@ -267,7 +265,7 @@ util::expected<void, client_error> client::get_blob_to_file(
     }
 
     if (verify) {
-        const auto got = digest::from_sha256(util::sha256_final(hash));
+        const auto got = digest::sha256(hash.finalize());
         if (got != d) {
             return fail(
                 {fmt::format("downloaded blob digest mismatch: expected {}, "
