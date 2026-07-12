@@ -6,10 +6,6 @@
 
 namespace oci {
 
-digest digest::from_sha256(const util::sha256_digest& d) {
-    return digest{"sha256", d.hex().string()};
-}
-
 digest digest::sha256(const util::sha256& hex) {
     return digest{"sha256", hex.string()};
 }

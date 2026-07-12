@@ -6,7 +6,6 @@
 #include <util/expected.h>
 #include <util/parse.h>
 #include <util/sha.h>
-#include <util/sha256.h>
 
 namespace oci {
 
@@ -21,10 +20,8 @@ util::expected<digest, util::parse_error> parse_digest(std::string_view);
 // bare hex against prefixed strings or a tag against a digest.
 class digest {
   public:
-    // promote a computed sha-256 hash to a digest.
-    static digest from_sha256(const util::sha256_digest& d);
-
-    // build a sha-256 digest from a validated sha (e.g. a uenv record's sha).
+    // build a sha-256 digest from a sha256 (a computed hash, or a validated
+    // sha such as a uenv record's).
     static digest sha256(const util::sha256& hex);
 
     // parse "<algorithm>:<hex>". rejects an unknown algorithm, and a value

@@ -85,7 +85,6 @@ lib_src = [
         'src/util/parse.cpp',
         'src/util/semver.cpp',
         'src/util/sha.cpp',
-        'src/util/sha256.cpp',
         'src/util/shell.cpp',
         'src/util/signal.cpp',
         'src/util/strings.cpp',

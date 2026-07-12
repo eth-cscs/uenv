@@ -112,7 +112,6 @@ unit_src = [
         'unit/strings.cpp',
         'unit/repository.cpp',
         'unit/settings.cpp',
-        'unit/sha256.cpp',
         'unit/subprocess.cpp',
         'unit/telemetry.cpp',
 ]

@@ -9,8 +9,6 @@
 namespace oci {
 
 class tag;
-// the lexer-based parser (src/oci/parse.cpp) constructs tags directly.
-util::expected<tag, util::parse_error> parse_tag(std::string_view);
 
 // An OCI manifest tag: a mutable, human-readable reference matching the OCI tag
 // grammar ([a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}). A `tag` is always syntactically

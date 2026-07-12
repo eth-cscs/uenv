@@ -11,7 +11,7 @@
 #include <util/color.h>
 #include <util/expected.h>
 #include <util/fs.h>
-#include <util/sha256.h>
+#include <util/sha.h>
 #include <util/shell.h>
 #include <util/subprocess.h>
 
@@ -196,7 +196,7 @@ util::expected<squashfs_image, std::string> validate_squashfs_image(
         return util::unexpected{fmt::format(
             "unable to calculate sha256 of squashfs file {}", img.sqfs)};
     }
-    img.hash = hash->hex();
+    img.hash = hash.value();
 
     return img;
 }

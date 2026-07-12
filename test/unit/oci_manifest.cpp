@@ -3,13 +3,13 @@
 #include <oci/client.h>
 #include <oci/digest.h>
 #include <oci/manifest.h>
-#include <util/sha256.h>
+#include <util/sha.h>
 
 using namespace oci;
 
 namespace {
 std::string digest_of(const std::string& s) {
-    return digest::from_sha256(util::sha256_string(s)).string();
+    return digest::sha256(util::sha256_string(s)).string();
 }
 // build a sha256 digest from a known-valid hex string.
 digest sha_digest(std::string_view hex) {

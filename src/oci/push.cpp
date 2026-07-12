@@ -17,7 +17,7 @@
 #include <oci/util.h>
 #include <util/expected.h>
 #include <util/fs.h>
-#include <util/sha256.h>
+#include <util/sha.h>
 #include <util/subprocess.h>
 
 namespace oci {
@@ -42,11 +42,11 @@ util::expected<digest, std::string> digest_of_file(const fs::path& p) {
     if (!d) {
         return util::unexpected{d.error()};
     }
-    return digest::from_sha256(*d);
+    return digest::sha256(*d);
 }
 
 digest digest_of_string(std::string_view s) {
-    return digest::from_sha256(util::sha256_string(s));
+    return digest::sha256(util::sha256_string(s));
 }
 
 // upload the canonical empty config blob (idempotent).

@@ -5,7 +5,7 @@
 #include <oci/client.h>
 #include <oci/digest.h>
 #include <oci/util.h>
-#include <util/sha256.h>
+#include <util/sha.h>
 
 using namespace oci;
 using namespace oci::detail;

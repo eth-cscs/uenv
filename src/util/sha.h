@@ -3,7 +3,11 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <functional>
+#include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -16,11 +20,6 @@ namespace util {
 // true if every character of s is a lowercase hex digit (0-9, a-f). the single
 // source of truth for hex validation across the codebase.
 bool is_sha_string(std::string_view s);
-
-// forward declaration: sha256_digest (util/sha256.h) is the raw-bytes form of a
-// computed hash, and its hex() promotes those bytes to a sha_type<64>. it is a
-// friend so it can use the trusted constructor.
-struct sha256_digest;
 
 // A fixed-length lowercase-hex string of exactly N characters, e.g. a content
 // sha (N=64) or its short id (N=16). A sha_type is always valid once
@@ -65,12 +64,63 @@ template <unsigned N> class sha_type {
         std::copy_n(s.begin(), N, value_.begin());
     }
     std::array<char, N> value_;
-
-    friend struct sha256_digest;
 };
 
 using sha256 = sha_type<64>;
 using uenv_id = sha_type<16>;
+
+//
+// SHA-256 hashing
+//
+
+// forward-declared pimpl (in the style of util/lex.h's lexer_impl); the digest
+// state never leaks into this header.
+class sha256_impl;
+
+// A streaming SHA-256 hasher. Construct it, feed bytes with update(), then call
+// finalize() to obtain the digest. Use this when data must be digested
+// incrementally (e.g. streaming a multi-GB squashfs to disk) without holding it
+// all in memory.
+class sha256_hasher {
+  public:
+    sha256_hasher();
+    ~sha256_hasher();
+    sha256_hasher(sha256_hasher&&) noexcept;
+    sha256_hasher& operator=(sha256_hasher&&) noexcept;
+
+    // feed the next chunk of input.
+    void update(std::span<const std::byte> data);
+
+    // restart from empty, discarding anything fed so far (e.g. a download that
+    // must be retried from scratch).
+    void reset();
+
+    // finish and return the 64-character lowercase-hex digest. non-destructive:
+    // the hasher may continue to be updated afterwards.
+    sha256 finalize() const;
+
+  private:
+    std::unique_ptr<sha256_impl> impl_;
+};
+
+//
+// convenience one-shots
+//
+
+// digest an in-memory byte buffer.
+sha256 sha256_bytes(std::span<const std::byte> data);
+
+// digest text - a thin wrapper for the common string case.
+sha256 sha256_string(std::string_view text);
+
+// digest a file by streaming it in fixed-size chunks, so large files never need
+// to be held in memory. returns an error message if the file is unreadable.
+// `progress`, when set, is called once per chunk with the cumulative number of
+// bytes hashed so far, so that callers can drive a progress bar over a multi-GB
+// file. It is called from this thread, and the hash is not abortable.
+util::expected<sha256, std::string>
+sha256_file(const std::filesystem::path& path,
+            std::function<void(std::uint64_t bytes_hashed)> progress = {});
 
 } // namespace util
 

@@ -222,6 +222,15 @@ All dependencies are built as static libraries via meson wrap:
 
 Always use braces `{}` on `if`, `for`, `while`, and other control flow statements, even for single-statement bodies.
 
+Do not use banner-style section comments with trailing dashes
+(`// --- section ------`). Prefer a three-line block comment:
+
+```cpp
+//
+// section
+//
+```
+
 ### Error Handling
 
 Use `util::expected<T, E>` (similar to std::expected) for fallible operations. This is defined in `src/util/expected.h`.
