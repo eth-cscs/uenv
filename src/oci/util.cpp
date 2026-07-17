@@ -9,6 +9,8 @@
 
 #include <oci/digest.h>
 #include <oci/util.h>
+#include <util/strings.h>
+#include <util/url.h>
 
 namespace oci {
 namespace detail {
@@ -35,30 +37,41 @@ std::string referrers_path(std::string_view repository,
     return fmt::format("/v2/{}/referrers/{}", repository, digest);
 }
 
-std::string resolve_upload_url(std::string_view registry_url,
-                               std::string_view location,
-                               std::string_view digest) {
-    std::string url;
-    // the Location may be absolute (https://...) or registry-relative
-    // (/v2/...).
-    if (location.rfind("http://", 0) == 0 ||
-        location.rfind("https://", 0) == 0) {
-        url = std::string{location};
-    } else {
-        std::string base{registry_url};
-        while (!base.empty() && base.back() == '/') {
-            base.pop_back();
+util::expected<util::url, std::string>
+resolve_upload_url(const util::url& registry_url, std::string_view location,
+                   std::string_view digest) {
+    // the Location may be absolute (the registry pointing the upload at
+    // backing storage) or registry-relative. "absolute" means it carries a
+    // scheme - parse and ask, rather than matching a "http://" prefix by hand:
+    // the prefix test was case-sensitive, so a "HTTPS://..." Location was taken
+    // for a relative path and spliced onto the registry base.
+    if (auto abs = util::parse_url(location);
+        abs && abs->scheme() != util::url_scheme::none) {
+        if (auto ok = check_transport(registry_url, *abs, "upload Location");
+            !ok) {
+            return util::unexpected{ok.error()};
         }
-        if (!location.empty() && location.front() != '/') {
-            base.push_back('/');
-        }
-        url = base + std::string{location};
+        // append the digest query parameter the monolithic PUT requires.
+        return abs->query_param("digest", digest);
     }
-    // append the digest query parameter the monolithic PUT requires.
-    url += (url.find('?') == std::string::npos) ? '?' : '&';
-    url += "digest=";
-    url += digest;
-    return url;
+
+    // a registry-relative Location, which routinely carries a query of its own
+    // ("/v2/.../uploads/abc?_state=xyz"). Graft it onto the origin and parse
+    // the result rather than appending it to the path: the '?' has to split
+    // path from query, and appending would bury it inside the path.
+    std::string joined = registry_url.origin().string();
+    if (!location.empty() && location.front() != '/') {
+        joined += '/';
+    }
+    joined += location;
+    auto u = util::parse_url(joined);
+    if (!u) {
+        return util::unexpected{
+            fmt::format("the registry returned an upload Location that is not "
+                        "a valid url: '{}'",
+                        location)};
+    }
+    return u->query_param("digest", digest);
 }
 
 std::string json_string_or(const nlohmann::json& j, const char* key,
@@ -123,21 +136,17 @@ std::optional<std::vector<descriptor>> parse_referrers(std::string_view body) {
     return out;
 }
 
-std::string token_url(const bearer_challenge& challenge,
-                      const std::vector<std::string>& scopes) {
-    std::string url = challenge.realm;
-    char sep = url.find('?') == std::string::npos ? '?' : '&';
+util::url token_url(const bearer_challenge& challenge,
+                    const std::vector<std::string>& scopes) {
+    // query_param picks '?' or '&' itself and encodes both sides, so a realm
+    // that already carries a query just continues, and a `service` or `scope`
+    // holding '&' can no longer inject parameters of its own.
+    util::url url = challenge.realm;
     if (!challenge.service.empty()) {
-        url += sep;
-        url += "service=";
-        url += challenge.service;
-        sep = '&';
+        url = url.query_param("service", challenge.service);
     }
     for (const auto& scope : scopes) {
-        url += sep;
-        url += "scope=";
-        url += scope;
-        sep = '&';
+        url = url.query_param("scope", scope);
     }
     return url;
 }
@@ -164,14 +173,15 @@ std::optional<token_response> parse_token_response(std::string_view body) {
 }
 
 std::string normalise_host(std::string_view key) {
-    auto s = key;
-    if (auto p = s.find("://"); p != std::string_view::npos) {
-        s.remove_prefix(p + 3);
+    // docker keys credentials by whatever string the user logged in with, so a
+    // key may be a bare host, a host:port, or a full url
+    // ("https://index.docker.io/v1/"). Parsing settles all three, and drops the
+    // userinfo that the old hand-rolled version left attached (so a
+    // "https://user@host/v1/" key could never match "host").
+    if (auto u = util::parse_url(key)) {
+        return u->host_port();
     }
-    if (auto p = s.find('/'); p != std::string_view::npos) {
-        s = s.substr(0, p);
-    }
-    return std::string{s};
+    return std::string{util::strip(key)};
 }
 
 std::optional<std::string> helper_for_host(const nlohmann::json& cfg,
@@ -228,6 +238,26 @@ parse_helper_output(std::string_view body) {
 std::string repository_scope(std::string_view repository,
                              std::string_view actions) {
     return fmt::format("repository:{}:{}", repository, actions);
+}
+
+util::expected<void, std::string> check_transport(const util::url& registry,
+                                                  const util::url& target,
+                                                  std::string_view what) {
+    const auto scheme = target.scheme();
+    if (scheme != util::url_scheme::http && scheme != util::url_scheme::https) {
+        return util::unexpected{fmt::format(
+            "refusing to use the {} '{}': only http and https are supported",
+            what, target.string())};
+    }
+    if (registry.scheme() == util::url_scheme::https &&
+        scheme != util::url_scheme::https) {
+        return util::unexpected{
+            fmt::format("refusing to use the {} '{}': it would downgrade the "
+                        "connection to {} from the https registry '{}'",
+                        what, target.string(), target.scheme_text(),
+                        registry.origin().string())};
+    }
+    return {};
 }
 
 } // namespace detail

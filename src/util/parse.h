@@ -77,4 +77,9 @@ parse_string(lex::lexer& L, std::string_view type, Test&& test) {
     return result;
 }
 
+// require the lexer to be at end-of-input, otherwise build a "trailing input"
+// parse_error for `what`.
+util::expected<void, parse_error> expect_end(lex::lexer& L,
+                                             std::string_view what);
+
 } // namespace util

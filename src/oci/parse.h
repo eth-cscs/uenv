@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -35,28 +34,6 @@ util::expected<tag, util::parse_error> parse_tag(std::string_view text);
 // becomes a tag.
 util::expected<reference, util::parse_error>
 parse_reference(std::string_view text);
-
-// A URL parsed into its RFC-3986 components. `host` retains the surrounding
-// brackets for an IPv6 literal (e.g. "[::1]"). Percent-encoded octets are
-// passed through verbatim (not decoded).
-struct url {
-    std::string scheme;   // e.g. "https" (may be empty)
-    std::string userinfo; // e.g. "user:pass" (may be empty)
-    std::string host;     // e.g. "jfrog.svc.cscs.ch" or "[::1]"
-    std::optional<std::uint32_t> port;
-    std::string path;     // includes the leading '/' (may be empty)
-    std::string query;    // after '?' (may be empty)
-    std::string fragment; // after '#' (may be empty)
-
-    // re-render the URL from its components.
-    std::string string() const;
-
-    friend bool operator==(const url&, const url&) = default;
-};
-
-// parse a URL "[scheme://][userinfo@]host[:port][/path][?query][#fragment]". a
-// bare "host/prefix" (no scheme) is accepted, as registry configs are written.
-util::expected<url, util::parse_error> parse_url(std::string_view text);
 
 // parse a "WWW-Authenticate: Bearer ..." challenge. the scheme match is
 // case-insensitive; `realm` is required.

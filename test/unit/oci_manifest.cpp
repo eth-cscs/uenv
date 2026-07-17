@@ -5,6 +5,7 @@
 #include <oci/types.h>
 #include <util/sha.h>
 #include <util/strings.h>
+#include <util/url.h>
 
 using namespace oci;
 
@@ -202,42 +203,34 @@ TEST_CASE("serialize image index", "[oci][manifest]") {
     REQUIRE(serialize_index({d}) == expected);
 }
 
+// split_registry cannot fail: its argument was parsed when the configuration
+// was read, so a malformed or scheme-less registry.url is rejected (and https
+// defaulted) long before here - see the config tests in unit/settings.cpp.
 TEST_CASE("split_registry", "[oci][manifest]") {
-    // host with a prefix, no scheme
-    auto a = split_registry("jfrog.svc.cscs.ch/uenv");
-    REQUIRE(a.has_value());
-    REQUIRE(a->base == "https://jfrog.svc.cscs.ch");
-    REQUIRE(a->prefix == "uenv");
+    auto split = [](const char* text) {
+        return split_registry(*util::parse_url(text));
+    };
 
-    // scheme is dropped, https forced
-    auto b = split_registry("https://jfrog.svc.cscs.ch/uenv");
-    REQUIRE(b.has_value());
-    REQUIRE(b->base == "https://jfrog.svc.cscs.ch");
-    REQUIRE(b->prefix == "uenv");
+    // host with a prefix
+    auto a = split("https://jfrog.svc.cscs.ch/uenv");
+    REQUIRE(a.base.string() == "https://jfrog.svc.cscs.ch");
+    REQUIRE(a.prefix == "uenv");
 
     // bare host, no prefix
-    auto c = split_registry("registry.example");
-    REQUIRE(c.has_value());
-    REQUIRE(c->base == "https://registry.example");
-    REQUIRE(c->prefix == "");
+    auto c = split("https://registry.example");
+    REQUIRE(c.base.string() == "https://registry.example");
+    REQUIRE(c.prefix == "");
 
-    // multi-segment prefix, trailing slash trimmed
-    auto d = split_registry("host.io/a/b/");
-    REQUIRE(d.has_value());
-    REQUIRE(d->base == "https://host.io");
-    REQUIRE(d->prefix == "a/b");
+    // multi-segment prefix, surrounding slashes trimmed
+    auto d = split("https://host.io/a/b/");
+    REQUIRE(d.base.string() == "https://host.io");
+    REQUIRE(d.prefix == "a/b");
 
     // an explicit http scheme is preserved (e.g. a local test registry), and
     // the port is carried through onto the base
-    auto e = split_registry("http://127.0.0.1:5000/uenv");
-    REQUIRE(e.has_value());
-    REQUIRE(e->base == "http://127.0.0.1:5000");
-    REQUIRE(e->prefix == "uenv");
-
-    // invalid: empty host / whitespace
-    REQUIRE_FALSE(split_registry("").has_value());
-    REQUIRE_FALSE(split_registry("/uenv").has_value());
-    REQUIRE_FALSE(split_registry("bad host/uenv").has_value());
+    auto e = split("http://127.0.0.1:5000/uenv");
+    REQUIRE(e.base.string() == "http://127.0.0.1:5000");
+    REQUIRE(e.prefix == "uenv");
 }
 
 TEST_CASE("repository_path", "[oci][manifest]") {

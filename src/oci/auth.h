@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <util/expected.h>
+#include <util/url.h>
 
 namespace oci {
 
@@ -19,8 +20,14 @@ struct credentials {
 // A parsed `WWW-Authenticate: Bearer ...` challenge. `realm` is the token
 // endpoint; `service` and `scopes` are the parameters to echo back when
 // requesting a token.
+//
+// Every field here is supplied by the registry, so this is an untrusted-input
+// boundary: `realm` is parsed into a url when the challenge is parsed, and
+// `service`/`scopes` are percent-encoded when they are built into the token
+// url. A realm still has to clear check_transport before it is fetched — it is
+// about to be handed the user's credentials.
 struct bearer_challenge {
-    std::string realm;
+    util::url realm;
     std::string service;
     std::vector<std::string> scopes;
 
@@ -45,22 +52,20 @@ struct token_response {
 // anonymous access (200 on /v2/, no challenge) — in which case the client
 // operates tokenless.
 util::expected<std::optional<bearer_challenge>, std::string>
-discover_challenge(const std::string& registry_url);
+discover_challenge(const util::url& registry_url);
 
 // Request a bearer token for the given scopes, optionally authenticating with
 // basic-auth credentials (required for push or private pull; omit for anonymous
 // pull).
+//
+// `registry` is the registry the challenge came from. It is needed to judge the
+// challenge's realm: the realm is registry-supplied and is about to be handed
+// the credentials, so it must not downgrade the transport (see
+// detail::check_transport).
 util::expected<token_response, std::string>
-fetch_token(const bearer_challenge& challenge,
+fetch_token(const util::url& registry, const bearer_challenge& challenge,
             const std::vector<std::string>& scopes,
             const std::optional<credentials>& creds = std::nullopt);
-
-// Convenience: discover the challenge for a registry and fetch a token in one
-// call.
-util::expected<std::string, std::string>
-authenticate(const std::string& registry_url,
-             const std::vector<std::string>& scopes,
-             const std::optional<credentials>& creds = std::nullopt);
 
 // --- credential resolution ----------------------------------------------
 

@@ -181,14 +181,10 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
         // "jfrog.svc.cscs.ch/uenv") into a base URL and the repository prefix,
         // then build the OCI repository name the same way the oras address was
         // formed: <prefix>/<nspace>/<system>/<uarch>/<name>/<version>.
-        auto loc = oci::split_registry(registry_cfg.url);
-        if (!loc) {
-            term::error("invalid registry url: {}", loc.error().message());
-            return 1;
-        }
-        const std::string registry_base = loc->base;
+        const auto loc = oci::split_registry(registry_cfg.url);
+        const auto registry_base = loc.base;
         const std::string repository =
-            oci::repository_path(loc->prefix, nspace, record.system,
+            oci::repository_path(loc.prefix, nspace, record.system,
                                  record.uarch, record.name, record.version);
 
         spdlog::debug("oci pull: registry={} repository={}", registry_base,

@@ -387,7 +387,7 @@ util::expected<descriptor, std::string> attach(client& c,
 }
 
 util::expected<void, std::string>
-copy_image(const std::string& registry_base, const std::string& src_repo,
+copy_image(const util::url& registry_base, const std::string& src_repo,
            const std::string& dst_repo, const digest& src_manifest,
            const std::string& dst_tag, std::optional<credentials> creds) {
     auto src = client::create(registry_base, src_repo, creds);

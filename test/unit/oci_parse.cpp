@@ -73,69 +73,12 @@ TEST_CASE("oci parse_reference", "[oci][parse]") {
     REQUIRE_FALSE(parse_reference(std::string(129, 'a')).has_value());
 }
 
-TEST_CASE("oci parse_url components", "[oci][parse]") {
-    // scheme-less host with a path
-    auto a = parse_url("jfrog.svc.cscs.ch/uenv");
-    REQUIRE(a.has_value());
-    REQUIRE(a->scheme == "");
-    REQUIRE(a->host == "jfrog.svc.cscs.ch");
-    REQUIRE(a->path == "/uenv");
-    REQUIRE_FALSE(a->port.has_value());
-
-    // scheme is captured, path preserved
-    auto b = parse_url("https://host.io/a/b/");
-    REQUIRE(b.has_value());
-    REQUIRE(b->scheme == "https");
-    REQUIRE(b->host == "host.io");
-    REQUIRE(b->path == "/a/b/");
-
-    // bare host, no path
-    auto c = parse_url("registry.example");
-    REQUIRE(c.has_value());
-    REQUIRE(c->host == "registry.example");
-    REQUIRE(c->path == "");
-
-    // port, query and fragment
-    auto d = parse_url("http://h:8080/p?a=1&b=2#frag");
-    REQUIRE(d.has_value());
-    REQUIRE(d->scheme == "http");
-    REQUIRE(d->host == "h");
-    REQUIRE(d->port == 8080u);
-    REQUIRE(d->path == "/p");
-    REQUIRE(d->query == "a=1&b=2");
-    REQUIRE(d->fragment == "frag");
-
-    // IPv6 literal host with a port
-    auto e = parse_url("https://[::1]:5000/x");
-    REQUIRE(e.has_value());
-    REQUIRE(e->host == "[::1]");
-    REQUIRE(e->port == 5000u);
-    REQUIRE(e->path == "/x");
-
-    // userinfo
-    auto f = parse_url("https://user:pass@host/p");
-    REQUIRE(f.has_value());
-    REQUIRE(f->userinfo == "user:pass");
-    REQUIRE(f->host == "host");
-
-    // round-trips through string()
-    REQUIRE(parse_url("https://h:8080/p?q=1#f")->string() ==
-            "https://h:8080/p?q=1#f");
-}
-
-TEST_CASE("oci parse_url rejects malformed", "[oci][parse]") {
-    REQUIRE_FALSE(parse_url("").has_value());
-    REQUIRE_FALSE(parse_url("/uenv").has_value());         // no host
-    REQUIRE_FALSE(parse_url("bad host/uenv").has_value()); // whitespace in host
-    REQUIRE_FALSE(parse_url("host:notaport/x").has_value());
-}
-
 TEST_CASE("oci parse_bearer_challenge from jfrog", "[oci][parse]") {
     auto c = parse_bearer_challenge(
         "Bearer realm=\"https://jfrog.svc.cscs.ch/v2/token\","
         "service=\"jfrog.svc.cscs.ch\"");
     REQUIRE(c.has_value());
-    REQUIRE(c->realm == "https://jfrog.svc.cscs.ch/v2/token");
+    REQUIRE(c->realm.string() == "https://jfrog.svc.cscs.ch/v2/token");
     REQUIRE(c->service == "jfrog.svc.cscs.ch");
     REQUIRE(c->scopes.empty());
 }
@@ -148,7 +91,7 @@ TEST_CASE("oci parse_bearer_challenge with a scope containing a comma",
         "Bearer realm=\"https://r/token\",service=\"reg\","
         "scope=\"repository:foo/bar:pull,push\"");
     REQUIRE(c.has_value());
-    REQUIRE(c->realm == "https://r/token");
+    REQUIRE(c->realm.string() == "https://r/token");
     REQUIRE(c->service == "reg");
     REQUIRE(c->scopes ==
             std::vector<std::string>{"repository:foo/bar:pull,push"});
@@ -175,7 +118,7 @@ TEST_CASE("oci parse_bearer_challenge is scheme-case-insensitive",
           "[oci][parse]") {
     auto c = parse_bearer_challenge("bearer realm=\"https://r/token\"");
     REQUIRE(c.has_value());
-    REQUIRE(c->realm == "https://r/token");
+    REQUIRE(c->realm.string() == "https://r/token");
 }
 
 TEST_CASE("oci parse_scopes", "[oci][parse]") {

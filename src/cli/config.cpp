@@ -61,12 +61,13 @@ int configure([[maybe_unused]] const configure_args& args,
     }
     if (config.registry) {
         fmt::println("  registry:    {}/{}",
-                     color::yellow(config.registry->url),
+                     color::yellow(config.registry->url.string()),
                      color::cyan(config.registry->default_namespace));
-        fmt::println("  artifactory: {}",
-                     config.registry->artifactory_url
-                         ? color::green(*config.registry->artifactory_url)
-                         : color::red("none"));
+        fmt::println(
+            "  artifactory: {}",
+            config.registry->artifactory_url
+                ? color::green(config.registry->artifactory_url->string())
+                : color::red("none"));
     } else {
         fmt::println("  registry:    {}", color::red("none"));
     }

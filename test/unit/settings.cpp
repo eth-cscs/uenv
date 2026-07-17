@@ -157,10 +157,13 @@ listing_url = "http://127.0.0.1:8080/list")"sv;
         auto result = parse_config_toml(toml::parse(input), {});
         REQUIRE(result);
         REQUIRE(result->registry);
-        REQUIRE(result->registry->url == "jfrog.svc.cscs.ch/uenv");
+        // the url is parsed at load, and a scheme-less config value - the form
+        // the CSCS deployment uses - is defaulted to https.
+        REQUIRE(result->registry->url.string() ==
+                "https://jfrog.svc.cscs.ch/uenv");
         REQUIRE(result->registry->default_namespace == "deploy");
         REQUIRE(result->registry->listing_url);
-        REQUIRE(result->registry->listing_url.value() ==
+        REQUIRE(result->registry->listing_url->string() ==
                 "http://127.0.0.1:8080/list");
     }
     {
@@ -173,6 +176,52 @@ default_namespace = "deploy")"sv;
         REQUIRE(result);
         REQUIRE(result->registry);
         REQUIRE(!result->registry->listing_url);
+    }
+    {
+        // an explicit http:// is honoured, so a local registry can be used
+        const std::string_view input = R"(
+[registry]
+url = "http://127.0.0.1:5000/uenv"
+default_namespace = "deploy")"sv;
+        auto result = parse_config_toml(toml::parse(input), {});
+        REQUIRE(result);
+        REQUIRE(result->registry->url.string() == "http://127.0.0.1:5000/uenv");
+    }
+    {
+        // a malformed registry url is caught when the config is read, rather
+        // than half way through a push, and the error names the key.
+        const std::string_view input = R"(
+[registry]
+url = "bad host/uenv"
+default_namespace = "deploy")"sv;
+        auto result = parse_config_toml(toml::parse(input), {});
+        REQUIRE_FALSE(result);
+        REQUIRE(result.error().message.find("registry.url") !=
+                std::string::npos);
+    }
+    {
+        // only http(s) can be spoken to a registry; anything else is refused at
+        // the boundary rather than by whatever eventually tries to fetch it.
+        const std::string_view input = R"(
+[registry]
+url = "file://somewhere/uenv"
+default_namespace = "deploy")"sv;
+        auto result = parse_config_toml(toml::parse(input), {});
+        REQUIRE_FALSE(result);
+        REQUIRE(result.error().message.find("http or https") !=
+                std::string::npos);
+    }
+    {
+        // the optional endpoints are validated too, and named
+        const std::string_view input = R"(
+[registry]
+url = "jfrog.svc.cscs.ch/uenv"
+default_namespace = "deploy"
+listing_url = "bad host/list")"sv;
+        auto result = parse_config_toml(toml::parse(input), {});
+        REQUIRE_FALSE(result);
+        REQUIRE(result.error().message.find("registry.listing_url") !=
+                std::string::npos);
     }
     {
         const std::string_view input = R"(

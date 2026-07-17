@@ -114,8 +114,6 @@ std::string http_message(long code);
 // status lines and blank separators are ignored. exposed for unit testing.
 void parse_header_line(headers& h, std::string_view line);
 
-std::string curl_get(std::string url);
-
 expected<std::string, error>
 post(const std::string& data, std::string url,
      std::optional<std::string> content_type = std::nullopt,

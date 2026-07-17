@@ -25,22 +25,13 @@ namespace uenv {
 
 util::expected<std::optional<oci::credentials>, std::string>
 resolve_registry_credentials(const envvars::state& env,
-                             const std::string& registry_url,
+                             const util::url& registry_url,
                              std::optional<std::string> username,
                              std::optional<std::string> token) {
     namespace fs = std::filesystem;
 
-    // the credential store is keyed by the bare registry host[:port]; derive it
-    // from the configured registry url.
-    auto loc = oci::split_registry(registry_url);
-    if (!loc) {
-        return util::unexpected{
-            fmt::format("invalid registry url: {}", loc.error().message())};
-    }
-    std::string host = loc->base;
-    if (auto p = host.find("://"); p != std::string::npos) {
-        host.erase(0, p + 3);
-    }
+    // the credential store is keyed by the bare registry host[:port].
+    const std::string host = registry_url.host_port();
 
     oci::credential_sources sources;
     if (token) {
