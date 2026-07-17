@@ -316,6 +316,11 @@ expected<response, error> perform(const request& req) {
     CURL_EASY(curl_easy_setopt(h, CURLOPT_ERRORBUFFER, errbuf));
     CURL_EASY(curl_easy_setopt(h, CURLOPT_URL, req.url.c_str()));
     CURL_EASY(curl_easy_setopt(h, CURLOPT_USERAGENT, "libcurl-agent/1.0"));
+    // this client only ever speaks http(s), so say so: libcurl would otherwise
+    // accept every protocol it was built with, and some of the urls it is
+    // handed come from a registry response header (a Bearer realm, an upload
+    // Location). Callers vet those too - this is the backstop, not the policy.
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_PROTOCOLS_STR, "http,https"));
 
     // method
     switch (req.method) {

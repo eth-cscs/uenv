@@ -91,6 +91,7 @@ lib_src = [
         'src/util/strings.cpp',
         'src/util/subprocess.cpp',
         'src/util/toml.cpp',
+        'src/util/url.cpp',
 ]
 lib_inc = include_directories('src')
 

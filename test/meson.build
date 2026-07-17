@@ -114,6 +114,7 @@ unit_src = [
         'unit/settings.cpp',
         'unit/subprocess.cpp',
         'unit/telemetry.cpp',
+        'unit/url.cpp',
 ]
 
 unit = executable('unit',

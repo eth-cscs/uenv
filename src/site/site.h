@@ -5,6 +5,7 @@
 
 #include <uenv/repository.h>
 #include <util/expected.h>
+#include <util/url.h>
 
 namespace site {
 
@@ -13,7 +14,7 @@ namespace site {
 // https://uenv-list.svc.cscs.ch/list) — used to point at a local/mock endpoint
 // for testing.
 util::expected<uenv::repository, std::string>
-registry_listing(const std::optional<std::string>& listing_url,
+registry_listing(const std::optional<util::url>& listing_url,
                  const std::string& nspace);
 
 // return the name of the current system from the calling environment.

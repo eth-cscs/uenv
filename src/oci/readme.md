@@ -9,9 +9,9 @@ so images pushed by either tool are readable by the other.
 The module is deliberately self-contained. It depends only on `src/util/` and on
 external libraries (fmt, nlohmann_json, libcurl, spdlog, zlib), and it must
 **not** include `src/uenv/`, `src/site/` or `src/cli/`. Anything both `uenv` and
-`oci` need — the lexer, the parsing scaffolding, the sha helpers — lives in
-`src/util/` for exactly this reason. The rule is enforced by a grep that must
-return nothing:
+`oci` need — the lexer, the parsing scaffolding, the sha helpers, the url type —
+lives in `src/util/` for exactly this reason. The rule is enforced by a grep that
+must return nothing:
 
 ```bash
 grep -rn '#include <\(uenv\|site\|cli\)/' src/oci/
@@ -162,6 +162,55 @@ validated as a tag. Client operations that address a manifest
 (`get_manifest`, `put_manifest`, `attach`'s subject) take a `reference`, so a
 caller can supply whichever it holds.
 
+### URLs — `util::url`
+
+Every url in this module is a `util::url` (`src/util/url.h`), not a string. It
+lives in `src/util` rather than here because uenv's configuration holds urls too,
+and `src/oci` must never be something `src/uenv` depends on.
+
+Like `digest` and `tag`, it is parse-don't-validate: the only way to get one is
+`util::parse_url`, so a `url` is always well-formed. It canonicalises on parse —
+scheme and host are lowercased, which RFC 3986 permits because both are
+case-insensitive — but touches nothing else: percent-encoded octets pass through
+verbatim and the path keeps its case, because repository names and digests travel
+there and must survive byte-exact.
+
+Three operations carry the weight:
+
+| operation | replaces |
+| --- | --- |
+| `origin()` — `scheme://host[:port]`, no path, no trailing `/` | a trailing-slash strip hand-rolled at three call sites |
+| `resolve(path)` — join with exactly one `/` | `base + path` concatenation |
+| `query_param(k, v)` — encode, and pick `?` or `&` | the separator dance open-coded at each query builder |
+
+`query_param`'s encoder keeps the unreserved set plus `:` `/` `,` — the exact
+alphabet of every value uenv sends (`repository:<repo>:pull,push`,
+`sha256:<hex>`, `a/b/c`), so it is a no-op on them and changes no bytes on the
+wire. It escapes `&`, `=`, `#`, `+`, space and control characters: what a
+registry-supplied `service` or `scope` would otherwise use to inject query
+parameters of its own.
+
+**Where urls are parsed.** At the boundaries they enter:
+
+- *configuration* — `registry.url`, `artifactory_url` and `listing_url` are
+  parsed in `uenv::parse_config_toml`, so a malformed url fails at startup with
+  the offending key named, rather than half way through a push. Each is
+  guaranteed http or https, with https assumed when the config omits a scheme
+  (the form the CSCS deployment uses).
+- *response headers* — a Bearer challenge `realm` is parsed by
+  `parse_bearer_challenge`; an upload `Location` by `detail::resolve_upload_url`.
+
+**Transport policy.** `util::curl` already refuses to let a *redirect* downgrade
+the transport or carry credentials across hosts. A `realm` and an absolute
+`Location` are fresh requests rather than redirects, so they never reach that
+guard — and both are about to be handed credentials (the realm gets the user's
+password; the Location gets the push token and the blob body).
+`detail::check_transport` applies the same policy to them by hand: the target
+must speak http or https, and may not be weaker than the registry's own scheme.
+A different *host* is deliberately allowed — Docker Hub challenges
+`registry-1.docker.io` with `realm=auth.docker.io`, and uploads legitimately
+redirect to blob storage.
+
 ### `types.h` — the connection-independent vocabulary
 
 The OCI types that mean something without a registry connection: the media-type
@@ -179,10 +228,9 @@ struct descriptor {
     std::optional<std::string> data;   // inline base64, on the empty config
 };
 
-struct registry_location { std::string base, prefix; };
+struct registry_location { util::url base; std::string prefix; };
 
-util::expected<registry_location, util::parse_error>
-split_registry(std::string_view configured_url);
+registry_location split_registry(const util::url& configured_url);
 
 std::string repository_path(prefix, nspace, system, uarch, name, version);
 
@@ -193,10 +241,11 @@ struct manifest_response {
 };
 ```
 
-`split_registry` turns a configured `registry.url` (`host`, `host/prefix`, or
-scheme-prefixed) into `{base, prefix}` — the https base URL and the repository
-prefix. `repository_path` then builds the repository name from a uenv label,
-matching the address `oras` used. Both are pure functions.
+`split_registry` turns a configured `registry.url` into `{base, prefix}` — its
+origin (`scheme://host[:port]`) and the repository prefix taken from its path.
+It cannot fail: the url was already parsed when the configuration was read (see
+"URLs" below). `repository_path` then builds the repository name from a uenv
+label, matching the address `oras` used. Both are pure functions.
 
 `manifest_response` keeps the raw bytes alongside the registry's reported digest
 because the bytes are what you must re-digest locally to confirm identity.
@@ -295,16 +344,22 @@ The header also carries the constants: media types, artifact types
 
 ```cpp
 struct credentials { std::string username, password; };  // password or PAT
-struct bearer_challenge { std::string realm, service; std::vector<std::string> scopes; };
+struct bearer_challenge { util::url realm; std::string service; std::vector<std::string> scopes; };
 struct token_response { std::string token; std::optional<long> expires_in; };
 ```
 
 `credentials` has a `fmt` formatter that redacts the password, so it is safe to
 log.
 
-Network operations — `discover_challenge`, `fetch_token`, and the
-`authenticate` convenience wrapper — are used internally by `client` and are
-exposed mainly for testing; ordinary callers never need them.
+Every field of a `bearer_challenge` is supplied by the registry, so it is an
+untrusted-input boundary: `realm` is parsed into a `util::url` as the challenge
+is parsed, and `service`/`scopes` are percent-encoded when they are built into
+the token url. The realm must additionally clear `detail::check_transport`
+before it is fetched — see "URLs" below.
+
+Network operations — `discover_challenge` and `fetch_token` — are used
+internally by `client` and are exposed mainly for testing; ordinary callers
+never need them.
 
 Credential *resolution* is the part callers do use:
 
@@ -438,13 +493,15 @@ step 4 differs.
 // 1. resolve credentials (nullopt == anonymous)
 auto creds = oci::resolve_credentials(host, sources);
 
-// 2. split the configured registry url into base + repository prefix
-auto loc = oci::split_registry(registry_cfg.url);   // {base, prefix}
+// 2. split the configured registry url into base + repository prefix.
+//    registry_cfg.url is already a util::url — parsed when the config was
+//    read — so this cannot fail.
+const auto loc = oci::split_registry(registry_cfg.url);   // {base, prefix}
 
 // 3. build the repository path and bind a client to it
-auto repository = oci::repository_path(loc->prefix, nspace, system, uarch,
+auto repository = oci::repository_path(loc.prefix, nspace, system, uarch,
                                        name, version);
-auto client = oci::client::create(loc->base, repository, creds);
+auto client = oci::client::create(loc.base, repository, creds);
 
 // 4. do the work
 ```
@@ -573,12 +630,12 @@ See `src/cli/push.cpp`.
 two repositories and therefore needs two clients:
 
 ```cpp
-auto loc = oci::split_registry(registry_cfg.url);
-const auto src_repo = oci::repository_path(loc->prefix, src_ns, /* … */);
-const auto dst_repo = oci::repository_path(loc->prefix, dst_ns, /* … */);
+const auto loc = oci::split_registry(registry_cfg.url);
+const auto src_repo = oci::repository_path(loc.prefix, src_ns, /* … */);
+const auto dst_repo = oci::repository_path(loc.prefix, dst_ns, /* … */);
 const auto src_manifest = oci::digest::sha256(src_record.sha);
 
-auto ok = oci::copy_image(loc->base, src_repo, dst_repo, src_manifest,
+auto ok = oci::copy_image(loc.base, src_repo, dst_repo, src_manifest,
                           dst_tag, credentials);
 ```
 

@@ -128,9 +128,14 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     }
 
     for (auto& record : *matches) {
-        auto url = fmt::format("{}/{}/{}/{}/{}/{}/{}", artifactory_url, nspace,
-                               record.system, record.uarch, record.name,
-                               record.version, record.tag);
+        // resolve() joins with exactly one '/', so a configured
+        // artifactory_url with a trailing slash no longer yields "//".
+        auto url =
+            artifactory_url
+                .resolve(fmt::format("{}/{}/{}/{}/{}/{}", nspace, record.system,
+                                     record.uarch, record.name, record.version,
+                                     record.tag))
+                .string();
 
         if (auto result = util::curl::del(url, credentials.username,
                                           credentials.password);

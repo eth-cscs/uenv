@@ -14,6 +14,7 @@
 #include <oci/reference.h>
 #include <oci/types.h>
 #include <util/expected.h>
+#include <util/url.h>
 
 namespace oci {
 
@@ -30,15 +31,13 @@ struct client_error {
     std::optional<long> http_status = std::nullopt;
 };
 
-//
-// forward-declared pimpl (in the style of util/lex.h's lexer_impl); the HTTP
-// machinery and the token cache never leak into this header.
-//
+// forward-declared pimpl implementation of client
 class client_impl;
 
-// A client bound to one repository on one registry. Authenticates lazily,
-// caching a pull token and (separately) a pull,push token as operations need
-// them. Read operations work anonymously when no credentials are supplied.
+// A client bound to one repository on one registry.
+// Authenticates lazily, caching a pull token and (separately) a pull or push
+// token as operations need them.
+// Read operations work anonymously when no credentials are supplied.
 //
 // Move-only: obtain one from create() and pass it around by reference.
 class client {
@@ -47,7 +46,7 @@ class client {
     // (e.g. "deploy/todi/gh200/app/1.0"). Supply credentials for push or
     // private pull; omit for anonymous pull.
     static util::expected<client, client_error>
-    create(std::string registry_url, std::string repository,
+    create(util::url registry_url, std::string repository,
            std::optional<credentials> creds = std::nullopt);
 
     ~client();

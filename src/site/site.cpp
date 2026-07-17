@@ -9,13 +9,14 @@
 #include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/url.h>
 
 #include "site.h"
 
 namespace site {
 
 util::expected<uenv::repository, std::string>
-registry_listing(const std::optional<std::string>& listing_url,
+registry_listing(const std::optional<util::url>& listing_url,
                  const std::string& nspace) {
     using json = nlohmann::json;
 
@@ -25,9 +26,11 @@ registry_listing(const std::optional<std::string>& listing_url,
     // we only filter on namespace, and use the database to do more querying
     // later. the base URL can be overridden via registry.listing_url (e.g. to a
     // local mock endpoint for testing).
-    const auto base =
-        listing_url.value_or("https://uenv-list.svc.cscs.ch/list");
-    const auto url = fmt::format("{}?namespace={}", base, nspace);
+    const auto base = listing_url.value_or(
+        *util::parse_url("https://uenv-list.svc.cscs.ch/list"));
+    // query_param picks the separator and encodes, so a listing_url that
+    // already carries a query no longer grows a second '?'.
+    const auto url = base.query_param("namespace", nspace).string();
     spdlog::debug("registry_listing: {}", url);
     auto raw_records = util::curl::get(url);
 
@@ -35,7 +38,7 @@ registry_listing(const std::optional<std::string>& listing_url,
         int ec = raw_records.error().code;
         spdlog::error("curl error {}: {}", ec, raw_records.error().message);
         return util::unexpected{fmt::format(
-            "unable to reach {} to get list of available uenv", base)};
+            "unable to reach {} to get list of available uenv", base.string())};
     }
 
     std::vector<uenv::uenv_record> records;

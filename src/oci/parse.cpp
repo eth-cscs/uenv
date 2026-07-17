@@ -11,6 +11,7 @@
 #include <util/parse.h>
 #include <util/sha.h>
 #include <util/strings.h>
+#include <util/url.h>
 
 namespace oci {
 
@@ -34,68 +35,6 @@ bool is_alnum_tok(lex::tok t) {
 bool is_tag_tok(lex::tok t) {
     return t == lex::tok::symbol || t == lex::tok::integer ||
            t == lex::tok::dot || t == lex::tok::dash;
-}
-
-// the leading token of a URL scheme (ALPHA), and the continuation tokens
-// (ALPHA / DIGIT / "+" / "-" / ".").
-bool is_scheme_tok(lex::tok t) {
-    return t == lex::tok::symbol || t == lex::tok::integer ||
-           t == lex::tok::plus || t == lex::tok::dash || t == lex::tok::dot;
-}
-
-// a URL reg-name host component (unreserved + pct-encoded); we stop at ':',
-// '/',
-// '?', '#', whitespace or end.
-bool is_regname_tok(lex::tok t) {
-    return t == lex::tok::symbol || t == lex::tok::integer ||
-           t == lex::tok::dash || t == lex::tok::dot || t == lex::tok::tilde ||
-           t == lex::tok::percent;
-}
-
-// the body of an IPv6 literal between '[' and ']'.
-bool is_ipv6_tok(lex::tok t) {
-    return t == lex::tok::symbol || t == lex::tok::integer ||
-           t == lex::tok::colon || t == lex::tok::dot || t == lex::tok::percent;
-}
-
-// a URL path segment run (pchar plus '/'): everything up to a query, fragment,
-// whitespace or end.
-bool is_path_tok(lex::tok t) {
-    switch (t) {
-    case lex::tok::question:
-    case lex::tok::hash:
-    case lex::tok::whitespace:
-    case lex::tok::end:
-    case lex::tok::error:
-        return false;
-    default:
-        return true;
-    }
-}
-
-// a query run: everything up to a fragment, whitespace or end.
-bool is_query_tok(lex::tok t) {
-    switch (t) {
-    case lex::tok::hash:
-    case lex::tok::whitespace:
-    case lex::tok::end:
-    case lex::tok::error:
-        return false;
-    default:
-        return true;
-    }
-}
-
-// a fragment run: everything up to whitespace or end.
-bool is_fragment_tok(lex::tok t) {
-    switch (t) {
-    case lex::tok::whitespace:
-    case lex::tok::end:
-    case lex::tok::error:
-        return false;
-    default:
-        return true;
-    }
 }
 
 // an unquoted auth-parameter value: everything up to a ',' or end.
@@ -124,19 +63,6 @@ bool is_lower_hex(std::string_view s) {
     return true;
 }
 
-// require the lexer to be at end-of-input, otherwise build a "trailing input"
-// parse_error for `what`.
-util::expected<void, util::parse_error> expect_end(lex::lexer& L,
-                                                   std::string_view what) {
-    if (L != lex::tok::end) {
-        const auto t = L.peek();
-        return util::unexpected(parse_error{
-            L.string(), fmt::format("unexpected '{}' in {}", t.spelling, what),
-            t});
-    }
-    return {};
-}
-
 } // namespace
 
 util::expected<digest, util::parse_error> parse_digest(std::string_view text) {
@@ -160,7 +86,7 @@ util::expected<digest, util::parse_error> parse_digest(std::string_view text) {
     if (!hex) {
         return util::unexpected(hex.error());
     }
-    if (auto e = expect_end(L, "digest"); !e) {
+    if (auto e = util::expect_end(L, "digest"); !e) {
         return util::unexpected(e.error());
     }
 
@@ -202,7 +128,7 @@ util::expected<tag, util::parse_error> parse_tag(std::string_view text) {
     if (!value) {
         return util::unexpected(value.error());
     }
-    if (auto e = expect_end(L, "tag"); !e) {
+    if (auto e = util::expect_end(L, "tag"); !e) {
         return util::unexpected(e.error());
     }
     if (value->size() > 128) {
@@ -225,155 +151,6 @@ parse_reference(std::string_view text) {
         return util::unexpected(t.error());
     }
     return reference::tag(std::move(*t));
-}
-
-std::string url::string() const {
-    std::string out;
-    if (!scheme.empty()) {
-        out += scheme;
-        out += "://";
-    }
-    if (!userinfo.empty()) {
-        out += userinfo;
-        out += '@';
-    }
-    out += host;
-    if (port) {
-        out += ':';
-        out += std::to_string(*port);
-    }
-    out += path;
-    if (!query.empty()) {
-        out += '?';
-        out += query;
-    }
-    if (!fragment.empty()) {
-        out += '#';
-        out += fragment;
-    }
-    return out;
-}
-
-util::expected<url, util::parse_error> parse_url(std::string_view text) {
-    const auto s = util::strip(text);
-    lex::lexer L(s);
-    url u;
-
-    // optional scheme: <scheme> "://". consume a scheme-shaped run, and only
-    // accept it as a scheme if it is followed by "://"; otherwise rewind (a
-    // bare "host/prefix" or "host:port" begins with the same tokens).
-    {
-        const unsigned start = L.peek().loc;
-        std::string scheme;
-        while (is_scheme_tok(L.current_kind())) {
-            scheme += L.next().spelling;
-        }
-        if (!scheme.empty() && L == lex::tok::colon &&
-            L.peek(1) == lex::tok::slash && L.peek(2) == lex::tok::slash) {
-            L.next(); // ':'
-            L.next(); // '/'
-            L.next(); // '/'
-            u.scheme = std::move(scheme);
-        } else {
-            L.seek(start);
-        }
-    }
-
-    // optional userinfo: present only when an '@' occurs before the first
-    // '/', '?', '#' or end.
-    {
-        bool has_userinfo = false;
-        for (unsigned k = 0;; ++k) {
-            const auto t = L.peek(k);
-            if (t == lex::tok::slash || t == lex::tok::question ||
-                t == lex::tok::hash || t == lex::tok::end) {
-                break;
-            }
-            if (t == lex::tok::at) {
-                has_userinfo = true;
-                break;
-            }
-        }
-        if (has_userinfo) {
-            std::string userinfo;
-            while (L != lex::tok::at) {
-                userinfo += L.next().spelling;
-            }
-            L.next(); // consume '@'
-            u.userinfo = std::move(userinfo);
-        }
-    }
-
-    // host: an IPv6 literal in brackets, or a reg-name.
-    const auto host_tok = L.peek();
-    if (L == lex::tok::lbracket) {
-        std::string host = std::string{L.next().spelling}; // '['
-        while (is_ipv6_tok(L.current_kind())) {
-            host += L.next().spelling;
-        }
-        if (L != lex::tok::rbracket) {
-            return util::unexpected(parse_error{
-                L.string(), "unterminated IPv6 host literal", host_tok});
-        }
-        host += L.next().spelling; // ']'
-        u.host = std::move(host);
-    } else {
-        auto host = util::parse_string(L, "host", is_regname_tok);
-        if (!host) {
-            return util::unexpected(
-                parse_error{L.string(), "the url has no host", host_tok});
-        }
-        u.host = std::move(*host);
-    }
-
-    // optional port.
-    if (L == lex::tok::colon) {
-        L.next(); // consume ':'
-        const auto port_tok = L.peek();
-        if (L != lex::tok::integer) {
-            return util::unexpected(parse_error{
-                L.string(), "expected a port number after ':'", port_tok});
-        }
-        const auto digits = L.next().spelling;
-        std::uint32_t port = 0;
-        const auto* first = digits.data();
-        const auto* last = digits.data() + digits.size();
-        if (auto [ptr, ec] = std::from_chars(first, last, port);
-            ec != std::errc{} || ptr != last) {
-            return util::unexpected(
-                parse_error{L.string(), "invalid port number", port_tok});
-        }
-        u.port = port;
-    }
-
-    // optional path (begins with '/').
-    if (L == lex::tok::slash) {
-        auto path = util::parse_string(L, "path", is_path_tok);
-        u.path = std::move(*path); // starts with '/', so never empty
-    }
-
-    // optional query.
-    if (L == lex::tok::question) {
-        L.next(); // consume '?'
-        if (is_query_tok(L.current_kind())) {
-            auto query = util::parse_string(L, "query", is_query_tok);
-            u.query = std::move(*query);
-        }
-    }
-
-    // optional fragment.
-    if (L == lex::tok::hash) {
-        L.next(); // consume '#'
-        if (is_fragment_tok(L.current_kind())) {
-            auto fragment = util::parse_string(L, "fragment", is_fragment_tok);
-            u.fragment = std::move(*fragment);
-        }
-    }
-
-    if (auto e = expect_end(L, "url"); !e) {
-        return util::unexpected(e.error());
-    }
-    return u;
 }
 
 util::expected<bearer_challenge, util::parse_error>
@@ -399,7 +176,13 @@ parse_bearer_challenge(std::string_view text) {
         L.next();
     }
 
-    bearer_challenge challenge;
+    // the fields are collected into locals and the challenge is built at the
+    // end, once the realm has parsed: a bearer_challenge holds a util::url,
+    // which cannot be default-constructed - there is no "empty url" to stand in
+    // for "not seen yet".
+    std::optional<std::string> realm_text;
+    std::string service;
+    std::vector<std::string> scopes;
     while (L != lex::tok::end) {
         // parameter name.
         const auto key_tok = L.peek();
@@ -459,13 +242,12 @@ parse_bearer_challenge(std::string_view text) {
         }
 
         if (key == "realm") {
-            challenge.realm = std::move(value);
+            realm_text = std::move(value);
         } else if (key == "service") {
-            challenge.service = std::move(value);
+            service = std::move(value);
         } else if (key == "scope") {
-            auto scopes = parse_scopes(value);
-            challenge.scopes.insert(challenge.scopes.end(), scopes.begin(),
-                                    scopes.end());
+            auto parsed = parse_scopes(value);
+            scopes.insert(scopes.end(), parsed.begin(), parsed.end());
         }
         // unknown parameters are ignored.
 
@@ -485,12 +267,24 @@ parse_bearer_challenge(std::string_view text) {
         }
     }
 
-    if (challenge.realm.empty()) {
+    if (!realm_text) {
         return util::unexpected(parse_error{
             full, "the Bearer challenge is missing the required 'realm'",
             scheme_tok});
     }
-    return challenge;
+    // the realm is a url supplied by the registry: parse it here, at the
+    // boundary, rather than letting a malformed one travel as a string.
+    auto realm = util::parse_url(*realm_text);
+    if (!realm) {
+        return util::unexpected(parse_error{
+            full,
+            fmt::format("the Bearer challenge realm '{}' is not a valid url",
+                        *realm_text),
+            scheme_tok});
+    }
+    return bearer_challenge{.realm = std::move(*realm),
+                            .service = std::move(service),
+                            .scopes = std::move(scopes)};
 }
 
 std::vector<std::string> parse_scopes(std::string_view value) {

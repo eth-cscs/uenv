@@ -7,6 +7,7 @@
 #include <oci/types.h>
 #include <util/expected.h>
 #include <util/parse.h>
+#include <util/url.h>
 
 namespace oci {
 
@@ -14,18 +15,10 @@ namespace oci {
 // registry addressing helpers (pure)
 //
 
-util::expected<registry_location, util::parse_error>
-split_registry(std::string_view configured_url) {
-    // parse the configured value as a URL; the scheme, if any, is dropped and
-    // https is always used for the base. any port is preserved on the base.
-    auto u = parse_url(configured_url);
-    if (!u) {
-        return util::unexpected(u.error());
-    }
-
-    // the repository prefix is the URL path with its surrounding slashes
+registry_location split_registry(const util::url& configured_url) {
+    // the repository prefix is the url path with its surrounding slashes
     // trimmed.
-    std::string prefix = u->path;
+    std::string prefix = configured_url.path();
     if (!prefix.empty() && prefix.front() == '/') {
         prefix.erase(prefix.begin());
     }
@@ -33,14 +26,7 @@ split_registry(std::string_view configured_url) {
         prefix.pop_back();
     }
 
-    // preserve an explicit scheme (e.g. http:// for a local test registry);
-    // default to https when the config omits one (the CSCS deployment).
-    const std::string scheme = u->scheme.empty() ? "https" : u->scheme;
-    std::string base = scheme + "://" + u->host;
-    if (u->port) {
-        base += ':' + std::to_string(*u->port);
-    }
-    return registry_location{.base = std::move(base),
+    return registry_location{.base = configured_url.origin(),
                              .prefix = std::move(prefix)};
 }
 

@@ -21,19 +21,14 @@
 #include <util/fs.h>
 #include <util/strings.h>
 #include <util/subprocess.h>
+#include <util/url.h>
 
 namespace oci {
 
 util::expected<std::optional<bearer_challenge>, std::string>
-discover_challenge(const std::string& registry_url) {
-    // normalise: drop any trailing '/' before appending the v2 base path.
-    std::string base = registry_url;
-    while (!base.empty() && base.back() == '/') {
-        base.pop_back();
-    }
-
+discover_challenge(const util::url& registry_url) {
     util::curl::request req;
-    req.url = base + "/v2/";
+    req.url = registry_url.origin().resolve("/v2/").string();
     spdlog::trace("oci::discover_challenge probing {}", req.url);
 
     auto resp = util::curl::perform(req);
@@ -66,11 +61,20 @@ discover_challenge(const std::string& registry_url) {
 }
 
 util::expected<token_response, std::string>
-fetch_token(const bearer_challenge& challenge,
+fetch_token(const util::url& registry, const bearer_challenge& challenge,
             const std::vector<std::string>& scopes,
             const std::optional<credentials>& creds) {
+    // the realm came out of the registry's WWW-Authenticate header and is about
+    // to receive the user's credentials: refuse it if it would put them on a
+    // weaker transport than the registry itself.
+    if (auto ok =
+            detail::check_transport(registry, challenge.realm, "bearer realm");
+        !ok) {
+        return util::unexpected{ok.error()};
+    }
+
     util::curl::request req;
-    req.url = detail::token_url(challenge, scopes);
+    req.url = detail::token_url(challenge, scopes).string();
     if (creds) {
         req.username = creds->username;
         req.password = creds->password;
@@ -93,25 +97,6 @@ fetch_token(const bearer_challenge& challenge,
             "token endpoint response did not contain a token"};
     }
     return *token;
-}
-
-util::expected<std::string, std::string>
-authenticate(const std::string& registry_url,
-             const std::vector<std::string>& scopes,
-             const std::optional<credentials>& creds) {
-    auto challenge = discover_challenge(registry_url);
-    if (!challenge) {
-        return util::unexpected{challenge.error()};
-    }
-    // anonymous registry: no token required.
-    if (!*challenge) {
-        return std::string{};
-    }
-    auto token = fetch_token(**challenge, scopes, creds);
-    if (!token) {
-        return util::unexpected{token.error()};
-    }
-    return token->token;
 }
 
 util::expected<std::optional<credentials>, std::string>

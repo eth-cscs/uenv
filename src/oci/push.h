@@ -11,6 +11,7 @@
 #include <oci/digest.h>
 #include <oci/reference.h>
 #include <util/expected.h>
+#include <util/url.h>
 
 namespace oci {
 
@@ -43,7 +44,7 @@ attach(client& c, const reference& subject, std::string_view artifact_type,
 // local disk. The destination image is tagged `dst_tag`. Manifests are copied
 // byte-for-byte, so the image digest (identity) is preserved.
 util::expected<void, std::string>
-copy_image(const std::string& registry_base, const std::string& src_repo,
+copy_image(const util::url& registry_base, const std::string& src_repo,
            const std::string& dst_repo, const digest& src_manifest,
            const std::string& dst_tag, std::optional<credentials> creds);
 

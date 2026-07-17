@@ -154,17 +154,13 @@ int image_push([[maybe_unused]] const image_push_args& args,
 
     // split the configured registry "host/prefix" into a base URL + prefix and
     // build the OCI repository path (the same address oras used).
-    auto loc = oci::split_registry(registry_cfg.url);
-    if (!loc) {
-        term::error("invalid registry url: {}", loc.error().message());
-        return 1;
-    }
+    const auto loc = oci::split_registry(registry_cfg.url);
     const auto& L = dst_label.label;
-    const auto repository = oci::repository_path(loc->prefix, nspace, *L.system,
+    const auto repository = oci::repository_path(loc.prefix, nspace, *L.system,
                                                  *L.uarch, *L.name, *L.version);
-    spdlog::debug("oci push: registry={} repository={}", loc->base, repository);
+    spdlog::debug("oci push: registry={} repository={}", loc.base, repository);
 
-    auto client = oci::client::create(loc->base, repository, credentials);
+    auto client = oci::client::create(loc.base, repository, credentials);
     if (!client) {
         term::error("unable to connect to the registry:\n{}", client.error());
         return 1;

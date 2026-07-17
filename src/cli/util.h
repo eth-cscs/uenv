@@ -17,6 +17,7 @@
 #include <util/sha.h>
 
 #include <oci/auth.h>
+#include <util/url.h>
 
 namespace uenv {
 
@@ -27,7 +28,7 @@ namespace uenv {
 // and delegates to oci::resolve_credentials.
 util::expected<std::optional<oci::credentials>, std::string>
 resolve_registry_credentials(const envvars::state& env,
-                             const std::string& registry_url,
+                             const util::url& registry_url,
                              std::optional<std::string> username,
                              std::optional<std::string> token);
 

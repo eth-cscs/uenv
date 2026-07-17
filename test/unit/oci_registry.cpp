@@ -33,6 +33,7 @@
 #include <util/fs.h>
 #include <util/sha.h>
 #include <util/subprocess.h>
+#include <util/url.h>
 
 namespace {
 
@@ -125,6 +126,12 @@ const std::string& registry_base() {
     return instance.base;
 }
 
+// the same base as a url. Only valid once registry_base() is known non-empty,
+// i.e. after the SKIP check.
+util::url registry_url() {
+    return *util::parse_url(registry_base());
+}
+
 void write_file(const std::filesystem::path& path, std::string_view content) {
     std::ofstream f{path, std::ios::binary};
     f << content;
@@ -149,7 +156,7 @@ TEST_CASE("oci registry push/pull round-trip", "[registry]") {
     const std::string payload = "squashfs-bytes-round-trip";
     write_file(sqfs, payload);
 
-    auto c = oci::client::create(base, "test/app/1.0");
+    auto c = oci::client::create(registry_url(), "test/app/1.0");
     REQUIRE(c.has_value());
 
     auto pushed = oci::push_squashfs(
@@ -181,7 +188,7 @@ TEST_CASE("oci registry failed blob download leaves no file", "[registry]") {
         SKIP("no zot binary available for the registry tests");
     }
 
-    auto c = oci::client::create(base, "test/app/1.0");
+    auto c = oci::client::create(registry_url(), "test/app/1.0");
     REQUIRE(c.has_value());
 
     // a valid digest that no blob in the registry has: the download must
@@ -212,7 +219,7 @@ TEST_CASE("oci registry attach + referrers + pull_meta", "[registry]") {
     std::filesystem::create_directories(meta);
     write_file(meta / "env.json", R"({"views":{}})");
 
-    auto c = oci::client::create(base, "test/meta-app/1.0");
+    auto c = oci::client::create(registry_url(), "test/meta-app/1.0");
     REQUIRE(c.has_value());
 
     auto pushed = oci::push_squashfs(
@@ -287,7 +294,7 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
     const std::string src_repo = "test/copy-src/1.0";
     const std::string dst_repo = "test/copy-dst/1.0";
 
-    auto src = oci::client::create(base, src_repo);
+    auto src = oci::client::create(registry_url(), src_repo);
     REQUIRE(src.has_value());
     auto pushed = oci::push_squashfs(
         *src, sqfs, oci::reference::tag(oci::tag::parse("v1").value()));
@@ -301,12 +308,12 @@ TEST_CASE("oci registry copy preserves digest", "[registry]") {
         oci::attach(*src, oci::reference::digest(*pushed), "uenv/meta", meta);
     REQUIRE(att.has_value());
 
-    auto copied =
-        oci::copy_image(base, src_repo, dst_repo, *pushed, "v1", std::nullopt);
+    auto copied = oci::copy_image(registry_url(), src_repo, dst_repo, *pushed,
+                                  "v1", std::nullopt);
     REQUIRE(copied.has_value());
 
     // the destination manifest is byte-identical, so its digest is preserved.
-    auto dst = oci::client::create(base, dst_repo);
+    auto dst = oci::client::create(registry_url(), dst_repo);
     REQUIRE(dst.has_value());
     auto resp =
         dst->get_manifest(oci::reference::tag(oci::tag::parse("v1").value()));
@@ -347,7 +354,7 @@ TEST_CASE("oci registry push_squashfs with a precomputed digest",
     const std::string payload = "squashfs-bytes-precomputed-digest";
     write_file(sqfs, payload);
 
-    auto c = oci::client::create(base, "test/precomputed/1.0");
+    auto c = oci::client::create(registry_url(), "test/precomputed/1.0");
     REQUIRE(c.has_value());
 
     // supplying the layer digest spares push_squashfs a full read of the file.

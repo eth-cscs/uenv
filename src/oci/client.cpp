@@ -20,6 +20,7 @@
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/sha.h>
+#include <util/url.h>
 
 namespace oci {
 
@@ -32,6 +33,16 @@ namespace oci {
 // public client method is a forwarder onto the method of the same name here.
 class client_impl {
   public:
+    // there is no default constructor: registry_url_ is a util::url, which has
+    // no empty state, so a client_impl is only ever built fully-formed.
+    client_impl(util::url registry_url, std::string repository,
+                std::optional<credentials> creds,
+                std::optional<bearer_challenge> challenge)
+        : registry_url_(std::move(registry_url)),
+          repository_(std::move(repository)), creds_(std::move(creds)),
+          challenge_(std::move(challenge)) {
+    }
+
     // does a blob exist? HEAD; 200 -> true, 404 -> false.
     util::expected<bool, client_error> blob_exists(const digest& d);
 
@@ -106,7 +117,8 @@ class client_impl {
     put_blob_impl(const std::string& digest,
                   const std::function<void(util::curl::request&)>& body_setup);
 
-    std::string registry_url_; // normalised, no trailing '/'
+    // origin() already: scheme://host[:port], nothing to strip.
+    util::url registry_url_;
     std::string repository_;
     std::optional<credentials> creds_;
     // the auth challenge, or nullopt when the registry permits anonymous
@@ -119,22 +131,16 @@ class client_impl {
 };
 
 util::expected<client, client_error>
-client::create(std::string registry_url, std::string repository,
+client::create(util::url registry_url, std::string repository,
                std::optional<credentials> creds) {
     auto challenge = discover_challenge(registry_url);
     if (!challenge) {
         return util::unexpected{client_error{challenge.error()}};
     }
 
-    auto impl = std::make_unique<client_impl>();
-    impl->registry_url_ = std::move(registry_url);
-    while (!impl->registry_url_.empty() && impl->registry_url_.back() == '/') {
-        impl->registry_url_.pop_back();
-    }
-    impl->repository_ = std::move(repository);
-    impl->creds_ = std::move(creds);
-    impl->challenge_ = std::move(*challenge);
-    return client{std::move(impl)};
+    return client{std::make_unique<client_impl>(
+        registry_url.origin(), std::move(repository), std::move(creds),
+        std::move(*challenge))};
 }
 
 util::expected<std::optional<std::string>, std::string>
@@ -162,7 +168,7 @@ client_impl::token_for(bool write) {
     for (const auto& r : extra_pull_scopes_) {
         scopes.push_back(detail::repository_scope(r, "pull"));
     }
-    auto token = fetch_token(*challenge_, scopes, creds_);
+    auto token = fetch_token(registry_url_, *challenge_, scopes, creds_);
     if (!token) {
         return util::unexpected{token.error()};
     }
@@ -225,7 +231,8 @@ void client_impl::add_pull_scope(std::string repository) {
 
 util::expected<bool, client_error> client_impl::blob_exists(const digest& d) {
     util::curl::request req;
-    req.url = registry_url_ + detail::blob_path(repository_, d.string());
+    req.url = registry_url_.resolve(detail::blob_path(repository_, d.string()))
+                  .string();
     req.method = util::curl::http_method::head;
 
     auto resp = authed_perform(req, false);
@@ -265,7 +272,8 @@ util::expected<void, client_error> client_impl::get_blob_to_file(
     const std::filesystem::path partial{file.string() + ".partial"};
 
     util::curl::request req;
-    req.url = registry_url_ + detail::blob_path(repository_, d.string());
+    req.url = registry_url_.resolve(detail::blob_path(repository_, d.string()))
+                  .string();
     req.follow_redirects = true;
     req.download_file = partial;
     req.on_download_progress = std::move(progress);
@@ -342,7 +350,9 @@ util::expected<void, client_error> client_impl::get_blob_to_file(
 util::expected<manifest_response, client_error>
 client_impl::get_manifest(const reference& ref) {
     util::curl::request req;
-    req.url = registry_url_ + detail::manifest_path(repository_, ref.string());
+    req.url =
+        registry_url_.resolve(detail::manifest_path(repository_, ref.string()))
+            .string();
     req.header_lines = {fmt::format("Accept: {}", media_type_manifest),
                         fmt::format("Accept: {}", media_type_index)};
 
@@ -371,7 +381,7 @@ client_impl::get_manifest(const reference& ref) {
 util::expected<std::vector<std::string>, client_error>
 client_impl::list_tags() {
     util::curl::request req;
-    req.url = registry_url_ + detail::tags_path(repository_);
+    req.url = registry_url_.resolve(detail::tags_path(repository_)).string();
 
     auto resp = authed_perform(req, false);
     if (!resp) {
@@ -393,7 +403,9 @@ client_impl::list_tags() {
 util::expected<std::vector<descriptor>, client_error>
 client_impl::referrers(const digest& d) {
     util::curl::request req;
-    req.url = registry_url_ + detail::referrers_path(repository_, d.string());
+    req.url =
+        registry_url_.resolve(detail::referrers_path(repository_, d.string()))
+            .string();
 
     auto resp = authed_perform(req, false);
     if (!resp) {
@@ -430,7 +442,8 @@ client_impl::referrers_from_tag(const digest& d) {
     // repository as the subject (see maintain_referrers_tag in push.cpp).
     const auto tag = d.algorithm() + "-" + d.hex();
     util::curl::request req;
-    req.url = registry_url_ + detail::manifest_path(repository_, tag);
+    req.url =
+        registry_url_.resolve(detail::manifest_path(repository_, tag)).string();
     req.header_lines = {fmt::format("Accept: {}", media_type_index),
                         fmt::format("Accept: {}", media_type_manifest)};
 
@@ -468,7 +481,8 @@ util::expected<void, client_error> client_impl::put_blob_impl(
     const std::function<void(util::curl::request&)>& body_setup) {
     // 1. open an upload session
     util::curl::request post;
-    post.url = registry_url_ + detail::uploads_path(repository_);
+    post.url =
+        registry_url_.resolve(detail::uploads_path(repository_)).string();
     post.method = util::curl::http_method::post;
     auto opened = authed_perform(post, true);
     if (!opened) {
@@ -488,8 +502,12 @@ util::expected<void, client_error> client_impl::put_blob_impl(
     }
 
     // 2. PUT the payload to <location>?digest=<digest>
+    auto put_url = detail::resolve_upload_url(registry_url_, *location, digest);
+    if (!put_url) {
+        return util::unexpected{client_error{put_url.error()}};
+    }
     util::curl::request put;
-    put.url = detail::resolve_upload_url(registry_url_, *location, digest);
+    put.url = put_url->string();
     put.method = util::curl::http_method::put;
     put.header_lines = {
         fmt::format("Content-Type: {}", media_type_octet_stream)};
@@ -515,8 +533,10 @@ client_impl::mount_blob(const digest& d, const std::string& from_repository) {
         return true;
     }
     util::curl::request post;
-    post.url = registry_url_ + detail::uploads_path(repository_) +
-               "?mount=" + d.string() + "&from=" + from_repository;
+    post.url = registry_url_.resolve(detail::uploads_path(repository_))
+                   .query_param("mount", d.string())
+                   .query_param("from", from_repository)
+                   .string();
     post.method = util::curl::http_method::post;
 
     auto resp = authed_perform(post, true);
@@ -570,7 +590,9 @@ util::expected<void, client_error>
 client_impl::put_manifest(const reference& ref, const std::string& body,
                           std::string_view media_type) {
     util::curl::request req;
-    req.url = registry_url_ + detail::manifest_path(repository_, ref.string());
+    req.url =
+        registry_url_.resolve(detail::manifest_path(repository_, ref.string()))
+            .string();
     req.method = util::curl::http_method::put;
     req.body = body;
     req.header_lines = {fmt::format("Content-Type: {}", media_type)};

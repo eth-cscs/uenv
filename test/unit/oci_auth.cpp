@@ -8,30 +8,84 @@
 #include <oci/auth.h>
 #include <oci/util.h>
 #include <util/fs.h>
+#include <util/url.h>
 
 using oci::detail::parse_token_response;
 using oci::detail::repository_scope;
 using oci::detail::token_url;
 
 TEST_CASE("oci token_url", "[oci][auth]") {
-    oci::bearer_challenge c{.realm = "https://jfrog.svc.cscs.ch/v2/token",
-                            .service = "jfrog.svc.cscs.ch",
-                            .scopes = {}};
+    oci::bearer_challenge c{
+        .realm = *util::parse_url("https://jfrog.svc.cscs.ch/v2/token"),
+        .service = "jfrog.svc.cscs.ch",
+        .scopes = {}};
 
     // matches the spike's proven-working token request URL
-    REQUIRE(token_url(c, {"repository:uenv/deploy/x/24.7:pull"}) ==
+    REQUIRE(token_url(c, {"repository:uenv/deploy/x/24.7:pull"}).string() ==
             "https://jfrog.svc.cscs.ch/v2/token?service=jfrog.svc.cscs.ch"
             "&scope=repository:uenv/deploy/x/24.7:pull");
 
     // multiple scopes become repeated scope= parameters
-    REQUIRE(token_url(c, {"repository:a:pull", "repository:b:push"}) ==
+    REQUIRE(token_url(c, {"repository:a:pull", "repository:b:push"}).string() ==
             "https://jfrog.svc.cscs.ch/v2/token?service=jfrog.svc.cscs.ch"
             "&scope=repository:a:pull&scope=repository:b:push");
 
     // a realm that already carries a query continues with '&'
-    oci::bearer_challenge q{
-        .realm = "https://r/token?foo=bar", .service = "reg", .scopes = {}};
-    REQUIRE(token_url(q, {}) == "https://r/token?foo=bar&service=reg");
+    oci::bearer_challenge q{.realm =
+                                *util::parse_url("https://r/token?foo=bar"),
+                            .service = "reg",
+                            .scopes = {}};
+    REQUIRE(token_url(q, {}).string() == "https://r/token?foo=bar&service=reg");
+}
+
+// `service` is whatever the registry put in its WWW-Authenticate header, and it
+// is spliced into a query that decides which scopes the token is minted for.
+// Unencoded, a value carrying '&' would smuggle in parameters of its own.
+TEST_CASE("oci token_url escapes registry-supplied values", "[oci][auth]") {
+    oci::bearer_challenge c{.realm = *util::parse_url("https://r/token"),
+                            .service = "x&scope=repository:other:push",
+                            .scopes = {}};
+    REQUIRE(token_url(c, {}).string() ==
+            "https://r/token?service=x%26scope%3Drepository:other:push");
+
+    // a scope carrying a space cannot split into two parameters
+    oci::bearer_challenge s{.realm = *util::parse_url("https://r/token"),
+                            .service = "",
+                            .scopes = {}};
+    REQUIRE(token_url(s, {"repository:a b:pull"}).string() ==
+            "https://r/token?scope=repository:a%20b:pull");
+}
+
+// util::curl already refuses to let a *redirect* downgrade the transport or
+// carry credentials across hosts. A realm and an upload Location are fresh
+// requests, so they never reach that guard: check_transport applies the same
+// policy by hand. A different host is fine - Docker Hub challenges
+// registry-1.docker.io with realm=auth.docker.io - the transport is not.
+TEST_CASE("oci check_transport", "[oci][auth]") {
+    const auto https_reg = *util::parse_url("https://jfrog.svc.cscs.ch");
+    const auto http_reg = *util::parse_url("http://127.0.0.1:5000");
+    auto ok = [](const util::url& reg, const char* target) {
+        return oci::detail::check_transport(reg, *util::parse_url(target), "x")
+            .has_value();
+    };
+
+    // an https registry may not be talked down to cleartext...
+    REQUIRE_FALSE(ok(https_reg, "http://auth.example/token"));
+    // ...nor off http(s) entirely: libcurl would happily fetch these.
+    REQUIRE_FALSE(ok(https_reg, "gopher://auth.example/token"));
+    REQUIRE_FALSE(ok(https_reg, "file://host/etc/passwd"));
+    // a scheme-less realm is not a transport we can honour
+    REQUIRE_FALSE(ok(https_reg, "auth.example/token"));
+
+    // another https host is legitimate and common
+    REQUIRE(ok(https_reg, "https://auth.docker.io/token"));
+    REQUIRE(ok(https_reg, "https://jfrog.svc.cscs.ch/v2/token"));
+
+    // an http registry (a local test zot) may stay on http, and may still be
+    // upgraded
+    REQUIRE(ok(http_reg, "http://127.0.0.1:5000/token"));
+    REQUIRE(ok(http_reg, "https://auth.example/token"));
+    REQUIRE_FALSE(ok(http_reg, "file://host/x"));
 }
 
 TEST_CASE("oci parse_token_response", "[oci][auth]") {

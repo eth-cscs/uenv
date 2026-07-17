@@ -6,6 +6,7 @@
 #include <oci/digest.h>
 #include <oci/util.h>
 #include <util/sha.h>
+#include <util/url.h>
 
 using namespace oci;
 using namespace oci::detail;
@@ -24,28 +25,72 @@ TEST_CASE("oci path builders", "[oci][client]") {
 }
 
 TEST_CASE("oci resolve_upload_url", "[oci][client]") {
-    const std::string reg = "https://jfrog.svc.cscs.ch";
+    const auto reg = *util::parse_url("https://jfrog.svc.cscs.ch");
     const std::string dig = "sha256:deadbeef";
+    auto url = [&](const util::url& r, std::string_view loc) {
+        auto u = resolve_upload_url(r, loc, dig);
+        REQUIRE(u.has_value());
+        return u->string();
+    };
 
     // registry-relative Location, no existing query -> '?'
-    REQUIRE(resolve_upload_url(reg, "/v2/r/blobs/uploads/abc", dig) ==
+    REQUIRE(url(reg, "/v2/r/blobs/uploads/abc") ==
             "https://jfrog.svc.cscs.ch/v2/r/blobs/uploads/abc?digest=sha256:"
             "deadbeef");
 
-    // relative Location that already carries a query -> '&'
+    // relative Location that already carries a query -> '&'. the '?' has to
+    // split path from query rather than being appended into the path.
     REQUIRE(
-        resolve_upload_url(reg, "/v2/r/blobs/uploads/abc?_state=xyz", dig) ==
+        url(reg, "/v2/r/blobs/uploads/abc?_state=xyz") ==
         "https://jfrog.svc.cscs.ch/v2/r/blobs/uploads/abc?_state=xyz&digest="
         "sha256:deadbeef");
 
     // absolute Location (e.g. redirected to storage) is used verbatim
-    REQUIRE(
-        resolve_upload_url(reg, "https://store.example/up/abc?sig=1", dig) ==
-        "https://store.example/up/abc?sig=1&digest=sha256:deadbeef");
+    REQUIRE(url(reg, "https://store.example/up/abc?sig=1") ==
+            "https://store.example/up/abc?sig=1&digest=sha256:deadbeef");
 
     // trailing slash on the registry base is not doubled
-    REQUIRE(resolve_upload_url("https://reg/", "/v2/x", dig) ==
+    REQUIRE(url(*util::parse_url("https://reg/"), "/v2/x") ==
             "https://reg/v2/x?digest=sha256:deadbeef");
+}
+
+// "absolute" is decided by asking the parser for a scheme. The old test matched
+// a literal "http://"/"https://" prefix, so an uppercase scheme fell through to
+// the relative branch and was spliced onto the registry base, yielding
+// "https://reg//HTTPS://store.example/...".
+TEST_CASE("oci resolve_upload_url handles an uppercase scheme",
+          "[oci][client]") {
+    const auto reg = *util::parse_url("https://jfrog.svc.cscs.ch");
+    auto u = resolve_upload_url(reg, "HTTPS://store.example/up/abc",
+                                "sha256:deadbeef");
+    REQUIRE(u.has_value());
+    REQUIRE(u->string() ==
+            "https://store.example/up/abc?digest=sha256:deadbeef");
+}
+
+// An absolute Location is about to receive the push token and the blob body, so
+// it may not drop the connection to cleartext. A different host is fine -
+// registries legitimately redirect uploads to blob storage.
+TEST_CASE("oci resolve_upload_url refuses a downgraded Location",
+          "[oci][client]") {
+    const auto https_reg = *util::parse_url("https://jfrog.svc.cscs.ch");
+    REQUIRE_FALSE(
+        resolve_upload_url(https_reg, "http://store.example/up/abc", "sha256:d")
+            .has_value());
+    REQUIRE_FALSE(
+        resolve_upload_url(https_reg, "file://store.example/up/abc", "sha256:d")
+            .has_value());
+
+    // another https host is legitimate
+    REQUIRE(resolve_upload_url(https_reg, "https://store.example/up/abc",
+                               "sha256:d")
+                .has_value());
+
+    // an http registry (a local test zot) may stay on http
+    const auto http_reg = *util::parse_url("http://127.0.0.1:5000");
+    REQUIRE(
+        resolve_upload_url(http_reg, "http://127.0.0.1:5000/up/abc", "sha256:d")
+            .has_value());
 }
 
 TEST_CASE("oci parse_tags_list", "[oci][client]") {

@@ -14,6 +14,7 @@
 #include <oci/digest.h>
 #include <util/expected.h>
 #include <util/parse.h>
+#include <util/url.h>
 
 namespace oci {
 
@@ -39,18 +40,17 @@ struct descriptor {
     friend bool operator==(const descriptor&, const descriptor&) = default;
 };
 
-// A registry address split into an https base URL and a repository path prefix.
+// A registry address split into a base url and a repository path prefix.
 struct registry_location {
-    std::string base;   // e.g. "https://jfrog.svc.cscs.ch"
+    util::url base;     // e.g. "https://jfrog.svc.cscs.ch"
     std::string prefix; // e.g. "uenv" (may be empty)
 };
 
-// Split a configured registry URL ("host", "host/prefix", or scheme-prefixed)
-// into an https base URL and a repository prefix. The scheme, if any, is
-// dropped and https is always used for the base (matching how pull resolves
-// it).
-util::expected<registry_location, util::parse_error>
-split_registry(std::string_view configured_url);
+// Split a configured registry url into the base to address and the repository
+// prefix: the base is its origin (scheme://host[:port]) and the prefix is its
+// path, stripped of the surrounding slashes. Cannot fail - the url was parsed
+// when it was read (see uenv::registry_config).
+registry_location split_registry(const util::url& configured_url);
 
 // Build the OCI repository path for a uenv, e.g.
 // "<prefix>/<nspace>/<system>/<uarch>/<name>/<version>" (the prefix segment is

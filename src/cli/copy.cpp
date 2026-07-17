@@ -180,23 +180,19 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
 
     // split the configured registry into a base URL + prefix, then build the
     // source and destination OCI repository paths (the addresses oras used).
-    auto loc = oci::split_registry(registry_cfg.url);
-    if (!loc) {
-        term::error("invalid registry url: {}", loc.error().message());
-        return 1;
-    }
+    const auto loc = oci::split_registry(registry_cfg.url);
     const auto src_repo = oci::repository_path(
-        loc->prefix, src_label.nspace.value(), src_record.system,
+        loc.prefix, src_label.nspace.value(), src_record.system,
         src_record.uarch, src_record.name, src_record.version);
     const auto dst_repo = oci::repository_path(
-        loc->prefix, dst_label.nspace.value(), dst_record.system,
+        loc.prefix, dst_label.nspace.value(), dst_record.system,
         dst_record.uarch, dst_record.name, dst_record.version);
     const auto src_manifest = oci::digest::sha256(src_record.sha);
     spdlog::debug("oci copy: {} -> {} (tag {})", src_repo, dst_repo,
                   dst_record.tag);
 
     if (auto result =
-            oci::copy_image(loc->base, src_repo, dst_repo, src_manifest,
+            oci::copy_image(loc.base, src_repo, dst_repo, src_manifest,
                             dst_record.tag, credentials);
         !result) {
         term::error("unable to copy uenv.\n{}", result.error());
