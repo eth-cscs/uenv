@@ -4,9 +4,9 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
-#include <oci/client.h>
 #include <oci/digest.h>
 #include <oci/manifest.h>
+#include <oci/types.h>
 #include <oci/util.h>
 
 namespace oci {

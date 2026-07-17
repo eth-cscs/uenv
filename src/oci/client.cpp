@@ -1,6 +1,8 @@
+#include <chrono>
 #include <cstddef>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -21,50 +23,100 @@
 
 namespace oci {
 
-// --- registry addressing helpers (pure) ---------------------------------
+//
+// client_impl
+//
 
-util::expected<registry_location, util::parse_error>
-split_registry(std::string_view configured_url) {
-    // parse the configured value as a URL; the scheme, if any, is dropped and
-    // https is always used for the base. any port is preserved on the base.
-    auto u = parse_url(configured_url);
-    if (!u) {
-        return util::unexpected(u.error());
-    }
+// The registry connection's state and all of its HTTP machinery, held behind
+// client's pimpl so that util/curl.h never reaches the public header. Every
+// public client method is a forwarder onto the method of the same name here.
+class client_impl {
+  public:
+    // does a blob exist? HEAD; 200 -> true, 404 -> false.
+    util::expected<bool, client_error> blob_exists(const digest& d);
 
-    // the repository prefix is the URL path with its surrounding slashes
-    // trimmed.
-    std::string prefix = u->path;
-    if (!prefix.empty() && prefix.front() == '/') {
-        prefix.erase(prefix.begin());
-    }
-    while (!prefix.empty() && prefix.back() == '/') {
-        prefix.pop_back();
-    }
+    util::expected<void, client_error>
+    get_blob_to_file(const digest& d, const std::filesystem::path& file,
+                     std::function<void(std::uint64_t, std::uint64_t)> progress,
+                     std::function<bool()> should_abort);
 
-    // preserve an explicit scheme (e.g. http:// for a local test registry);
-    // default to https when the config omits one (the CSCS deployment).
-    const std::string scheme = u->scheme.empty() ? "https" : u->scheme;
-    std::string base = scheme + "://" + u->host;
-    if (u->port) {
-        base += ':' + std::to_string(*u->port);
-    }
-    return registry_location{.base = std::move(base),
-                             .prefix = std::move(prefix)};
-}
+    util::expected<manifest_response, client_error>
+    get_manifest(const reference& ref);
 
-std::string repository_path(std::string_view prefix, std::string_view nspace,
-                            std::string_view system, std::string_view uarch,
-                            std::string_view name, std::string_view version) {
-    if (prefix.empty()) {
-        return fmt::format("{}/{}/{}/{}/{}", nspace, system, uarch, name,
-                           version);
-    }
-    return fmt::format("{}/{}/{}/{}/{}/{}", prefix, nspace, system, uarch, name,
-                       version);
-}
+    util::expected<std::vector<std::string>, client_error> list_tags();
 
-// --- client -------------------------------------------------------------
+    util::expected<std::vector<descriptor>, client_error>
+    referrers(const digest& d);
+
+    util::expected<bool, client_error>
+    mount_blob(const digest& d, const std::string& from_repository);
+
+    util::expected<void, client_error>
+    put_blob(const digest& d, const std::filesystem::path& file,
+             std::function<void(std::uint64_t, std::uint64_t)> progress);
+
+    util::expected<void, client_error> put_blob_bytes(const digest& d,
+                                                      const std::string& data);
+
+    util::expected<void, client_error>
+    put_manifest(const reference& ref, const std::string& body,
+                 std::string_view media_type);
+
+    void add_pull_scope(std::string repository);
+
+    // a cached bearer token and the deadline after which it is considered
+    // stale (absent when the token endpoint did not advertise a lifetime).
+    struct cached_token {
+        std::string value;
+        std::optional<std::chrono::steady_clock::time_point> expires_at;
+    };
+
+    // refresh a cached token this long before its advertised expiry, so a
+    // token that is about to lapse is not used to start a new request.
+    static constexpr std::chrono::seconds token_refresh_margin{30};
+
+    // return a bearer token for this repository, fetching/caching as needed;
+    // a cached token past (or within token_refresh_margin of) its advertised
+    // expiry is refetched. returns std::nullopt for an anonymous registry (no
+    // auth challenge), in which case requests are sent without an
+    // Authorization header.
+    util::expected<std::optional<std::string>, std::string>
+    token_for(bool write);
+
+    // set the bearer token on `req` and perform it. if the registry rejects
+    // a previously cached token with 401 — typically one whose lifetime ran
+    // out during a preceding long transfer, without the token endpoint having
+    // advertised expires_in — a fresh token is fetched and the request
+    // retried once; `reset` (when set) runs before the retry so the caller
+    // can rewind per-attempt state (e.g. a streaming hash). a 401 on a
+    // freshly fetched token is a real denial and is returned as-is.
+    util::expected<util::curl::response, client_error>
+    authed_perform(util::curl::request& req, bool write,
+                   const std::function<void()>& reset = {});
+
+    // read the referrers of `d` from the referrers tag schema index
+    // (<algo>-<hex>): the fallback for registries without the Referrers API.
+    util::expected<std::vector<descriptor>, client_error>
+    referrers_from_tag(const digest& d);
+
+    // upload a blob via the monolithic POST-then-PUT handshake; `body_setup`
+    // attaches the payload (a file to stream, or an in-memory body) to the
+    // PUT request.
+    util::expected<void, client_error>
+    put_blob_impl(const std::string& digest,
+                  const std::function<void(util::curl::request&)>& body_setup);
+
+    std::string registry_url_; // normalised, no trailing '/'
+    std::string repository_;
+    std::optional<credentials> creds_;
+    // the auth challenge, or nullopt when the registry permits anonymous
+    // access.
+    std::optional<bearer_challenge> challenge_;
+    std::optional<cached_token> pull_token_;
+    std::optional<cached_token> push_token_;
+    // extra repositories to request pull scope for (cross-repo mount).
+    std::vector<std::string> extra_pull_scopes_;
+};
 
 util::expected<client, client_error>
 client::create(std::string registry_url, std::string repository,
@@ -74,19 +126,19 @@ client::create(std::string registry_url, std::string repository,
         return util::unexpected{client_error{challenge.error()}};
     }
 
-    client c;
-    c.registry_url_ = std::move(registry_url);
-    while (!c.registry_url_.empty() && c.registry_url_.back() == '/') {
-        c.registry_url_.pop_back();
+    auto impl = std::make_unique<client_impl>();
+    impl->registry_url_ = std::move(registry_url);
+    while (!impl->registry_url_.empty() && impl->registry_url_.back() == '/') {
+        impl->registry_url_.pop_back();
     }
-    c.repository_ = std::move(repository);
-    c.creds_ = std::move(creds);
-    c.challenge_ = std::move(*challenge);
-    return c;
+    impl->repository_ = std::move(repository);
+    impl->creds_ = std::move(creds);
+    impl->challenge_ = std::move(*challenge);
+    return client{std::move(impl)};
 }
 
 util::expected<std::optional<std::string>, std::string>
-client::token_for(bool write) {
+client_impl::token_for(bool write) {
     // anonymous registry: no challenge, so no token is needed or fetched.
     if (!challenge_) {
         return std::nullopt;
@@ -130,8 +182,8 @@ client::token_for(bool write) {
 }
 
 util::expected<util::curl::response, client_error>
-client::authed_perform(util::curl::request& req, bool write,
-                       const std::function<void()>& reset) {
+client_impl::authed_perform(util::curl::request& req, bool write,
+                            const std::function<void()>& reset) {
     auto& cache = write ? push_token_ : pull_token_;
     const bool was_cached = cache.has_value();
     auto token = token_for(write);
@@ -167,11 +219,11 @@ client::authed_perform(util::curl::request& req, bool write,
     return *resp;
 }
 
-void client::add_pull_scope(std::string repository) {
+void client_impl::add_pull_scope(std::string repository) {
     extra_pull_scopes_.push_back(std::move(repository));
 }
 
-util::expected<bool, client_error> client::blob_exists(const digest& d) {
+util::expected<bool, client_error> client_impl::blob_exists(const digest& d) {
     util::curl::request req;
     req.url = registry_url_ + detail::blob_path(repository_, d.string());
     req.method = util::curl::http_method::head;
@@ -192,7 +244,7 @@ util::expected<bool, client_error> client::blob_exists(const digest& d) {
                      resp->status}};
 }
 
-util::expected<void, client_error> client::get_blob_to_file(
+util::expected<void, client_error> client_impl::get_blob_to_file(
     const digest& d, const std::filesystem::path& file,
     std::function<void(std::uint64_t, std::uint64_t)> progress,
     std::function<bool()> should_abort) {
@@ -288,7 +340,7 @@ util::expected<void, client_error> client::get_blob_to_file(
 }
 
 util::expected<manifest_response, client_error>
-client::get_manifest(const reference& ref) {
+client_impl::get_manifest(const reference& ref) {
     util::curl::request req;
     req.url = registry_url_ + detail::manifest_path(repository_, ref.string());
     req.header_lines = {fmt::format("Accept: {}", media_type_manifest),
@@ -316,7 +368,8 @@ client::get_manifest(const reference& ref) {
     return m;
 }
 
-util::expected<std::vector<std::string>, client_error> client::list_tags() {
+util::expected<std::vector<std::string>, client_error>
+client_impl::list_tags() {
     util::curl::request req;
     req.url = registry_url_ + detail::tags_path(repository_);
 
@@ -338,7 +391,7 @@ util::expected<std::vector<std::string>, client_error> client::list_tags() {
 }
 
 util::expected<std::vector<descriptor>, client_error>
-client::referrers(const digest& d) {
+client_impl::referrers(const digest& d) {
     util::curl::request req;
     req.url = registry_url_ + detail::referrers_path(repository_, d.string());
 
@@ -372,7 +425,7 @@ client::referrers(const digest& d) {
 }
 
 util::expected<std::vector<descriptor>, client_error>
-client::referrers_from_tag(const digest& d) {
+client_impl::referrers_from_tag(const digest& d) {
     // the tag schema names an OCI image index <algo>-<hex> in the same
     // repository as the subject (see maintain_referrers_tag in push.cpp).
     const auto tag = d.algorithm() + "-" + d.hex();
@@ -410,7 +463,7 @@ client::referrers_from_tag(const digest& d) {
 
 // drive the monolithic upload handshake: POST an upload session, then PUT the
 // payload (carried by `body_setup`) to the returned Location with ?digest=.
-util::expected<void, client_error> client::put_blob_impl(
+util::expected<void, client_error> client_impl::put_blob_impl(
     const std::string& digest,
     const std::function<void(util::curl::request&)>& body_setup) {
     // 1. open an upload session
@@ -457,7 +510,7 @@ util::expected<void, client_error> client::put_blob_impl(
 }
 
 util::expected<bool, client_error>
-client::mount_blob(const digest& d, const std::string& from_repository) {
+client_impl::mount_blob(const digest& d, const std::string& from_repository) {
     if (auto exists = blob_exists(d); exists && *exists) {
         return true;
     }
@@ -484,9 +537,9 @@ client::mount_blob(const digest& d, const std::string& from_repository) {
         resp->status}};
 }
 
-util::expected<void, client_error>
-client::put_blob(const digest& d, const std::filesystem::path& file,
-                 std::function<void(std::uint64_t, std::uint64_t)> progress) {
+util::expected<void, client_error> client_impl::put_blob(
+    const digest& d, const std::filesystem::path& file,
+    std::function<void(std::uint64_t, std::uint64_t)> progress) {
     if (util::file_access_level(file) < util::file_level::readonly) {
         return util::unexpected{client_error{fmt::format(
             "cannot upload blob: {} is not a readable file", file.string())}};
@@ -505,7 +558,7 @@ client::put_blob(const digest& d, const std::filesystem::path& file,
 }
 
 util::expected<void, client_error>
-client::put_blob_bytes(const digest& d, const std::string& data) {
+client_impl::put_blob_bytes(const digest& d, const std::string& data) {
     if (auto exists = blob_exists(d); exists && *exists) {
         return {};
     }
@@ -514,8 +567,8 @@ client::put_blob_bytes(const digest& d, const std::string& data) {
 }
 
 util::expected<void, client_error>
-client::put_manifest(const reference& ref, const std::string& body,
-                     std::string_view media_type) {
+client_impl::put_manifest(const reference& ref, const std::string& body,
+                          std::string_view media_type) {
     util::curl::request req;
     req.url = registry_url_ + detail::manifest_path(repository_, ref.string());
     req.method = util::curl::http_method::put;
@@ -534,6 +587,69 @@ client::put_manifest(const reference& ref, const std::string& body,
             resp->status}};
     }
     return {};
+}
+
+//
+// client: forwarders onto client_impl
+//
+
+client::client(std::unique_ptr<client_impl> impl) : impl_(std::move(impl)) {
+}
+
+client::~client() = default;
+client::client(client&&) noexcept = default;
+client& client::operator=(client&&) noexcept = default;
+
+util::expected<bool, client_error> client::blob_exists(const digest& d) {
+    return impl_->blob_exists(d);
+}
+
+util::expected<void, client_error> client::get_blob_to_file(
+    const digest& d, const std::filesystem::path& file,
+    std::function<void(std::uint64_t, std::uint64_t)> progress,
+    std::function<bool()> should_abort) {
+    return impl_->get_blob_to_file(d, file, std::move(progress),
+                                   std::move(should_abort));
+}
+
+util::expected<manifest_response, client_error>
+client::get_manifest(const reference& ref) {
+    return impl_->get_manifest(ref);
+}
+
+util::expected<std::vector<std::string>, client_error> client::list_tags() {
+    return impl_->list_tags();
+}
+
+util::expected<std::vector<descriptor>, client_error>
+client::referrers(const digest& d) {
+    return impl_->referrers(d);
+}
+
+util::expected<bool, client_error>
+client::mount_blob(const digest& d, const std::string& from_repository) {
+    return impl_->mount_blob(d, from_repository);
+}
+
+util::expected<void, client_error>
+client::put_blob(const digest& d, const std::filesystem::path& file,
+                 std::function<void(std::uint64_t, std::uint64_t)> progress) {
+    return impl_->put_blob(d, file, std::move(progress));
+}
+
+util::expected<void, client_error>
+client::put_blob_bytes(const digest& d, const std::string& data) {
+    return impl_->put_blob_bytes(d, data);
+}
+
+util::expected<void, client_error>
+client::put_manifest(const reference& ref, const std::string& body,
+                     std::string_view media_type) {
+    return impl_->put_manifest(ref, body, media_type);
+}
+
+void client::add_pull_scope(std::string repository) {
+    impl_->add_pull_scope(std::move(repository));
 }
 
 } // namespace oci

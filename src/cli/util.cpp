@@ -16,7 +16,7 @@
 #include <util/subprocess.h>
 
 #include <oci/auth.h>
-#include <oci/client.h>
+#include <oci/types.h>
 #include <uenv/parse.h>
 
 #include "util.h"

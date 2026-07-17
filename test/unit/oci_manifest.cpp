@@ -1,9 +1,10 @@
 #include <catch2/catch_all.hpp>
 
-#include <oci/client.h>
 #include <oci/digest.h>
 #include <oci/manifest.h>
+#include <oci/types.h>
 #include <util/sha.h>
+#include <util/strings.h>
 
 using namespace oci;
 
@@ -20,6 +21,32 @@ const std::string image_layer_hex =
 const std::string image_manifest_hex =
     "b50ca0d101456970ea94dccb5a33adcfd2b9a566bc36c716f4b64a0522089f48";
 } // namespace
+
+// empty_config_body, empty_config_hex and empty_config_data are three
+// hand-written representations of the same two bytes, and
+// empty_config_descriptor() simply copies all three: nothing re-derives one
+// from another, and there is no base64 encoder in the tree that could. Without
+// this case a typo in the sha or the base64 would compile, pass the suite, and
+// only surface as a registry rejecting a pushed manifest.
+//
+// The base64 check is as strong as util::base64_decode, which discards the
+// trailing bits that padding covers: a typo confined to those bits ("e30=" ->
+// "e31=") decodes to "{}" all the same and is not caught here.
+TEST_CASE("empty config constants agree", "[oci][manifest]") {
+    // empty_config_hex is the sha256 of the body.
+    REQUIRE(digest::sha256(util::sha256_string(empty_config_body)) ==
+            sha_digest(empty_config_hex));
+
+    // empty_config_data is the base64 of the body.
+    REQUIRE(util::base64_decode(empty_config_data) ==
+            std::optional<std::string>{std::string{empty_config_body}});
+
+    // and the descriptor reports them consistently.
+    const auto d = empty_config_descriptor();
+    REQUIRE(d.digest == sha_digest(empty_config_hex));
+    REQUIRE(d.size == empty_config_body.size());
+    REQUIRE(d.data == std::string{empty_config_data});
+}
 
 // The serializer must reproduce, byte-for-byte, the image manifest that
 // `oras push --artifact-type application/x-squashfs` produced for the public

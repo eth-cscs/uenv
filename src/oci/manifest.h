@@ -7,8 +7,8 @@
 #include <string_view>
 #include <vector>
 
-#include <oci/client.h>
 #include <oci/digest.h>
+#include <oci/types.h>
 #include <util/expected.h>
 
 namespace oci {

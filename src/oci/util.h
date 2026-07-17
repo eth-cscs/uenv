@@ -15,7 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include <oci/auth.h>
-#include <oci/client.h>
+#include <oci/types.h>
 
 namespace oci {
 namespace detail {
