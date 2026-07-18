@@ -213,6 +213,7 @@ All dependencies are built as static libraries via meson wrap:
 - sqlite3 - database
 - libcurl - HTTP operations
 - zlib - gzip handling in the native OCI registry client (`src/oci`)
+- libarchive - tar packing/unpacking of the `uenv/meta` artifact, in-process via `src/util/archive.*` (replaces the external `tar`/`gzip` binaries)
 - Catch2 - testing (when tests enabled)
 - barkeep - progress indicators (header-only in `extern/`)
 

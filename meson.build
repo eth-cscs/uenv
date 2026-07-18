@@ -44,6 +44,21 @@ toml_dep = declare_dependency(
 zlib_dep = subproject('zlib', default_options: ['warning_level=0', 'werror=false', 'default_library=static']).get_variable('zlib_dep')
 subproject('curl', default_options: ['werror=false', 'warning_level=0', 'tests=disabled', 'unittests=disabled', 'tool=disabled'])
 curl_dep = dependency('libcurl', required: true)
+# libarchive: used by the native OCI registry client (src/oci) to pack/unpack the
+# uenv/meta directory artifact in-process, replacing the external tar+gzip
+# binaries. Built after zlib so its dependency('zlib') resolves to the same
+# vendored static zlib (gzip support). Every optional backend and the bsd*
+# programs are disabled: we only need the tar format + gzip filter.
+libarchive_dep = subproject('libarchive',
+        default_options: [
+            'warning_level=0', 'werror=false', 'default_library=static',
+            'progs=[]', 'tests=disabled', 'regex=disabled',
+            'zlib=enabled',
+            'bz2lib=disabled', 'libb2=disabled', 'lz4=disabled', 'zstd=disabled',
+            'lzma=disabled', 'lzo2=disabled', 'iconv=disabled', 'cng=disabled',
+            'openssl=disabled', 'xml2=disabled', 'expat=disabled',
+            'xattr=disabled', 'acl=disabled',
+        ]).get_variable('libarchive_dep')
 barkeep_dep = declare_dependency(
         include_directories: 'extern/barkeep',
         compile_args: ['-DBARKEEP_ENABLE_FMT_FORMAT'],
@@ -77,6 +92,7 @@ lib_src = [
         'src/uenv/settings.cpp',
         'src/uenv/telemetry.cpp',
         'src/uenv/uenv.cpp',
+        'src/util/archive.cpp',
         'src/util/color.cpp',
         'src/util/curl.cpp',
         'src/util/envvars.cpp',
@@ -99,12 +115,12 @@ lib_uenv = static_library(
         'uenv',
         lib_src,
         include_directories: lib_inc,
-        dependencies: [curl_dep, zlib_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
+        dependencies: [curl_dep, zlib_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
 )
 
 uenv_dep = declare_dependency(
         link_with: lib_uenv,
-        dependencies: [curl_dep, zlib_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep, toml_dep],
+        dependencies: [curl_dep, zlib_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep, toml_dep],
         include_directories: lib_inc
 )
 

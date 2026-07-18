@@ -8,9 +8,9 @@
 #include <oci/digest.h>
 #include <oci/manifest.h>
 #include <oci/pull.h>
+#include <util/archive.h>
 #include <util/expected.h>
 #include <util/fs.h>
-#include <util/subprocess.h>
 
 namespace oci {
 
@@ -20,22 +20,6 @@ namespace {
 
 // title annotation oras gives the squashfs layer.
 constexpr std::string_view squashfs_title = "store.squashfs";
-
-// extract a gzipped tar into `dest`, using the system tar.
-util::expected<void, std::string> extract_targz(const fs::path& archive,
-                                                const fs::path& dest) {
-    auto proc =
-        util::run({"tar", "-xzf", archive.string(), "-C", dest.string()});
-    if (!proc) {
-        return util::unexpected{
-            fmt::format("unable to run tar to unpack meta: {}", proc.error())};
-    }
-    if (auto rc = proc->wait(); rc != 0) {
-        return util::unexpected{
-            fmt::format("tar failed to unpack meta (exit {})", rc)};
-    }
-    return {};
-}
 
 } // namespace
 
@@ -126,7 +110,7 @@ pull_meta(client& c, const digest& manifest_digest, const fs::path& store) {
     if (auto ok = c.get_blob_to_file(layer->digest, archive); !ok) {
         return util::unexpected{ok.error().message};
     }
-    if (auto ok = extract_targz(archive, store); !ok) {
+    if (auto ok = util::extract_targz(archive, store); !ok) {
         return util::unexpected{ok.error()};
     }
     return true;
