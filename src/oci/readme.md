@@ -409,8 +409,10 @@ corrupted download fails locally rather than producing a broken image.
 unpacks it into `<store>`, reproducing the `meta/` directory. It returns `false`
 (not an error) when the image simply has no attached metadata, which lets the
 caller decide whether that is fatal. The archive is staged in a private temp
-directory and digest-verified before `tar` sees it — the extracted `env.json` and
-views are later sourced into user environments, so they are not taken on trust.
+directory and digest-verified before it is unpacked (in-process via
+`util::extract_targz`, which also rejects any entry that would escape the
+destination) — the extracted `env.json` and views are later sourced into user
+environments, so they are not taken on trust.
 
 ### `push.h` — the write workflows
 
@@ -439,9 +441,11 @@ whole file to compute it, which for a multi-GB image is minutes of work done
 twice.
 
 `attach` replaces `oras attach`. A directory payload is packed as a
-deterministic gzipped tar (sorted names, zeroed mtimes and ownership, `gzip -n`),
-so the layer digest is stable across runs — this is what makes re-pushing the
-same metadata a no-op rather than churning blobs. It also maintains the
+deterministic gzipped tar in-process via `util::pack_directory_targz` (sorted
+names, zeroed mtimes and ownership, `gzip -n`, and — crucially for oras
+compatibility — no record padding past the tar EOF marker), so the layer digest
+is stable across runs — this is what makes re-pushing the same metadata a no-op
+rather than churning blobs. It also maintains the
 referrers tag index, best-effort, so attachments stay discoverable on registries
 without the Referrers API.
 

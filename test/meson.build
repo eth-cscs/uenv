@@ -90,6 +90,7 @@ setup_suite = custom_target (
 )
 
 unit_src = [
+        'unit/archive.cpp',
         'unit/curl.cpp',
         'unit/dates.cpp',
         'unit/env.cpp',

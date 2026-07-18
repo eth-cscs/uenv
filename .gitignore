@@ -6,6 +6,7 @@ todo
 subprojects/Catch2-*
 subprojects/CLI11-*
 subprojects/curl-*
+subprojects/libarchive-*
 subprojects/fmt-*
 subprojects/packagecache
 subprojects/spdlog-*

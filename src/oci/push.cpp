@@ -15,10 +15,10 @@
 #include <oci/push.h>
 #include <oci/reference.h>
 #include <oci/util.h>
+#include <util/archive.h>
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/sha.h>
-#include <util/subprocess.h>
 
 namespace oci {
 
@@ -66,82 +66,35 @@ struct packaged_layer {
 // Pack a directory into a deterministic gzipped tar, mirroring what
 // `oras attach` produces for a directory payload: a single tar+gzip layer
 // annotated for unpacking, titled with the directory name, and carrying the
-// uncompressed-tar digest. Deterministic tar/gzip flags keep the layer digest
-// stable across runs.
+// uncompressed-tar digest. util::pack_directory_targz builds a reproducible
+// archive with no trailing padding past the tar EOF marker, which oras requires
+// (see util/archive.cpp for the details).
 util::expected<packaged_layer, std::string>
 package_directory(const fs::path& dir) {
-    const auto parent = dir.parent_path();
     const auto name = dir.filename().string();
 
     auto work = util::make_temp_dir();
     if (!work) {
         return util::unexpected{work.error()};
     }
-    const auto tar_path = *work / "payload.tar";
 
-    // -b 1 (blocking factor 1) is essential for oras compatibility: GNU tar
-    // otherwise pads the archive up to its default 20-block (10240-byte) record
-    // size with trailing zero blocks *past* the two-zero-block end-of-archive
-    // marker. When oras pulls a directory layer it verifies the annotated
-    // io.deis.oras.content.digest against the bytes its Go tar reader consumes,
-    // and that reader stops at the EOF marker without reading the trailing
-    // record padding -- so the padded bytes are never hashed and oras reports a
-    // "content digest mismatch". A blocking factor of 1 (512-byte records) means
-    // the archive is already 512-aligned at the EOF marker, so no padding is
-    // added and the whole stream is hashed. This matches what oras itself
-    // produces (Go's archive/tar writes only the two zero blocks).
-    auto tar = util::run({"tar", "--sort=name", "--format=posix", "--mtime=@0",
-                          "--owner=0", "--group=0", "--numeric-owner", "-b", "1",
-                          "-cf", tar_path.string(), "-C", parent.string(),
-                          name});
-    if (!tar) {
-        return util::unexpected{fmt::format("unable to run tar to pack {}: {}",
-                                            dir.string(), tar.error())};
-    }
-    if (auto rc = tar->wait(); rc != 0) {
-        return util::unexpected{
-            fmt::format("tar failed to pack {} (exit {})", dir.string(), rc)};
-    }
-
-    // digest of the uncompressed tar (the io.deis.oras.content.digest value).
-    auto tar_digest = digest_of_file(tar_path);
-    if (!tar_digest) {
-        return util::unexpected{tar_digest.error()};
-    }
-
-    // gzip in place; -n omits the filename/timestamp for a reproducible result.
-    auto gz = util::run({"gzip", "-n", tar_path.string()});
-    if (!gz) {
-        return util::unexpected{
-            fmt::format("unable to run gzip: {}", gz.error())};
-    }
-    if (auto rc = gz->wait(); rc != 0) {
-        return util::unexpected{fmt::format("gzip failed (exit {})", rc)};
-    }
-    const auto gz_path = fs::path{tar_path.string() + ".gz"};
-
-    auto layer_digest = digest_of_file(gz_path);
-    if (!layer_digest) {
-        return util::unexpected{layer_digest.error()};
-    }
-    std::error_code ec;
-    auto size = fs::file_size(gz_path, ec);
-    if (ec) {
-        return util::unexpected{fmt::format("unable to stat {}: {}",
-                                            gz_path.string(), ec.message())};
+    auto packed = util::pack_directory_targz(dir, *work);
+    if (!packed) {
+        return util::unexpected{packed.error()};
     }
 
     return packaged_layer{
-        .blob = gz_path,
+        .blob = packed->gz_path,
         .layer =
             manifest_layer{
                 .media_type = std::string{media_type_layer_targz},
-                .digest = *layer_digest,
-                .size = size,
-                .annotations = {{std::string{annotation_content_digest},
-                                 tar_digest->string()},
-                                {std::string{annotation_unpack}, "true"},
-                                {std::string{annotation_title}, name}}},
+                .digest = digest::sha256(packed->gz_sha256),
+                .size = packed->gz_size,
+                .annotations =
+                    {{std::string{annotation_content_digest},
+                      digest::sha256(packed->tar_sha256).string()},
+                     {std::string{annotation_unpack}, "true"},
+                     {std::string{annotation_title}, name}}},
         .scratch = *work};
 }
 
