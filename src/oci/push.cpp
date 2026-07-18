@@ -90,11 +90,10 @@ package_directory(const fs::path& dir) {
                 .media_type = std::string{media_type_layer_targz},
                 .digest = digest::sha256(packed->gz_sha256),
                 .size = packed->gz_size,
-                .annotations =
-                    {{std::string{annotation_content_digest},
-                      digest::sha256(packed->tar_sha256).string()},
-                     {std::string{annotation_unpack}, "true"},
-                     {std::string{annotation_title}, name}}},
+                .annotations = {{std::string{annotation_content_digest},
+                                 digest::sha256(packed->tar_sha256).string()},
+                                {std::string{annotation_unpack}, "true"},
+                                {std::string{annotation_title}, name}}},
         .scratch = *work};
 }
 

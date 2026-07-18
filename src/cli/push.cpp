@@ -182,8 +182,8 @@ int image_push([[maybe_unused]] const image_push_args& args,
         std::error_code ec;
         auto size_byte = std::filesystem::file_size(sqfs->sqfs, ec);
         auto bar = uenv::make_transfer_bar(
-            ec ? 0u : size_byte, fmt::format("pushing    {}",
-                                             sqfs->sqfs.filename().string()));
+            ec ? 0u : size_byte,
+            fmt::format("pushing    {}", sqfs->sqfs.filename().string()));
 
         auto progress = [&bar](std::uint64_t now, std::uint64_t) {
             bar->update(now);
