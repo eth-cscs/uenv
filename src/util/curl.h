@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <util/envvars.h>
 #include <util/expected.h>
 
 #include <curl/curl.h>
@@ -20,6 +21,16 @@ struct error {
     CURLcode code;
     std::string message;
 };
+
+// Configure the TLS trust store from the process's startup environment snapshot.
+//
+// Call once at startup, before any HTTPS request. curl links a vendored static
+// OpenSSL whose compiled-in certificate path does not exist on the host, so the
+// CA bundle must be located at runtime. The environment is passed in explicitly
+// (rather than read via getenv) so the dependency on the SSL_CERT_FILE /
+// SSL_CERT_DIR overrides is visible in the interface. If this is never called,
+// perform()/upload() fall back to a filesystem-only probe with no env overrides.
+void configure_tls(const envvars::state& env);
 
 // --- low-level request/response primitive -------------------------------
 //

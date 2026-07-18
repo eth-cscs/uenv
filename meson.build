@@ -36,19 +36,15 @@ toml_dep = declare_dependency(
   dependencies: toml_base,
   compile_args: ['-DTOML_EXCEPTIONS=0', '-DTOML_HEADER_ONLY=0'],
 )
-# zlib: needed for gzip handling in the native OCI registry client that
-# replaced the oras binary. Always built from the vendored wrapdb subproject
-# (never the system copy) and statically linked, so the binary is self-contained.
-# Built *before* curl so its override_dependency('zlib') is in place and curl
-# links the same vendored static zlib rather than the system copy.
+# zlib: needed for gzip handling in the native OCI registry client
+# Built before curl so override_dependency('zlib') is in place for when curl is configured
 zlib_dep = subproject('zlib', default_options: ['warning_level=0', 'werror=false', 'default_library=static']).get_variable('zlib_dep')
-subproject('curl', default_options: ['werror=false', 'warning_level=0', 'tests=disabled', 'unittests=disabled', 'tool=disabled'])
+# openssl: the TLS backend for curl.
+# Built before curl so override_dependency('openssl') is in place for when curl is configured
+openssl_dep = subproject('openssl', default_options: ['warning_level=0', 'werror=false', 'default_library=static']).get_variable('openssl_dep')
+subproject('curl', default_options: ['werror=false', 'warning_level=0', 'tests=disabled', 'unittests=disabled', 'tool=disabled', 'brotli=disabled', 'zstd=disabled', 'ssl=enabled', 'openssl=enabled'])
 curl_dep = dependency('libcurl', required: true)
-# libarchive: used by the native OCI registry client (src/oci) to pack/unpack the
-# uenv/meta directory artifact in-process, replacing the external tar+gzip
-# binaries. Built after zlib so its dependency('zlib') resolves to the same
-# vendored static zlib (gzip support). Every optional backend and the bsd*
-# programs are disabled: we only need the tar format + gzip filter.
+# libarchive: used by the native OCI registry client to pack/unpack directories
 libarchive_dep = subproject('libarchive',
         default_options: [
             'warning_level=0', 'werror=false', 'default_library=static',
