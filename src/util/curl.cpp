@@ -1,4 +1,5 @@
 #include <cctype>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -11,6 +12,7 @@
 #include <filesystem>
 #include <util/curl.h>
 #include <util/defer.h>
+#include <util/envvars.h>
 #include <util/expected.h>
 #include <util/strings.h>
 
@@ -75,6 +77,96 @@ size_t memory_callback(void* source, size_t size, size_t n, void* target) {
 
     return realsize;
 };
+
+// Where curl should look for CA certificates. Either or both may be unset, in
+// which case the corresponding curl option is left at its default.
+struct ca_locations {
+    std::optional<std::string> cainfo; // single PEM bundle file (CURLOPT_CAINFO)
+    std::optional<std::string> capath; // c_rehash'd directory (CURLOPT_CAPATH)
+};
+
+// Locate the system trust store.
+//
+// curl is linked against a vendored static OpenSSL whose compiled-in OPENSSLDIR
+// points at the build prefix, not the host, so OpenSSL's own default-verify
+// paths do not find the real certificates. We therefore discover them here and
+// set CURLOPT_CAINFO/CAPATH explicitly. Verification is never disabled: if
+// nothing is found we leave curl at its default and let TLS fail closed with a
+// clear "unable to get local issuer" error.
+//
+// Probe order (first hit wins for each of file / dir):
+//   1. SSL_CERT_FILE / SSL_CERT_DIR from the startup environment snapshot
+//      (operator escape hatch), when an env has been supplied via configure_tls
+//   2. a well-known single-file bundle (preferred: portable, no rehash needed)
+//   3. a well-known hashed directory
+ca_locations resolve_ca_locations(const envvars::state* env) {
+    namespace fs = std::filesystem;
+    ca_locations ca;
+
+    if (env) {
+        if (auto f = env->get("SSL_CERT_FILE"); f && !f->empty() &&
+                                                fs::exists(*f)) {
+            ca.cainfo = *f;
+        }
+        if (auto d = env->get("SSL_CERT_DIR"); d && !d->empty() &&
+                                               fs::is_directory(*d)) {
+            ca.capath = *d;
+        }
+    }
+
+    // candidate single-file bundles, most-specific host first
+    const char* bundle_files[] = {
+        "/var/lib/ca-certificates/ca-bundle.pem", // Alps / SUSE
+        "/etc/ssl/certs/ca-certificates.crt",     // Debian / Ubuntu
+        "/etc/pki/tls/certs/ca-bundle.crt",       // RHEL / Fedora
+        "/etc/ssl/cert.pem",                      // misc
+    };
+    if (!ca.cainfo) {
+        for (const char* p : bundle_files) {
+            if (fs::exists(p)) {
+                ca.cainfo = p;
+                break;
+            }
+        }
+    }
+
+    // fall back to a hashed directory only if no bundle file was found
+    const char* bundle_dirs[] = {
+        "/etc/ssl/certs",
+        "/etc/pki/tls/certs",
+    };
+    if (!ca.cainfo && !ca.capath) {
+        for (const char* p : bundle_dirs) {
+            if (fs::is_directory(p)) {
+                ca.capath = p;
+                break;
+            }
+        }
+    }
+
+    spdlog::debug("curl: CA bundle file={} dir={}",
+                  ca.cainfo.value_or("<none>"), ca.capath.value_or("<none>"));
+    return ca;
+}
+
+// CA locations resolved once from the startup environment snapshot by
+// configure_tls(). Populated at process start; read by perform()/upload().
+std::optional<ca_locations> configured_ca;
+
+// The CA locations to apply. If configure_tls() has run we use its result
+// (which honours SSL_CERT_FILE / SSL_CERT_DIR); otherwise we fall back to a
+// filesystem-only probe with no environment overrides.
+const ca_locations& active_ca_locations() {
+    if (configured_ca) {
+        return *configured_ca;
+    }
+    static const ca_locations fallback = resolve_ca_locations(nullptr);
+    return fallback;
+}
+
+void configure_tls(const envvars::state& env) {
+    configured_ca = resolve_ca_locations(&env);
+}
 
 expected<std::string, error> post(const std::string& data, std::string url,
                                   std::optional<std::string> content_type,
@@ -166,6 +258,17 @@ expected<std::string, error> upload(std::string url,
     spdlog::trace("curl::upload set memory callback");
 
     CURL_EASY(curl_easy_setopt(h, CURLOPT_USE_SSL, CURLUSESSL_ALL));
+
+    // point TLS at the runtime-resolved system trust store (see perform())
+    {
+        const auto& ca = active_ca_locations();
+        if (ca.cainfo) {
+            CURL_EASY(curl_easy_setopt(h, CURLOPT_CAINFO, ca.cainfo->c_str()));
+        }
+        if (ca.capath) {
+            CURL_EASY(curl_easy_setopt(h, CURLOPT_CAPATH, ca.capath->c_str()));
+        }
+    }
 
     CURL_EASY(curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, 5000L));
 
@@ -441,6 +544,19 @@ expected<response, error> perform(const request& req) {
         CURL_EASY(
             curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, xferinfo_callback));
         CURL_EASY(curl_easy_setopt(h, CURLOPT_XFERINFODATA, (void*)&req));
+    }
+
+    // point TLS at the runtime-resolved system trust store: curl links a
+    // vendored static OpenSSL whose baked-in cert path does not exist on the
+    // host, so the default-verify paths must be overridden here.
+    {
+        const auto& ca = active_ca_locations();
+        if (ca.cainfo) {
+            CURL_EASY(curl_easy_setopt(h, CURLOPT_CAINFO, ca.cainfo->c_str()));
+        }
+        if (ca.capath) {
+            CURL_EASY(curl_easy_setopt(h, CURLOPT_CAPATH, ca.capath->c_str()));
+        }
     }
 
     CURL_EASY(curl_easy_perform(h));
