@@ -81,7 +81,8 @@ size_t memory_callback(void* source, size_t size, size_t n, void* target) {
 // Where curl should look for CA certificates. Either or both may be unset, in
 // which case the corresponding curl option is left at its default.
 struct ca_locations {
-    std::optional<std::string> cainfo; // single PEM bundle file (CURLOPT_CAINFO)
+    std::optional<std::string>
+        cainfo; // single PEM bundle file (CURLOPT_CAINFO)
     std::optional<std::string> capath; // c_rehash'd directory (CURLOPT_CAPATH)
 };
 
@@ -104,12 +105,12 @@ ca_locations resolve_ca_locations(const envvars::state* env) {
     ca_locations ca;
 
     if (env) {
-        if (auto f = env->get("SSL_CERT_FILE"); f && !f->empty() &&
-                                                fs::exists(*f)) {
+        if (auto f = env->get("SSL_CERT_FILE");
+            f && !f->empty() && fs::exists(*f)) {
             ca.cainfo = *f;
         }
-        if (auto d = env->get("SSL_CERT_DIR"); d && !d->empty() &&
-                                               fs::is_directory(*d)) {
+        if (auto d = env->get("SSL_CERT_DIR");
+            d && !d->empty() && fs::is_directory(*d)) {
             ca.capath = *d;
         }
     }

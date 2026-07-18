@@ -28,7 +28,8 @@ namespace {
 //
 // The blocking is set so the archive ends exactly at the two 512-byte zero
 // blocks that mark end-of-archive, with NO trailing padding.
-// This matches what oras itself writes (Go's archive/tar emits only the two zero blocks).
+// This matches what oras itself writes (Go's archive/tar emits only the two
+// zero blocks).
 util::expected<void, std::string> write_tar(const fs::path& dir,
                                             const fs::path& tar_path) {
     const auto base = dir.parent_path();
@@ -38,8 +39,8 @@ util::expected<void, std::string> write_tar(const fs::path& dir,
     std::vector<fs::path> paths;
     paths.push_back(dir);
     std::error_code ec;
-    for (fs::recursive_directory_iterator it(
-             dir, fs::directory_options::none, ec);
+    for (fs::recursive_directory_iterator it(dir, fs::directory_options::none,
+                                             ec);
          !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
         paths.push_back(it->path());
     }
@@ -118,8 +119,8 @@ util::expected<void, std::string> write_tar(const fs::path& dir,
             std::size_t n = 0;
             while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0) {
                 if (archive_write_data(a, buf.data(), n) < 0) {
-                    return fail(fmt::format("unable to write tar data for {}",
-                                            name));
+                    return fail(
+                        fmt::format("unable to write tar data for {}", name));
                 }
             }
             if (std::ferror(f) != 0) {
@@ -137,9 +138,9 @@ util::expected<void, std::string> write_tar(const fs::path& dir,
 // gzip `tar_path` into `gz_path`, returning the digest and size of the gzipped
 // output. zlib's default gzip header carries mtime = 0 and no filename, i.e. it
 // is equivalent to `gzip -n`, so the output is reproducible with no extra work.
-util::expected<packed_targz, std::string> gzip_file(const fs::path& tar_path,
-                                                    const fs::path& gz_path,
-                                                    const util::sha256& tar_sha) {
+util::expected<packed_targz, std::string>
+gzip_file(const fs::path& tar_path, const fs::path& gz_path,
+          const util::sha256& tar_sha) {
     std::FILE* in = std::fopen(tar_path.c_str(), "rb");
     if (in == nullptr) {
         return util::unexpected{fmt::format("unable to read {}", tar_path)};
@@ -167,8 +168,8 @@ util::expected<packed_targz, std::string> gzip_file(const fs::path& tar_path,
     std::string error;
 
     do {
-        zs.avail_in = static_cast<uInt>(
-            std::fread(in_buf.data(), 1, in_buf.size(), in));
+        zs.avail_in =
+            static_cast<uInt>(std::fread(in_buf.data(), 1, in_buf.size(), in));
         if (std::ferror(in) != 0) {
             error = fmt::format("error reading {}", tar_path);
             break;
@@ -288,9 +289,8 @@ util::expected<void, std::string> extract_targz(const fs::path& archive_path,
 
         fs::create_directories(target.parent_path(), ec);
         if (ec) {
-            return util::unexpected{fmt::format("unable to create {}: {}",
-                                                target.parent_path(),
-                                                ec.message())};
+            return util::unexpected{fmt::format(
+                "unable to create {}: {}", target.parent_path(), ec.message())};
         }
         std::FILE* f = std::fopen(target.c_str(), "wb");
         if (f == nullptr) {

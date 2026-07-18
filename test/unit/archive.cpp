@@ -57,7 +57,8 @@ std::vector<unsigned char> gunzip(const fs::path& gz) {
         zs.avail_out = static_cast<uInt>(buf.size());
         rc = inflate(&zs, Z_NO_FLUSH);
         REQUIRE((rc == Z_OK || rc == Z_STREAM_END));
-        out.insert(out.end(), buf.data(), buf.data() + (buf.size() - zs.avail_out));
+        out.insert(out.end(), buf.data(),
+                   buf.data() + (buf.size() - zs.avail_out));
     } while (rc != Z_STREAM_END);
     inflateEnd(&zs);
     return out;
@@ -129,10 +130,8 @@ TEST_CASE("pack_directory_targz has no padding past the tar EOF marker",
     // all-zero blocks (the end-of-archive marker).
     REQUIRE(n % 512 == 0);
     REQUIRE(n >= 1024);
-    const bool last_two_zero =
-        std::all_of(tar.end() - 1024, tar.end(), [](unsigned char c) {
-            return c == 0;
-        });
+    const bool last_two_zero = std::all_of(
+        tar.end() - 1024, tar.end(), [](unsigned char c) { return c == 0; });
     REQUIRE(last_two_zero);
     // the block *before* the marker must carry real data: this is what fails if
     // GNU-tar-style record padding sneaks back in (oras would then hash fewer
