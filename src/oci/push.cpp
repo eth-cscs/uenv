@@ -79,9 +79,21 @@ package_directory(const fs::path& dir) {
     }
     const auto tar_path = *work / "payload.tar";
 
+    // -b 1 (blocking factor 1) is essential for oras compatibility: GNU tar
+    // otherwise pads the archive up to its default 20-block (10240-byte) record
+    // size with trailing zero blocks *past* the two-zero-block end-of-archive
+    // marker. When oras pulls a directory layer it verifies the annotated
+    // io.deis.oras.content.digest against the bytes its Go tar reader consumes,
+    // and that reader stops at the EOF marker without reading the trailing
+    // record padding -- so the padded bytes are never hashed and oras reports a
+    // "content digest mismatch". A blocking factor of 1 (512-byte records) means
+    // the archive is already 512-aligned at the EOF marker, so no padding is
+    // added and the whole stream is hashed. This matches what oras itself
+    // produces (Go's archive/tar writes only the two zero blocks).
     auto tar = util::run({"tar", "--sort=name", "--format=posix", "--mtime=@0",
-                          "--owner=0", "--group=0", "--numeric-owner", "-cf",
-                          tar_path.string(), "-C", parent.string(), name});
+                          "--owner=0", "--group=0", "--numeric-owner", "-b", "1",
+                          "-cf", tar_path.string(), "-C", parent.string(),
+                          name});
     if (!tar) {
         return util::unexpected{fmt::format("unable to run tar to pack {}: {}",
                                             dir.string(), tar.error())};

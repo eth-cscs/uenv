@@ -134,7 +134,7 @@ int image_push([[maybe_unused]] const image_push_args& args,
         [&prepare_bar, &args](std::uint64_t done, std::uint64_t total) {
             if (!prepare_bar) {
                 prepare_bar = uenv::make_transfer_bar(
-                    total, fmt::format("preparing {}",
+                    total, fmt::format("validating {}",
                                        std::filesystem::path{args.source}
                                            .filename()
                                            .string()));
@@ -182,7 +182,7 @@ int image_push([[maybe_unused]] const image_push_args& args,
         std::error_code ec;
         auto size_byte = std::filesystem::file_size(sqfs->sqfs, ec);
         auto bar = uenv::make_transfer_bar(
-            ec ? 0u : size_byte, fmt::format("pushing {} to registry",
+            ec ? 0u : size_byte, fmt::format("pushing    {}",
                                              sqfs->sqfs.filename().string()));
 
         auto progress = [&bar](std::uint64_t now, std::uint64_t) {
@@ -213,7 +213,7 @@ int image_push([[maybe_unused]] const image_push_args& args,
         spdlog::info("image_push: pushing metadata from {}",
                      sqfs->meta.value().string());
         auto spinner = bk::Animation({
-            .message = "pushing metadata to registry",
+            .message = "pushing    metadata",
             .style = bk::Ellipsis,
             .no_tty = !isatty(fileno(stdout)),
         });
