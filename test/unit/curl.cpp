@@ -52,3 +52,36 @@ TEST_CASE("curl parse_header_line edge cases", "[curl]") {
     util::curl::parse_header_line(h, "X-Empty:\r\n");
     REQUIRE(h.get("x-empty") == "");
 }
+
+TEST_CASE("curl http_message", "[curl]") {
+    auto contains = [](const std::string& s, std::string_view sub) {
+        return s.find(sub) != std::string::npos;
+    };
+    const std::string service_desk = "service desk";
+
+    // the credential-related codes name the flag that fixes them
+    REQUIRE(contains(util::curl::http_message(401), "--token"));
+    REQUIRE(contains(util::curl::http_message(403), "--token"));
+
+    // ... and do not send the user to the service desk: these are the user's
+    // credentials, not a broken service.
+    REQUIRE_FALSE(contains(util::curl::http_message(401), service_desk));
+    REQUIRE_FALSE(contains(util::curl::http_message(403), service_desk));
+
+    // an unmapped 4xx is reported factually, with the status, and likewise
+    // carries no service desk advice
+    for (long code : {404L, 405L, 413L, 429L}) {
+        const auto m = util::curl::http_message(code);
+        REQUIRE(contains(m, std::to_string(code)));
+        REQUIRE_FALSE(contains(m, service_desk));
+    }
+
+    // 408 keeps its bespoke retry advice
+    REQUIRE(contains(util::curl::http_message(408), "retry"));
+
+    // 5xx and anything outside the 4xx range fall through to the generic
+    // "contact CSCS" message
+    for (long code : {500L, 502L, 503L, 0L}) {
+        REQUIRE(contains(util::curl::http_message(code), service_desk));
+    }
+}

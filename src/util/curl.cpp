@@ -52,14 +52,32 @@ std::string http_message(long code) {
         "service desk request with the output of running this command with the "
         "-vvv flag";
     const static std::unordered_map<long, std::string> messages = {
+        {401,
+         "authentication is required - no credentials were supplied, or they "
+         "were rejected.\nPass a token file with --token, or log in with "
+         "docker so that the credentials are picked up from "
+         "~/.docker/config.json."},
         {403, "the provided credentials were invalid - you might not have "
-              "permission to access the requested resource."},
+              "permission to access the requested resource.\nIf you are trying "
+              "to access restricted software, try passing a token file with "
+              "--token."},
         {408,
          "there was a time out contacting an external service - please retry "
          "later and create a CSCS Service Desk issue if the issue persists"},
     };
 
-    return messages.count(code) ? messages.at(code) : default_message;
+    if (messages.count(code)) {
+        return messages.at(code);
+    }
+    // an unmapped 4xx is something about *this* request that the registry
+    // refused - a service desk ticket is the wrong advice, so state the facts
+    // and leave it there. only 5xx and transport-level failures fall through to
+    // the "contact CSCS" message.
+    if (code >= 400 && code < 500) {
+        return fmt::format("the registry rejected the request (status {})",
+                           code);
+    }
+    return default_message;
 }
 
 #define CURL_EASY(CMD)                                                         \
