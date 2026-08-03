@@ -425,6 +425,10 @@ expected<response, error> perform(const request& req) {
     // handed come from a registry response header (a Bearer realm, an upload
     // Location). Callers vet those too - this is the backstop, not the policy.
     CURL_EASY(curl_easy_setopt(h, CURLOPT_PROTOCOLS_STR, "http,https"));
+    // HTTP/1.1 only. curl is built without nghttp2, so this is what would
+    // happen anyway - state it so the transport does not change silently if
+    // http2 is ever enabled in the build.
+    CURL_EASY(curl_easy_setopt(h, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1));
 
     // method
     switch (req.method) {

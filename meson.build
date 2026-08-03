@@ -42,7 +42,38 @@ zlib_dep = subproject('zlib', default_options: ['warning_level=0', 'werror=false
 # openssl: the TLS backend for curl.
 # Built before curl so override_dependency('openssl') is in place for when curl is configured
 openssl_dep = subproject('openssl', default_options: ['warning_level=0', 'werror=false', 'default_library=static']).get_variable('openssl_dep')
-subproject('curl', default_options: ['werror=false', 'warning_level=0', 'tests=disabled', 'unittests=disabled', 'tool=disabled', 'brotli=disabled', 'zstd=disabled', 'ssl=enabled', 'openssl=enabled'])
+# Every curl feature is pinned explicitly. Almost all of them default to 'auto',
+# which means they switch on wherever the build host happens to have the dev
+# package installed - the binary we ship would then have runtime dependencies
+# that vary with the machine it was built on. Nothing here is left to chance.
+subproject('curl',
+        default_options: [
+            'werror=false', 'warning_level=0',
+            'tests=disabled', 'unittests=disabled', 'tool=disabled',
+            'libuv=disabled', # only used by curl's own tests, and only in debug builds
+            # TLS, via the vendored static openssl configured above
+            'ssl=enabled', 'openssl=enabled',
+            # the three features uenv actually relies on:
+            #   ipv6      - registries that only publish a AAAA record
+            #   asynchdns - threaded resolver, so the connect/total timeouts can
+            #               interrupt a hung DNS lookup
+            #   libz      - Content-Encoding: gzip, via the vendored static zlib
+            'ipv6=enabled', 'asynchdns=enabled', 'libz=enabled',
+            # everything else off. uenv speaks HTTP/1.1 over http(s) and nothing
+            # else - see CURLOPT_PROTOCOLS_STR in src/util/curl.cpp - and
+            # authenticates with Basic plus its own Authorization: Bearer header,
+            # so none of the protocol, auth or name-resolution extras below are
+            # reachable at runtime. They can be turned back on individually if a
+            # feature ever needs one.
+            'http2=disabled', 'brotli=disabled', 'zstd=disabled',
+            'psl=disabled', 'idn=disabled', 'gsasl=disabled',
+            'gss-api=disabled', 'ntlm=disabled', 'tls-srp=disabled',
+            'alt-svc=disabled', 'hsts=disabled', 'unixsockets=disabled',
+            'ssh=disabled', 'ldap=disabled', 'ldaps=disabled', 'rtmp=disabled',
+            'dict=disabled', 'ftp=disabled', 'gopher=disabled', 'imap=disabled',
+            'mqtt=disabled', 'pop3=disabled', 'rtsp=disabled', 'smb=disabled',
+            'smtp=disabled', 'telnet=disabled', 'tftp=disabled',
+        ])
 curl_dep = dependency('libcurl', required: true)
 # libarchive: used by the native OCI registry client to pack/unpack directories
 libarchive_dep = subproject('libarchive',

@@ -43,6 +43,42 @@ Configure via `-Doption=value` with `meson setup`:
 - `slurm_plugin=true|false` - Build Slurm plugin (default: true)
 - `squashfs_mount=true|false` - Build squashfs-mount helper (default: false)
 
+### Subproject options and stale build directories
+
+The `default_options` passed to a `subproject()` call in `meson.build` are applied
+**only the first time that subproject is configured**. Editing them and running
+`meson setup --reconfigure` does *nothing*: the build directory keeps the option
+values it was created with, the build succeeds, and the only symptom is a binary
+that was built the old way.
+
+This matters most for the `curl` subproject, where every feature is pinned
+explicitly so that the shipped binary has no runtime dependencies beyond libc,
+libstdc++, libm and libgcc_s. Most of curl's options default to `auto`, meaning
+they switch on wherever the build host happens to have the matching dev package
+installed — leaving any of them unpinned makes `ldd` output a property of the
+build machine rather than of the source tree.
+
+After changing a subproject's options, recreate the build directory:
+
+```bash
+meson setup --wipe build          # or: rm -rf build && meson setup ... build
+```
+
+Check the result rather than assuming it took — `meson setup` prints a feature
+summary per subproject, and the finished binary should show only the four system
+libraries:
+
+```bash
+ldd build/uenv
+```
+
+CI and the RPM build always start from a fresh directory, so they are unaffected;
+this only bites developers with a long-lived local build directory.
+
+Note that `meson setup --wipe` deletes the whole build directory, which fails if
+it contains a root-owned `staging/` from an earlier
+`sudo meson install --destdir=...`. Remove that with `sudo` first.
+
 ## Testing
 
 Five test suites exist:
