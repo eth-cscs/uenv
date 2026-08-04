@@ -21,14 +21,28 @@ namespace util {
 namespace curl {
 
 std::optional<std::string> headers::get(std::string_view name) const {
-    if (auto it = entries.find(to_lower(name)); it != entries.end()) {
-        return it->second;
+    if (auto it = entries.find(to_lower(name));
+        it != entries.end() && !it->second.empty()) {
+        return it->second.back();
     }
     return std::nullopt;
 }
 
+std::vector<std::string> headers::get_all(std::string_view name) const {
+    if (auto it = entries.find(to_lower(name)); it != entries.end()) {
+        return it->second;
+    }
+    return {};
+}
+
+void headers::add(std::string_view name, std::string value) {
+    entries[to_lower(name)].push_back(std::move(value));
+}
+
 void headers::set(std::string_view name, std::string value) {
-    entries[to_lower(name)] = std::move(value);
+    auto& values = entries[to_lower(name)];
+    values.clear();
+    values.push_back(std::move(value));
 }
 
 void parse_header_line(headers& h, std::string_view line) {
@@ -43,7 +57,8 @@ void parse_header_line(headers& h, std::string_view line) {
     if (name.empty()) {
         return;
     }
-    h.set(name, std::string{value});
+    // append: a repeated field name is not an overwrite (see headers).
+    h.add(name, std::string{value});
 }
 
 // The credential sources, in the order they are consulted (see

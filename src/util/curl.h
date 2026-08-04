@@ -48,12 +48,27 @@ void configure_tls(const envvars::state& env);
 enum class http_method { get, head, post, put, patch, del };
 
 // Case-insensitive view of HTTP response headers. Header names are stored
-// lower-cased (HTTP field names are case-insensitive); the last value seen for
-// a given name wins.
+// lower-cased (HTTP field names are case-insensitive).
+//
+// Every value seen for a name is kept, in arrival order, because a field may
+// legally be sent more than once (RFC 9110 §5.2) and the duplicates cannot
+// always be merged: a registry may answer a 401 with both
+//   WWW-Authenticate: Bearer realm="...",service="..."
+//   WWW-Authenticate: Basic realm="..."
+// and joining those two with a comma is ambiguous, since auth-params contain
+// commas of their own. Callers that want one value use get(); a caller that
+// has to choose among the alternatives uses get_all().
 struct headers {
-    std::unordered_map<std::string, std::string> entries;
+    std::unordered_map<std::string, std::vector<std::string>> entries;
 
+    // the last value seen for `name` - the right answer for the headers that
+    // occur once (Location, Content-Type, Docker-Content-Digest, ...).
     std::optional<std::string> get(std::string_view name) const;
+    // every value seen for `name`, in arrival order; empty when absent.
+    std::vector<std::string> get_all(std::string_view name) const;
+    // append a value, keeping any already recorded for `name`.
+    void add(std::string_view name, std::string value);
+    // replace every value recorded for `name`.
     void set(std::string_view name, std::string value);
 };
 

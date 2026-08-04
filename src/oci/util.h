@@ -81,6 +81,19 @@ std::optional<std::vector<descriptor>> parse_referrers(std::string_view body);
 // The bearer-challenge parser lives in src/oci/parse.cpp
 // (oci::parse_bearer_challenge).
 
+// pick the Bearer challenge out of the WWW-Authenticate values of a 401. A
+// registry may legally offer several schemes, each in its own header (RFC 9110
+// §5.2) - Harbor and nginx-fronted registries send Bearer alongside Basic, in
+// either order - so the values are tried in turn and the first that parses as
+// a Bearer challenge wins. Returns nullopt when none of them does.
+//
+// Note: a single value holding more than one challenge
+// (`Basic realm="r", Bearer realm="..."`, which an intermediary may produce by
+// folding duplicate fields) is not split apart: the auth-params themselves
+// contain commas, so splitting is ambiguous.
+std::optional<bearer_challenge>
+select_bearer_challenge(const std::vector<std::string>& www_authenticate);
+
 // build the token endpoint url from a bearer challenge and the requested
 // scopes. `service` and the scopes are registry- and caller-supplied, and are
 // percent-encoded on the way in.

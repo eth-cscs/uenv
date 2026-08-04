@@ -56,6 +56,33 @@ TEST_CASE("oci token_url escapes registry-supplied values", "[oci][auth]") {
             "https://r/token?scope=repository:a%20b:pull");
 }
 
+// a registry may answer a 401 with more than one WWW-Authenticate header
+// (RFC 9110 §5.2). Harbor and nginx-fronted registries offer Basic alongside
+// Bearer, in either order, and only the Bearer challenge is usable here.
+TEST_CASE("oci select_bearer_challenge", "[oci][auth]") {
+    using oci::detail::select_bearer_challenge;
+    const std::string bearer =
+        "Bearer realm=\"https://auth.example.com/token\",service=\"reg\"";
+    const std::string basic = "Basic realm=\"registry\"";
+
+    // a registry that offers Basic as well as Bearer stays usable whichever
+    // order the two headers arrive in.
+    for (const auto& values : {std::vector<std::string>{bearer, basic},
+                               std::vector<std::string>{basic, bearer}}) {
+        auto c = select_bearer_challenge(values);
+        REQUIRE(c);
+        REQUIRE(c->realm.string() == "https://auth.example.com/token");
+        REQUIRE(c->service == "reg");
+    }
+
+    // nothing usable on offer
+    REQUIRE_FALSE(select_bearer_challenge({}).has_value());
+    REQUIRE_FALSE(select_bearer_challenge({basic}).has_value());
+    REQUIRE_FALSE(
+        select_bearer_challenge({basic, "Negotiate", "Bearer no-realm=\"x\""})
+            .has_value());
+}
+
 // util::curl already refuses to let a *redirect* downgrade the transport or
 // carry credentials across hosts. A realm and an upload Location are fresh
 // requests, so they never reach that guard: check_transport applies the same

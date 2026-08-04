@@ -7,7 +7,10 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
+#include <spdlog/spdlog.h>
+
 #include <oci/digest.h>
+#include <oci/parse.h>
 #include <oci/util.h>
 #include <util/strings.h>
 #include <util/url.h>
@@ -134,6 +137,19 @@ std::optional<std::vector<descriptor>> parse_referrers(std::string_view body) {
         out.push_back(std::move(d));
     }
     return out;
+}
+
+std::optional<bearer_challenge>
+select_bearer_challenge(const std::vector<std::string>& www_authenticate) {
+    for (const auto& value : www_authenticate) {
+        if (auto challenge = parse_bearer_challenge(value)) {
+            return *challenge;
+        } else {
+            spdlog::debug("oci: ignoring WWW-Authenticate '{}': {}", value,
+                          challenge.error().message());
+        }
+    }
+    return std::nullopt;
 }
 
 util::url token_url(const bearer_challenge& challenge,

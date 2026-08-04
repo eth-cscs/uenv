@@ -1,3 +1,6 @@
+#include <string>
+#include <vector>
+
 #include <catch2/catch_all.hpp>
 
 #include <util/curl.h>
@@ -11,9 +14,32 @@ TEST_CASE("curl headers are case-insensitive", "[curl]") {
     REQUIRE(h.get("CONTENT-TYPE") == "application/json");
     REQUIRE(h.get("missing") == std::nullopt);
 
-    // last value seen for a name wins
+    // set() replaces, so get() reports the value last set
     h.set("content-type", "text/plain");
     REQUIRE(h.get("Content-Type") == "text/plain");
+    REQUIRE(h.get_all("content-type") ==
+            std::vector<std::string>{"text/plain"});
+}
+
+TEST_CASE("curl headers keep every value of a repeated field", "[curl]") {
+    util::curl::headers h;
+
+    // a 401 may offer several schemes, one per header. Both have to survive:
+    // dropping either (as a last-value-wins map does) makes a registry that
+    // sends Bearer before Basic unusable.
+    util::curl::parse_header_line(
+        h,
+        "WWW-Authenticate: Bearer realm=\"https://r/token\",service=\"r\"\r\n");
+    util::curl::parse_header_line(h, "WWW-Authenticate: Basic realm=\"r\"\r\n");
+
+    const auto all = h.get_all("www-authenticate");
+    REQUIRE(all.size() == 2);
+    REQUIRE(all[0] == "Bearer realm=\"https://r/token\",service=\"r\"");
+    REQUIRE(all[1] == "Basic realm=\"r\"");
+
+    // get() still answers with one value, for the headers that occur once
+    REQUIRE(h.get("www-authenticate") == "Basic realm=\"r\"");
+    REQUIRE(h.get_all("missing").empty());
 }
 
 TEST_CASE("curl parse_header_line", "[curl]") {

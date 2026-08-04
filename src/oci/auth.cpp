@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
@@ -44,18 +45,22 @@ discover_challenge(const util::url& registry_url) {
         return util::unexpected{fmt::format("unexpected status {} probing {}",
                                             resp->status, req.url)};
     }
-    auto header = resp->headers.get("www-authenticate");
-    if (!header) {
+    // a registry may offer more than one scheme, each in its own header (RFC
+    // 9110 §5.2, and what Harbor and nginx-fronted registries do): take the
+    // Bearer challenge from among them rather than assuming there is exactly
+    // one header and that it is the one we want.
+    const auto challenges = resp->headers.get_all("www-authenticate");
+    if (challenges.empty()) {
         return util::unexpected{fmt::format(
             "{} returned 401 with no WWW-Authenticate header", req.url)};
     }
-    auto challenge = parse_bearer_challenge(*header);
-    if (!challenge) {
-        return util::unexpected{
-            fmt::format("could not parse WWW-Authenticate header '{}': {}",
-                        *header, challenge.error().message())};
+    if (auto challenge = detail::select_bearer_challenge(challenges)) {
+        return *challenge;
     }
-    return *challenge;
+    return util::unexpected{
+        fmt::format("{} offered no usable Bearer authentication challenge; "
+                    "WWW-Authenticate: {}",
+                    req.url, fmt::join(challenges, " | "))};
 }
 
 util::expected<token_response, std::string>
