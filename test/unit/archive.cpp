@@ -191,3 +191,56 @@ TEST_CASE("extract_targz rejects path traversal and unsupported entries",
         REQUIRE(!fs::exists(dest / "link"));
     }
 }
+
+TEST_CASE("pack_directory_targz strip_root packs the contents", "[archive]") {
+    auto dir = make_tree();
+    auto packed = util::pack_directory_targz(dir, *util::make_temp_dir(),
+                                             {.strip_root = true});
+    REQUIRE(packed);
+
+    auto dest = *util::make_temp_dir();
+    REQUIRE(util::extract_targz(packed->gz_path, dest));
+
+    // no "meta/" level: the entries land directly in dest.
+    REQUIRE_FALSE(fs::exists(dest / "meta"));
+    REQUIRE(read_file(dest / "env.json") == read_file(dir / "env.json"));
+    REQUIRE(read_file(dest / "recipe" / "extra" / "reframe.yaml") ==
+            read_file(dir / "recipe" / "extra" / "reframe.yaml"));
+    REQUIRE(read_file(dest / "extra" / "notes.txt") ==
+            read_file(dir / "extra" / "notes.txt"));
+}
+
+TEST_CASE("pack_directory_targz and symlinks", "[archive]") {
+    auto dir = make_tree();
+    write_file(dir.parent_path() / "outside.txt", "target contents");
+    fs::create_symlink(dir.parent_path() / "outside.txt", dir / "link.txt");
+    fs::create_directory(dir.parent_path() / "outside-dir");
+    write_file(dir.parent_path() / "outside-dir" / "deep.txt", "deep");
+    fs::create_directory_symlink(dir.parent_path() / "outside-dir",
+                                 dir / "linked-dir");
+
+    // the default rejects a symlink, so a packed archive always round-trips
+    // through extract_targz (which refuses symlink entries).
+    SECTION("rejected by default") {
+        auto packed = util::pack_directory_targz(dir, *util::make_temp_dir());
+        REQUIRE_FALSE(packed);
+        REQUIRE(packed.error().find("unsupported file type") !=
+                std::string::npos);
+    }
+
+    // dereference replaces each link with what it points at, matching
+    // `tar --dereference`.
+    SECTION("dereference follows them") {
+        auto packed = util::pack_directory_targz(dir, *util::make_temp_dir(),
+                                                 {.dereference = true});
+        REQUIRE(packed);
+
+        auto dest = *util::make_temp_dir();
+        REQUIRE(util::extract_targz(packed->gz_path, dest));
+        auto out = dest / "meta";
+        REQUIRE_FALSE(fs::is_symlink(out / "link.txt"));
+        REQUIRE(read_file(out / "link.txt") == "target contents");
+        REQUIRE_FALSE(fs::is_symlink(out / "linked-dir"));
+        REQUIRE(read_file(out / "linked-dir" / "deep.txt") == "deep");
+    }
+}

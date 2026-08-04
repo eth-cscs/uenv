@@ -152,9 +152,9 @@ ca_locations resolve_ca_locations(const envvars::state* env) {
 
     // candidate single-file bundles, most-specific host first
     const char* bundle_files[] = {
-        "/var/lib/ca-certificates/ca-bundle.pem", // Alps / SUSE
-        "/etc/ssl/certs/ca-certificates.crt",     // Debian / Ubuntu
-        "/etc/pki/tls/certs/ca-bundle.crt",       // RHEL / Fedora
+        "/var/lib/ca-certificates/ca-bundle.pem",            // Alps / SUSE
+        "/etc/ssl/certs/ca-certificates.crt",                // Debian / Ubuntu
+        "/etc/pki/tls/certs/ca-bundle.crt",                  // RHEL / Fedora
         "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // RHEL, ca-trust
         "/etc/ssl/cert.pem",                                 // misc
     };
@@ -253,97 +253,32 @@ expected<std::string, error> get(std::string url) {
 
 expected<std::string, error> upload(std::string url,
                                     std::filesystem::path file_path) {
-    char errbuf[CURL_ERROR_SIZE];
-    errbuf[0] = 0;
-    spdlog::trace("curl::upload enter");
+    request req;
+    req.url = std::move(url);
+    // POST, with the file streamed as the request body: perform() names the
+    // method and sets CURLOPT_UPLOAD for the body, which is what the
+    // hand-rolled version achieved by setting CURLOPT_UPLOAD then CURLOPT_POST.
+    req.method = http_method::post;
+    req.upload_file = std::move(file_path);
+    // no total timeout - the payload can be arbitrarily large - and no
+    // redirect following, both matching the previous behaviour.
+    req.timeout_ms = 0;
+    req.follow_redirects = false;
 
-    // File to upload
-    FILE* file = fopen(file_path.c_str(), "rb");
-    if (!file) {
-        return unexpected{error{CURLE_FAILED_INIT, "Failed to open file"}};
+    auto resp = perform(req);
+    if (!resp) {
+        return unexpected{resp.error()};
     }
+    spdlog::trace("curl::upload http_code: {}", resp->status);
 
-    // Initialize curl
-    auto h = curl_easy_init();
-    if (!h) {
-        return unexpected{
-            error{CURLE_FAILED_INIT, "Unable to initialize curl."}};
-    }
-    auto _ = defer([h]() { curl_easy_cleanup(h); });
-    spdlog::trace("curl::upload easy init");
-
-    // configure error message buffer
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_ERRORBUFFER, errbuf));
-
-    // Configure curl options
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_URL, url.c_str()));
-    spdlog::trace("curl::upload set url {}", url);
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_UPLOAD, 1L)); // Enable uploading
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_READDATA,
-                               file)); // Set the file to read from
-    spdlog::trace("curl::upload set file {}", file_path.c_str());
-
-    // Set the size of the file (if known)
-    curl_off_t file_size = std::filesystem::file_size(file_path);
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_INFILESIZE_LARGE, file_size));
-    spdlog::trace(fmt::format("curl::upload file size: {}", file_size));
-
-    // -X POST
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_POST, 1L)); // Use POST method
-
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, memory_callback));
-    spdlog::trace("curl::upload set memory callback");
-
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_USE_SSL, CURLUSESSL_ALL));
-
-    // point TLS at the runtime-resolved system trust store (see perform())
-    {
-        const auto& ca = active_ca_locations();
-        if (ca.cainfo) {
-            CURL_EASY(curl_easy_setopt(h, CURLOPT_CAINFO, ca.cainfo->c_str()));
-        }
-        if (ca.capath) {
-            CURL_EASY(curl_easy_setopt(h, CURLOPT_CAPATH, ca.capath->c_str()));
-        }
-    }
-
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, 5000L));
-
-    // some servers do not like requests that are made without a user-agent
-    // field, so we provide one
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_USERAGENT, "libcurl-agent/1.0"));
-    spdlog::trace("curl::upload set user agent");
-
-    // we pass our 'chunk' struct to the callback function
-    std::vector<char> result;
-    result.reserve(200000);
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_WRITEDATA, (void*)&result));
-    spdlog::trace("curl::upload set memory target");
-
-    CURL_EASY(curl_easy_setopt(h, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1));
-
-    // Perform the request
-    CURL_EASY(curl_easy_perform(h));
-
-    // Get the HTTP response code
-    long http_code = 0;
-    CURL_EASY(curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &http_code));
-    spdlog::trace("curl::upload http_code: {}", http_code);
-
-    // Clean up
-    fclose(file);
-
-    // store stdout
-    std::string curl_stdout{result.data(), result.data() + result.size()};
-
-    if (http_code >= 400) {
+    if (resp->status >= 400) {
         return unexpected{
             error{CURLE_HTTP_RETURNED_ERROR,
-                  fmt::format("{}: {} \n {}", http_code,
-                              http_message(http_code), curl_stdout)}};
+                  fmt::format("{}: {} \n {}", resp->status,
+                              http_message(resp->status), resp->body)}};
     }
 
-    return curl_stdout;
+    return resp->body;
 }
 
 expected<void, error> del(std::string url, std::string username,

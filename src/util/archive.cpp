@@ -31,16 +31,23 @@ namespace {
 // This matches what oras itself writes (Go's archive/tar emits only the two
 // zero blocks).
 util::expected<void, std::string> write_tar(const fs::path& dir,
-                                            const fs::path& tar_path) {
-    const auto base = dir.parent_path();
+                                            const fs::path& tar_path,
+                                            const pack_options& opts) {
+    // with strip_root the names are relative to `dir` itself, and `dir` is not
+    // an entry: the archive holds the directory's contents.
+    const auto base = opts.strip_root ? dir : dir.parent_path();
 
     // collect the top directory plus everything beneath it, then sort by the
     // in-archive name so the layout (and therefore the digest) is stable.
     std::vector<fs::path> paths;
-    paths.push_back(dir);
+    if (!opts.strip_root) {
+        paths.push_back(dir);
+    }
     std::error_code ec;
-    for (fs::recursive_directory_iterator it(dir, fs::directory_options::none,
-                                             ec);
+    const auto walk_options =
+        opts.dereference ? fs::directory_options::follow_directory_symlink
+                         : fs::directory_options::none;
+    for (fs::recursive_directory_iterator it(dir, walk_options, ec);
          !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
         paths.push_back(it->path());
     }
@@ -79,7 +86,12 @@ util::expected<void, std::string> write_tar(const fs::path& dir,
     std::vector<char> buf(128 * 1024);
     for (const auto& p : paths) {
         struct stat st{};
-        if (::lstat(p.c_str(), &st) != 0) {
+        // stat() resolves symlinks and so archives the target in the link's
+        // place (`tar --dereference`); lstat() reports the link itself, which
+        // is then rejected below as an unsupported type.
+        const int rc =
+            opts.dereference ? ::stat(p.c_str(), &st) : ::lstat(p.c_str(), &st);
+        if (rc != 0) {
             return util::unexpected{fmt::format("unable to stat {}", p)};
         }
         const bool is_dir = S_ISDIR(st.st_mode);
@@ -207,7 +219,8 @@ gzip_file(const fs::path& tar_path, const fs::path& gz_path,
 } // namespace
 
 util::expected<packed_targz, std::string>
-pack_directory_targz(const fs::path& dir, const fs::path& work_dir) {
+pack_directory_targz(const fs::path& dir, const fs::path& work_dir,
+                     const pack_options& opts) {
     std::error_code ec;
     if (!fs::is_directory(dir, ec)) {
         return util::unexpected{
@@ -216,7 +229,7 @@ pack_directory_targz(const fs::path& dir, const fs::path& work_dir) {
     const auto tar_path = work_dir / "payload.tar";
     const auto gz_path = work_dir / "payload.tar.gz";
 
-    if (auto ok = write_tar(dir, tar_path); !ok) {
+    if (auto ok = write_tar(dir, tar_path, opts); !ok) {
         return util::unexpected{ok.error()};
     }
     // digest the uncompressed tar exactly as a streaming reader consumes it.
