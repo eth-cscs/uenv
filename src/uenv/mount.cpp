@@ -353,11 +353,11 @@ bool has_path_prefix(const std::filesystem::path& path,
 }
 
 struct mount_node {
-    int id = -1;
-    int parent_id = -1;
+    int id{-1};
+    int parent_id{-1};
     std::filesystem::path mountpoint;
-    unsigned long flags = 0;
-    bool covered = false;
+    unsigned long flags{0};
+    bool covered{false};
     std::vector<std::size_t> children;
 };
 
