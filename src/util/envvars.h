@@ -76,6 +76,17 @@ class state {
 // created using state::c_env
 void c_env_free(char** env);
 
+// The name of the user running the process, taken from the captured
+// environment: $USER, then $LOGNAME; blank values are ignored. Returns nullopt
+// when neither is set, which is the caller's cue to require the name
+// explicitly.
+//
+// There is deliberately no getlogin() fallback: the result stays a pure
+// function of the captured state, and getlogin() fails whenever there is
+// neither a controlling terminal nor an audit login uid - e.g. a Slurm batch
+// step, which is exactly where a token-authenticated push runs.
+std::optional<std::string> user_name(const state& env);
+
 // represents a scalar environment variable.
 // all environment variables are scalar, with the exception of prefix_path
 // variables.

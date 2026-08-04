@@ -37,7 +37,11 @@ resolve_registry_credentials(const envvars::state& env,
     if (token) {
         sources.explicit_token = fs::path{*token};
     }
-    sources.username = std::move(username);
+    // the username that a bare token is paired with: --username, else the
+    // calling environment. getlogin() is deliberately not consulted - it fails
+    // when there is neither a controlling terminal nor an audit login uid, i.e.
+    // in the batch step where a token-authenticated push runs.
+    sources.username = username ? std::move(username) : envvars::user_name(env);
 
     // the uenv token store: $XDG_CONFIG_HOME/uenv/tokens or
     // ~/.config/uenv/tokens.
@@ -56,7 +60,17 @@ resolve_registry_credentials(const envvars::state& env,
         sources.docker_config = fs::path{*home} / ".docker" / "config.json";
     }
 
-    return oci::resolve_credentials(host, sources);
+    auto creds = oci::resolve_credentials(host, sources);
+    // src/oci reports a token with no username in flag-free terms, because it
+    // has no idea what this program's flags are called. Translating it is this
+    // layer's job.
+    if (!creds && creds.error() == oci::username_required_error) {
+        return util::unexpected{
+            "a token was found, but uenv could not determine your username: "
+            "pass it with --username.\nThe username is taken from --username, "
+            "or from $USER, which may be unset in a sanitised environment."};
+    }
+    return creds;
 }
 
 // returns true if squashfs-mount 9 or later is detected in PATH.

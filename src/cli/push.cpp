@@ -51,9 +51,9 @@ void image_push_args::add_cli(CLI::App& cli,
     push_cli->add_option(
         "--token", token,
         "a path that contains a TOKEN file for accessing the registry");
-    push_cli->add_option("--username", username,
-                         "user name for the registry (by default the username "
-                         "on the system will be used).");
+    push_cli->add_option(
+        "--username", username,
+        "user name for the registry (by default $USER is used).");
     push_cli->add_flag("--force", force,
                        "overwrite the destination if it exists");
     push_cli->callback(

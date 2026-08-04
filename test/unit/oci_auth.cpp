@@ -212,23 +212,17 @@ TEST_CASE("oci get_credentials errors when <dir>/TOKEN is absent",
     REQUIRE_FALSE(c);
 }
 
-TEST_CASE("oci get_credentials falls back to the login name", "[oci][auth]") {
+// src/oci never guesses who the caller is: a token with no username is an
+// error, and the caller (the CLI) turns it into advice naming its own flags.
+TEST_CASE("oci get_credentials requires a username", "[oci][auth]") {
     auto dir = util::make_temp_dir().value();
     auto token_file = dir / "tok";
     write_file(token_file, "tok\n");
 
     auto c = oci::get_credentials(
         std::nullopt, std::optional<std::string>{token_file.string()});
-    // getlogin() resolves a username in a normal session, but may be empty in a
-    // detached environment (e.g. some CI) -> the function then reports an
-    // error. Assert deterministically on both outcomes.
-    if (c) {
-        REQUIRE(c->has_value());
-        REQUIRE_FALSE((*c)->username.empty());
-        REQUIRE((*c)->password == "tok");
-    } else {
-        REQUIRE(c.error().find("username") != std::string::npos);
-    }
+    REQUIRE_FALSE(c);
+    REQUIRE(c.error() == oci::username_required_error);
 }
 
 TEST_CASE("oci credentials formatter redacts the password", "[oci][auth]") {
@@ -272,7 +266,33 @@ TEST_CASE("oci resolve_credentials precedence", "[oci][auth]") {
         REQUIRE((*c)->password == "store-tok");
     }
 
-    // docker config.json auths[host].auth is base64(user:pass).
+    // both token sources funnel through the same pairing helper, so they must
+    // fail identically when the caller supplied no username.
+    SECTION("explicit token with no username") {
+        auto dir = util::make_temp_dir().value();
+        auto tok = dir / "tok";
+        write_file(tok, "explicit-tok\n");
+        oci::credential_sources src;
+        src.explicit_token = tok;
+        auto c = oci::resolve_credentials(host, src);
+        REQUIRE_FALSE(c);
+        REQUIRE(c.error() == oci::username_required_error);
+    }
+
+    SECTION("token store with no username") {
+        auto dir = util::make_temp_dir().value();
+        write_file(dir / host, "store-tok\n");
+        oci::credential_sources src;
+        src.uenv_token_dir = dir;
+        auto c = oci::resolve_credentials(host, src);
+        REQUIRE_FALSE(c);
+        REQUIRE(c.error() == oci::username_required_error);
+    }
+
+    // docker config.json auths[host].auth is base64(user:pass). Note that
+    // `username` is left unset here and in the sections below: the docker
+    // config carries its own username, so the requirement above must not leak
+    // into this source.
     SECTION("docker config fallback") {
         auto dir = util::make_temp_dir().value();
         auto cfg = dir / "config.json";

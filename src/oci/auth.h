@@ -73,12 +73,20 @@ fetch_token(const util::url& registry, const bearer_challenge& challenge,
 // credential resolution
 //
 
+// The error returned when a token was found but no username was supplied to
+// pair with it. `src/oci` cannot discover a username - the caller supplies it -
+// so the caller also owns any advice about how to provide one, and recognises
+// this case by comparing the error against this constant.
+inline constexpr std::string_view username_required_error =
+    "a token was found, but there is no username to use with it";
+
 // Resolve registry credentials from CLI arguments. `token` is a path to a file
 // holding the token string (its first line is read); if `token` names a
-// directory, its `TOKEN` entry is used. The username is taken from `username`
-// when set, otherwise from the OS login name. Returns `std::nullopt` when no
-// `token` is given (anonymous access), or an error string describing why the
-// token could not be read.
+// directory, its `TOKEN` entry is used. The username is taken from `username`,
+// which the caller must set: a token with no username is an error
+// (`username_required_error`). Returns `std::nullopt` when no `token` is given
+// (anonymous access), or an error string describing why the token could not be
+// read.
 util::expected<std::optional<credentials>, std::string>
 get_credentials(std::optional<std::string> username,
                 std::optional<std::string> token);
@@ -90,7 +98,11 @@ get_credentials(std::optional<std::string> username,
 struct credential_sources {
     // an explicit --token path (a file, or a directory holding a `TOKEN` file).
     std::optional<std::filesystem::path> explicit_token;
-    // an explicit --username; when unset the OS login name is used.
+    // the username to pair with a token from `explicit_token` or
+    // `uenv_token_dir`. The caller resolves it (from --username, or from the
+    // environment), and both of those sources fail with
+    // `username_required_error` when it is unset. The docker config carries its
+    // own username and ignores this field.
     std::optional<std::string> username;
     // the uenv token store directory, e.g. $XDG_CONFIG_HOME/uenv/tokens. The
     // token for a registry is read from <dir>/<registry-host>.

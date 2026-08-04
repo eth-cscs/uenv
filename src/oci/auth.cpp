@@ -1,5 +1,3 @@
-#include <unistd.h>
-
 #include <cctype>
 #include <csignal>
 #include <filesystem>
@@ -99,6 +97,21 @@ fetch_token(const util::url& registry, const bearer_challenge& challenge,
     return *token;
 }
 
+namespace {
+
+// pair a token string with the caller-supplied username. Every token source
+// funnels through here, so the "no username" error is worded once.
+util::expected<credentials, std::string>
+creds_from_token(std::string token,
+                 const std::optional<std::string>& username) {
+    if (!username) {
+        return util::unexpected{std::string{username_required_error}};
+    }
+    return credentials{.username = *username, .password = std::move(token)};
+}
+
+} // namespace
+
 util::expected<std::optional<credentials>, std::string>
 get_credentials(std::optional<std::string> username,
                 std::optional<std::string> token) {
@@ -135,34 +148,14 @@ get_credentials(std::optional<std::string> username,
                                             token_path.string())};
     }
 
-    if (username) {
-        return credentials{.username = username.value(),
-                           .password = *token_string};
+    auto creds = creds_from_token(*token_string, username);
+    if (!creds) {
+        return util::unexpected{creds.error()};
     }
-    if (auto name = getlogin()) {
-        return credentials{.username = name, .password = *token_string};
-    }
-
-    return util::unexpected{
-        "provide a username with --username for the --token."};
+    return *creds;
 }
 
 namespace {
-
-// build credentials from a token string, taking the username from `username`
-// or, failing that, the OS login name.
-util::expected<credentials, std::string>
-creds_from_token(std::string token,
-                 const std::optional<std::string>& username) {
-    if (username) {
-        return credentials{.username = *username, .password = std::move(token)};
-    }
-    if (auto name = getlogin()) {
-        return credentials{.username = name, .password = std::move(token)};
-    }
-    return util::unexpected{
-        "provide a username with --username for the token."};
-}
 
 // A credential helper that exits without consuming its stdin leaves us writing
 // the server URL into a pipe with no reader. Short writes still land in the

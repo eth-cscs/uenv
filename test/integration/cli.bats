@@ -683,3 +683,41 @@ EOF
     [ ! -d $UENV_REPO_PATH/images/$sha ]
 }
 
+@test "registry credentials without a username" {
+    # the username that a token is paired with comes from --username, else
+    # $USER: with neither, uenv has to say so instead of guessing.
+    #
+    # append to the config written by setup(), which sets system_name. the
+    # listing service is pointed at a closed local port so that the cases which
+    # get *past* credential resolution fail immediately, without a network call.
+    cat >> $XDG_CONFIG_HOME/uenv/config.toml <<EOF
+[registry]
+url = 'https://registry.example.com/uenv'
+default_namespace = 'deploy'
+listing_url = 'http://127.0.0.1:1/list'
+EOF
+
+    printf 'tok\n' > $TMP/tok
+    chmod 600 $TMP/tok
+    local dst=deploy::app/1.0:v1@arapiles%zen3
+
+    # credentials are resolved before the registry is contacted and before the
+    # source squashfs is read, so neither has to exist for this test.
+    run env -u USER -u LOGNAME uenv image push --token=$TMP/tok x.squashfs $dst
+    assert_failure
+    assert_output --partial "--username"
+
+    # with --username the same command gets as far as the listing service
+    run env -u USER -u LOGNAME uenv image push --token=$TMP/tok --username=bob \
+        x.squashfs $dst
+    assert_failure
+    refute_output --partial "--username"
+    assert_output --partial "unable to get a listing"
+
+    # ... and $USER is used when the flag is absent (note that env requires its
+    # options before any NAME=VALUE assignment)
+    run env -u LOGNAME USER=bob uenv image push --token=$TMP/tok x.squashfs $dst
+    assert_failure
+    refute_output --partial "--username"
+    assert_output --partial "unable to get a listing"
+}

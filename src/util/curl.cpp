@@ -56,9 +56,8 @@ const char* credential_help =
     "holds a TOKEN file\n"
     "  2. the uenv token store, ~/.config/uenv/tokens/<registry-host>\n"
     "  3. the standard docker location, ~/.docker/config.json\n"
-    "Sources 1 and 2 provide only the token: the username defaults to your "
-    "login name,\nwhich is not available in a batch job, where it has to be "
-    "passed with --username.";
+    "Sources 1 and 2 provide only the token: the username comes from "
+    "--username,\nor from $USER when that flag is not given.";
 
 std::string http_message(long code) {
     const char* default_message =

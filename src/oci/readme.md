@@ -366,7 +366,7 @@ Credential *resolution* is the part callers do use:
 ```cpp
 struct credential_sources {
     std::optional<std::filesystem::path> explicit_token;   // --token
-    std::optional<std::string> username;                   // --username
+    std::optional<std::string> username;                   // username for the token sources
     std::optional<std::filesystem::path> uenv_token_dir;   // $XDG_CONFIG_HOME/uenv/tokens
     std::optional<std::filesystem::path> docker_config;    // ~/.docker/config.json
 };
@@ -387,6 +387,12 @@ Note the split of responsibility: `credential_sources` is populated by the
 registry client's. In the CLI that assembly lives in
 `uenv::resolve_registry_credentials` (`src/cli/util.h`). This is what keeps
 `src/oci` free of any dependency on `src/uenv`.
+
+The split extends to the username. `resolve_credentials` never guesses one:
+sources 1 and 2 fail with `oci::username_required_error` when `username` is
+unset, and the caller — which knows what its own flags are called, and where it
+keeps its environment — turns that into actionable advice. Source 3 carries its
+own username and ignores the field.
 
 ### `pull.h` — the read workflows
 
