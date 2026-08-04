@@ -26,8 +26,8 @@ registry_listing(const std::optional<util::url>& listing_url,
     // we only filter on namespace, and use the database to do more querying
     // later. the base URL can be overridden via registry.listing_url (e.g. to a
     // local mock endpoint for testing).
-    const auto base = listing_url.value_or(
-        *util::parse_url("https://uenv-list.svc.cscs.ch/list"));
+    const auto base =
+        listing_url.value_or(*util::parse_url(default_listing_url));
     // query_param picks the separator and encodes, so a listing_url that
     // already carries a query no longer grows a second '?'.
     const auto url = base.query_param("namespace", nspace).string();
