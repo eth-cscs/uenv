@@ -107,7 +107,9 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
     Z_e(close(proc_gid_map.value()));
 
     // disable coredump again (slurm policy)
-    Z_e(prctl(PR_SET_DUMPABLE, 0));
+    // this breaks both slurm plugin and squashfs-mount, as other tasks can't
+    // access the /proc/pid/ns anymore
+    // Z_e(prctl(PR_SET_DUMPABLE, 0));
     return {};
 }
 
