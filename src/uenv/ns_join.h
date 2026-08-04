@@ -3,6 +3,7 @@
 #include <semaphore.h>
 #include <string>
 #include <vector>
+#include <util/expected.h>
 
 namespace uenv {
 
