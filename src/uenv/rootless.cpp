@@ -9,15 +9,15 @@ extern "C" {
 }
 #include "macros.h"
 #include "posix_io.h"
+#include <fcntl.h>
 #include <spdlog/spdlog.h>
 #include <stddef.h>
 #include <string>
 #include <sys/mount.h>
+#include <sys/prctl.h>
 #include <uenv/mount.h>
 #include <unistd.h>
 #include <util/expected.h>
-#include <fcntl.h>
-#include <sys/prctl.h>
 
 namespace uenv {
 namespace rootless {
@@ -312,5 +312,5 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
 
     return {};
 }
-}  // rootless
+} // namespace rootless
 } // namespace uenv
