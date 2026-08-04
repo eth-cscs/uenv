@@ -298,6 +298,8 @@ resolve_credentials(std::string_view registry_host,
                     const credential_sources& src) {
     // 1. an explicit --token wins.
     if (src.explicit_token) {
+        spdlog::debug("oci::resolve_credentials using the token {}",
+                      src.explicit_token->string());
         return get_credentials(src.username, src.explicit_token->string());
     }
 
@@ -316,6 +318,9 @@ resolve_credentials(std::string_view registry_host,
                              "consider `chmod 600`",
                              token_path.string());
             }
+            spdlog::debug("oci::resolve_credentials using the token store "
+                          "entry {}",
+                          token_path.string());
             auto token = util::read_single_line_file(token_path);
             if (!token) {
                 return util::unexpected{fmt::format(
@@ -331,10 +336,24 @@ resolve_credentials(std::string_view registry_host,
 
     // 3. docker config.json (interop fallback).
     if (src.docker_config) {
-        return creds_from_docker_config(*src.docker_config, registry_host);
+        spdlog::debug("oci::resolve_credentials consulting the docker config "
+                      "{} for {}",
+                      src.docker_config->string(), registry_host);
+        auto creds =
+            creds_from_docker_config(*src.docker_config, registry_host);
+        if (creds && !creds->has_value()) {
+            spdlog::debug("oci::resolve_credentials no credentials for {}: "
+                          "using anonymous access",
+                          registry_host);
+        }
+        return creds;
     }
 
     // 4. no credentials found: anonymous access.
+    spdlog::debug(
+        "oci::resolve_credentials no credentials for {}: using anonymous "
+        "access",
+        registry_host);
     return std::nullopt;
 }
 

@@ -46,21 +46,37 @@ void parse_header_line(headers& h, std::string_view line) {
     h.set(name, std::string{value});
 }
 
+// The credential sources, in the order they are consulted (see
+// oci::resolve_credentials). Both the 401 and the 403 message need this: a 401
+// usually means nothing was found, and a registry that hands out anonymous
+// tokens reports the same situation as a 403 on the resource itself.
+const char* credential_help =
+    "uenv looks for credentials in the following order:\n"
+    "  1. --token=PATH, where PATH is a token file, or a directory that "
+    "holds a TOKEN file\n"
+    "  2. the uenv token store, ~/.config/uenv/tokens/<registry-host>\n"
+    "  3. the standard docker location, ~/.docker/config.json\n"
+    "Sources 1 and 2 provide only the token: the username defaults to your "
+    "login name,\nwhich is not available in a batch job, where it has to be "
+    "passed with --username.";
+
 std::string http_message(long code) {
     const char* default_message =
         "internal error contacting a network service - please create a CSCS "
         "service desk request with the output of running this command with the "
         "-vvv flag";
     const static std::unordered_map<long, std::string> messages = {
-        {401,
-         "authentication is required - no credentials were supplied, or they "
-         "were rejected.\nPass a token file with --token, or log in with "
-         "docker so that the credentials are picked up from "
-         "~/.docker/config.json."},
-        {403, "the provided credentials were invalid - you might not have "
-              "permission to access the requested resource.\nIf you are trying "
-              "to access restricted software, try passing a token file with "
-              "--token."},
+        {401, fmt::format("authentication is required - no credentials were "
+                          "found, or the registry rejected them.\n\n{}",
+                          credential_help)},
+        {403,
+         fmt::format(
+             "the registry refused access to the requested resource.\nIf no "
+             "credentials were provided, note that restricted uenv require "
+             "them.\nIf they were, then the account is not permitted to "
+             "perform the requested action, and access has to be granted."
+             "\n\n{}",
+             credential_help)},
         {408,
          "there was a time out contacting an external service - please retry "
          "later and create a CSCS Service Desk issue if the issue persists"},

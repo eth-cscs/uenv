@@ -59,9 +59,16 @@ TEST_CASE("curl http_message", "[curl]") {
     };
     const std::string service_desk = "service desk";
 
-    // the credential-related codes name the flag that fixes them
-    REQUIRE(contains(util::curl::http_message(401), "--token"));
-    REQUIRE(contains(util::curl::http_message(403), "--token"));
+    // the credential-related codes describe every place credentials are
+    // looked for, in the order oci::resolve_credentials consults them, plus
+    // the flag that supplies the username that sources 1 and 2 lack.
+    for (long code : {401L, 403L}) {
+        const auto m = util::curl::http_message(code);
+        REQUIRE(contains(m, "--token"));
+        REQUIRE(contains(m, "~/.config/uenv/tokens/"));
+        REQUIRE(contains(m, "~/.docker/config.json"));
+        REQUIRE(contains(m, "--username"));
+    }
 
     // ... and do not send the user to the service desk: these are the user's
     // credentials, not a broken service.
