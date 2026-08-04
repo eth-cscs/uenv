@@ -40,8 +40,12 @@ toml_dep = declare_dependency(
 # Built before curl so override_dependency('zlib') is in place for when curl is configured
 zlib_dep = subproject('zlib', default_options: ['warning_level=0', 'werror=false', 'default_library=static']).get_variable('zlib_dep')
 # openssl: the TLS backend for curl.
-# Built before curl so override_dependency('openssl') is in place for when curl is configured
-openssl_dep = subproject('openssl', default_options: ['warning_level=0', 'werror=false', 'default_library=static']).get_variable('openssl_dep')
+# Configured before curl so override_dependency('openssl') is in place for when
+# curl is configured; the returned value is unused, curl consumes it by name.
+# Unlike every other subproject this one is not a meson build - it drives
+# OpenSSL's own Configure + make (see subprojects/packagefiles/openssl/), so
+# warning_level/werror/default_library would have nothing to apply to.
+subproject('openssl')
 # Every curl feature is pinned explicitly. Almost all of them default to 'auto',
 # which means they switch on wherever the build host happens to have the dev
 # package installed - the binary we ship would then have runtime dependencies

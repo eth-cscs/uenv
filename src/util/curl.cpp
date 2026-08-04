@@ -121,12 +121,14 @@ struct ca_locations {
 
 // Locate the system trust store.
 //
-// curl is linked against a vendored static OpenSSL whose compiled-in OPENSSLDIR
-// points at the build prefix, not the host, so OpenSSL's own default-verify
-// paths do not find the real certificates. We therefore discover them here and
-// set CURLOPT_CAINFO/CAPATH explicitly. Verification is never disabled: if
-// nothing is found we leave curl at its default and let TLS fail closed with a
-// clear "unable to get local issuer" error.
+// Neither of the compiled-in defaults can be trusted to point at this host's
+// trust store. The vendored OpenSSL is built with --openssldir=/etc/ssl, which
+// is right on Debian/Ubuntu and SUSE but not on the RHEL family; and curl bakes
+// in a CURL_CA_BUNDLE path that it discovers on the *build* host, which for the
+// shipped RPMs is a path inside an openSUSE container. We therefore discover
+// the trust store here and set CURLOPT_CAINFO/CAPATH explicitly. Verification
+// is never disabled: if nothing is found we leave curl at its default and let
+// TLS fail closed with a clear "unable to get local issuer" error.
 //
 // Probe order (first hit wins for each of file / dir):
 //   1. SSL_CERT_FILE / SSL_CERT_DIR from the startup environment snapshot
@@ -153,7 +155,8 @@ ca_locations resolve_ca_locations(const envvars::state* env) {
         "/var/lib/ca-certificates/ca-bundle.pem", // Alps / SUSE
         "/etc/ssl/certs/ca-certificates.crt",     // Debian / Ubuntu
         "/etc/pki/tls/certs/ca-bundle.crt",       // RHEL / Fedora
-        "/etc/ssl/cert.pem",                      // misc
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // RHEL, ca-trust
+        "/etc/ssl/cert.pem",                                 // misc
     };
     if (!ca.cainfo) {
         for (const char* p : bundle_files) {

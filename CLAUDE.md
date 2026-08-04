@@ -252,6 +252,37 @@ All dependencies are built as static libraries via meson wrap:
 - libarchive - tar packing/unpacking of the `uenv/meta` artifact, in-process via `src/util/archive.*` (replaces the external `tar`/`gzip` binaries)
 - Catch2 - testing (when tests enabled)
 - barkeep - progress indicators (header-only in `extern/`)
+- OpenSSL - the TLS backend for libcurl; no uenv code calls it directly
+
+### The OpenSSL subproject is not a meson build
+
+Every other dependency above is built by meson. OpenSSL is not: upstream ships no
+meson build, and wrapdb's third-party port is frozen at 3.0.8 (Feb 2023), a series
+whose security support ends 2026-09-07. `subprojects/openssl.wrap` is therefore
+ours rather than wrapdb's, and `subprojects/packagefiles/openssl/` drives
+OpenSSL's own `Configure` + `make`.
+
+Consequences worth knowing:
+
+- **`perl` and `make` are build requirements**, in addition to meson/ninja/g++.
+- OpenSSL is configured *and compiled* during `meson setup`, not `meson compile`
+  (about 10-40 s on a cold build directory, a second on a warm one). It has to be:
+  most of OpenSSL 3.x's public headers are generated from `.h.in` templates, and
+  curl probes `openssl/ssl.h` while *it* is being configured; and a `custom_target`
+  output cannot be linked into the installed `libcurl` static library.
+- Because OpenSSL is linked statically, no distro update can ever patch it. The
+  version users run is the version built into the release, so bumping it is a
+  security task, not housekeeping. CI asserts the exact version to keep that
+  deliberate.
+- **Bumping the version**: change the URL, filename, directory and hash in
+  `subprojects/openssl.wrap` (verify the hash against the `.sha256` published
+  beside the release asset), the `version:` in
+  `subprojects/packagefiles/openssl/meson.build`, and the version assertion in
+  `.github/workflows/build_and_test.yml`. Nothing else should need to change.
+- **Editing `subprojects/packagefiles/openssl/*` has no effect on an already
+  extracted subproject** - the packagefiles are copied over the unpacked tarball
+  only when it is first extracted. Delete `subprojects/openssl-<version>/` to pick
+  changes up.
 
 ## Development Notes
 

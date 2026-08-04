@@ -3,8 +3,6 @@
 ## 10.1.0
 
 - #166 [feature] replace the oras CLI tool with a native OCI registry client
-- #166 [fix] take the registry user name from `$USER` instead of the login name, so that
-  `--token` push/pull works where there is no controlling terminal (e.g. a batch step)
 
 ## 10.0.2
 

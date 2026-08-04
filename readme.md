@@ -22,9 +22,11 @@ cd uenv
 The software uses meson wrap to bring its own dependencies, all of which are built as static libraries.
 
 To build you only need
-* meson >= 1.5
+* meson >= 1.4
 * ninja
 * g++ that supports C++20 (we test g++12 regularly)
+* perl and make, used to build OpenSSL, which is the only dependency that is not
+  a meson build (it has no meson build system of its own)
 
 On your laptop these requirements can be met using your package manager of choice.
 
