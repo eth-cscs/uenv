@@ -258,7 +258,8 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
                         aborted = aborted || util::signal_raised();
                         return aborted;
                     });
-                if (!aborted) {
+                // fill the bar when the download succeeded.
+                if (result) {
                     bar->finish();
                 } else {
                     bar->stop();
