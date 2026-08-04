@@ -301,6 +301,13 @@ util::expected<void, std::string> extract_targz(const fs::path& archive_path,
         std::size_t len = 0;
         la_int64_t offset = 0;
         int drc = 0;
+        // NOTE: `offset` is deliberately ignored, and the blocks are written
+        // sequentially. libarchive reports a non-contiguous offset only for a
+        // sparse entry, where the gap is an implicit run of zeros that would
+        // have to be seeked over. This function only ever extracts the
+        // `uenv/meta` artifact, which is a tar of regular files written by
+        // write_tar() in this same file, so no sparse entry can occur. If this
+        // is ever pointed at an arbitrary tar, seek to `offset` before writing.
         while ((drc = archive_read_data_block(r, &block, &len, &offset)) ==
                ARCHIVE_OK) {
             if (std::fwrite(block, 1, len, f) != len) {
