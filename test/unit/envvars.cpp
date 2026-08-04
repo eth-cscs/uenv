@@ -224,6 +224,35 @@ TEST_CASE("state::clear", "[environment]") {
     }
 }
 
+TEST_CASE("user_name", "[envvars]") {
+    envvars::state E{};
+
+    // neither variable set: the caller has to ask for the name explicitly.
+    REQUIRE(envvars::user_name(E) == std::nullopt);
+
+    E.set("LOGNAME", "alice");
+    REQUIRE(envvars::user_name(E) == "alice");
+
+    // USER wins, matching the rest of the code base, which keys off USER
+    E.set("USER", "bob");
+    REQUIRE(envvars::user_name(E) == "bob");
+
+    // a blank USER is not a user name: fall through to LOGNAME
+    E.set("USER", "");
+    REQUIRE(envvars::user_name(E) == "alice");
+    E.set("USER", "  \t ");
+    REQUIRE(envvars::user_name(E) == "alice");
+
+    // surrounding whitespace is trimmed, e.g. a token store file written with
+    // a trailing newline
+    E.set("USER", " bob\n");
+    REQUIRE(envvars::user_name(E) == "bob");
+
+    E.unset("USER");
+    E.set("LOGNAME", " ");
+    REQUIRE(envvars::user_name(E) == std::nullopt);
+}
+
 TEST_CASE("state::set-get-unset", "[environment]") {
     auto n_env = [](char** env) -> unsigned {
         if (env == nullptr) {

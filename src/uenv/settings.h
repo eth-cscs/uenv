@@ -8,13 +8,19 @@
 
 #include <uenv/repository.h>
 #include <util/envvars.h>
+#include <util/url.h>
 
 namespace uenv {
 
+// The registry endpoints, parsed when the configuration is read rather than at
+// first use: a malformed registry.url should fail at startup with the offending
+// key named, not half way through a push. Each is guaranteed to carry an http
+// or https scheme (https is assumed when the configuration omits one).
 struct registry_config {
-    std::string url;
+    util::url url;
     std::string default_namespace;
-    std::optional<std::string> artifactory_url;
+    std::optional<util::url> artifactory_url;
+    std::optional<util::url> listing_url;
 };
 
 struct config_base {

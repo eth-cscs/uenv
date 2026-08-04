@@ -13,8 +13,8 @@ enum class tok {
     colon,      // colon ':'
     symbol,     // consecutive alphabet or underscore
                 // examples: prgenv, my_repo, _, _name
-    dash,       // comma ','
-    dot,        // comma ','
+    dash,       // dash '-'
+    dot,        // dot '.'
     whitespace, // spaces, tabs, etc. Contiguous white space characters are
                 // joined together.
     bang,       // exclamation mark '!'
@@ -23,6 +23,17 @@ enum class tok {
     star,       // '*'
     plus,       // '+'
     percent,    // percentage symbol '%'
+    question,   // question mark '?'
+    amp,        // ampersand '&'
+    tilde,      // tilde '~'
+    lbracket,   // left square bracket '['
+    rbracket,   // right square bracket ']'
+    dollar,     // dollar sign '$'
+    semicolon,  // semicolon ';'
+    lparen,     // left parenthesis '('
+    rparen,     // right parenthesis ')'
+    squote,     // single quote '\''
+    dquote,     // double quote '"'
     end,        // end of input
     error,      // invalid input encountered in stream
 };
@@ -35,6 +46,9 @@ struct token {
     std::string_view spelling;
 };
 bool operator==(const token&, const token&);
+// compare a token against a token kind, e.g. `t == lex::tok::slash`. C++20
+// synthesises `!=` and the reversed `tok == token` form from this.
+bool operator==(const token&, tok);
 
 // std::ostream &operator<<(std::ostream &, const token &);
 
@@ -47,6 +61,11 @@ class lexer {
 
     token next();
     token peek(unsigned n = 0);
+
+    // reposition the lexer to absolute offset pos in the input and re-lex the
+    // token starting there. used to skip over content that is read raw rather
+    // than tokenised (e.g. quoted values in a WWW-Authenticate header).
+    void seek(unsigned pos);
 
     // a convenience helper for checking the kind of the current token
     tok current_kind() const;
@@ -107,6 +126,28 @@ template <> class fmt::formatter<lex::tok> {
             return fmt::format_to(ctx.out(), "percent");
         case lex::tok::plus:
             return fmt::format_to(ctx.out(), "plus");
+        case lex::tok::question:
+            return fmt::format_to(ctx.out(), "question");
+        case lex::tok::amp:
+            return fmt::format_to(ctx.out(), "amp");
+        case lex::tok::tilde:
+            return fmt::format_to(ctx.out(), "tilde");
+        case lex::tok::lbracket:
+            return fmt::format_to(ctx.out(), "lbracket");
+        case lex::tok::rbracket:
+            return fmt::format_to(ctx.out(), "rbracket");
+        case lex::tok::dollar:
+            return fmt::format_to(ctx.out(), "dollar");
+        case lex::tok::semicolon:
+            return fmt::format_to(ctx.out(), "semicolon");
+        case lex::tok::lparen:
+            return fmt::format_to(ctx.out(), "lparen");
+        case lex::tok::rparen:
+            return fmt::format_to(ctx.out(), "rparen");
+        case lex::tok::squote:
+            return fmt::format_to(ctx.out(), "squote");
+        case lex::tok::dquote:
+            return fmt::format_to(ctx.out(), "dquote");
         case lex::tok::end:
             return fmt::format_to(ctx.out(), "end");
         case lex::tok::error:
