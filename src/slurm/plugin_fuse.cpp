@@ -90,14 +90,16 @@ int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
         // enter the user+mount namespace created by squashfs-mount-rootless;
         // join_end will record winner_pid = getpid() so losing tasks can join
         // the same namespace
-        if (auto r = uenv::namespaces_join(winner_pid.value(), {"user", "mnt"}); !r) {
+        if (auto r = uenv::namespaces_join(winner_pid.value(), {"user", "mnt"});
+            !r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
         }
     } else {
         // winner_pid is the winner task's PID after it entered the squashfs
         // namespace, so joining its namespaces gives us the same view
-        auto r = uenv::namespaces_join(join.shared->winner_pid, {"user", "mnt"});
+        auto r =
+            uenv::namespaces_join(join.shared->winner_pid, {"user", "mnt"});
         if (!r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
@@ -183,7 +185,8 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
     } else {
         // winner_pid is the winner task's PID after it entered the squashfs
         // namespace, so joining its namespaces gives us the same view
-        auto r = uenv::namespaces_join(join.shared->winner_pid, {"user", "mnt"});
+        auto r =
+            uenv::namespaces_join(join.shared->winner_pid, {"user", "mnt"});
         if (!r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
             return -ESPANK_ERROR;

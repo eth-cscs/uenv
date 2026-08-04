@@ -24,7 +24,6 @@
 #include "environ.h"
 #include "plugin.h"
 
-
 extern "C" {
 #include <slurm/slurm_errno.h>
 #include <slurm/spank.h>

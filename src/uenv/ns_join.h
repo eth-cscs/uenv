@@ -1,7 +1,7 @@
 #pragma once
-#include <string>
 #include <optional>
 #include <semaphore.h>
+#include <string>
 #include <vector>
 
 namespace uenv {
@@ -23,7 +23,8 @@ util::expected<void, std::string> join_begin(join_t& join,
 util::expected<void, std::string> join_end(join_t& join, int join_ct,
                                            std::optional<pid_t> winner_pid);
 
-util::expected<void, std::string> namespaces_join(pid_t pid, const std::vector<std::string>& ns_names);
+util::expected<void, std::string>
+namespaces_join(pid_t pid, const std::vector<std::string>& ns_names);
 
 } // namespace uenv
 
@@ -44,4 +45,5 @@ struct join_t {
 // util::expected<void, std::string> join_end(join_t& join, int join_ct,
 //                                            std::optional<pid_t> winner_pid);
 
-// util::expected<void, std::string> namespaces_join(pid_t pid, const std::vector<std::string>& ns_names);
+// util::expected<void, std::string> namespaces_join(pid_t pid, const
+// std::vector<std::string>& ns_names);
