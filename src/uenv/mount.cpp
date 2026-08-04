@@ -2,8 +2,10 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <ranges>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <err.h>
@@ -234,6 +236,10 @@ do_mount(const std::vector<mount_pair>& mount_entries) {
 
         auto cxt = mnt_new_context();
 
+        if (mnt_context_force_unrestricted(cxt) != 0) {
+            return util::unexpected("mnt_context_force_unrestricted failed");
+        }
+
         if (mnt_context_disable_mtab(cxt, 1) != 0) {
             return util::unexpected("Failed to disable mtab");
         }
@@ -302,6 +308,209 @@ util::expected<void, std::string> bind_mount(std::filesystem::path src,
                        nullptr);
 }
 
+namespace {
+
+// Decode a comma separated VFS options string - the 4th field of a
+// /proc/self/mountinfo line, e.g. "rw,nosuid,nodev,relatime" - into MS_*
+// flags. Mirrors bwrap's decode_mountoptions():
+// https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L82
+unsigned long decode_mountoptions(std::string_view options) {
+    static const std::pair<std::string_view, unsigned long> flags_data[] = {
+        {"ro", MS_RDONLY},         {"nosuid", MS_NOSUID},
+        {"nodev", MS_NODEV},       {"noexec", MS_NOEXEC},
+        {"noatime", MS_NOATIME},   {"nodiratime", MS_NODIRATIME},
+        {"relatime", MS_RELATIME},
+    };
+    unsigned long flags = 0;
+    std::size_t pos = 0;
+    while (pos <= options.size()) {
+        auto end = options.find(',', pos);
+        if (end == std::string_view::npos) {
+            end = options.size();
+        }
+        auto token = options.substr(pos, end - pos);
+        for (auto [name, flag] : flags_data) {
+            if (token == name) {
+                flags |= flag;
+                break;
+            }
+        }
+        pos = end + 1;
+    }
+    return flags;
+}
+
+bool has_path_prefix(const std::filesystem::path& path,
+                     const std::filesystem::path& prefix) {
+    auto pit = path.begin(), pend = path.end();
+    auto qit = prefix.begin(), qend = prefix.end();
+    for (; qit != qend; ++pit, ++qit) {
+        if (pit == pend || *pit != *qit) {
+            return false;
+        }
+    }
+    return true;
+}
+
+struct mount_node {
+    int id = -1;
+    int parent_id = -1;
+    std::filesystem::path mountpoint;
+    unsigned long flags = 0;
+    bool covered = false;
+    std::vector<std::size_t> children;
+};
+
+void collect_mounts(const std::vector<mount_node>& nodes, std::size_t idx,
+                    std::vector<std::size_t>& out) {
+    if (!nodes[idx].covered) {
+        out.push_back(idx);
+    }
+    for (auto child : nodes[idx].children) {
+        collect_mounts(nodes, child, out);
+    }
+}
+
+// Build the list of (mountpoint, current flags) for `root` and every mount
+// stacked at or below it, read from /proc/self/mountinfo. Mounts are
+// attached to their real kernel parent mount, and a mount stacked directly
+// on top of another mount at the exact same path "covers" (hides) the one
+// underneath, mirroring what the kernel itself exposes. This is the C++/
+// libmount equivalent of bwrap's parse_mountinfo()/collect_mounts():
+// https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L207
+util::expected<std::vector<std::pair<std::filesystem::path, unsigned long>>,
+               std::string>
+mounts_under(const std::filesystem::path& root) {
+    std::unique_ptr<libmnt_table, decltype(&mnt_free_table)> tb(mnt_new_table(),
+                                                                mnt_free_table);
+    if (!tb) {
+        return util::unexpected{"mnt_new_table failed"};
+    }
+    if (int rc = mnt_table_parse_file(tb.get(), "/oldroot/proc/self/mountinfo");
+        rc != 0) {
+        return util::unexpected{fmt::format(
+            "unable to parse /proc/self/mountinfo: rc={} errno={} ({})", rc,
+            errno, strerror(errno))};
+        // return util::unexpected{"unable to parse /proc/self/mountinfo"};
+    }
+
+    std::unique_ptr<libmnt_iter, decltype(&mnt_free_iter)> itr(
+        mnt_new_iter(MNT_ITER_FORWARD), mnt_free_iter);
+    if (!itr) {
+        return util::unexpected{"mnt_new_iter failed"};
+    }
+
+    std::vector<mount_node> nodes;
+    std::unordered_map<int, std::size_t> id_to_index;
+    libmnt_fs* fs = nullptr;
+    while (mnt_table_next_fs(tb.get(), itr.get(), &fs) == 0) {
+        mount_node n;
+        n.id = mnt_fs_get_id(fs);
+        n.parent_id = mnt_fs_get_parent_id(fs);
+        n.mountpoint = mnt_fs_get_target(fs);
+        const char* vfs_options = mnt_fs_get_vfs_options(fs);
+        n.flags = decode_mountoptions(vfs_options ? vfs_options : "");
+        id_to_index[n.id] = nodes.size();
+        nodes.push_back(std::move(n));
+    }
+
+    // As in bwrap: if the same path is mounted more than once, the last one
+    // in mountinfo order is the one the kernel currently exposes there.
+    std::size_t root_idx = nodes.size();
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].mountpoint == root) {
+            root_idx = i;
+        }
+    }
+    if (root_idx == nodes.size()) {
+        return util::unexpected{
+            fmt::format("unable to find {} in the mount table", root.string())};
+    }
+
+    // find children
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        if (i == root_idx || !has_path_prefix(nodes[i].mountpoint, root)) {
+            continue;
+        }
+        auto pit = id_to_index.find(nodes[i].parent_id);
+        if (pit == id_to_index.end()) {
+            continue;
+        }
+        mount_node& parent = nodes[pit->second];
+
+        if (parent.mountpoint == nodes[i].mountpoint) {
+            parent.covered = true;
+        }
+
+        bool covered = false;
+        for (auto sit = parent.children.begin();
+             sit != parent.children.end();) {
+            auto& sibling = nodes[*sit];
+            if (has_path_prefix(nodes[i].mountpoint, sibling.mountpoint)) {
+                // this mount is nested inside (or equal to) a sibling: the
+                // sibling already covers it.
+                covered = true;
+                break;
+            }
+            if (has_path_prefix(sibling.mountpoint, nodes[i].mountpoint)) {
+                // the sibling is nested inside this mount: this mount
+                // supersedes it.
+                sit = parent.children.erase(sit);
+                continue;
+            }
+            ++sit;
+        }
+        if (covered) {
+            continue;
+        }
+        parent.children.push_back(i);
+    }
+
+    std::vector<std::size_t> flat;
+    collect_mounts(nodes, root_idx, flat);
+
+    std::vector<std::pair<std::filesystem::path, unsigned long>> result;
+    result.reserve(flat.size());
+    for (auto idx : flat) {
+        result.emplace_back(nodes[idx].mountpoint, nodes[idx].flags);
+    }
+    return result;
+}
+
+// Re-apply MS_NOSUID to `dst` and every mount stacked below it, preserving
+// each mount's own other flags (ro/nodev/noexec/atime...) instead of
+// clobbering them with a single hardcoded set - the mount-table-driven
+// equivalent of bwrap's bind_mount(). A remount is skipped when it would be
+// a no-op (flags already match - this is why /proc, /sys, and a tmpfs
+// created with MS_NOSUID all "just work" without special-casing them by
+// name), and a per-mount remount failure is logged and skipped rather than
+// aborting make_mutable_root, since this is best-effort hardening rather
+// than a security boundary.
+util::expected<void, std::string>
+apply_nosuid_recursive(const std::filesystem::path& dst) {
+    auto mounts = mounts_under(dst);
+    if (!mounts) {
+        return util::unexpected{mounts.error()};
+    }
+    for (auto& [path, current_flags] : *mounts) {
+        auto new_flags = current_flags | MS_NOSUID;
+        if (new_flags == current_flags) {
+            continue;
+        }
+        spdlog::warn("call mount in apply_nosuid_recursive");
+        if (auto r = uenv::mount("none", path.string(), std::nullopt,
+                                 MS_SILENT | MS_BIND | MS_REMOUNT | new_flags,
+                                 nullptr);
+            !r) {
+            spdlog::warn("make_mutable_root: unable to remount {} nosuid: {}",
+                         path.string(), r.error());
+        }
+    }
+    return {};
+}
+
+} // namespace
+
 // see https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L378
 util::expected<void, std::string> make_mutable_root() {
     namespace fs = std::filesystem;
@@ -364,8 +573,9 @@ util::expected<void, std::string> make_mutable_root() {
     // mount("none", "/newroot/bin", NULL, //
     // MS_NOSUID|MS_REMOUNT|MS_BIND|MS_SILENT|MS_RELATIME, NULL) = 0
     //
-    // Diverges from bwrap here: bwrap mounts onto the *resolved* target and
-    // leaves the symlink itself intact in the new root. This instead
+    // Claude comment, double check it, it seems wrong. bwrap also mounts
+    // symlinks Diverges from bwrap here: bwrap mounts onto the *resolved*
+    // target and leaves the symlink itself intact in the new root. This instead
     // creates a directory at the symlink's own path (dst below)
     // and binds there, so e.g. /newroot/lib64 ends up a real directory
     // rather than a symlink to usr/lib.
@@ -382,22 +592,12 @@ util::expected<void, std::string> make_mutable_root() {
             return r;
         }
 
-        if (auto r = uenv::mount("none", dst.c_str(), std::nullopt,
-                                 MS_NOSUID | MS_REMOUNT | MS_BIND | MS_SILENT |
-                                     MS_RELATIME,
-                                 nullptr);
-            !r) {
+        if (auto r = apply_nosuid_recursive(dst); !r) {
             return r;
         }
     }
 
     // 2. the rest
-    //
-    // Known divergence from bwrap: a list of hardcoded directories is skipped
-    // The corresponding bwrap implementation is:
-    // https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L469
-    //
-    // bwrap skips MS_REMOUNT depending on the old root flags
     for (auto entry : paths) {
         auto src = fs::path("/oldroot") / entry.relative_path();
         auto dst = fs::path("/newroot") / entry.relative_path();
@@ -408,17 +608,7 @@ util::expected<void, std::string> make_mutable_root() {
             return r;
         }
 
-        auto name = entry.filename();
-        if (name == "proc" || name == "sys" || name == "tmp" || name == "run" ||
-            name == ".rootfs_lower_ro" || name == ".rootfs_upper_ro") {
-            continue;
-        }
-
-        if (auto r = mount("none", dst.c_str(), std::nullopt,
-                           MS_NOSUID | MS_REMOUNT | MS_BIND | MS_SILENT |
-                               MS_RELATIME,
-                           nullptr);
-            !r) {
+        if (auto r = apply_nosuid_recursive(dst); !r) {
             return r;
         }
     }
