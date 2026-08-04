@@ -21,7 +21,9 @@
 namespace oci {
 namespace detail {
 
-// --- registry URL/path builders -------------------------------------------
+//
+// registry URL/path builders
+//
 
 std::string blob_path(std::string_view repository, std::string_view digest);
 
@@ -44,7 +46,10 @@ util::expected<util::url, std::string>
 resolve_upload_url(const util::url& registry_url, std::string_view location,
                    std::string_view digest);
 
-// --- checked JSON field accessors --------------------------------------------
+//
+// checked JSON field accessors
+//
+
 // Registry responses are untrusted input, and nlohmann's value() throws
 // json::type_error when a key is present with a mismatched type. These return
 // the fallback instead.
@@ -58,7 +63,9 @@ std::string json_string_or(const nlohmann::json& j, const char* key,
 std::size_t json_size_or(const nlohmann::json& j, const char* key,
                          std::size_t fallback);
 
-// --- response-body parsers -------------------------------------------------
+//
+// response-body parsers
+//
 
 // parse a /v2/<repo>/tags/list response body.
 std::optional<std::vector<std::string>> parse_tags_list(std::string_view body);
@@ -67,7 +74,10 @@ std::optional<std::vector<std::string>> parse_tags_list(std::string_view body);
 // response, or a referrers tag-schema index) into descriptors.
 std::optional<std::vector<descriptor>> parse_referrers(std::string_view body);
 
-// --- token handshake helpers -----------------------------------------------
+//
+// token handshake helpers
+//
+
 // The bearer-challenge parser lives in src/oci/parse.cpp
 // (oci::parse_bearer_challenge).
 
@@ -113,7 +123,9 @@ std::optional<token_response> parse_token_response(std::string_view body);
 std::string repository_scope(std::string_view repository,
                              std::string_view actions);
 
-// --- docker config.json helpers ---------------------------------------------
+//
+// docker config.json helpers
+//
 
 // normalise a docker config.json `auths`/`credHelpers` key (or a registry host)
 // down to a bare host[:port] for comparison: drop any scheme, userinfo and

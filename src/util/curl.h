@@ -34,8 +34,10 @@ struct error {
 // overrides.
 void configure_tls(const envvars::state& env);
 
-// --- low-level request/response primitive -------------------------------
 //
+// low-level request/response primitive
+//
+
 // A single configurable HTTP request used to build the native OCI registry
 // client (the token dance, blob HEAD/PUT, manifest PUT/GET, referrers/tags).
 // Unlike the convenience helpers below, perform() does NOT treat HTTP >= 400 as

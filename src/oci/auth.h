@@ -45,7 +45,9 @@ struct token_response {
     std::optional<long> expires_in;
 };
 
-// --- network operations -------------------------------------------------
+//
+// network operations
+//
 
 // Probe `<registry_url>/v2/` and parse the auth challenge. Returns the parsed
 // Bearer challenge on a 401, or `std::nullopt` when the registry permits
@@ -67,7 +69,9 @@ fetch_token(const util::url& registry, const bearer_challenge& challenge,
             const std::vector<std::string>& scopes,
             const std::optional<credentials>& creds = std::nullopt);
 
-// --- credential resolution ----------------------------------------------
+//
+// credential resolution
+//
 
 // Resolve registry credentials from CLI arguments. `token` is a path to a file
 // holding the token string (its first line is read); if `token` names a

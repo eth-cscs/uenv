@@ -52,7 +52,9 @@ const manifest_layer* manifest::find_unpack_layer() const {
     return nullptr;
 }
 
-// --- serialization -----------------------------------------------------------
+//
+// serialization
+//
 
 namespace {
 
@@ -126,7 +128,9 @@ std::string serialize_index(const std::vector<descriptor>& manifests) {
     return j.dump();
 }
 
-// --- parsing -----------------------------------------------------------------
+//
+// parsing
+//
 
 namespace {
 

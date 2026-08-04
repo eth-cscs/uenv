@@ -21,7 +21,9 @@ using util::parse_error;
 
 namespace {
 
-// --- token predicates ---------------------------------------------------
+//
+// token predicates
+//
 
 // alphanumeric run: the lexer splits e.g. "sha256" into symbol("sha") +
 // integer("256") and a hex string into alternating symbol/integer tokens, so

@@ -13,7 +13,9 @@
 
 namespace oci {
 
-// --- media types + the canonical empty config --------------------------------
+//
+// media types + the canonical empty config
+//
 
 // oras-style artifact manifests carry an "empty" JSON config object. This is
 // the well-known descriptor for the two-byte body "{}".
@@ -49,7 +51,9 @@ inline constexpr std::string_view annotation_content_digest =
 // the canonical empty-config descriptor (inline "{}" with base64 `data`).
 descriptor empty_config_descriptor();
 
-// --- manifest model ----------------------------------------------------------
+//
+// manifest model
+//
 
 // A layer entry in an image manifest: a blob descriptor plus its annotations.
 // annotations are held in a sorted map so serialization is deterministic and
