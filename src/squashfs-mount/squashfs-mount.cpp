@@ -310,7 +310,7 @@ int main(int argc, char** argv, char** envp) {
         /// SLURM only at the moment
         spdlog::trace("SLURM_STEP_TASKS_PER_NODE: {}", ntasks);
         // join only if > 1 task
-        tasks_join = ntasks > 1 ? false : tasks_join;
+        tasks_join = ntasks > 1 ? tasks_join : false;
         mount_and_join_ns(tasks_join, ntasks, pipeline);
     } else {
         spdlog::warn("nothing mounted (no --sqfs, --tmpfs or --bind-mount flag "
