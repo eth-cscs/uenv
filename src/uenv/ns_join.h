@@ -29,15 +29,3 @@ namespaces_join(pid_t pid, const std::vector<std::string>& ns_names);
 
 } // namespace uenv
 
-/* Variables for coordinating join */
-struct join_t {
-    bool winner_p;
-    std::string sem_name;
-    sem_t* sem;
-    std::string shm_name;
-    struct {
-        pid_t winner_pid;
-        int proc_left_ct; // serial-only access
-    }* shared;
-};
-
