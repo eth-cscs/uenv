@@ -165,7 +165,7 @@ endif
 
 lib_inc = include_directories('src')
 
-lib_uenv_deps = [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep]
+lib_uenv_deps = [curl_dep, zlib_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep]
 if use_fuse
     lib_uenv_deps += [squashfuse_dep, fuse_dep]
 endif
