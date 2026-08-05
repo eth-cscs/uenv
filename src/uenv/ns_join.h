@@ -2,8 +2,8 @@
 #include <optional>
 #include <semaphore.h>
 #include <string>
-#include <vector>
 #include <util/expected.h>
+#include <vector>
 
 namespace uenv {
 
@@ -28,4 +28,3 @@ util::expected<void, std::string>
 namespaces_join(pid_t pid, const std::vector<std::string>& ns_names);
 
 } // namespace uenv
-
