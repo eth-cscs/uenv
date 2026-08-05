@@ -3,37 +3,42 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
-#include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/curl.h>
 #include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/url.h>
 
 #include "site.h"
 
 namespace site {
 
 util::expected<uenv::repository, std::string>
-registry_listing(const std::string& nspace) {
+registry_listing(const std::optional<util::url>& listing_url,
+                 const std::string& nspace) {
     using json = nlohmann::json;
 
     // perform curl call against middleware end point
     // example of full url end point call:
     //   https://uenv-list.svc.cscs.ch/list?namespace=deploy&cluster=todi&arch=gh200&app=prgenv-gnu&version=24.7
     // we only filter on namespace, and use the database to do more querying
-    // later
-    const auto url =
-        fmt::format("https://uenv-list.svc.cscs.ch/list?namespace={}", nspace);
+    // later. the base URL can be overridden via registry.listing_url (e.g. to a
+    // local mock endpoint for testing).
+    const auto base =
+        listing_url.value_or(*util::parse_url(default_listing_url));
+    // query_param picks the separator and encodes, so a listing_url that
+    // already carries a query no longer grows a second '?'.
+    const auto url = base.query_param("namespace", nspace).string();
     spdlog::debug("registry_listing: {}", url);
     auto raw_records = util::curl::get(url);
 
     if (!raw_records) {
         int ec = raw_records.error().code;
         spdlog::error("curl error {}: {}", ec, raw_records.error().message);
-        return util::unexpected{"unable to reach uenv-list.svc.cscs.ch to get "
-                                "list of available uenv"};
+        return util::unexpected{fmt::format(
+            "unable to reach {} to get list of available uenv", base.string())};
     }
 
     std::vector<uenv::uenv_record> records;
@@ -47,6 +52,12 @@ registry_listing(const std::string& nspace) {
             if (!rg) {
                 spdlog::warn("drop due to error: {}", rg.error().message());
             } else if (rg->nspace == nspace) {
+                auto sha_value = util::sha256::parse(sha);
+                auto id_value = util::uenv_id::parse(sha.substr(0, 16));
+                if (!sha_value || !id_value) {
+                    spdlog::warn("drop due to invalid sha256 '{}'", sha);
+                    continue;
+                }
                 spdlog::trace("keep {} {}", sha.substr(0, 16), *rg);
                 records.push_back({
                     .system = rg->system,
@@ -56,8 +67,8 @@ registry_listing(const std::string& nspace) {
                     .tag = rg->tag,
                     .date = *date,
                     .size_byte = j["size"],
-                    .sha = uenv::sha256(sha),
-                    .id = uenv::uenv_id(sha.substr(0, 16)),
+                    .sha = *sha_value,
+                    .id = *id_value,
                 });
             } else {
                 spdlog::trace("drop {} {}", sha.substr(0, 16), *rg);

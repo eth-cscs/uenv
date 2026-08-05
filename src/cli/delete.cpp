@@ -8,8 +8,8 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <oci/auth.h>
 #include <site/site.h>
-#include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -21,6 +21,7 @@
 #include "delete.h"
 #include "help.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -62,12 +63,18 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     }
     const auto& artifactory_url = *registry_cfg.artifactory_url;
 
-    uenv::oras::credentials credentials;
-    if (auto c = oras::get_credentials(args.username, args.token)) {
-        if (!*c) {
-            term::error("full credentials must be provided", c.error());
+    oci::credentials credentials;
+    if (auto c = resolve_registry_credentials(settings.calling_environment,
+                                              artifactory_url, args.username,
+                                              args.token)) {
+        // resolve_registry_credentials returns nullopt when no credentials
+        // were found; deletion is never anonymous, so this is an error.
+        if (!c->has_value()) {
+            term::error("full credentials must be provided to delete a uenv: "
+                        "see the --token and --username flags");
+            return 1;
         }
-        credentials = (*c).value();
+        credentials = c->value();
     } else {
         term::error("{}", c.error());
         return 1;
@@ -91,7 +98,7 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     }
     spdlog::debug("requested to delete {}::{}", nspace, label);
 
-    auto registry = site::registry_listing(nspace);
+    auto registry = site::registry_listing(registry_cfg.listing_url, nspace);
     if (!registry) {
         term::error("unable to get a listing of the uenv", registry.error());
         return 1;
@@ -121,12 +128,17 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     }
 
     for (auto& record : *matches) {
-        auto url = fmt::format("{}/{}/{}/{}/{}/{}/{}", artifactory_url, nspace,
-                               record.system, record.uarch, record.name,
-                               record.version, record.tag);
+        // resolve() joins with exactly one '/', so a configured
+        // artifactory_url with a trailing slash no longer yields "//".
+        auto url =
+            artifactory_url
+                .resolve(fmt::format("{}/{}/{}/{}/{}/{}", nspace, record.system,
+                                     record.uarch, record.name, record.version,
+                                     record.tag))
+                .string();
 
-        if (auto result =
-                util::curl::del(url, credentials.username, credentials.token);
+        if (auto result = util::curl::del(url, credentials.username,
+                                          credentials.password);
             !result) {
             term::error("unable to delete uenv: {}", result.error().message);
             return 1;

@@ -21,7 +21,7 @@ jobs:
         image: ubuntu:noble
         options: --privileged
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Update apt repositories for ccache
         run: apt update
       - name: Install dependencies
@@ -73,15 +73,61 @@ jobs:
               build .
       - name: Build
         run: ./meson/meson compile -Cbuild
+      - name: verify the binary has no unexpected runtime dependencies
+        # uenv ships as a static binary: everything except the C/C++ runtime is
+        # linked in, so that the same binary runs on any Alps vCluster. Nothing
+        # checked this before, which made it a property of the build host
+        # rather than of the source tree - see the "Subproject options and
+        # stale build directories" section of CLAUDE.md.
+        #
+        # sanitizer builds legitimately pull in libasan/liblsan/libubsan/
+        # libtsan, so the invariant is only asserted for the plain builds.
+        if: matrix.sanitizer == 'none'
+        run: |
+          set -euo pipefail
+          ldd build/uenv
+          needed=$(LC_ALL=C readelf -d build/uenv \
+                   | sed -n 's/.*NEEDED.*\[\(.*\)\]/\1/p' \
+                   | grep -v '^ld-linux' | LC_ALL=C sort | tr '\n' ' ')
+          expected='libc.so.6 libgcc_s.so.1 libm.so.6 libstdc++.so.6 '
+          if [ "$needed" != "$expected" ]; then
+            echo "::error::uenv runtime dependencies changed" >&2
+            echo "  expected: $expected" >&2
+            echo "  actual:   $needed" >&2
+            exit 1
+          fi
+      - name: verify the linked OpenSSL version
+        # OpenSSL is statically linked, so a distro update can never patch it:
+        # the version here is the version users run until uenv is rebuilt.
+        # Pinning it in CI forces a bump to be deliberate, and catches a wrap
+        # that silently resolved to something else.
+        # Update together with subprojects/openssl.wrap.
+        run: |
+          set -euo pipefail
+          strings build/uenv | grep -E '^OpenSSL 3\.5\.7 ' \
+            || { echo "::error::uenv is not linked against OpenSSL 3.5.7" >&2; exit 1; }
       - name: Stage
         run: sudo ./meson/meson install -Cbuild --destdir=$PWD/staging --no-rebuild --skip-subprojects
       - name: create mount points for tests
         run: sudo mkdir /user-tools /user-environment
+      - name: verify zot is available for registry tests
+        # the zot binary is fetched at build time by test/integration/install-zot,
+        # which tolerates a failed download so local/offline builds still work (the
+        # registry suite then self-skips). in CI we require it, so live OCI
+        # round-trip coverage cannot silently vanish on a download hiccup.
+        run: |
+          test -x build/test/zot || {
+            echo "::error::zot binary missing (build/test/zot) - registry tests would silently skip" >&2
+            exit 1
+          }
       - name: unit tests
         run: ./meson/meson test -Cbuild --verbose unit
       - name: cli integration tests
         run: |
           UENV_BATS_SKIP_START=on STAGING_PATH=$PWD/staging/usr/local ./meson/meson test -Cbuild --verbose cli
+      - name: registry integration tests
+        run: |
+          UENV_BATS_SKIP_START=on STAGING_PATH=$PWD/staging/usr/local ./meson/meson test -Cbuild --verbose registry
       - name: squashfs-mount integration tests
         run: |
           UENV_BATS_SKIP_START=on STAGING_PATH=$PWD/staging/usr/local ./meson/meson test -Cbuild --verbose squashfs-mount

@@ -15,41 +15,9 @@
 
 namespace uenv {
 
-std::string parse_error::message() const {
-    return fmt::format("{}\n  {}\n  {}{}", detail, input, std::string(loc, ' '),
-                       std::string(std::max(1u, width), '^'));
-}
-
-// some pre-processor gubbins that generates code to attempt
-// parsing a value using a parse_x method. unwraps and
-// forwards the error if there was an error.
-// much ergonomics!
-#define PARSE(L, TYPE, X)                                                      \
-    {                                                                          \
-        if (auto rval__ = parse_##TYPE(L))                                     \
-            X = *rval__;                                                       \
-        else                                                                   \
-            return util::unexpected(std::move(rval__.error()));                \
-    }
-
-template <typename Test>
-util::expected<std::string, parse_error>
-parse_string(lex::lexer& L, std::string_view type, Test&& test) {
-    std::string result;
-    while (test(L.current_kind())) {
-        const auto t = L.next();
-        result += t.spelling;
-    }
-
-    // if result is empty, nothing was parsed
-    if (result.empty()) {
-        const auto t = L.peek();
-        return util::unexpected(parse_error{
-            L.string(), fmt::format("unexpected '{}'", type, t.spelling), t});
-    }
-
-    return result;
-}
+// the PARSE macro and parse_string are defined in <util/parse.h>; bring the
+// latter into scope so the unqualified calls below resolve.
+using util::parse_string;
 
 // tokens that can appear in names
 // names are used for uenv names, versions, tags
@@ -76,7 +44,7 @@ util::expected<std::string, parse_error> parse_name(lex::lexer& L) {
 template <std::unsigned_integral T>
 util::expected<T, parse_error> parse_int(lex::lexer& L) {
     const auto t = L.peek();
-    if (t.kind != lex::tok::integer) {
+    if (t != lex::tok::integer) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("{} is not an integer", t.spelling), t});
     }
@@ -143,7 +111,7 @@ util::expected<std::string, parse_error> parse_path(const std::string& in) {
         return result;
     }
 
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
@@ -254,7 +222,7 @@ parse_uenv_label(const std::string& in) {
         return result;
     }
 
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
@@ -274,8 +242,7 @@ parse_uenv_nslabel(const std::string& in) {
             ++i;
         }
         // check for following colons
-        if (L.peek(i).kind == lex::tok::colon &&
-            L.peek(i + 1).kind == lex::tok::colon) {
+        if (L.peek(i) == lex::tok::colon && L.peek(i + 1) == lex::tok::colon) {
             // parse the namespace name
             PARSE(L, name, nspace);
             // gobble the ::
@@ -290,7 +257,7 @@ parse_uenv_nslabel(const std::string& in) {
         return util::unexpected(label.error());
     }
 
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
@@ -416,13 +383,13 @@ parse_view_args(const std::string& arg) {
         L.next();
 
         // handle trailing comma elegantly
-        if (L.peek().kind == lex::tok::end) {
+        if (L.peek() == lex::tok::end) {
             break;
         }
     }
     // if parsing finished and the string has not been
     // consumed, and invalid token was encountered
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
@@ -458,14 +425,14 @@ parse_env_view_description(const std::string& arg) {
         L.next();
 
         // handle trailing comma elegantly
-        if (L.peek().kind == lex::tok::end) {
+        if (L.peek() == lex::tok::end) {
             break;
         }
     }
 
     // if parsing finished and the string has not been
     // consumed, and invalid token was encountered
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
@@ -487,20 +454,20 @@ parse_uenv_args(const std::string& arg) {
         PARSE(L, uenv_description, desc);
         uenvs.push_back(std::move(desc));
 
-        if (L.peek().kind != lex::tok::comma) {
+        if (L.peek() != lex::tok::comma) {
             break;
         }
         // eat the comma
         L.next();
 
         // handle trailing comma elegantly
-        if (L.peek().kind == lex::tok::end) {
+        if (L.peek() == lex::tok::end) {
             break;
         }
     }
     // if parsing finished and the string has not been consumed,
     // and invalid token was encountered
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
@@ -521,7 +488,7 @@ parse_uenv_description(const std::string& in) {
 
     // if parsing finished and the string has not been consumed,
     // and invalid token was encountered
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
@@ -541,20 +508,20 @@ parse_mount_list(const std::string& arg) {
         PARSE(L, mount_description, mnt);
         mounts.push_back(std::move(mnt));
 
-        if (L.peek().kind != lex::tok::comma) {
+        if (L.peek() != lex::tok::comma) {
             break;
         }
         // eat the comma
         L.next();
 
         // handle trailing comma elegantly
-        if (L.peek().kind == lex::tok::end) {
+        if (L.peek() == lex::tok::end) {
             break;
         }
     }
     // if parsing finished and the string has not been consumed,
     // and invalid token was encountered
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
     }
@@ -613,37 +580,37 @@ parse_registry_entry(const std::string& in) {
     uenv_registry_entry r;
 
     PARSE(L, name, r.nspace);
-    if (L.peek().kind != lex::tok::slash) {
+    if (L.peek() != lex::tok::slash) {
         goto unexpected_symbol;
     }
     L.next();
 
     PARSE(L, name, r.system);
-    if (L.peek().kind != lex::tok::slash) {
+    if (L.peek() != lex::tok::slash) {
         goto unexpected_symbol;
     }
     L.next();
 
     PARSE(L, name, r.uarch);
-    if (L.peek().kind != lex::tok::slash) {
+    if (L.peek() != lex::tok::slash) {
         goto unexpected_symbol;
     }
     L.next();
 
     PARSE(L, name, r.name);
-    if (L.peek().kind != lex::tok::slash) {
+    if (L.peek() != lex::tok::slash) {
         goto unexpected_symbol;
     }
     L.next();
 
     PARSE(L, name, r.version);
-    if (L.peek().kind != lex::tok::slash) {
+    if (L.peek() != lex::tok::slash) {
         goto unexpected_symbol;
     }
     L.next();
 
     PARSE(L, name, r.tag);
-    if (L.peek().kind != lex::tok::end) {
+    if (L.peek() != lex::tok::end) {
         goto unexpected_symbol;
     }
     L.next();
@@ -668,45 +635,45 @@ util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg) {
     uenv_date date;
 
     PARSE(L, uint64, date.year);
-    if (L.peek().kind != lex::tok::dash) {
+    if (L.peek() != lex::tok::dash) {
         goto unexpected_symbol;
     }
     L.next();
     PARSE(L, uint64, date.month);
-    if (L.peek().kind != lex::tok::dash) {
+    if (L.peek() != lex::tok::dash) {
         goto unexpected_symbol;
     }
     L.next();
     PARSE(L, uint64, date.day);
 
     // time to finish - date was in 'yyyy-mm-dd' format
-    if (L.peek().kind == lex::tok::end) {
+    if (L.peek() == lex::tok::end) {
         goto validate_and_return;
     }
 
     // continue processing on the assumption that the date is one of
     // 'yyyy-mm-dd hh:mm:ss.uuuuuu+hh:mm'
     // 'yyyy-mm-ddThh:mm:ss.uuuuuu+hh:mm'
-    if (!(L.peek().kind == lex::tok::whitespace ||
-          (L.peek().kind == lex::tok::symbol && L.peek().spelling == "T"))) {
+    if (!(L.peek() == lex::tok::whitespace ||
+          (L.peek() == lex::tok::symbol && L.peek().spelling == "T"))) {
         goto unexpected_symbol;
     }
     // eat whitespace
     L.next();
 
     PARSE(L, uint64, date.hour);
-    if (L.peek().kind != lex::tok::colon) {
+    if (L.peek() != lex::tok::colon) {
         goto unexpected_symbol;
     }
     L.next();
     PARSE(L, uint64, date.minute);
-    if (L.peek().kind != lex::tok::colon) {
+    if (L.peek() != lex::tok::colon) {
         goto unexpected_symbol;
     }
     L.next();
     PARSE(L, uint64, date.second);
 
-    if (!(L.peek().kind == lex::tok::end || L.peek().kind == lex::tok::dot)) {
+    if (!(L.peek() == lex::tok::end || L.peek() == lex::tok::dot)) {
         goto unexpected_symbol;
     }
 
@@ -765,7 +732,7 @@ parse_cluster_name(const std::string& in) {
         return result;
     }
 
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
@@ -781,7 +748,7 @@ parse_xthostname(const std::string& in) {
         return result;
     }
 
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
@@ -816,7 +783,7 @@ parse_repo_name(const std::string& in) {
         return result;
     }
 
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol '{}'", t.spelling), t});
     }
@@ -868,7 +835,7 @@ parse_repo_label(const std::string& in) {
 
     // if parsing finished and the string has not been consumed,
     // and invalid token was encountered
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
     }
@@ -891,19 +858,19 @@ parse_repo_list(const std::string& in) {
             return util::unexpected{label.error()};
         }
 
-        if (L.peek().kind != lex::tok::comma) {
+        if (L.peek() != lex::tok::comma) {
             break;
         }
         L.next();
 
         // handle trailing comma elegantly
-        if (L.peek().kind == lex::tok::end) {
+        if (L.peek() == lex::tok::end) {
             break;
         }
     }
     // if parsing finished and the string has not been consumed,
     // and invalid token was encountered
-    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+    if (const auto t = L.peek(); t != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
     }
@@ -940,7 +907,7 @@ parse_config_line(const std::string& arg) {
     auto L = lex::lexer(line);
 
     auto skip_whitespace = [&L]() {
-        while (L.peek().kind == lex::tok::whitespace) {
+        while (L.peek() == lex::tok::whitespace) {
             L.next();
         }
     };
@@ -958,7 +925,7 @@ parse_config_line(const std::string& arg) {
     skip_whitespace();
 
     // check for '='
-    if (L.peek().kind != lex::tok::equals) {
+    if (L.peek() != lex::tok::equals) {
         auto t = L.peek();
         return util::unexpected(parse_error{
             L.string(), fmt::format("expected '=', found '{}'", t.spelling),

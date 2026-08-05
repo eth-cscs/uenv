@@ -43,3 +43,28 @@ TEST_CASE("split", "[strings]") {
     REQUIRE(util::split("a,b,c", ',', true) == v{"a", "b", "c"});
     REQUIRE(util::split("a,b,,c", ',', true) == v{"a", "b", "c"});
 }
+
+TEST_CASE("base64_decode", "[strings]") {
+    auto dec = [](std::string_view s) { return util::base64_decode(s); };
+
+    // RFC 4648 test vectors
+    REQUIRE(dec("") == std::optional<std::string>{""});
+    REQUIRE(dec("Zg==") == std::optional<std::string>{"f"});
+    REQUIRE(dec("Zm8=") == std::optional<std::string>{"fo"});
+    REQUIRE(dec("Zm9v") == std::optional<std::string>{"foo"});
+    REQUIRE(dec("Zm9vYg==") == std::optional<std::string>{"foob"});
+    REQUIRE(dec("Zm9vYmE=") == std::optional<std::string>{"fooba"});
+    REQUIRE(dec("Zm9vYmFy") == std::optional<std::string>{"foobar"});
+
+    // a docker-style user:pass token
+    REQUIRE(dec("YWxpY2U6czNjcmV0") ==
+            std::optional<std::string>{"alice:s3cret"});
+
+    // padding is optional; embedded whitespace/newlines are ignored
+    REQUIRE(dec("Zm9v\n") == std::optional<std::string>{"foo"});
+    REQUIRE(dec("Zg") == std::optional<std::string>{"f"});
+
+    // characters outside the standard alphabet are rejected
+    REQUIRE(dec("****") == std::nullopt);
+    REQUIRE(dec("ab_c") == std::nullopt); // url-safe alphabet is not accepted
+}

@@ -11,9 +11,13 @@
 namespace fs = std::filesystem;
 
 TEST_CASE("make_temp_dir", "[fs]") {
-    auto dir1 = util::make_temp_dir();
+    auto r1 = util::make_temp_dir();
+    REQUIRE(r1);
+    auto dir1 = *r1;
     REQUIRE(fs::is_directory(dir1));
-    auto dir2 = util::make_temp_dir();
+    auto r2 = util::make_temp_dir();
+    REQUIRE(r2);
+    auto dir2 = *r2;
     REQUIRE(dir1 != dir2);
 
     REQUIRE(util::is_temp_dir(dir1));
@@ -22,6 +26,46 @@ TEST_CASE("make_temp_dir", "[fs]") {
     REQUIRE(util::is_temp_dir(dir2 / "wombat"));
     REQUIRE(!util::is_temp_dir(dir2 / ".."));
     REQUIRE(!util::is_temp_dir("/scratch/bar"));
+}
+
+TEST_CASE("ensure_directory", "[fs]") {
+    auto base = util::make_temp_dir();
+    REQUIRE(base);
+
+    // creates a new (nested) directory
+    {
+        auto d = *base / "a" / "b" / "c";
+        REQUIRE(util::ensure_directory(d));
+        REQUIRE(fs::is_directory(d));
+    }
+
+    // succeeds when the directory already exists
+    {
+        auto d = *base / "exists";
+        REQUIRE(util::ensure_directory(d));
+        REQUIRE(util::ensure_directory(d));
+    }
+
+    // fails when the path exists but is a regular file
+    {
+        auto p = *base / "afile";
+        std::ofstream(p).close();
+        auto r = util::ensure_directory(p);
+        REQUIRE(!r);
+    }
+
+    // fails when the directory is not writable (skip when running as root,
+    // which bypasses permission checks)
+    if (::geteuid() != 0) {
+        auto d = *base / "readonly";
+        REQUIRE(util::ensure_directory(d));
+        fs::permissions(d, fs::perms::owner_read | fs::perms::owner_exec,
+                        fs::perm_options::replace);
+        auto r = util::ensure_directory(d);
+        REQUIRE(!r);
+        // restore so cleanup can remove it
+        fs::permissions(d, fs::perms::owner_all, fs::perm_options::replace);
+    }
 }
 
 TEST_CASE("unsquashfs", "[fs]") {
@@ -74,7 +118,7 @@ TEST_CASE("read_single_line_file", "[fs]") {
     REQUIRE(!util::read_single_line_file("/wombat/soup"));
     REQUIRE(util::read_single_line_file("/etc/hostname"));
 
-    auto testdir = util::make_temp_dir();
+    auto testdir = util::make_temp_dir().value();
 
     // empty file
     {

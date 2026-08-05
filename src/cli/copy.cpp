@@ -9,8 +9,10 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <oci/auth.h>
+#include <oci/client.h>
+#include <oci/push.h>
 #include <site/site.h>
-#include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -22,6 +24,7 @@
 #include "copy.h"
 #include "help.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -59,8 +62,10 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
     }
     const auto& registry_cfg = *settings.config.registry;
 
-    std::optional<uenv::oras::credentials> credentials;
-    if (auto c = oras::get_credentials(args.username, args.token)) {
+    std::optional<oci::credentials> credentials;
+    if (auto c = resolve_registry_credentials(settings.calling_environment,
+                                              registry_cfg.url, args.username,
+                                              args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());
@@ -98,7 +103,8 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
         return 1;
     }
 
-    auto src_registry = site::registry_listing(*src_label.nspace);
+    auto src_registry =
+        site::registry_listing(registry_cfg.listing_url, *src_label.nspace);
     if (!src_registry) {
         term::error("unable to get a listing of the uenv",
                     src_registry.error());
@@ -161,7 +167,8 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
     spdlog::info("destination record: {} {}", dst_record.sha, dst_record);
 
     // check whether the destination already exists
-    auto dst_registry = site::registry_listing(*dst_label.nspace);
+    auto dst_registry =
+        site::registry_listing(registry_cfg.listing_url, *dst_label.nspace);
     if (dst_registry && dst_registry->contains(dst_record)) {
         if (!args.force) {
             term::error("the destination already exists - use the --force flag "
@@ -171,13 +178,24 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
         term::warn("the destination already exists and will be overwritten");
     }
 
-    const auto rego_url = registry_cfg.url;
-    spdlog::debug("registry url: {}", rego_url);
+    // split the configured registry into a base URL + prefix, then build the
+    // source and destination OCI repository paths (the addresses oras used).
+    const auto loc = oci::split_registry(registry_cfg.url);
+    const auto src_repo = oci::repository_path(
+        loc.prefix, src_label.nspace.value(), src_record.system,
+        src_record.uarch, src_record.name, src_record.version);
+    const auto dst_repo = oci::repository_path(
+        loc.prefix, dst_label.nspace.value(), dst_record.system,
+        dst_record.uarch, dst_record.name, dst_record.version);
+    const auto src_manifest = oci::digest::sha256(src_record.sha);
+    spdlog::debug("oci copy: {} -> {} (tag {})", src_repo, dst_repo,
+                  dst_record.tag);
+
     if (auto result =
-            oras::copy(rego_url, src_label.nspace.value(), src_record,
-                       dst_label.nspace.value(), dst_record, credentials);
+            oci::copy_image(loc.base, src_repo, dst_repo, src_manifest,
+                            dst_record.tag, credentials);
         !result) {
-        term::error("unable to copy uenv.\n{}", result.error().message);
+        term::error("unable to copy uenv.\n{}", result.error());
         return 1;
     }
 

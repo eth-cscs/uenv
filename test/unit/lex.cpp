@@ -4,12 +4,41 @@
 #include <util/lex.h>
 
 TEST_CASE("error characters", "[lex]") {
-    for (auto in : {"\\", "~", "'", "\""}) {
+    for (auto in : {"\\", "{", "}", "|", "^", "<", ">", "`"}) {
         lex::lexer L(in);
         auto t = L.peek();
         REQUIRE(t.kind == lex::tok::error);
         REQUIRE(t.loc == 0u);
     }
+}
+
+TEST_CASE("url and quote punctuation", "[lex]") {
+    lex::lexer L("?&~[]$;()'\"");
+    REQUIRE(L.next() == lex::token{0, lex::tok::question, "?"});
+    REQUIRE(L.next() == lex::token{1, lex::tok::amp, "&"});
+    REQUIRE(L.next() == lex::token{2, lex::tok::tilde, "~"});
+    REQUIRE(L.next() == lex::token{3, lex::tok::lbracket, "["});
+    REQUIRE(L.next() == lex::token{4, lex::tok::rbracket, "]"});
+    REQUIRE(L.next() == lex::token{5, lex::tok::dollar, "$"});
+    REQUIRE(L.next() == lex::token{6, lex::tok::semicolon, ";"});
+    REQUIRE(L.next() == lex::token{7, lex::tok::lparen, "("});
+    REQUIRE(L.next() == lex::token{8, lex::tok::rparen, ")"});
+    REQUIRE(L.next() == lex::token{9, lex::tok::squote, "'"});
+    REQUIRE(L.next() == lex::token{10, lex::tok::dquote, "\""});
+    REQUIRE(L.next() == lex::token{11, lex::tok::end, ""});
+}
+
+TEST_CASE("seek", "[lex]") {
+    lex::lexer L("abc?def");
+    REQUIRE(L.peek() == lex::token{0, lex::tok::symbol, "abc"});
+    // seek onto the 'def' symbol (offset 4)
+    L.seek(4);
+    REQUIRE(L.peek() == lex::token{4, lex::tok::symbol, "def"});
+    REQUIRE(L.next() == lex::token{4, lex::tok::symbol, "def"});
+    REQUIRE(L.current_kind() == lex::tok::end);
+    // seeking to the end yields the end token
+    L.seek(7);
+    REQUIRE(L.current_kind() == lex::tok::end);
 }
 
 TEST_CASE("punctuation", "[lex]") {

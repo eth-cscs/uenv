@@ -1,5 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
+#include <memory>
 #include <string>
 
 #include <fmt/core.h>
@@ -100,10 +101,26 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
     util::expected<squashfs_image, std::string> sqfs;
     if (from_label) {
-        sqfs = squashfs_image{env->sqfs_path, env->meta_path,
-                              fmt::format("{}", env->record->sha)};
+        sqfs = squashfs_image{env->sqfs_path, env->meta_path, env->record->sha};
     } else {
-        sqfs = uenv::validate_squashfs_image(env->sqfs_path);
+        // hashing the image reads the whole file, so show progress for it. The
+        // bar is created on the first callback, once the size is known.
+        std::unique_ptr<uenv::transfer_bar> prepare_bar;
+        sqfs = uenv::validate_squashfs_image(
+            env->sqfs_path,
+            [&prepare_bar, &env](std::uint64_t done, std::uint64_t total) {
+                if (!prepare_bar) {
+                    prepare_bar = uenv::make_transfer_bar(
+                        total, fmt::format("preparing {}",
+                                           env->sqfs_path.filename().string()));
+                }
+                prepare_bar->update(done);
+            });
+        // stop the bar before anything else is printed, so that an error
+        // message does not land on the bar's line.
+        if (prepare_bar) {
+            prepare_bar->finish();
+        }
         if (!sqfs) {
             term::error("invalid source {}: {}", args.source, sqfs.error());
             return 1;
@@ -148,7 +165,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     bool existing_hash = false;
     {
-        uenv_label hash_label{sqfs->hash};
+        uenv_label hash_label{sqfs->hash.string()};
         auto results = store->query(hash_label);
         if (!results) {
             term::error(
@@ -261,7 +278,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         date,
         fs::file_size(uenv_paths.squashfs),
         sqfs->hash,
-        sqfs->hash.substr(0, 16),
+        uenv_id::parse(sqfs->hash.string().substr(0, 16)).value(),
     };
     if (auto result = store->add(r); !result) {
         spdlog::error("image_add: {}", result.error());
@@ -300,12 +317,12 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
     auto U = args.label;
 
     // check if the CLI argument is a sha256
-    if (is_sha(U, 64)) {
+    if (auto parsed = sha256::parse(U)) {
         spdlog::debug("image_rm: treating {} as a sha256", U);
         // look it up in the database
         if (auto r = store->query({.name = U})) {
             if (!r->empty()) {
-                sha = U;
+                sha = *parsed;
             } else {
                 term::error("no uenv matches {}", U);
                 return 1;
@@ -316,7 +333,7 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
         }
     }
     // check if the CLI argument is an id
-    else if (is_sha(U, 16)) {
+    else if (uenv_id::parse(U)) {
         spdlog::debug("image_rm: treating {} as an id", U);
         // look it up in the database
         if (auto r = store->query({.name = U})) {

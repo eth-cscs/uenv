@@ -6,6 +6,8 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
+#include <site/site.h>
+
 #include "config.h"
 #include "help.h"
 
@@ -61,12 +63,21 @@ int configure([[maybe_unused]] const configure_args& args,
     }
     if (config.registry) {
         fmt::println("  registry:    {}/{}",
-                     color::yellow(config.registry->url),
+                     color::yellow(config.registry->url.string()),
                      color::cyan(config.registry->default_namespace));
-        fmt::println("  artifactory: {}",
-                     config.registry->artifactory_url
-                         ? color::green(*config.registry->artifactory_url)
-                         : color::red("none"));
+        fmt::println(
+            "  artifactory: {}",
+            config.registry->artifactory_url
+                ? color::green(config.registry->artifactory_url->string())
+                : color::red("none"));
+        // unlike the other registry fields, an unset listing_url is not "none":
+        // the built-in CSCS endpoint is used. Print what will actually be
+        // queried.
+        fmt::println(
+            "  listing:     {}",
+            color::green(config.registry->listing_url
+                             ? config.registry->listing_url->string()
+                             : std::string{site::default_listing_url}));
     } else {
         fmt::println("  registry:    {}", color::red("none"));
     }

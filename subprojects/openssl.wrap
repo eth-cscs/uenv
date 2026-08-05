@@ -1,0 +1,33 @@
+# OpenSSL 3.5 is a long term support release, supported until 2030-04-08.
+#
+# This is deliberately NOT a wrapdb wrap. wrapdb's openssl entry is frozen at
+# 3.0.8 (Feb 2023): OpenSSL has no meson build of its own, and wrapdb's port
+# works by lifting pre-generated build files out of Node.js v19.7.0's bundled
+# copy of OpenSSL, which was 3.0.8. Nothing newer has been published, and the
+# request for upstream meson support (mesonbuild/wrapdb#1570) is unresolved.
+# The 3.0 series stops receiving security fixes on 2026-09-07.
+#
+# We therefore build OpenSSL with its own Configure + make; see
+# subprojects/packagefiles/openssl/meson.build. That needs perl and make on
+# the build host.
+#
+# To bump the version: change `directory`, `source_url`, `source_filename`,
+# `source_hash` and `source_fallback_url` here, and `version:` in
+# packagefiles/openssl/meson.build. Nothing else should need to change.
+# Verify the hash against the .sha256 published beside the release asset.
+#
+# The tarball comes from the GitHub release rather than www.openssl.org
+# because openssl.org moves superseded releases into /source/old/<series>/,
+# at which point the original URL 404s.
+[wrap-file]
+directory = openssl-3.5.7
+source_url = https://github.com/openssl/openssl/releases/download/openssl-3.5.7/openssl-3.5.7.tar.gz
+source_filename = openssl-3.5.7.tar.gz
+source_hash = a8c0d28a529ca480f9f36cf5792e2cd21984552a3c8e4aa11a24aa31aeac98e8
+source_fallback_url = https://www.openssl.org/source/old/3.5/openssl-3.5.7.tar.gz
+patch_directory = openssl
+
+[provide]
+libcrypto = libcrypto_dep
+libssl = libssl_dep
+openssl = openssl_dep

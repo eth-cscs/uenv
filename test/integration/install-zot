@@ -1,0 +1,35 @@
+#!/bin/bash
+# Download a pinned, architecture-matched zot binary for the registry
+# integration tests. Invoked by meson at build time.
+#
+# Usage: install-zot <output_file> <arch>
+#   <arch> is "amd64" or "arm64" (zot release asset suffix).
+
+set -euo pipefail
+
+if [ "$#" -ne 2 ]; then
+  echo "Usage: $0 <output_file> <arch>" >&2
+  exit 1
+fi
+
+output=$1
+arch=$2
+version=v2.1.1
+
+url="https://github.com/project-zot/zot/releases/download/${version}/zot-linux-${arch}"
+
+# download to a temp file then move into place, so a failed/partial download
+# does not leave a broken "zot" that looks complete to ninja.
+tmp="${output}.download"
+if curl -fL --retry 3 --retry-delay 2 "$url" -o "$tmp" 2>/dev/null; then
+  chmod +x "$tmp"
+  mv "$tmp" "$output"
+else
+  rm -f "$tmp"
+  # leave no binary behind; the tests self-skip when zot is absent. emit a
+  # marker file so the custom_target still produces its declared output.
+  echo "install-zot: failed to download $url (registry tests will skip)" >&2
+  rm -f "$output"
+  # create an empty, non-executable placeholder so meson sees the output exist
+  : > "$output"
+fi

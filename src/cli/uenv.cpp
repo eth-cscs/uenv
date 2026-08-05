@@ -12,6 +12,7 @@
 #include <uenv/repository.h>
 #include <uenv/settings.h>
 #include <util/color.h>
+#include <util/curl.h>
 #include <util/envvars.h>
 #include <util/expected.h>
 #include <util/fs.h>
@@ -99,9 +100,6 @@ int main(int argc, char** argv) {
     if (auto bin = util::exe_path()) {
         spdlog::info("using uenv {}", bin->string());
     }
-    if (auto oras = util::oras_path()) {
-        spdlog::info("using oras {}", oras->string());
-    }
 
     // print the version and exit if the --version flag was passed
     if (print_version) {
@@ -150,6 +148,11 @@ int main(int argc, char** argv) {
     spdlog::info("color output is {}",
                  (settings.config.color ? "enabled" : "disabled"));
     color::set_color(settings.config.color);
+
+    // locate the TLS trust store from the startup environment (honours
+    // SSL_CERT_FILE / SSL_CERT_DIR) before any HTTPS request is made.
+    // TODO: only perform this when interactions with OCI are required
+    util::curl::configure_tls(settings.calling_environment);
 
     spdlog::info("{}", settings);
 

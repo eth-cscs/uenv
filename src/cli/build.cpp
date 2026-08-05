@@ -8,7 +8,6 @@
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
-#include <util/subprocess.h>
 
 #include "build.h"
 #include "cli/terminal.h"
@@ -16,6 +15,7 @@
 #include "help.h"
 #include "site/site.h"
 #include "uenv/parse.h"
+#include "util/archive.h"
 #include "util/curl.h"
 #include "util/fs.h"
 
@@ -100,13 +100,22 @@ int build(const build_args& args,
         return 1;
     }
 
-    auto recipe_tar_path = util::make_temp_dir() / "recipe.tar.gz";
-    auto proc = util::run({"env", "--chdir", recipe_path.string(), "tar",
-                           "--dereference", "-czf", recipe_tar_path, "."});
-    if (proc->rvalue() > 0) {
-        term::error("{}", proc->err.string());
+    auto tmp_dir = util::make_temp_dir();
+    if (!tmp_dir) {
+        term::error("{}", tmp_dir.error());
         return 1;
     }
+    // pack the recipe in-process. strip_root + dereference reproduce the
+    // `tar --dereference -czf - .` that this used to shell out to: the recipe
+    // files sit at the root of the archive, and a symlinked recipe file is
+    // uploaded as its contents.
+    auto packed = util::pack_directory_targz(
+        recipe_path, *tmp_dir, {.strip_root = true, .dereference = true});
+    if (!packed) {
+        term::error("unable to pack the recipe: {}", packed.error());
+        return 1;
+    }
+    const auto& recipe_tar_path = packed->gz_path;
 
     std::vector<std::string> vars{fmt::format("system={}", *system),
                                   fmt::format("uarch={}", *label->uarch),
