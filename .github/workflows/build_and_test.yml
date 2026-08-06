@@ -1,5 +1,9 @@
 name: Build and test
 
+defaults:
+  run:
+    shell: bash -l {0}
+
 on:
   merge_group:
   pull_request:
