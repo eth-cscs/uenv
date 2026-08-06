@@ -58,6 +58,13 @@ void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
         if (!r) {
             error_and_exit("mount failed {}", r.error());
         }
+        if (tasks_join) {
+            // publish winner_pid and release the losers blocked in
+            // join_begin so they can join our namespaces.
+            if (auto rr = uenv::join_ready(join, ntasks, std::nullopt); !rr) {
+                error_and_exit("join_ready failed {}", rr.error());
+            }
+        }
     } else {
         std::vector<std::string> namespaces;
         if (is_setuid()) {
@@ -67,13 +74,16 @@ void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
             namespaces = {"user", "mnt"};
         }
         auto r = uenv::namespaces_join(join.shared->winner_pid, namespaces);
+        if (auto sr = uenv::join_signal_done(join); !sr) {
+            spdlog::warn("join_signal_done failed: {}", sr.error());
+        }
         if (!r) {
             error_and_exit("namespaces_join failed {}", r.error());
         }
     }
 
     if (tasks_join) {
-        uenv::join_end(join, ntasks, std::nullopt);
+        uenv::join_end(join);
     }
 }
 

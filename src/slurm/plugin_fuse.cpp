@@ -87,12 +87,17 @@ int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
             return -ESPANK_ERROR;
         }
 
-        // enter the user+mount namespace created by squashfs-mount-rootless;
-        // join_end will record winner_pid = getpid() so losing tasks can join
-        // the same namespace
+        // enter the user+mount namespace created by squashfs-mount-rootless
         if (auto r = uenv::namespaces_join(winner_pid.value(), {"user", "mnt"});
             !r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
+            return -ESPANK_ERROR;
+        }
+
+        // publish winner_pid (the forked child, not our own pid) so losing
+        // tasks can join the same namespace
+        if (auto r = uenv::join_ready(join, ntasks, winner_pid); !r) {
+            slurm_error("join_ready failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
         }
     } else {
@@ -100,14 +105,16 @@ int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
         // namespace, so joining its namespaces gives us the same view
         auto r =
             uenv::namespaces_join(join.shared->winner_pid, {"user", "mnt"});
+        if (auto sr = uenv::join_signal_done(join); !sr) {
+            slurm_error("join_signal_done failed: %s", sr.error().c_str());
+        }
         if (!r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
         }
     }
 
-    if (auto r = uenv::join_end(join, ntasks, winner_pid /* the winner pid */);
-        !r) {
+    if (auto r = uenv::join_end(join); !r) {
         slurm_error("join_end failed: %s", r.error().c_str());
         return -ESPANK_ERROR;
     }
@@ -171,10 +178,35 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
             }
         }
 
-        // exit fake-root
+        // exit fake-root. Note: this does its own unshare(CLONE_NEWUSER |
+        // CLONE_NEWNS), so it moves us into a *new* mount namespace (a copy
+        // of the current one) -- losers must join this final namespace, not
+        // the one from before this call, so the release below must come
+        // after it.
         if (auto r = uenv::rootless::map_effective_user(uid, gid); !r) {
             slurm_error("failed map effective user %s %d %d", r.error().c_str(),
                         uid, gid);
+            return -ESPANK_ERROR;
+        }
+
+        // publish winner_pid and release the losers blocked in join_begin
+        // so they can join our (now final) namespaces *before* we go
+        // non-dumpable below.
+        if (auto r = uenv::join_ready(join, ntasks, std::nullopt); !r) {
+            slurm_error("join_ready failed: %s", r.error().c_str());
+            return -ESPANK_ERROR;
+        }
+
+        // wait until every other local task has finished joining our
+        // namespaces -- only then is it safe to flip DUMPABLE off.
+        if (auto r = uenv::join_wait_peers(join, ntasks); !r) {
+            slurm_error("join_wait_peers failed: %s", r.error().c_str());
+            return -ESPANK_ERROR;
+        }
+
+        // safe now: every peer has already opened /proc/<our pid>/ns/*.
+        if (prctl(PR_SET_DUMPABLE, 0) != 0) {
+            slurm_error("PR_SET_DUMPABLE failed");
             return -ESPANK_ERROR;
         }
 
@@ -187,13 +219,18 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
         // namespace, so joining its namespaces gives us the same view
         auto r =
             uenv::namespaces_join(join.shared->winner_pid, {"user", "mnt"});
+        // signal the winner regardless of outcome, so it isn't left waiting
+        // out the full join timeout for a peer that will never succeed.
+        if (auto sr = uenv::join_signal_done(join); !sr) {
+            slurm_error("join_signal_done failed: %s", sr.error().c_str());
+        }
         if (!r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
         }
     }
 
-    if (auto r = uenv::join_end(join, ntasks, std::nullopt); !r) {
+    if (auto r = uenv::join_end(join); !r) {
         slurm_error("join_end failed %s", r.error().c_str());
         return -ESPANK_ERROR;
     }

@@ -99,6 +99,7 @@ unit_src = [
         'unit/lex.cpp',
         'unit/main.cpp',
         'unit/mount.cpp',
+        'unit/ns_join.cpp',
         'unit/oci_auth.cpp',
         'unit/oci_client.cpp',
         'unit/oci_digest.cpp',

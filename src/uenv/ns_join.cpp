@@ -75,11 +75,16 @@ util::expected<void, std::string> join_begin(join_t& join,
                                              std::string join_tag) {
     int fd;
     join.sem_name = fmt::format("/uenv-run_sem-{}", join_tag);
+    join.sem_ready_name = fmt::format("/uenv-run_sem_ready-{}", join_tag);
     join.shm_name = fmt::format("/uenv-run_shm-{}", join_tag);
 
     // Serialize.
     join.sem = sem_open(join.sem_name.c_str(), O_CREAT, 0600, 1);
     T_e(join.sem != SEM_FAILED);
+    // Counts how many peers have finished joining the winner's namespaces;
+    // posted once by each loser, waited on by the winner.
+    join.sem_ready = sem_open(join.sem_ready_name.c_str(), O_CREAT, 0600, 0);
+    T_e(join.sem_ready != SEM_FAILED);
     if (auto r = sem_timedwait_relative(join.sem, JOIN_TIMEOUT); !r)
         return r;
 
@@ -109,18 +114,40 @@ util::expected<void, std::string> join_begin(join_t& join,
     return {};
 }
 
-// End coordinated section of namespace joining.
-util::expected<void, std::string> join_end(join_t& join, int join_ct,
-                                           std::optional<pid_t> winner_pid) {
-    if (join.winner_p) { // winner still serial
-        spdlog::trace("join: winner initializing shared data");
-        if (!winner_pid)
-            join.shared->winner_pid = getpid();
-        else
-            join.shared->winner_pid = winner_pid.value();
-        join.shared->proc_left_ct = join_ct;
-    } else // losers serialize
-        sem_timedwait_relative(join.sem, JOIN_TIMEOUT);
+// Winner only. Publish winner_pid and the peer count, then release the
+// losers blocked in join_begin() so they can call namespaces_join() while
+// the winner is still ptrace-accessible. Must be called before anything
+// that could make the winner non-dumpable.
+util::expected<void, std::string> join_ready(join_t& join, int join_ct,
+                                             std::optional<pid_t> winner_pid) {
+    spdlog::trace("join: winner initializing shared data");
+    join.shared->winner_pid = winner_pid.value_or(getpid());
+    join.shared->proc_left_ct = join_ct;
+    Z_e(sem_post(join.sem)); // release losers queued in join_begin
+    return {};
+}
+
+// Winner only. Block until every loser has called join_signal_done().
+util::expected<void, std::string> join_wait_peers(join_t& join, int join_ct) {
+    for (int i = 0; i < join_ct - 1; ++i) {
+        if (auto r = sem_timedwait_relative(join.sem_ready, JOIN_TIMEOUT); !r)
+            return r;
+    }
+    spdlog::trace("join: all peers joined");
+    return {};
+}
+
+// Loser only. Signal that this task is done using the winner's namespaces.
+util::expected<void, std::string> join_signal_done(join_t& join) {
+    Z_e(sem_post(join.sem_ready));
+    return {};
+}
+
+// End coordinated section of namespace joining. Called by every task
+// (winner and losers) once fully done with the join.
+util::expected<void, std::string> join_end(join_t& join) {
+    if (auto r = sem_timedwait_relative(join.sem, JOIN_TIMEOUT); !r)
+        return r;
 
     join.shared->proc_left_ct--;
     spdlog::trace("join: {} peers left excluding myself",
@@ -133,6 +160,8 @@ util::expected<void, std::string> join_end(join_t& join, int join_ct,
             join.shared->proc_left_ct);
         Zfe(sem_unlink(join.sem_name.c_str()), "join: can't unlink sem: {}",
             join.sem_name.c_str());
+        Zfe(sem_unlink(join.sem_ready_name.c_str()),
+            "join: can't unlink sem_ready: {}", join.sem_ready_name.c_str());
         Zfe(shm_unlink(join.shm_name.c_str()), "join: can't unlink shm: {}",
             join.shm_name.c_str());
     }
@@ -141,6 +170,7 @@ util::expected<void, std::string> join_end(join_t& join, int join_ct,
 
     Z_e(munmap(join.shared, sizeof(*join.shared)));
     Z_e(sem_close(join.sem));
+    Z_e(sem_close(join.sem_ready));
 
     spdlog::trace("join: done");
     return {};

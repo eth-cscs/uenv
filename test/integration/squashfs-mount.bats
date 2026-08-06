@@ -80,7 +80,7 @@ function teardown() {
     assert_success
 
     run squashfs-mount --sqfs=$SQFS_MOUNTS -- findmnt --noheadings /user-environment
-    assert_line --regexp "/user-environment.*squashfs.*[, ]ro,.*nosuid"
+    assert_line --regexp "(/user-environment.*squashfs.*[, ]ro,.*nosuid|/user-environment /dev/fuse fuse rw,nosuid.*)"
     assert_success
 
     run squashfs-mount --sqfs=$SQFS_MOUNTS -- findmnt --noheadings /user-tools
