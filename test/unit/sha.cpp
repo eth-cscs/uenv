@@ -1,6 +1,7 @@
 #include <catch2/catch_all.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -8,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <fmt/format.h>
@@ -172,6 +174,26 @@ TEST_CASE("sha256 reset restarts the hasher", "[sha]") {
     REQUIRE(h.finalize() == util::sha256_string("abc"));
 }
 
+TEST_CASE("sha256_hasher is movable", "[sha]") {
+    SECTION("move construction carries the state") {
+        util::sha256_hasher h;
+        h.update(as_bytes("abc"));
+        util::sha256_hasher moved{std::move(h)};
+        moved.update(as_bytes("def"));
+        REQUIRE(moved.finalize() == util::sha256_string("abcdef"));
+    }
+
+    SECTION("move assignment carries the state") {
+        util::sha256_hasher h;
+        h.update(as_bytes("abc"));
+        util::sha256_hasher other;
+        other.update(as_bytes("discarded"));
+        other = std::move(h);
+        other.update(as_bytes("def"));
+        REQUIRE(other.finalize() == util::sha256_string("abcdef"));
+    }
+}
+
 namespace {
 // write `content` to a fresh file in a temporary directory, and return its
 // path.
@@ -247,4 +269,28 @@ TEST_CASE("sha256_file", "[sha]") {
         REQUIRE(d);
         REQUIRE(seen.empty());
     }
+}
+
+// hidden (the leading dot in the tag): hashing 1 GiB is far too slow to belong
+// in the default run. Run it explicitly with `./test/unit "[sha-bench]"` to
+// measure the digest throughput, which is what bounds `uenv image push` and
+// `uenv image pull` on multi-GB squashfs images.
+TEST_CASE("sha256 throughput", "[.sha-bench]") {
+    constexpr std::size_t chunk = 1u << 20;
+    constexpr std::size_t chunks = 1024;
+
+    std::vector<std::byte> buf(chunk, std::byte{0x5a});
+    util::sha256_hasher h;
+
+    const auto start = std::chrono::steady_clock::now();
+    for (std::size_t i = 0; i < chunks; ++i) {
+        h.update(std::span<const std::byte>{buf});
+    }
+    const auto digest = h.finalize();
+    const auto stop = std::chrono::steady_clock::now();
+
+    const double seconds = std::chrono::duration<double>(stop - start).count();
+    const double mb = static_cast<double>(chunk * chunks) / (1024.0 * 1024.0);
+    WARN(fmt::format("sha256: {:.0f} MiB in {:.3f} s = {:.0f} MiB/s ({})", mb,
+                     seconds, mb / seconds, digest));
 }

@@ -39,13 +39,15 @@ toml_dep = declare_dependency(
 # zlib: needed for gzip handling in the native OCI registry client
 # Built before curl so override_dependency('zlib') is in place for when curl is configured
 zlib_dep = subproject('zlib', default_options: ['warning_level=0', 'werror=false', 'default_library=static']).get_variable('zlib_dep')
-# openssl: the TLS backend for curl.
+# openssl: the TLS backend for curl, and the SHA-256 implementation used by
+# src/util/sha.cpp - libcrypto's is an order of magnitude faster than a portable
+# C one, which matters because hashing bounds image push and pull.
 # Configured before curl so override_dependency('openssl') is in place for when
-# curl is configured; the returned value is unused, curl consumes it by name.
+# curl is configured; curl consumes it by name, we take libcrypto by hand.
 # Unlike every other subproject this one is not a meson build - it drives
 # OpenSSL's own Configure + make (see subprojects/packagefiles/openssl/), so
 # warning_level/werror/default_library would have nothing to apply to.
-subproject('openssl')
+libcrypto_dep = subproject('openssl').get_variable('libcrypto_dep')
 # Every curl feature is pinned explicitly. Almost all of them default to 'auto',
 # which means they switch on wherever the build host happens to have the dev
 # package installed - the binary we ship would then have runtime dependencies
@@ -146,12 +148,12 @@ lib_uenv = static_library(
         'uenv',
         lib_src,
         include_directories: lib_inc,
-        dependencies: [curl_dep, zlib_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
+        dependencies: [curl_dep, zlib_dep, libcrypto_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
 )
 
 uenv_dep = declare_dependency(
         link_with: lib_uenv,
-        dependencies: [curl_dep, zlib_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep, toml_dep],
+        dependencies: [curl_dep, zlib_dep, libcrypto_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep, toml_dep],
         include_directories: lib_inc
 )
 
