@@ -132,5 +132,7 @@ if uenv_cli
   test('registry', bats, args: ['./test/registry.bats'], is_parallel : false)
 endif
 if uenv_squashfs_mount
-  test('squashfs-mount', bats, args: ['./test/squashfs-mount.bats'], is_parallel : false)
+  test('squashfs-mount', bats, args: ['./test/squashfs-mount.bats'],
+       env: ['LSAN_OPTIONS=suppressions=' + integration_path + '/squashfs-mount-lsan.supp:print_suppressions=0'],
+       is_parallel : false)
 endif
