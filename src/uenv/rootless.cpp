@@ -265,14 +265,20 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                 }
                 sqfs_ll_destroy(ll);
 
-                // Rely on OS cleanup to avoid additional synchronization
-                // when mounts are nested, `sqfs_ll_unmount` would have to
-                // be executed in reverse order. When this line is reached, the
-                // computational tasks have already finished.
-                // `sqfs_ll_umount` doesn't fail, but it prints an error message
+                // Rely on OS cleanup for the actual unmount, to avoid
+                // additional synchronization when mounts are nested:
+                // `sqfs_ll_unmount` would have to be executed in reverse
+                // order. When this line is reached, the computational tasks
+                // have already finished.
+                // `sqfs_ll_unmount` doesn't fail, but it calls
+                // `fuse_session_unmount`, which prints an error message
                 // `fuse: failed to unmount ...: No such file or directory`
                 //
                 // sqfs_ll_unmount(&ch, entry.mount.c_str());
+                //
+                // Still free the `fuse_session` allocated by
+                // `sqfs_ll_mount`/`fuse_session_new`, otherwise it leaks.
+                fuse_session_destroy(ch.session);
             } else {
                 switch (sqfs_ret) {
                 case SQFS_ERR: {
