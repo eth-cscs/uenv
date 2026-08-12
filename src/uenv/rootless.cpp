@@ -264,7 +264,15 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                     util::unexpected{"daemonize failed"};
                 }
                 sqfs_ll_destroy(ll);
-                sqfs_ll_unmount(&ch, entry.mount.c_str());
+
+                // Rely on OS cleanup to avoid additional synchronization
+                // when mounts are nested, `sqfs_ll_unmount` would have to
+                // be executed in reverse order. When this line is reached, the
+                // computational tasks have already finished.
+                // `sqfs_ll_umount` doesn't fail, but it prints an error message
+                // `fuse: failed to unmount ...: No such file or directory`
+                //
+                // sqfs_ll_unmount(&ch, entry.mount.c_str());
             } else {
                 switch (sqfs_ret) {
                 case SQFS_ERR: {
