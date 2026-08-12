@@ -128,7 +128,11 @@ unit = executable('unit',
 
 test('unit', unit, is_parallel : false)
 if uenv_cli
-  test('cli', bats, args: ['./test/cli.bats'], is_parallel : false)
+  cli_env = []
+  if uenv_squashfs_mount
+    cli_env += ['LSAN_OPTIONS=suppressions=' + integration_path + '/squashfs-mount-lsan.supp:print_suppressions=0']
+  endif
+  test('cli', bats, args: ['./test/cli.bats'], env: cli_env, is_parallel : false)
   test('registry', bats, args: ['./test/registry.bats'], is_parallel : false)
 endif
 if uenv_squashfs_mount
