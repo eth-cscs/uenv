@@ -1,12 +1,18 @@
 # Changelog
 
+## 10.1.0
+
+- #166 [feature] replace the oras CLI tool with a native OCI registry client
+
 ## 10.0.2
 
 - #163 [improvement] add label/squashfs information to uenv status output
 
 ## 10.0.1
 
+- #162 [improvement] rename the `UENV_ARG` environment variable to `UENV_LABEL`
 - #160 [fix] `uenv status` bug when no views are loaded, and only print active information about the loaded environment
+- #159 [improvement] print repo priority in json output of `uenv repo status --json`
 
 ## 10.0.0
 

@@ -26,8 +26,37 @@ test_generated_data = custom_target (
 
 fs = import('fs')
 fs.copyfile('integration/common.bash', 'common.bash')
+
+# download zot for testing registries
+zot_arch = (host_machine.cpu_family() == 'aarch64') ? 'arm64' : 'amd64'
+zot_path = meson.current_build_dir() / 'zot'
+custom_target('zot-binary',
+    output: 'zot',
+    command: [integration_path + '/install-zot', '@OUTPUT@', zot_arch],
+    build_by_default: true,
+    install: false,
+)
+
 if uenv_cli
   fs.copyfile('integration/cli.bats', 'cli.bats')
+  # the registry suite drives uenv against a throwaway local zot registry.
+  # registry_ctl (zot binary lifecycle) and listing_mock (uenv listing service
+  # stand-in) are installed with execute permissions, like elastic_mock.
+  custom_target('registry-ctl',
+      input: 'integration/registry_ctl',
+      output: 'registry_ctl',
+      command: ['install', '-m', '755', '@INPUT@', '@OUTPUT@'],
+      build_by_default: true,
+      install: false,
+  )
+  custom_target('listing-mock',
+      input: 'integration/listing_mock',
+      output: 'listing_mock',
+      command: ['install', '-m', '755', '@INPUT@', '@OUTPUT@'],
+      build_by_default: true,
+      install: false,
+  )
+  fs.copyfile('integration/registry.bats', 'registry.bats')
 endif
 if uenv_slurm_plugin
   custom_target('elastic-mock',
@@ -61,6 +90,8 @@ setup_suite = custom_target (
 )
 
 unit_src = [
+        'unit/archive.cpp',
+        'unit/curl.cpp',
         'unit/dates.cpp',
         'unit/env.cpp',
         'unit/envvars.cpp',
@@ -68,7 +99,15 @@ unit_src = [
         'unit/lex.cpp',
         'unit/main.cpp',
         'unit/mount.cpp',
+        'unit/oci_auth.cpp',
+        'unit/oci_client.cpp',
+        'unit/oci_digest.cpp',
+        'unit/oci_manifest.cpp',
+        'unit/oci_parse.cpp',
+        'unit/oci_registry.cpp',
+        'unit/oci_tag.cpp',
         'unit/parse.cpp',
+        'unit/sha.cpp',
         'unit/shell.cpp',
         'unit/signal.cpp',
         'unit/strings.cpp',
@@ -76,17 +115,20 @@ unit_src = [
         'unit/settings.cpp',
         'unit/subprocess.cpp',
         'unit/telemetry.cpp',
+        'unit/url.cpp',
 ]
 
 unit = executable('unit',
         sources: unit_src,
         dependencies: [catch_dep, uenv_dep],
+        cpp_args: ['-DUENV_TEST_ZOT_PATH="' + zot_path + '"'],
         build_by_default: true,
         install: false)
 
 test('unit', unit, is_parallel : false)
 if uenv_cli
   test('cli', bats, args: ['./test/cli.bats'], is_parallel : false)
+  test('registry', bats, args: ['./test/registry.bats'], is_parallel : false)
 endif
 if uenv_squashfs_mount
   test('squashfs-mount', bats, args: ['./test/squashfs-mount.bats'], is_parallel : false)

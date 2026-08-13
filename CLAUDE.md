@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) and other coding
+agents when working with code in this repository. It is the single source of
+truth; `AGENTS.md` is a symlink to this file.
 
 ## Project Overview
 
@@ -40,15 +42,51 @@ Configure via `-Doption=value` with `meson setup`:
 - `cli=true|false` - Build CLI tool (default: true)
 - `slurm_plugin=true|false` - Build Slurm plugin (default: true)
 - `squashfs_mount=true|false` - Build squashfs-mount helper (default: false)
-- `oras_version=X.Y.Z` - ORAS version to download (default: 1.2.0)
+
+### Subproject options and stale build directories
+
+The `default_options` passed to a `subproject()` call in `meson.build` are applied
+**only the first time that subproject is configured**. Editing them and running
+`meson setup --reconfigure` does *nothing*: the build directory keeps the option
+values it was created with, the build succeeds, and the only symptom is a binary
+that was built the old way.
+
+This matters most for the `curl` subproject, where every feature is pinned
+explicitly so that the shipped binary has no runtime dependencies beyond libc,
+libstdc++, libm and libgcc_s. Most of curl's options default to `auto`, meaning
+they switch on wherever the build host happens to have the matching dev package
+installed — leaving any of them unpinned makes `ldd` output a property of the
+build machine rather than of the source tree.
+
+After changing a subproject's options, recreate the build directory:
+
+```bash
+meson setup --wipe build          # or: rm -rf build && meson setup ... build
+```
+
+Check the result rather than assuming it took — `meson setup` prints a feature
+summary per subproject, and the finished binary should show only the four system
+libraries:
+
+```bash
+ldd build/uenv
+```
+
+CI and the RPM build always start from a fresh directory, so they are unaffected;
+this only bites developers with a long-lived local build directory.
+
+Note that `meson setup --wipe` deletes the whole build directory, which fails if
+it contains a root-owned `staging/` from an earlier
+`sudo meson install --destdir=...`. Remove that with `sudo` first.
 
 ## Testing
 
-Four test suites exist:
+Five test suites exist:
 1. **unit** - C++ unit tests using Catch2 (in `test/unit/`)
 2. **cli** - CLI integration tests using BATS (in `test/integration/cli.bats`)
 3. **slurm** - Slurm plugin tests using BATS (in `test/integration/slurm.bats`)
 4. **squashfs-mount** - setuid helper tests using BATS (in `test/integration/squashfs-mount.bats`)
+5. **registry** - `uenv push`/`pull` against a throwaway local zot registry (in `test/integration/registry.bats`); self-skips when no zot binary is available
 
 ### Running Tests
 
@@ -57,9 +95,29 @@ To run the tests, run the tests directly instead of running them through meson.
 ```bash
 # Run tests directly
 ./test/unit                      # Unit tests
-./test/bats ./test/cli.bats     # CLI tests
-./test/bats ./test/slurm.bats   # Slurm tests
+./test/bats ./test/cli.bats      # CLI tests
+./test/bats ./test/slurm.bats    # Slurm tests
+./test/bats ./test/registry.bats # Registry (push/pull) tests
 ```
+
+### System name in tests
+
+Most CLI/Slurm tests resolve uenvs by a bare label (`app/42.0`, `tool`) and rely
+on the default system being `arapiles` (the repo records are stored `@arapiles`).
+
+The default system name comes from the config layers, merged in this order (later
+wins): `CLUSTER_NAME` env var → system config (`/etc/uenv/config.toml`) → user
+config (`$XDG_CONFIG_HOME/uenv/config.toml` or `$HOME/.config/uenv/config.toml`) →
+the `--system` CLI flag. On Alps the deployed system config sets
+`system_name = 'eiger'`, which **overrides `CLUSTER_NAME=arapiles`**. So exporting
+`CLUSTER_NAME` in a test is not sufficient.
+
+To force the system name, `cli.bats` and `slurm.bats` `setup()` write a throwaway
+user config that sets `system_name = 'arapiles'` and point `XDG_CONFIG_HOME` at it
+(user config beats system config). A test that writes its own `config.toml` must
+include `system_name = 'arapiles'` (or append to the file created in `setup()`
+with `>>` rather than clobbering it with `>`). Alternatively, pass `--system` on
+the command line.
 
 ### Elastic mock (`elastic_mock`)
 
@@ -85,6 +143,30 @@ elastic_mock kill /tmp/cap.json
 ```
 
 In BATS tests the helper functions in `common.bash` wrap the common lifecycle: `start_elastic_mock CAPTURE_FILE PORT` (backgrounds `serve` and calls `wait-server`), `stop_elastic_mock` (kills by PID), and `wait_elastic_post CAPTURE_FILE [TIMEOUT]`.
+
+### Registry mock (`registry_ctl`, `listing_mock`)
+
+The `registry` suite exercises the native OCI client (`src/oci`) end-to-end against
+a real registry, without containers or the old `oras` binary. Two helper scripts
+are built into `$BUILD_PATH/test` (and so are on `PATH` in all BATS tests):
+
+- `registry_ctl` — manages the lifecycle of a throwaway [zot](https://zotregistry.dev)
+  registry (a single static binary). Subcommands include `runtime` (report
+  the zot binary, empty if unavailable → suite self-skips), `free-port`, `serve
+  STATE PORT` (backgrounds itself), `wait PORT --timeout N`, `digest PORT REPO REF`,
+  and `kill STATE`.
+  The zot binary is fetched at build time by `test/integration/install-zot`.
+- `listing_mock` — stands in for the CSCS uenv listing service
+  (`https://uenv-list.svc.cscs.ch/list`); same `free-port`/`serve`/`wait-server`/`kill`
+  lifecycle. Point uenv at it with `registry.listing_url` in the config.
+
+`registry.bats` drives `registry_ctl serve` / `listing_mock serve` directly from
+its `setup_file` (the servers must outlive individual tests, so their state is
+exported rather than held in `common.bash` helper vars). It writes a user
+`config.toml` whose `[registry]` block sets `url`, `default_namespace`, and
+`listing_url` to point at the local zot + listing_mock. The `[registry]` unit tests
+in `test/unit/oci_registry.cpp` cover the OCI round-trip directly by starting their
+own zot.
 
 ### Testing squashfs-mount
 
@@ -120,11 +202,11 @@ sudo meson install --destdir=$STAGE --no-rebuild --skip-subprojects
   - Parsing (`parse.h/cpp`, `lex.h` in util)
   - Mounting (`mount.h/cpp`)
   - Meta data (`meta.h/cpp`)
-  - Container registry interaction (`oras.h/cpp`)
   - Views (`view.h/cpp`)
   - Telemetry (`telemetry.h/cpp`, `elastic.h/cpp`)
   - Logging (`log.h/cpp`, `print.h/cpp`)
   - Settings management (`settings.h/cpp`)
+- `src/oci/` - Native OCI registry client (container registry interaction: pull, push, copy, manifests, auth); replaces the external `oras` binary. See "Self-contained `src/oci`" below.
 - `src/util/` - Utility libraries (color, curl, envvars, fs, lex, lustre, semver, shell, signal, strings, subprocess, toml)
 - `src/site/` - Site-specific configuration (CSCS-specific logic)
 - `src/slurm/` - Slurm plugin implementation
@@ -166,17 +248,56 @@ All dependencies are built as static libraries via meson wrap:
 - nlohmann_json - JSON parsing
 - sqlite3 - database
 - libcurl - HTTP operations
+- zlib - gzip handling in the native OCI registry client (`src/oci`)
+- libarchive - tar packing/unpacking of the `uenv/meta` artifact, in-process via `src/util/archive.*` (replaces the external `tar`/`gzip` binaries)
 - Catch2 - testing (when tests enabled)
 - barkeep - progress indicators (header-only in `extern/`)
+- OpenSSL - the TLS backend for libcurl; no uenv code calls it directly
 
-The CLI build also downloads the ORAS binary for OCI registry operations.
-ORAS is installed in `prefix/libexec` for runtime use by the CLI.
+### The OpenSSL subproject is not a meson build
+
+Every other dependency above is built by meson. OpenSSL is not: upstream ships no
+meson build, and wrapdb's third-party port is frozen at 3.0.8 (Feb 2023), a series
+whose security support ends 2026-09-07. `subprojects/openssl.wrap` is therefore
+ours rather than wrapdb's, and `subprojects/packagefiles/openssl/` drives
+OpenSSL's own `Configure` + `make`.
+
+Consequences worth knowing:
+
+- **`perl` and `make` are build requirements**, in addition to meson/ninja/g++.
+- OpenSSL is configured *and compiled* during `meson setup`, not `meson compile`
+  (about 10-40 s on a cold build directory, a second on a warm one). It has to be:
+  most of OpenSSL 3.x's public headers are generated from `.h.in` templates, and
+  curl probes `openssl/ssl.h` while *it* is being configured; and a `custom_target`
+  output cannot be linked into the installed `libcurl` static library.
+- Because OpenSSL is linked statically, no distro update can ever patch it. The
+  version users run is the version built into the release, so bumping it is a
+  security task, not housekeeping. CI asserts the exact version to keep that
+  deliberate.
+- **Bumping the version**: change the URL, filename, directory and hash in
+  `subprojects/openssl.wrap` (verify the hash against the `.sha256` published
+  beside the release asset), the `version:` in
+  `subprojects/packagefiles/openssl/meson.build`, and the version assertion in
+  `.github/workflows/build_and_test.yml`. Nothing else should need to change.
+- **Editing `subprojects/packagefiles/openssl/*` has no effect on an already
+  extracted subproject** - the packagefiles are copied over the unpacked tarball
+  only when it is first extracted. Delete `subprojects/openssl-<version>/` to pick
+  changes up.
 
 ## Development Notes
 
 ### Code Style
 
 Always use braces `{}` on `if`, `for`, `while`, and other control flow statements, even for single-statement bodies.
+
+Do not use banner-style section comments with trailing dashes
+(`// --- section ------`). Prefer a three-line block comment:
+
+```cpp
+//
+// section
+//
+```
 
 ### Error Handling
 
@@ -185,14 +306,45 @@ Use `util::expected<T, E>` (similar to std::expected) for fallible operations. T
 ### Parsing
 
 The codebase has a custom lexer in `src/util/lex.h/cpp` for tokenizing inputs.
-Parse functions are in `src/uenv/parse.h/cpp` and return `util::expected<T, parse_error>`.
+The shared parsing scaffolding — the `parse_error` type, the `PARSE` macro, and
+the `parse_string` primitive — lives in `src/util/parse.h/cpp` (namespace `util`)
+so that it can be reused by any module.
+Parse functions return `util::expected<T, util::parse_error>`. The `uenv` parsers
+are in `src/uenv/parse.h/cpp`; the OCI client has its own parsers in
+`src/oci/parse.h/cpp` (see "Self-contained `src/oci`" below).
 All inputs are parsed instead of using regex or simple string processing.
 When we have to parse a new input type:
 1. update the lexer (if needed)
-2. add a `parse` function in `src/uenv/parse.h` and `src/uenv/parse.cpp`
-3. write unit tests in `test/unit/parse.cpp`
+2. add a `parse` function in the relevant `parse.h`/`parse.cpp`
+3. write unit tests in the matching `test/unit/*.cpp`
 4. run the unit tests, and repeat the process until they pass.
 
+### Self-contained `src/oci`
+
+The `src/oci/` module is a native OCI registry client written to replace the
+external `oras` binary. It is intended to be reusable and independently testable,
+so it must depend **only** on `src/util/` and external libraries (fmt,
+nlohmann_json, libcurl, spdlog, zlib).
+
+`src/oci/` must **not** include or depend on `src/uenv/`, `src/site/`, or
+`src/cli/`. Code that both `uenv` and `oci` need (for example the lexer and the
+parsing scaffolding) lives in `src/util/` precisely so that `oci` never has to
+reach up into `uenv`:
+
+- `src/util/lex.*` — the shared tokenizer.
+- `src/util/parse.*` — `util::parse_error`, the `PARSE` macro, and
+  `util::parse_string`.
+
+Parsing in `src/oci` follows the same lexer-based idiom as the rest of the
+codebase; JSON documents are parsed with nlohmann_json, while
+`src/oci/parse.*` handles the character-level string types (digests, references,
+URLs, the bearer challenge).
+
+Enforcement: this command must return nothing.
+
+```bash
+grep -rn '#include <\(uenv\|site\|cli\)/' src/oci/
+```
 
 ### Environment Variables
 

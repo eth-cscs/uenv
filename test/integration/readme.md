@@ -14,7 +14,7 @@ This will generate the test inputs in the `test` subdirectory of the build path,
 
 ## running the tests
 
-There are three separate sets of tests.
+There are four separate sets of tests.
 
 - `slurm.bats`: test the slurm plugin
     - ensure that you have built the plugin and configured slurm in your environment to use the plugin.
@@ -22,11 +22,16 @@ There are three separate sets of tests.
     - ensure that you have built the cli and that it is in your `PATH`.
 - `squashfs-mount.bats`: test the squashfs-mount cli tool
     - the tool is setuid, so an additional installation step is required (see below)
+- `registry.bats`: test `uenv image push`/`pull` against a throwaway local zot
+  registry (a binary downloaded by meson; no container runtime needed). Self-skips
+  if the zot binary is unavailable. The native OCI round-trip is covered by the
+  `[registry]` unit tests, which start their own zot.
 
 To run the respective tests, build with `-Dtests=enabled`, then in the build path:
 ```console
 ./test/bats ./test/slurm.bats
 ./test/bats ./test/cli.bats
+./test/bats ./test/registry.bats
 ```
 
 ## testing squashfs-mount

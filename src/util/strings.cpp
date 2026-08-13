@@ -1,5 +1,6 @@
+#include <algorithm>
+#include <cctype>
 #include <numeric>
-#include <regex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -8,18 +9,31 @@
 
 namespace util {
 
+std::string_view trim(std::string_view s) {
+    auto is_space = [](char c) {
+        return std::isspace(static_cast<unsigned char>(c)) != 0;
+    };
+    while (!s.empty() && is_space(s.front())) {
+        s.remove_prefix(1);
+    }
+    while (!s.empty() && is_space(s.back())) {
+        s.remove_suffix(1);
+    }
+    return s;
+}
+
 std::string strip(std::string_view input) {
-    if (input.empty()) {
-        return {};
+    return std::string{trim(input)};
+}
+
+std::string to_lower(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        out.push_back(
+            static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
     }
-    auto b = std::find_if_not(input.begin(), input.end(), std::iswspace);
-    if (b == input.end()) {
-        return {};
-    }
-    auto e = input.end();
-    while (std::iswspace(*--e))
-        ;
-    return {b, e + 1};
+    return out;
 }
 
 std::vector<std::string> split(std::string_view s, const char delim,
@@ -68,31 +82,45 @@ std::string join(std::string_view joiner,
     return result;
 }
 
-bool is_full_sha256(const std::string& str) {
-    std::regex pattern("^[a-fA-F0-9]{64}$");
-    std::smatch match;
-    std::regex_match(str, match, pattern);
-    if (!match.empty()) {
-        return true;
-    }
-    return false;
-}
+std::optional<std::string> base64_decode(std::string_view input) {
+    auto value = [](unsigned char c) -> int {
+        if (c >= 'A' && c <= 'Z') {
+            return c - 'A';
+        }
+        if (c >= 'a' && c <= 'z') {
+            return c - 'a' + 26;
+        }
+        if (c >= '0' && c <= '9') {
+            return c - '0' + 52;
+        }
+        if (c == '+') {
+            return 62;
+        }
+        if (c == '/') {
+            return 63;
+        }
+        return -1;
+    };
 
-bool is_id(const std::string& str) {
-    std::regex pattern("^[a-fA-F0-9]{16}$");
-    std::smatch match;
-    std::regex_match(str, match, pattern);
-    if (!match.empty()) {
-        return true;
+    std::string out;
+    int buffer = 0;
+    int bits = 0;
+    for (unsigned char c : input) {
+        if (c == '=' || std::isspace(c)) {
+            continue; // padding / whitespace: ignore
+        }
+        int v = value(c);
+        if (v < 0) {
+            return std::nullopt; // invalid character
+        }
+        buffer = (buffer << 6) | v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<char>((buffer >> bits) & 0xFF));
+        }
     }
-    return false;
-}
-
-bool is_sha(const std::string& str) {
-    if (is_id(str) || is_full_sha256(str)) {
-        return true;
-    }
-    return false;
+    return out;
 }
 
 } // namespace util

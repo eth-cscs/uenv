@@ -13,7 +13,7 @@
 TEST_CASE("validate_mounts", "[mount]") {
     // create some "fake" squashfs images
     // squashfs images start with the magic 4 charachters 'hsqs'
-    auto sqfs_root = util::make_temp_dir();
+    auto sqfs_root = util::make_temp_dir().value();
     auto sqfs_1 = sqfs_root / "sqfs1.squashfs";
     auto sqfs_2 = sqfs_root / "sqfs2.squashfs";
     auto sqfs_3 = sqfs_root / "sqfs3.squashfs";
@@ -22,11 +22,11 @@ TEST_CASE("validate_mounts", "[mount]") {
         std::ofstream{f} << "hsqsx";
     }
     // create some fake squashfs
-    auto mount = util::make_temp_dir();
+    auto mount = util::make_temp_dir().value();
     auto mount_a_b = mount / "a" / "b";
     auto mount_b = mount / "b";
     auto mount_a = mount / "a";
-    auto mount_other = util::make_temp_dir();
+    auto mount_other = util::make_temp_dir().value();
 
     // valid inputs
     for (auto input : {

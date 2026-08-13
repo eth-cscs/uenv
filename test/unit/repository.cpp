@@ -9,10 +9,10 @@
 namespace {
 
 auto msha(char c) {
-    return uenv::sha256(std::string(64, c));
+    return uenv::sha256::parse(std::string(64, c)).value();
 };
 auto mid(char c) {
-    return uenv::uenv_id(std::string(16, c));
+    return uenv::uenv_id::parse(std::string(16, c)).value();
 };
 
 // clang-format off
@@ -32,10 +32,10 @@ std::vector<uenv::uenv_record> icon_records = {
 
 // records with the same name/version:tag, that should be disambiguated by hash, system, uarch
 std::vector<uenv::uenv_record> duplicate_records = {
-    {"santis",  "gh200", "netcdf-tools", "2024", "v1", {}, 1024, msha('w'), mid('w')},
-    {"todi",    "gh200", "netcdf-tools", "2024", "v1", {}, 1024, msha('x'), mid('x')},
-    {"balfrin", "a100",  "netcdf-tools", "2024", "v1", {}, 1024, msha('y'), mid('y')},
-    {"balfrin", "zen3",  "netcdf-tools", "2024", "v1", {}, 1024, msha('z'), mid('z')},
+    {"santis",  "gh200", "netcdf-tools", "2024", "v1", {}, 1024, msha('d'), mid('d')},
+    {"todi",    "gh200", "netcdf-tools", "2024", "v1", {}, 1024, msha('e'), mid('e')},
+    {"balfrin", "a100",  "netcdf-tools", "2024", "v1", {}, 1024, msha('f'), mid('f')},
+    {"balfrin", "zen3",  "netcdf-tools", "2024", "v1", {}, 1024, msha('9'), mid('9')},
 };
 // clang-format on
 
@@ -97,7 +97,7 @@ TEST_CASE("find", "[repository]") {
 }
 
 TEST_CASE("existing", "[repository]") {
-    auto repo_dir = util::make_temp_dir();
+    auto repo_dir = util::make_temp_dir().value();
     auto repo = create_mini_repo(repo_dir);
     REQUIRE(repo);
 
@@ -118,10 +118,10 @@ TEST_CASE("existing", "[repository]") {
 TEST_CASE("duplicates", "[repository]") {
     // there are 4 records that match "netcdf-tools/2024:v1" that are
     // disambiguated by system and uarch
-    // - santis, gh200, sha=wwwww...
-    // - todi,   gh200, sha=xxxxx...
-    // - balfrin, a100, sha=yyyyy...
-    // - balfrin, zen3, sha=zzzzz...
+    // - santis, gh200, sha=ddddd...
+    // - todi,   gh200, sha=eeeee...
+    // - balfrin, a100, sha=fffff...
+    // - balfrin, zen3, sha=99999...
     // different vClusters are expected in the DB.
 
     auto repo = create_full_repo();
@@ -146,14 +146,14 @@ TEST_CASE("search_sha", "[repository]") {
     REQUIRE(repo);
 
     {
-        auto sha = msha('z');
+        auto sha = msha('9');
         auto result = *(repo->query({.name = sha.string()}));
         REQUIRE(result.size() == 1u);
         REQUIRE(result.begin()->name == "netcdf-tools");
     }
 
     {
-        auto sha = mid('z');
+        auto sha = mid('9');
         auto result = *(repo->query({.name = sha.string()}));
         REQUIRE(result.size() == 1u);
         REQUIRE(result.begin()->name == "netcdf-tools");
@@ -249,7 +249,7 @@ TEST_CASE("remove label", "[repository]") {
 }
 
 TEST_CASE("create disk repo", "[repository]") {
-    auto repo_dir = util::make_temp_dir();
+    auto repo_dir = util::make_temp_dir().value();
     {
         auto R = create_mini_repo(repo_dir);
         REQUIRE(R);

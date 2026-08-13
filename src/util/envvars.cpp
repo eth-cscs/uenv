@@ -176,6 +176,17 @@ void state::apply_patch(const patch& p, expand_delim mode) {
     }
 }
 
+std::optional<std::string> user_name(const state& env) {
+    for (const auto* name : {"USER", "LOGNAME"}) {
+        if (auto value = env.get(name)) {
+            if (const auto trimmed = util::trim(*value); !trimmed.empty()) {
+                return std::string{trimmed};
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 void c_env_free(char** env) {
     if (env == nullptr) {
         return;

@@ -9,8 +9,6 @@ project('uenv', ['cpp'],
         meson_version: '>=1.4')
 version = meson.project_version()
 
-oras_version = get_option('oras_version')
-
 uenv_slurm_plugin = get_option('slurm_plugin')
 uenv_cli = get_option('cli')
 uenv_squashfs_mount = get_option('squashfs_mount')
@@ -38,8 +36,62 @@ toml_dep = declare_dependency(
   dependencies: toml_base,
   compile_args: ['-DTOML_EXCEPTIONS=0', '-DTOML_HEADER_ONLY=0'],
 )
-subproject('curl', default_options: ['werror=false', 'warning_level=0', 'tests=disabled', 'unittests=disabled', 'tool=disabled'])
+# zlib: needed for gzip handling in the native OCI registry client
+# Built before curl so override_dependency('zlib') is in place for when curl is configured
+zlib_dep = subproject('zlib', default_options: ['warning_level=0', 'werror=false', 'default_library=static']).get_variable('zlib_dep')
+# openssl: the TLS backend for curl, and the SHA-256 implementation used by
+# src/util/sha.cpp - libcrypto's is an order of magnitude faster than a portable
+# C one, which matters because hashing bounds image push and pull.
+# Configured before curl so override_dependency('openssl') is in place for when
+# curl is configured; curl consumes it by name, we take libcrypto by hand.
+# Unlike every other subproject this one is not a meson build - it drives
+# OpenSSL's own Configure + make (see subprojects/packagefiles/openssl/), so
+# warning_level/werror/default_library would have nothing to apply to.
+libcrypto_dep = subproject('openssl').get_variable('libcrypto_dep')
+# Every curl feature is pinned explicitly. Almost all of them default to 'auto',
+# which means they switch on wherever the build host happens to have the dev
+# package installed - the binary we ship would then have runtime dependencies
+# that vary with the machine it was built on. Nothing here is left to chance.
+subproject('curl',
+        default_options: [
+            'werror=false', 'warning_level=0',
+            'tests=disabled', 'unittests=disabled', 'tool=disabled',
+            'libuv=disabled', # only used by curl's own tests, and only in debug builds
+            # TLS, via the vendored static openssl configured above
+            'ssl=enabled', 'openssl=enabled',
+            # the three features uenv actually relies on:
+            #   ipv6      - registries that only publish a AAAA record
+            #   asynchdns - threaded resolver, so the connect/total timeouts can
+            #               interrupt a hung DNS lookup
+            #   libz      - Content-Encoding: gzip, via the vendored static zlib
+            'ipv6=enabled', 'asynchdns=enabled', 'libz=enabled',
+            # everything else off. uenv speaks HTTP/1.1 over http(s) and nothing
+            # else - see CURLOPT_PROTOCOLS_STR in src/util/curl.cpp - and
+            # authenticates with Basic plus its own Authorization: Bearer header,
+            # so none of the protocol, auth or name-resolution extras below are
+            # reachable at runtime. They can be turned back on individually if a
+            # feature ever needs one.
+            'http2=disabled', 'brotli=disabled', 'zstd=disabled',
+            'psl=disabled', 'idn=disabled', 'gsasl=disabled',
+            'gss-api=disabled', 'ntlm=disabled', 'tls-srp=disabled',
+            'alt-svc=disabled', 'hsts=disabled', 'unixsockets=disabled',
+            'ssh=disabled', 'ldap=disabled', 'ldaps=disabled', 'rtmp=disabled',
+            'dict=disabled', 'ftp=disabled', 'gopher=disabled', 'imap=disabled',
+            'mqtt=disabled', 'pop3=disabled', 'rtsp=disabled', 'smb=disabled',
+            'smtp=disabled', 'telnet=disabled', 'tftp=disabled',
+        ])
 curl_dep = dependency('libcurl', required: true)
+# libarchive: used by the native OCI registry client to pack/unpack directories
+libarchive_dep = subproject('libarchive',
+        default_options: [
+            'warning_level=0', 'werror=false', 'default_library=static',
+            'progs=[]', 'tests=disabled', 'regex=disabled',
+            'zlib=enabled',
+            'bz2lib=disabled', 'libb2=disabled', 'lz4=disabled', 'zstd=disabled',
+            'lzma=disabled', 'lzo2=disabled', 'iconv=disabled', 'cng=disabled',
+            'openssl=disabled', 'xml2=disabled', 'expat=disabled',
+            'xattr=disabled', 'acl=disabled',
+        ]).get_variable('libarchive_dep')
 barkeep_dep = declare_dependency(
         include_directories: 'extern/barkeep',
         compile_args: ['-DBARKEEP_ENABLE_FMT_FORMAT'],
@@ -54,25 +106,39 @@ lib_src = [
         'src/uenv/log.cpp',
         'src/uenv/meta.cpp',
         'src/uenv/mount.cpp',
-        'src/uenv/oras.cpp',
+        'src/oci/auth.cpp',
+        'src/oci/client.cpp',
+        'src/oci/digest.cpp',
+        'src/oci/manifest.cpp',
+        'src/oci/parse.cpp',
+        'src/oci/pull.cpp',
+        'src/oci/push.cpp',
+        'src/oci/reference.cpp',
+        'src/oci/tag.cpp',
+        'src/oci/types.cpp',
+        'src/oci/util.cpp',
         'src/uenv/parse.cpp',
         'src/uenv/print.cpp',
         'src/uenv/repository.cpp',
         'src/uenv/settings.cpp',
         'src/uenv/telemetry.cpp',
         'src/uenv/uenv.cpp',
+        'src/util/archive.cpp',
         'src/util/color.cpp',
         'src/util/curl.cpp',
         'src/util/envvars.cpp',
         'src/util/fs.cpp',
         'src/util/lex.cpp',
         'src/util/lustre.cpp',
+        'src/util/parse.cpp',
         'src/util/semver.cpp',
+        'src/util/sha.cpp',
         'src/util/shell.cpp',
         'src/util/signal.cpp',
         'src/util/strings.cpp',
         'src/util/subprocess.cpp',
         'src/util/toml.cpp',
+        'src/util/url.cpp',
 ]
 lib_inc = include_directories('src')
 
@@ -80,12 +146,12 @@ lib_uenv = static_library(
         'uenv',
         lib_src,
         include_directories: lib_inc,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
+        dependencies: [curl_dep, zlib_dep, libcrypto_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
 )
 
 uenv_dep = declare_dependency(
         link_with: lib_uenv,
-        dependencies: [curl_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
+        dependencies: [curl_dep, zlib_dep, libcrypto_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
         include_directories: lib_inc
 )
 
@@ -129,28 +195,6 @@ if uenv_cli
               '-DVERSION="@0@"'.format(version),
             ],
             install: true)
-
-    arch = 'amd64'
-    if host_machine.cpu_family() == 'aarch64'
-        arch = 'arm64'
-    endif
-    oras_url = 'https://github.com/oras-project/oras/releases/download/v@0@/oras_@0@_linux_@1@.tar.gz'.format(oras_version, arch)
-
-    oras_download = custom_target(
-        'oras-download',
-        output: 'oras.tar.gz',
-        command: ['wget', '--quiet', oras_url, '-O', '@OUTPUT@'],
-        install: false,
-    )
-
-    oras_extract = custom_target(
-        'oras-extract',
-        input: oras_download,
-        output: 'oras',
-        command: ['tar', 'xf', '@INPUT@', 'oras'],
-        install: true,
-        install_dir: get_option('libexecdir'),
-    )
 
     meson.add_install_script('./meson-scripts/install-bash-completion.sh')
 endif

@@ -8,9 +8,15 @@
 
 namespace util {
 
-std::filesystem::path make_temp_dir();
+util::expected<std::filesystem::path, std::string> make_temp_dir();
 
 bool is_temp_dir(const std::filesystem::path& path);
+
+// Ensure `path` is a writable directory, creating it (and any missing parents)
+// if necessary. Succeeds only when the final path exists, is a directory, and
+// is writable.
+util::expected<void, std::string>
+ensure_directory(const std::filesystem::path& path);
 
 util::expected<std::filesystem::path, std::string>
 unsquashfs_tmp(const std::filesystem::path& sqfs,
@@ -48,10 +54,6 @@ make_file_lock(const std::filesystem::path& path);
 // return the path of the current executable
 // returns empty if there is an error
 std::optional<std::filesystem::path> exe_path();
-
-// return the path of the oras executable
-// returns empty if it can't be found
-std::optional<std::filesystem::path> oras_path();
 
 // for determining the level of access to a file or directory
 // if there is an error, or the file does not exist `none` is

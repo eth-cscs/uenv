@@ -39,6 +39,35 @@ util::unexpected<config_error> make_config_error(std::string message,
         config_error{.message = std::move(message), .line = line}};
 }
 
+// Parse a url-valued configuration key. The scheme defaults to https, which is
+// how the CSCS deployment writes registry.url ("jfrog.svc.cscs.ch/uenv"); an
+// explicit http:// is honoured so a local test registry can be reached. Any
+// other scheme is refused here, at the boundary, rather than by whatever
+// eventually tries to fetch it.
+util::expected<util::url, config_error>
+parse_config_url(std::string_view key, const std::string& text,
+                 std::uint32_t line) {
+    auto u = util::parse_url(text);
+    if (u && u->scheme() == util::url_scheme::none) {
+        // no scheme: assume https. re-parsing cannot fail - the text already
+        // parsed, and a scheme is all that is being added.
+        u = util::parse_url("https://" + text);
+    }
+    if (!u) {
+        return make_config_error(
+            fmt::format("{} is not a valid url: {}", key, u.error().message()),
+            line);
+    }
+    if (u->scheme() != util::url_scheme::https &&
+        u->scheme() != util::url_scheme::http) {
+        return make_config_error(
+            fmt::format("{} must be an http or https url, but names '{}'", key,
+                        u->scheme_text()),
+            line);
+    }
+    return *u;
+}
+
 util::expected<repository, std::string>
 concretise_user_repo(const configuration& config) {
     const auto description = config.user_repo();
@@ -585,6 +614,10 @@ parse_registry(const toml::node& input) {
     std::optional<std::string> url{};
     std::optional<std::string> default_namespace{};
     std::optional<std::string> artifactory_url{};
+    std::optional<std::string> listing_url{};
+    std::uint32_t url_line = input.source().begin.line;
+    std::uint32_t artifactory_line = url_line;
+    std::uint32_t listing_line = url_line;
 
     for (const auto& entry : *tbl) {
         std::string_view key = entry.first.str();
@@ -592,9 +625,19 @@ parse_registry(const toml::node& input) {
         if (key == "url") {
             if (auto v = value.value<std::string>()) {
                 url = v.value();
+                url_line = value.source().begin.line;
             } else {
                 return make_config_error("registry.url must be a string",
                                          value.source().begin.line);
+            }
+        } else if (key == "listing_url") {
+            if (auto v = value.value<std::string>()) {
+                listing_url = v.value();
+                listing_line = value.source().begin.line;
+            } else {
+                return make_config_error(
+                    "registry.listing_url must be a string",
+                    value.source().begin.line);
             }
         } else if (key == "default_namespace") {
             if (auto v = value.value<std::string>()) {
@@ -607,6 +650,7 @@ parse_registry(const toml::node& input) {
         } else if (key == "artifactory_url") {
             if (auto v = value.value<std::string>()) {
                 artifactory_url = v.value();
+                artifactory_line = value.source().begin.line;
             } else {
                 return make_config_error(
                     "registry.artifactory_url must be a string",
@@ -626,10 +670,36 @@ parse_registry(const toml::node& input) {
                                  input.source().begin.line);
     }
 
-    return registry_config{.url = std::move(url.value()),
+    // parse the endpoints here, at the boundary, so a malformed url is reported
+    // against the key that carries it.
+    auto parsed_url = parse_config_url("registry.url", *url, url_line);
+    if (!parsed_url) {
+        return util::unexpected{parsed_url.error()};
+    }
+    std::optional<util::url> parsed_artifactory;
+    if (artifactory_url) {
+        auto p = parse_config_url("registry.artifactory_url", *artifactory_url,
+                                  artifactory_line);
+        if (!p) {
+            return util::unexpected{p.error()};
+        }
+        parsed_artifactory = std::move(*p);
+    }
+    std::optional<util::url> parsed_listing;
+    if (listing_url) {
+        auto p = parse_config_url("registry.listing_url", *listing_url,
+                                  listing_line);
+        if (!p) {
+            return util::unexpected{p.error()};
+        }
+        parsed_listing = std::move(*p);
+    }
+
+    return registry_config{.url = std::move(*parsed_url),
                            .default_namespace =
                                std::move(default_namespace.value()),
-                           .artifactory_url = std::move(artifactory_url)};
+                           .artifactory_url = std::move(parsed_artifactory),
+                           .listing_url = std::move(parsed_listing)};
 }
 
 util::expected<config_base, config_error>

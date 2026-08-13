@@ -10,11 +10,13 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <oci/client.h>
+#include <oci/pull.h>
 #include <site/site.h>
-#include <uenv/oras.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
+#include <util/color.h>
 #include <util/curl.h>
 #include <util/expected.h>
 #include <util/fs.h>
@@ -23,6 +25,7 @@
 #include "help.h"
 #include "pull.h"
 #include "terminal.h"
+#include "util.h"
 
 namespace uenv {
 
@@ -71,8 +74,10 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
     }
     const auto& registry_cfg = *settings.config.registry;
 
-    std::optional<uenv::oras::credentials> credentials;
-    if (auto c = oras::get_credentials(args.username, args.token)) {
+    std::optional<oci::credentials> credentials;
+    if (auto c = resolve_registry_credentials(settings.calling_environment,
+                                              registry_cfg.url, args.username,
+                                              args.token)) {
         credentials = *c;
     } else {
         term::error("{}", c.error());
@@ -102,7 +107,7 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
 
     spdlog::info("image_pull: {}::{}", nspace, label);
 
-    auto registry = site::registry_listing(nspace);
+    auto registry = site::registry_listing(registry_cfg.listing_url, nspace);
     if (!registry) {
         term::error("unable to get a listing of the uenv", registry.error());
         return 1;
@@ -172,26 +177,56 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
     spdlog::debug("pull sqfs: {}", pull_sqfs);
 
     if (pull_sqfs || pull_meta) {
+        // split the configured registry "host/prefix" (e.g.
+        // "jfrog.svc.cscs.ch/uenv") into a base URL and the repository prefix,
+        // then build the OCI repository name the same way the oras address was
+        // formed: <prefix>/<nspace>/<system>/<uarch>/<name>/<version>.
+        const auto loc = oci::split_registry(registry_cfg.url);
+        const auto registry_base = loc.base;
+        const std::string repository =
+            oci::repository_path(loc.prefix, nspace, record.system,
+                                 record.uarch, record.name, record.version);
+
+        spdlog::debug("oci pull: registry={} repository={}", registry_base,
+                      repository);
+
+        auto client =
+            oci::client::create(registry_base, repository, credentials);
+        if (!client) {
+            term::error("unable to connect to the registry:\n{}",
+                        client.error());
+            return 1;
+        }
+
+        // identify the image by its manifest digest (record.sha).
+        const auto image_digest = oci::digest::sha256(record.sha);
+        const auto manifest_ref = oci::reference::digest(image_digest);
+
         try {
-            auto rego_url = registry_cfg.url;
-            spdlog::debug("registry url: {}", rego_url);
+            // the image manifest is needed for the squashfs layer; fetch +
+            // parse once.
+            auto response = client->get_manifest(manifest_ref);
+            if (!response) {
+                term::error("unable to fetch the image manifest:\n{}",
+                            response.error());
+                return 1;
+            }
+            auto manifest = oci::parse_manifest(response->body);
+            if (!manifest) {
+                term::error("unable to parse the image manifest:\n{}",
+                            manifest.error());
+                return 1;
+            }
 
             if (pull_meta) {
-                // the digests returned by oras::discover is a list of artifacts
-                // that have been "oras attach"ed to our squashfs image. This
-                // would be empty if no meta data was attached.
-                auto digests =
-                    oras::discover(rego_url, nspace, record, credentials);
-                if (!digests) {
-                    term::error("unable to pull meta digest.\n{}",
-                                digests.error().message);
+                auto found = oci::pull_meta(*client, image_digest, paths.store);
+                if (!found) {
+                    term::error("unable to pull meta data.\n{}", found.error());
                     return 1;
                 }
-                if (digests->empty()) {
-                    // No metadata attached in the registry.
-                    // If the user explicitly requested metadata (--only-meta or
-                    // sqfs already exists), this is an error. Otherwise, warn
-                    // and continue to pull the squashfs.
+                if (!*found) {
+                    // No metadata attached. Error if the user explicitly wanted
+                    // it; otherwise warn and continue to the squashfs.
                     if (!pull_sqfs) {
                         term::error("uenv exists in registry but has no "
                                     "attached metadata");
@@ -199,32 +234,45 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
                     }
                     term::warn(
                         "uenv exists in registry but has no attached metadata");
-                } else {
-                    spdlog::debug("manifests: {}", fmt::join(*digests, ", "));
-
-                    // We assume that there is one, and only, digest attached to
-                    // the squashfs image: the meta data directory.
-                    // pull_digest will download the digest: in the case of meta
-                    // data it will unpack the meta path into paths.store.
-                    const auto digest = *(digests->begin());
-
-                    if (auto okay =
-                            oras::pull_digest(rego_url, nspace, record, digest,
-                                              paths.store, credentials);
-                        !okay) {
-                        term::error("unable to pull uenv.\n{}",
-                                    okay.error().message);
-                        return 1;
-                    }
                 }
             }
 
             if (pull_sqfs) {
-                auto tag_result = oras::pull_tag(rego_url, nspace, record,
-                                                 paths.store, credentials);
-                if (!tag_result) {
-                    term::error("unable to pull uenv.\n{}",
-                                tag_result.error().message);
+                auto bar = uenv::make_transfer_bar(
+                    record.size_byte,
+                    fmt::format("pulling {}", record.id.string()));
+
+                auto progress = [&bar](std::uint64_t now, std::uint64_t) {
+                    bar->update(now);
+                };
+                // util::signal_raised() consumes (resets) the flag, so it must
+                // be checked exactly once. latch the result here in the abort
+                // predicate; the post-download check then reads the latch
+                // rather than calling signal_raised() again (which would see
+                // false and skip the cleanup, leaving a partial download
+                // behind).
+                bool aborted = false;
+                util::set_signal_catcher();
+                auto result = oci::pull_squashfs(
+                    *client, *manifest, paths.store, progress, [&aborted]() {
+                        aborted = aborted || util::signal_raised();
+                        return aborted;
+                    });
+                // fill the bar when the download succeeded.
+                if (result) {
+                    bar->finish();
+                } else {
+                    bar->stop();
+                }
+
+                if (!result) {
+                    // a Ctrl-C during the download aborts the transfer; surface
+                    // it as a signal so the cleanup below runs.
+                    if (aborted) {
+                        throw util::signal_exception(
+                            util::last_signal_raised());
+                    }
+                    term::error("unable to pull uenv.\n{}", result.error());
                     return 1;
                 }
             }

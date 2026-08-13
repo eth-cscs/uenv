@@ -88,10 +88,10 @@ exec_error exec(const std::vector<std::string>& args, char* const envp[]) {
     }
     argv.push_back(nullptr);
 
-    // WARNING: do not log all arguments to the command that is being executbd
+    // WARNING: do not log all arguments to the command that is being executed
     //          because it might leak secrets: it is the responsibility of
-    //          callers to log the call appropriately, for example the oras
-    //          wrappers that remove secrets before printing.
+    //          callers to log the call appropriately, removing any secrets
+    //          before printing.
     int r;
     if (envp == nullptr) {
         spdlog::info("execvp({})", args[0]);

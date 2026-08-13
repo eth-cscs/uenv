@@ -10,6 +10,10 @@ bool operator==(const token& lhs, const token& rhs) {
            lhs.spelling == rhs.spelling;
 };
 
+bool operator==(const token& lhs, tok rhs) {
+    return lhs.kind == rhs;
+}
+
 inline bool is_alphanumeric(char c) {
     return std::isalnum(static_cast<unsigned char>(c));
 }
@@ -60,6 +64,14 @@ class lexer_impl {
         stream_ = current_stream;
 
         return current_token;
+    }
+
+    void seek(unsigned pos) {
+        if (pos > input_.size()) {
+            pos = input_.size();
+        }
+        stream_ = input_.begin() + pos;
+        parse();
     }
 
     tok current_kind() {
@@ -144,6 +156,50 @@ class lexer_impl {
                 return;
             case '+':
                 character_token(tok::plus);
+                ++stream_;
+                return;
+            case '?':
+                character_token(tok::question);
+                ++stream_;
+                return;
+            case '&':
+                character_token(tok::amp);
+                ++stream_;
+                return;
+            case '~':
+                character_token(tok::tilde);
+                ++stream_;
+                return;
+            case '[':
+                character_token(tok::lbracket);
+                ++stream_;
+                return;
+            case ']':
+                character_token(tok::rbracket);
+                ++stream_;
+                return;
+            case '$':
+                character_token(tok::dollar);
+                ++stream_;
+                return;
+            case ';':
+                character_token(tok::semicolon);
+                ++stream_;
+                return;
+            case '(':
+                character_token(tok::lparen);
+                ++stream_;
+                return;
+            case ')':
+                character_token(tok::rparen);
+                ++stream_;
+                return;
+            case '\'':
+                character_token(tok::squote);
+                ++stream_;
+                return;
+            case '"':
+                character_token(tok::dquote);
                 ++stream_;
                 return;
 
@@ -237,6 +293,10 @@ token lexer::next() {
 
 token lexer::peek(unsigned n) {
     return impl_->peek(n);
+}
+
+void lexer::seek(unsigned pos) {
+    impl_->seek(pos);
 }
 
 tok lexer::current_kind() const {

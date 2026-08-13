@@ -154,4 +154,11 @@ void buffered_ostream::putline(std::string_view line) {
     stream() << line << std::endl;
 }
 
+void buffered_ostream::close() {
+    if (buffer_->is_open()) {
+        stream_->flush();
+        buffer_->close();
+    }
+}
+
 } // namespace util

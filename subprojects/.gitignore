@@ -1,0 +1,14 @@
+Catch2-*
+CLI11-*
+curl-*
+fmt-*
+libarchive-*
+nlohmann_json-*
+openssl-*
+packagecache
+spdlog-*
+sqlite-amalgamation-*
+tomlplusplus-*
+zlib-*
+.wraplock
+.wrapdb
