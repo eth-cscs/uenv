@@ -26,6 +26,8 @@ void run_args::add_cli(CLI::App& cli, global_settings& settings) {
     auto* run_cli = cli.add_subcommand("run", "run a uenv session");
     run_cli->add_option("-v,--view", view_description,
                         "comma separated list of views to load");
+    run_cli->add_flag("-j,--join", join,
+                      "comma separated list of views to load");
     run_cli
         ->add_option("uenv", uenv_description,
                      "comma separated list of uenv to mount")
@@ -34,6 +36,7 @@ void run_args::add_cli(CLI::App& cli, global_settings& settings) {
         ->add_option("commands", commands,
                      "the command to run, including with arguments")
         ->required();
+
     run_cli->add_flag(
         "-V,--no-default-view", disable_default_view,
         "disable loading default views when no view is specified");
@@ -86,8 +89,9 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
                                      m.second.mount_path));
     }
 
-    const auto commands = uenv::squashfs_mount_args(
-        settings.calling_environment, mounts, args.commands);
+    const auto commands =
+        uenv::squashfs_mount_args(settings.calling_environment, mounts,
+                                  args.join, settings.verbose, args.commands);
 
     auto c_env = runtime_environment.c_env();
     auto error = util::exec(commands, c_env);

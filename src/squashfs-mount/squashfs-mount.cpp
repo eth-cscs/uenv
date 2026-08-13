@@ -1,4 +1,7 @@
-#include <ranges>
+#include "util/expected.h"
+#include <filesystem>
+#include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -11,17 +14,15 @@
 #include <uenv/config.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
+#include <uenv/ns_join.h>
 #include <uenv/parse.h>
 #include <util/color.h>
 #include <util/envvars.h>
 #include <util/shell.h>
 
-#include <libmount.h>
-#include <sys/mount.h>
-#include <sys/prctl.h>
-
-void return_to_user_and_no_new_privs(int uid);
-void unshare_mntns_and_become_root();
+#ifdef UENV_FUSE_MOUNT
+#include <uenv/rootless.h>
+#endif
 
 // print a formtted error message and exit with return code 1
 template <typename... T>
@@ -31,21 +32,92 @@ void error_and_exit(fmt::format_string<T...> fmt, T&&... args) {
     exit(1);
 }
 
+bool is_setuid() {
+    uid_t euid = geteuid();
+    uid_t real_uid = getuid();
+
+    return euid != real_uid;
+}
+
+// synchronize tasks on the same node: the winner performs the mounts, the
+// rest join the winner's namespaces.
+template <typename R>
+void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
+    uenv::join_t join;
+
+    if (tasks_join) {
+        auto r = uenv::join_begin(join, "tag");
+        if (!r) {
+            error_and_exit("join_begin failed {}", r.error());
+        }
+    }
+
+    if (!tasks_join || join.winner_p) {
+        auto r = mount();
+        if (!r) {
+            error_and_exit("mount failed {}", r.error());
+        }
+        if (tasks_join) {
+            // publish winner_pid and release the losers blocked in
+            // join_begin so they can join our namespaces.
+            if (auto rr = uenv::join_ready(join, ntasks, std::nullopt); !rr) {
+                error_and_exit("join_ready failed {}", rr.error());
+            }
+        }
+    } else {
+        std::vector<std::string> namespaces;
+        if (is_setuid()) {
+            // the setuid version unshares the mount namespace only
+            namespaces = {"mnt"};
+        } else {
+            namespaces = {"user", "mnt"};
+        }
+        auto r = uenv::namespaces_join(join.shared->winner_pid, namespaces);
+        if (auto sr = uenv::join_signal_done(join); !sr) {
+            spdlog::warn("join_signal_done failed: {}", sr.error());
+        }
+        if (!r) {
+            error_and_exit("namespaces_join failed {}", r.error());
+        }
+    }
+
+    if (tasks_join) {
+        uenv::join_end(join);
+    }
+}
+
 // squashfs-mount --sqfs=file:mount[,file:mount] -- cmd [args]
 //
 // --version --verbose=2, -v, -vv, -vvv
 int main(int argc, char** argv, char** envp) {
+    //
+    // refuse to use fuse/rootless with setuid
+    //
+#ifdef UENV_FUSE_MOUNT
+    if (is_setuid()) {
+        error_and_exit("Error: attempt to use fuse as setuid.");
+    }
+#endif
+
     //
     // Capture the environment variables
     //
 
     const auto calling_env = envvars::state(envp);
 
+    // get the uid/gid before performing any privilege/namespace changes
+    const uid_t uid = getuid();
+#ifdef UENV_FUSE_MOUNT
+    const gid_t gid = getgid();
+#endif
+
     //
     // Command line argument parsing
     //
 
     bool print_version = false;
+    bool tasks_join = false;
+    [[maybe_unused]] bool fuse_st = false;
     int verbosity = 1;
     std::optional<std::string> raw_mounts;
     std::optional<std::vector<std::string>> commands;
@@ -53,10 +125,17 @@ int main(int argc, char** argv, char** envp) {
     CLI::App cli(fmt::format("squashfs-mount {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
     cli.add_flag("--version", print_version, "print version");
+    cli.add_flag("--join", tasks_join,
+                 "join namespaces of tasks on the same node");
     cli.add_option("-s,--sqfs", raw_mounts,
                    "comma separated list of squashfs files to mount");
     cli.add_option("commands", commands,
                    "the command to run, including with arguments");
+
+    if (!is_setuid()) {
+        cli.add_flag("--fuse-single", fuse_st,
+                     "fuse single threaded (ignored unless built with fuse)");
+    }
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -90,44 +169,112 @@ int main(int argc, char** argv, char** envp) {
     } else if (verbosity >= 3) {
         console_log_level = spdlog::level::trace;
     }
+    // note: syslog uses level::info to capture key events
     uenv::init_log(console_log_level);
 
-    // get the uid before performing any updates to uid
-    const uid_t uid = getuid();
+    //
+    // validate the mount points
+    //
 
-    std::string uenv_mount_list = "";
+    uenv::mount_list mounts;
     if (raw_mounts) {
-        //
-        // validate the mount points
-        //
-
-        auto mounts = uenv::parse_and_validate_mounts(*raw_mounts);
-        if (!mounts) {
-            error_and_exit("{}", mounts.error());
-        }
-        uenv_mount_list = fmt::format("{}", fmt::join(mounts.value(), ","));
-
-        spdlog::info("uenv_mount_list {}", uenv_mount_list);
-        spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
-
-        //
-        // Mount the file systems
-        //
-
-        unshare_mntns_and_become_root();
-
-        if (auto r = uenv::do_mount(mounts.value()); !r) {
+        auto r = uenv::parse_and_validate_mounts(*raw_mounts);
+        if (!r) {
             error_and_exit("{}", r.error());
         }
+        mounts = r.value();
+    }
+    const std::string uenv_mount_list =
+        fmt::format("{}", fmt::join(mounts, ","));
+
+    spdlog::info("uenv_mount_list {}", uenv_mount_list);
+    spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
+
+    //
+    // Select the implementations of the three points where the setuid
+    // (kernel squashfs driver) and rootless (squashfuse in a user namespace)
+    // builds differ:
+    //  * setup_sandbox: unshare namespaces and gain the privileges required
+    //    to perform the mounts below.
+    //  * mount_sqfs: mount a single squashfs image.
+    //  * exit_sandbox: return to the unprivileged calling user and
+    //    disallow gaining any new privileges.
+    // Everything else -- argument parsing, forwarding the environment, and
+    // exec'ing the command is shared.
+    //
+    using hook = std::function<util::expected<void, std::string>()>;
+    using mount_hook = std::function<util::expected<void, std::string>(
+        const uenv::mount_pair&)>;
+
+#ifdef UENV_FUSE_MOUNT
+    hook setup_sandbox = []() {
+        return uenv::rootless::unshare_mount_map_root();
+    };
+    mount_hook mount_sqfs = [fuse_st](const uenv::mount_pair& entry) {
+        return uenv::rootless::do_sqfs_ll_mount(entry, fuse_st);
+    };
+    hook exit_sandbox = [uid, gid]() {
+        return uenv::rootless::exit_sandbox(uid, gid);
+    };
+#else
+    hook setup_sandbox = []() { return uenv::unshare_and_become_root(); };
+    mount_hook mount_sqfs = [](const uenv::mount_pair& entry) {
+        return uenv::do_mount({entry});
+    };
+    // for setuid, priviledges are always dropped and for all tasks
+    // therefore this hook is empty
+    hook exit_sandbox = []() -> util::expected<void, std::string> {
+        return {};
+    };
+#endif
+
+    //
+    // mount: the squashfs images.
+    //
+    auto do_mounts = [&mounts,
+                      &mount_sqfs]() -> util::expected<void, std::string> {
+        for (auto& entry : mounts) {
+            if (auto r = mount_sqfs(entry); !r) {
+                return r;
+            }
+        }
+
+        return {};
+    };
+
+    const bool has_work = !mounts.empty();
+
+    if (has_work) {
+        auto pipeline = [&setup_sandbox, &do_mounts,
+                         &exit_sandbox]() -> util::expected<void, std::string> {
+            if (auto r = setup_sandbox(); !r) {
+                return r;
+            }
+            if (auto r = do_mounts(); !r) {
+                return r;
+            }
+            return exit_sandbox();
+        };
+
+        int ntasks = std::stoi(
+            calling_env.get("SLURM_STEP_TASKS_PER_NODE").value_or("1"));
+        /// SLURM only at the moment
+        spdlog::trace("SLURM_STEP_TASKS_PER_NODE: {}", ntasks);
+        // join only if > 1 task
+        tasks_join = ntasks > 1 ? tasks_join : false;
+        mount_and_join_ns(tasks_join, ntasks, pipeline);
     } else {
         spdlog::warn("nothing mounted (no --sqfs flag provided)");
     }
-
-    //
-    // Drop privelages
-    //
-
-    return_to_user_and_no_new_privs(uid);
+    if (is_setuid()) {
+        // the setuid binary always starts with an elevated effective uid, so
+        // it has to be dropped even when there is nothing to mount and for all
+        // tasks
+        auto r = uenv::return_to_user_and_no_new_privs(uid);
+        if (!r) {
+            error_and_exit("{}", r.error());
+        }
+    }
 
     //
     // Generate the runtime environment variables
@@ -159,7 +306,7 @@ int main(int argc, char** argv, char** envp) {
         }
     }
 
-    runtime_env.set("SQUASHFS_MOUNT_LIST", uenv_mount_list);
+    runtime_env.set("UENV_MOUNT_LIST", uenv_mount_list);
 
     auto cenv = runtime_env.c_env();
     auto error = util::exec(*commands, cenv);
@@ -170,36 +317,4 @@ int main(int argc, char** argv, char** envp) {
     error_and_exit("{}", error.message);
 
     return error.rcode;
-}
-
-void unshare_mntns_and_become_root() {
-    if (unshare(CLONE_NEWNS) != 0) {
-        error_and_exit("Failed to unshare the mount namespace");
-    }
-
-    if (mount(NULL, "/", NULL, MS_SLAVE | MS_REC, NULL) != 0) {
-        error_and_exit("Failed to remount \"/\" with MS_SLAVE");
-    }
-
-    // Set real user to root before creating the mount context, otherwise it
-    // fails.
-    if (setreuid(0, 0) != 0) {
-        error_and_exit("Failed to setreuid");
-    }
-
-    // Configure the mount
-    // Makes LIBMOUNT_DEBUG=... work.
-    mnt_init_debug(0);
-}
-
-// set real, effective, saved user id to original user and allow no new
-// priviledges
-void return_to_user_and_no_new_privs(int uid) {
-    if (setresuid(uid, uid, uid) != 0) {
-        error_and_exit("setresuid failed");
-    }
-
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-        error_and_exit("PR_SET_NO_NEW_PRIVS failed");
-    }
 }

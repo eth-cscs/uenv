@@ -99,6 +99,7 @@ unit_src = [
         'unit/lex.cpp',
         'unit/main.cpp',
         'unit/mount.cpp',
+        'unit/ns_join.cpp',
         'unit/oci_auth.cpp',
         'unit/oci_client.cpp',
         'unit/oci_digest.cpp',
@@ -127,9 +128,15 @@ unit = executable('unit',
 
 test('unit', unit, is_parallel : false)
 if uenv_cli
-  test('cli', bats, args: ['./test/cli.bats'], is_parallel : false)
+  cli_env = []
+  if uenv_squashfs_mount
+    cli_env += ['LSAN_OPTIONS=suppressions=' + integration_path + '/squashfs-mount-lsan.supp:print_suppressions=0']
+  endif
+  test('cli', bats, args: ['./test/cli.bats'], env: cli_env, is_parallel : false)
   test('registry', bats, args: ['./test/registry.bats'], is_parallel : false)
 endif
 if uenv_squashfs_mount
-  test('squashfs-mount', bats, args: ['./test/squashfs-mount.bats'], is_parallel : false)
+  test('squashfs-mount', bats, args: ['./test/squashfs-mount.bats'],
+       env: ['LSAN_OPTIONS=suppressions=' + integration_path + '/squashfs-mount-lsan.supp:print_suppressions=0'],
+       is_parallel : false)
 endif

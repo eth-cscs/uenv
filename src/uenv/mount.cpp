@@ -23,6 +23,7 @@
 #include <libmount/libmount.h>
 #include <spdlog/spdlog.h>
 
+#include "macros.h"
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <util/expected.h>
@@ -177,6 +178,40 @@ parse_and_validate_mounts(const std::string& description) {
     return validate_mount_descriptions(mount_descriptions.value());
 }
 
+util::expected<void, std::string> unshare_and_become_root() {
+    if (unshare(CLONE_NEWNS) != 0) {
+        return util::unexpected("Failed to unshare the mount namespace");
+    }
+
+    if (auto r = uenv::mount(std::nullopt, "/", std::nullopt, MS_SLAVE | MS_REC,
+                             nullptr);
+        !r) {
+        return r;
+    }
+
+    // Set real user to root before creating the mount context, otherwise it
+    // fails.
+    if (setreuid(0, 0) != 0) {
+        return util::unexpected("Failed to setreuid");
+    }
+
+    // Makes LIBMOUNT_DEBUG=... work.
+    mnt_init_debug(0);
+    return {};
+}
+
+util::expected<void, std::string> return_to_user_and_no_new_privs(uid_t uid) {
+    // set real, effective, saved user id back to the calling user.
+    if (setresuid(uid, uid, uid) != 0) {
+        return util::unexpected("setresuid failed");
+    }
+
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+        return util::unexpected("PR_SET_NO_NEW_PRIVS failed");
+    }
+    return {};
+}
+
 util::expected<void, std::string>
 do_mount(const std::vector<mount_pair>& mount_entries) {
     if (mount_entries.size() == 0) {
@@ -195,6 +230,10 @@ do_mount(const std::vector<mount_pair>& mount_entries) {
         }
 
         auto cxt = mnt_new_context();
+
+        if (mnt_context_force_unrestricted(cxt) != 0) {
+            return util::unexpected("mnt_context_force_unrestricted failed");
+        }
 
         if (mnt_context_disable_mtab(cxt, 1) != 0) {
             return util::unexpected("Failed to disable mtab");
@@ -226,10 +265,24 @@ do_mount(const std::vector<mount_pair>& mount_entries) {
             // careful: mnt_context_get_target can return NULL
             std::string target = (target_buf == nullptr) ? "?" : target_buf;
 
-            return util::unexpected(target + ": " + code_buf);
+            return util::unexpected(target + ": " + code_buf +
+                                    fmt::format("{}:{}", __FILE__, __LINE__));
         }
     }
 
+    return {};
+}
+
+util::expected<void, std::string> mount(std::optional<std::string> source,
+                                        const std::string& dest,
+                                        std::optional<std::string> fstype,
+                                        unsigned long mountflags,
+                                        const void* nullable_data) {
+    spdlog::trace("mount({}, {}, {}, {:b})",
+                  source ? source.value().c_str() : "null", dest,
+                  fstype ? fstype.value().c_str() : "null", mountflags);
+    Z_e(::mount(source ? source->c_str() : nullptr, dest.c_str(),
+                fstype ? fstype->c_str() : nullptr, mountflags, nullable_data));
     return {};
 }
 

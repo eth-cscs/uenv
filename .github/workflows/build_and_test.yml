@@ -1,5 +1,9 @@
 name: Build and test
 
+defaults:
+  run:
+    shell: bash -l {0}
+
 on:
   merge_group:
   pull_request:
@@ -17,24 +21,50 @@ jobs:
           - buildtype: release
             sanitizer: address
     runs-on: ubuntu-24.04
+    container:
+        image: ubuntu:noble
+        options: --privileged
     steps:
       - uses: actions/checkout@v7
       - name: Update apt repositories for ccache
-        run: sudo apt update
+        run: apt update
       - name: Install dependencies
-        run: sudo apt-get install util-linux libmount-dev libslurm-dev
+        run: apt-get install --no-install-recommends --yes util-linux libmount-dev libslurm-dev
       #  run: sudo apt-get install util-linux libmount-dev slurm-wlm libslurm-dev slurmd slurmctld slurm-client
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ccache-linux-${{ matrix.buildtype }}-${{ matrix.sanitizer }}
       - name: Install compiler and build tools
-        run: sudo apt install --no-install-recommends --yes g++-12 ninja-build
+        run: |
+            apt install --no-install-recommends --yes \
+               g++-12 \
+               ninja-build \
+               libsquashfuse-dev \
+               libfuse3-dev \
+               wget \
+               ca-certificates \
+               python3 \
+               pkg-config \
+               sqlite3 \
+               git \
+               squashfs-tools \
+               curl \
+               ninja-build \
+               locales \
+               xxd \
+               jq \
+               make \
+               perl \
+               sudo
+
+            locale-gen en_US.UTF-8
+            update-locale LANG=en_US.UTF-8
       - name: install meson
         run: |
-          wget https://github.com/mesonbuild/meson/releases/download/1.4.0/meson-1.4.0.tar.gz && \
-          tar -xzf meson-1.4.0.tar.gz && \
-          mv meson-1.4.0 meson && \
+          wget https://github.com/mesonbuild/meson/releases/download/1.11.1/meson-1.11.1.tar.gz && \
+          tar -xzf meson-1.11.1.tar.gz && \
+          mv meson-1.11.1 meson && \
           mv meson/meson.py meson/meson
       - name: Configure
         run: |
@@ -42,6 +72,7 @@ jobs:
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
               -Dtests=enabled \
+              -Dfuse=true \
               -Dsquashfs_mount=true \
               --warnlevel 3 \
               --werror \

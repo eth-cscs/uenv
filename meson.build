@@ -12,7 +12,6 @@ version = meson.project_version()
 uenv_slurm_plugin = get_option('slurm_plugin')
 uenv_cli = get_option('cli')
 uenv_squashfs_mount = get_option('squashfs_mount')
-
 conf_data = configuration_data()
 
 add_global_arguments('-Wno-missing-field-initializers', language : 'cpp')
@@ -99,6 +98,7 @@ barkeep_dep = declare_dependency(
 
 libmount_dep = dependency('mount')
 
+
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
 lib_src = [
@@ -120,7 +120,9 @@ lib_src = [
         'src/oci/types.cpp',
         'src/oci/util.cpp',
         'src/uenv/parse.cpp',
+        'src/uenv/posix_io.cpp',
         'src/uenv/print.cpp',
+        'src/uenv/ns_join.cpp',
         'src/uenv/repository.cpp',
         'src/uenv/settings.cpp',
         'src/uenv/telemetry.cpp',
@@ -142,13 +144,38 @@ lib_src = [
         'src/util/toml.cpp',
         'src/util/url.cpp',
 ]
+use_fuse = get_option('fuse')
+
+if use_fuse
+    fuse_version = get_option('fuse_version')
+    if fuse_version == '2'
+        fuse_dep = dependency('fuse', required: true)
+    elif fuse_version == '3'
+        fuse_dep = dependency('fuse3', required: true)
+    else
+        error('fuse_version must be 2 or 3')
+    endif
+    squashfuse_dep = dependency('squashfuse_ll', static: false)
+endif
+
+
+
+if use_fuse
+    lib_src += ['src/uenv/rootless.cpp']
+    # dependencies += [squashfuse_dep, fuse_dep]
+endif
+
 lib_inc = include_directories('src')
 
+lib_uenv_deps = [curl_dep, zlib_dep, libcrypto_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep]
+if use_fuse
+    lib_uenv_deps += [squashfuse_dep, fuse_dep]
+endif
 lib_uenv = static_library(
-        'uenv',
-        lib_src,
-        include_directories: lib_inc,
-        dependencies: [curl_dep, zlib_dep, libcrypto_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, toml_dep],
+    'uenv',
+    lib_src,
+    include_directories: lib_inc,
+    dependencies: lib_uenv_deps,
 )
 
 uenv_dep = declare_dependency(
@@ -156,6 +183,7 @@ uenv_dep = declare_dependency(
         dependencies: [curl_dep, zlib_dep, libcrypto_dep, libarchive_dep, sqlite3_dep, fmt_dep, spdlog_dep, json_dep, barkeep_dep, libmount_dep, toml_dep],
         include_directories: lib_inc
 )
+
 
 subdir('src/uenv')
 
@@ -207,14 +235,26 @@ if uenv_slurm_plugin
 endif
 
 if uenv_squashfs_mount
-    squashfs_mount = executable('squashfs-mount',
-          sources: ['src/squashfs-mount/squashfs-mount.cpp'],
-          dependencies: [uenv_dep, fmt_dep, cli11_dep],
-          c_args: [
-            '-DVERSION="@0@"'.format(version),
-          ],
-          install_mode: ['rwsr-xr-x', 'root', 'root'],
-          install: true)
+    if get_option('fuse')
+        squashfs_mount_build = executable('squashfs-mount',
+                                          sources: ['src/squashfs-mount/squashfs-mount.cpp'],
+                                          dependencies: [uenv_dep, fmt_dep, cli11_dep, squashfuse_dep, fuse_dep],
+                                          cpp_args: [
+                                              '-DVERSION="@0@"'.format(version),
+                                              '-DUENV_FUSE_MOUNT=1',
+                                          ],
+                                          install: true
+                                         )
+    else
+        squashfs_mountd = executable('squashfs-mount',
+                                     sources: ['src/squashfs-mount/squashfs-mount.cpp'],
+                                     dependencies: [uenv_dep, fmt_dep, cli11_dep],
+                                     cpp_args: [
+                                         '-DVERSION="@0@"'.format(version),
+                                     ],
+                                     install_mode: ['rwsr-xr-x', 'root', 'root'],
+                                     install: true)
+    endif
 endif
 
 if get_option('tests').enabled()

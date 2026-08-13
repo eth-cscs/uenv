@@ -3,6 +3,8 @@ function setup() {
     # this is required for tests to work when run on a vCluster
     # that sets this variable
     set -u
+    # USER may be unset in privileged containers (e.g. GitHub Actions with --privileged)
+    export USER="${USER:-$(whoami)}"
     export CLUSTER_NAME=arapiles
 
     #echo "BATS_LIB_PATH $BATS_LIB_PATH" 1>&3
@@ -202,13 +204,16 @@ function teardown() {
     assert_line --partial "unable to create repository"
 
     # try to create a uenv in a read-only path
-    RP=$TMP/ro
-    mkdir --mode=-w $RP
-    # run with logging to check for detailed "Permission denied" message
-    run uenv -v repo create $RP/test
-    assert_failure
-    assert_line --partial "error: unable to create repository"
-    assert_line --partial "Permission denied"
+    # root ignores directory permissions, so skip this subtest when running as root
+    if [[ "$(id -u)" -ne 0 ]]; then
+        RP=$TMP/ro
+        mkdir --mode=-w $RP
+        # run with logging to check for detailed "Permission denied" message
+        run uenv -v repo create $RP/test
+        assert_failure
+        assert_line --partial "error: unable to create repository"
+        assert_line --partial "Permission denied"
+    fi
 }
 
 @test "run" {

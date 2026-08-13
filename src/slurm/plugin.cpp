@@ -1,6 +1,4 @@
-#include <cerrno>
 #include <charconv>
-#include <cstring>
 #include <optional>
 #include <string>
 
@@ -233,6 +231,7 @@ int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
     return ESPANK_SUCCESS;
 }
 
+#if not defined(UENV_FUSE)
 // Performs mounting of the squashfs images inside slurm_spank_init_post_opt in
 // the _remote_ context. The squashfs images to mount and their mount points are
 // set in the local and allocator contexts, where they are encoded in
@@ -302,6 +301,8 @@ int init_post_opt_remote(spank_t sp) {
 
     return ESPANK_SUCCESS;
 }
+
+#endif // not defined(UENV_FUSE)
 
 // Called in the local and allocator contexts in slurm_spank_init_post_opt.
 //
@@ -540,9 +541,11 @@ int slurm_spank_init_post_opt(spank_t sp, int ac [[maybe_unused]],
                               char** av [[maybe_unused]]) {
     try {
         switch (spank_context()) {
+#if not defined(UENV_FUSE)
         case spank_context_t::S_CTX_REMOTE: {
             return init_post_opt_remote(sp);
         }
+#endif
         case spank_context_t::S_CTX_LOCAL:
         case spank_context_t::S_CTX_ALLOCATOR: {
             return init_post_opt_local_allocator(sp);
