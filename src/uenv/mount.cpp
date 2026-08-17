@@ -231,7 +231,6 @@ do_mount(const std::vector<mount_pair>& mount_entries) {
 
         auto cxt = mnt_new_context();
 
-
         if (mnt_context_disable_mtab(cxt, 1) != 0) {
             return util::unexpected("Failed to disable mtab");
         }
