@@ -1,9 +1,7 @@
 // vim: ts=4 sts=4 sw=4 et
 
 #include <filesystem>
-#include <fstream>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <unistd.h>
 
@@ -159,11 +157,8 @@ int image_push([[maybe_unused]] const image_push_args& args,
         util::sha256 layer_hash = env->record->sha;
         const auto manifest_path =
             env->sqfs_path.parent_path() / "manifest.json";
-        if (std::filesystem::exists(manifest_path)) {
-            std::ifstream mfid(manifest_path);
-            std::ostringstream ss;
-            ss << mfid.rdbuf();
-            auto body = ss.str();
+        if (auto read = util::read_file(manifest_path); read) {
+            auto body = std::move(*read);
             if (auto parsed = oci::parse_manifest(body)) {
                 const oci::manifest_layer* layer =
                     parsed->find_layer_by_title("store.squashfs");
