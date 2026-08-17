@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <ctime>
 #include <map>
 #include <optional>
 #include <string>
@@ -92,6 +93,19 @@ struct manifest {
 // the same shape oras produces: schemaVersion, mediaType, artifactType, config,
 // layers, optional subject, annotations.
 std::string serialize_manifest(const manifest& m);
+
+// Build the single-layer image manifest used for every squashfs artifact uenv
+// pushes: artifact type application/x-squashfs, one layer titled
+// "store.squashfs", and an org.opencontainers.image.created annotation set to
+// `created` (an RFC3339 UTC timestamp, see rfc3339()/rfc3339_now() below).
+manifest make_squashfs_manifest(digest layer_digest, std::size_t layer_size,
+                                std::string created);
+
+// Format `tm` (UTC) as an RFC3339 timestamp, e.g. "2024-08-23T16:00:40Z" - the
+// format oras writes into org.opencontainers.image.created.
+std::string rfc3339(std::tm tm);
+// rfc3339() of the current UTC time.
+std::string rfc3339_now();
 
 // Parse an OCI image-manifest JSON document. Fails if the JSON is malformed or
 // a descriptor digest is invalid.

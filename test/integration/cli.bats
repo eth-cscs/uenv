@@ -480,6 +480,14 @@ EOF
     refute_output --partial "warning"
     refute_output --partial "error"
 
+    # the manifest that identifies the image is persisted alongside it, and
+    # the <hash> used to store/index the image is exactly the sha256 of that
+    # manifest.
+    wombat_sha=$(uenv --repo=$RP image inspect --format='{sha256}' wombat/24:v1)
+    wombat_manifest=$RP/images/$wombat_sha/manifest.json
+    [ -f "$wombat_manifest" ]
+    [ "$wombat_sha" = "$(sha256sum "$wombat_manifest" | cut -d' ' -f1)" ]
+
     run uenv --repo=$RP image ls --no-header
     assert_success
     assert_output --partial "wombat/24:v1"
@@ -494,6 +502,12 @@ EOF
     assert_success
     assert_output --partial "warning"
     assert_output --partial "a uenv with the same sha"
+
+    # the manifest hash is deterministic: adding identical squashfs content
+    # under a different label reuses the same store/images/<hash> directory
+    # rather than storing a second copy.
+    numbat_sha=$(uenv --repo=$RP image inspect --format='{sha256}' numbat/24:v1)
+    [ "$wombat_sha" = "$numbat_sha" ]
 
     run uenv --repo=$RP image ls --no-header
     assert_success

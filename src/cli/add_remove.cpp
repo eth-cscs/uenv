@@ -1,5 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
+#include <fstream>
 #include <memory>
 #include <string>
 
@@ -8,12 +9,15 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
+#include <oci/digest.h>
+#include <oci/manifest.h>
 #include <uenv/env.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/sha.h>
 #include <util/subprocess.h>
 
 #include "add_remove.h"
@@ -131,6 +135,27 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                  *label);
 
     //
+    // if this is a newly added squashfs file (not a retag of an existing
+    // repo entry), mint the manifest that identifies it: its sha256 becomes
+    // the <hash> used to store and index it, and it is persisted alongside
+    // the image so that a later `uenv image push` can reuse it verbatim
+    // instead of minting a new one. `created` is derived from the squashfs
+    // file's own creation date, rather than the current time, so that
+    // re-adding identical squashfs content always mints the same manifest
+    // (and hence hash), preserving the existing_hash dedup check below.
+    //
+    sha256 image_hash = sqfs->hash;
+    std::optional<std::string> manifest_body;
+    if (!from_label) {
+        auto created = oci::rfc3339(*util::file_creation_date(sqfs->sqfs));
+        auto m = oci::make_squashfs_manifest(oci::digest::sha256(sqfs->hash),
+                                             fs::file_size(sqfs->sqfs),
+                                             created);
+        manifest_body = oci::serialize_manifest(m);
+        image_hash = util::sha256_string(*manifest_body);
+    }
+
+    //
     // Open the repository
     //
     auto store = uenv::concretise_user_repo(settings.config);
@@ -165,7 +190,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     //
     bool existing_hash = false;
     {
-        uenv_label hash_label{sqfs->hash.string()};
+        uenv_label hash_label{image_hash.string()};
         auto results = store->query(hash_label);
         if (!results) {
             term::error(
@@ -176,13 +201,13 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
         if (existing_hash) {
             spdlog::warn("a uenv with the same sha {} is already in the repo",
-                         sqfs->hash);
+                         image_hash);
             term::warn("a uenv with the same sha {} is already in the repo",
-                       sqfs->hash);
+                       image_hash);
         }
     }
 
-    const auto uenv_paths = store->uenv_paths(sqfs->hash);
+    const auto uenv_paths = store->uenv_paths(image_hash);
     uenv::uenv_date date{*util::file_creation_date(sqfs->sqfs)};
 
     bool source_in_repo = util::is_child(sqfs->sqfs, uenv_paths.root);
@@ -259,6 +284,20 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                 return 1;
             }
         }
+
+        //
+        // persist the manifest alongside the image
+        //
+        if (manifest_body) {
+            std::ofstream mfid(uenv_paths.manifest);
+            mfid << *manifest_body;
+            if (!mfid) {
+                spdlog::error("unable to write manifest to {}",
+                              uenv_paths.manifest.string());
+                term::error("unable to add the uenv");
+                return 1;
+            }
+        }
     }
 
     //
@@ -277,15 +316,15 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         *label->tag,
         date,
         fs::file_size(uenv_paths.squashfs),
-        sqfs->hash,
-        uenv_id::parse(sqfs->hash.string().substr(0, 16)).value(),
+        image_hash,
+        uenv_id::parse(image_hash.string().substr(0, 16)).value(),
     };
     if (auto result = store->add(r); !result) {
         spdlog::error("image_add: {}", result.error());
         term::error("unable to add the uenv");
         return 1;
     }
-    term::msg("the uenv {} with sha {} was added to {}", r, sqfs->hash,
+    term::msg("the uenv {} with sha {} was added to {}", r, image_hash,
               store->path()->string());
 
     return 0;
