@@ -150,14 +150,10 @@ int image_push([[maybe_unused]] const image_push_args& args,
     if (env->record) {
         // env->record->sha is the *manifest* digest (or, for a legacy record
         // predating manifest.json, the squashfs file's own hash - the two
-        // coincide only in that legacy case). manifest.json, when present, is
-        // a sibling of store.squashfs inside the record's
-        // store/images/<hash>/ directory; its layer entry gives the true
-        // squashfs layer digest.
+        // coincide only in that legacy case). manifest.json, when present,
+        // gives the true squashfs layer digest via its layer entry.
         util::sha256 layer_hash = env->record->sha;
-        const auto manifest_path =
-            env->sqfs_path.parent_path() / "manifest.json";
-        if (auto read = util::read_file(manifest_path); read) {
+        if (auto read = util::read_file(env->manifest_path.value()); read) {
             auto body = std::move(*read);
             if (auto parsed = oci::parse_manifest(body)) {
                 const oci::manifest_layer* layer =
