@@ -43,26 +43,28 @@ bool is_setuid() {
 // mounts, the rest join the leader's namespaces.
 template <typename R>
 void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
-    util::proc_barrier barrier;
+    // empty unless the tasks are to be joined, so that "there is no barrier"
+    // is explicit instead of an unused barrier in an unusable state.
+    std::optional<util::proc_barrier> barrier;
 
     if (tasks_join) {
-        auto r = util::barrier_begin(barrier, "tag");
+        auto r = util::proc_barrier::create("tag", ntasks);
         if (!r) {
-            error_and_exit("barrier_begin failed {}", r.error());
+            error_and_exit("unable to create the barrier {}", r.error());
         }
+        barrier = std::move(*r);
     }
 
-    if (!tasks_join || barrier.is_leader) {
+    if (!barrier || barrier->is_leader()) {
         auto r = mount();
         if (!r) {
             error_and_exit("mount failed {}", r.error());
         }
-        if (tasks_join) {
-            // publish our pid and release the tasks blocked in
-            // barrier_begin so they can join our namespaces.
-            if (auto rr = util::barrier_ready(barrier, ntasks, std::nullopt);
-                !rr) {
-                error_and_exit("barrier_ready failed {}", rr.error());
+        if (barrier) {
+            // publish our pid and release the tasks blocked in the barrier so
+            // they can join our namespaces.
+            if (auto rr = barrier->ready(); !rr) {
+                error_and_exit("barrier ready failed {}", rr.error());
             }
         }
     } else {
@@ -73,17 +75,19 @@ void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
         } else {
             namespaces = {"user", "mnt"};
         }
-        auto r = util::namespaces_join(barrier.leader_pid(), namespaces);
-        if (auto sr = util::barrier_signal_done(barrier); !sr) {
-            spdlog::warn("barrier_signal_done failed: {}", sr.error());
+        auto r = util::namespaces_join(barrier->leader_pid(), namespaces);
+        if (auto sr = barrier->signal_done(); !sr) {
+            spdlog::warn("barrier signal_done failed: {}", sr.error());
         }
         if (!r) {
             error_and_exit("namespaces_join failed {}", r.error());
         }
     }
 
-    if (tasks_join) {
-        util::barrier_end(barrier);
+    if (barrier) {
+        if (auto r = barrier->end(); !r) {
+            spdlog::warn("barrier end failed: {}", r.error());
+        }
     }
 }
 

@@ -56,14 +56,15 @@ int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
     int ntasks = 1;
     spank_get_item(sp, S_JOB_LOCAL_TASK_COUNT, &ntasks);
 
-    util::proc_barrier barrier;
-    if (auto r = util::barrier_begin(barrier, barrier_tag); !r) {
-        slurm_error("barrier_begin failed: %s", r.error().c_str());
+    auto barrier = util::proc_barrier::create(barrier_tag, ntasks);
+    if (!barrier) {
+        slurm_error("unable to create the barrier: %s",
+                    barrier.error().c_str());
         return -ESPANK_ERROR;
     }
 
     std::optional<pid_t> ns_pid = std::nullopt;
-    if (barrier.is_leader) {
+    if (barrier->is_leader()) {
         const auto mount_str =
             fmt::format("{}", fmt::join(mounts.value(), ","));
 
@@ -97,17 +98,16 @@ int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
 
         // publish the forked child's pid rather than our own, so the other
         // tasks join the same namespace
-        if (auto r = util::barrier_ready(barrier, ntasks, ns_pid); !r) {
-            slurm_error("barrier_ready failed: %s", r.error().c_str());
+        if (auto r = barrier->ready(ns_pid); !r) {
+            slurm_error("barrier ready failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
         }
     } else {
         // the leader publishes the PID that entered the squashfs namespace,
         // so joining its namespaces gives us the same view
-        auto r =
-            util::namespaces_join(barrier.leader_pid(), {"user", "mnt"});
-        if (auto sr = util::barrier_signal_done(barrier); !sr) {
-            slurm_error("barrier_signal_done failed: %s", sr.error().c_str());
+        auto r = util::namespaces_join(barrier->leader_pid(), {"user", "mnt"});
+        if (auto sr = barrier->signal_done(); !sr) {
+            slurm_error("barrier signal_done failed: %s", sr.error().c_str());
         }
         if (!r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
@@ -115,8 +115,8 @@ int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
         }
     }
 
-    if (auto r = util::barrier_end(barrier); !r) {
-        slurm_error("barrier_end failed: %s", r.error().c_str());
+    if (auto r = barrier->end(); !r) {
+        slurm_error("barrier end failed: %s", r.error().c_str());
         return -ESPANK_ERROR;
     }
 
@@ -157,13 +157,13 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
         return -ESPANK_ERROR;
     }
 
-    util::proc_barrier barrier;
-    if (auto r = util::barrier_begin(barrier, barrier_tag); !r) {
-        slurm_error("%s", r.error().c_str());
+    auto barrier = util::proc_barrier::create(barrier_tag, ntasks);
+    if (!barrier) {
+        slurm_error("%s", barrier.error().c_str());
         return -ESPANK_ERROR;
     }
 
-    if (barrier.is_leader) {
+    if (barrier->is_leader()) {
         if (auto result = uenv::rootless::unshare_mount_map_root(); !result) {
             slurm_error("%s", result.error().c_str());
             return -ESPANK_ERROR;
@@ -190,18 +190,18 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
             return -ESPANK_ERROR;
         }
 
-        // publish our pid and release the tasks blocked in barrier_begin so
+        // publish our pid and release the tasks blocked in the barrier so
         // they can join our (now final) namespaces *before* we go
         // non-dumpable below.
-        if (auto r = util::barrier_ready(barrier, ntasks, std::nullopt); !r) {
-            slurm_error("barrier_ready failed: %s", r.error().c_str());
+        if (auto r = barrier->ready(); !r) {
+            slurm_error("barrier ready failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
         }
 
         // wait until every other local task has finished joining our
         // namespaces -- only then is it safe to flip DUMPABLE off.
-        if (auto r = util::barrier_wait_peers(barrier, ntasks); !r) {
-            slurm_error("barrier_wait_peers failed: %s", r.error().c_str());
+        if (auto r = barrier->wait_peers(); !r) {
+            slurm_error("barrier wait_peers failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
         }
 
@@ -218,12 +218,11 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
     } else {
         // the leader publishes the PID that entered the squashfs namespace,
         // so joining its namespaces gives us the same view
-        auto r =
-            util::namespaces_join(barrier.leader_pid(), {"user", "mnt"});
+        auto r = util::namespaces_join(barrier->leader_pid(), {"user", "mnt"});
         // signal the leader regardless of outcome, so it isn't left waiting
         // out the full barrier timeout for a peer that will never succeed.
-        if (auto sr = util::barrier_signal_done(barrier); !sr) {
-            slurm_error("barrier_signal_done failed: %s", sr.error().c_str());
+        if (auto sr = barrier->signal_done(); !sr) {
+            slurm_error("barrier signal_done failed: %s", sr.error().c_str());
         }
         if (!r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
@@ -231,8 +230,8 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
         }
     }
 
-    if (auto r = util::barrier_end(barrier); !r) {
-        slurm_error("barrier_end failed %s", r.error().c_str());
+    if (auto r = barrier->end(); !r) {
+        slurm_error("barrier end failed %s", r.error().c_str());
         return -ESPANK_ERROR;
     }
 
