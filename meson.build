@@ -147,15 +147,18 @@ lib_src = [
 use_fuse = get_option('fuse')
 
 if use_fuse
-    fuse_version = get_option('fuse_version')
-    if fuse_version == '2'
-        fuse_dep = dependency('fuse', required: true)
-    elif fuse_version == '3'
-        fuse_dep = dependency('fuse3', required: true)
-    else
-        error('fuse_version must be 2 or 3')
-    endif
-    squashfuse_dep = dependency('squashfuse_ll', static: false)
+    # squashfuse (userspace SquashFS mounting) is built from source.
+    # zstd is configured first so squashfuse's dependency('libzstd') resolves to the wrapdb subproject
+    # fuse3 is a dynamic dependency.
+    subproject('zstd', default_options: [
+        'warning_level=0', 'werror=false', 'default_library=static',
+        'bin_programs=false', 'bin_tests=false', 'bin_contrib=false',
+        'zlib=disabled', 'lzma=disabled', 'lz4=disabled',
+    ])
+    squashfuse_dep = subproject('squashfuse',
+        default_options: ['warning_level=0', 'werror=false'],
+    ).get_variable('squashfuse_ll_dep')
+    fuse_dep = dependency('fuse3', required: true)
 endif
 
 

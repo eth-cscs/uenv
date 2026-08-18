@@ -4,7 +4,6 @@ option('slurm_plugin', type: 'boolean', value: true)
 option('cli', type: 'boolean', value: true)
 option('squashfs_mount', type: 'boolean', value: false)
 option('fuse', type: 'boolean', value: false)
-option('fuse_version', type: 'string', value: '3')
 
 #option('slurm_version', type: 'string', value: '24.05.0')
 option('slurm_version', type: 'string', value: '0.00.0')
