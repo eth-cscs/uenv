@@ -87,7 +87,7 @@ int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
             return -ESPANK_ERROR;
         }
 
-        // enter the user+mount namespace created by squashfs-mount-rootless
+        // enter the user+mount namespace created by squashfs-mount (rootless)
         if (auto r = uenv::namespaces_join(winner_pid.value(), {"user", "mnt"});
             !r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
