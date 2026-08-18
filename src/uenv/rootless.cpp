@@ -136,6 +136,17 @@ static util::expected<void, std::string> write_pipe(int pipe) {
     return {};
 }
 
+// The forked child shares the parent's entire call stack. A plain `return`
+// from an error path here would unwind back into the caller's normal control
+// flow *inside the child*, which would then go on to do whatever the parent
+// is supposed to do next (e.g. mount further images, exec the target
+// command) -- running it twice, once in each process. Error paths in the
+// child must therefore terminate the child directly instead of returning.
+[[noreturn]] static void child_fail(const std::string& msg) {
+    spdlog::error("{}", msg);
+    _exit(1);
+}
+
 static void init_fs_ops(struct fuse_lowlevel_ops* sqfs_ll_ops) {
     memset(sqfs_ll_ops, 0, sizeof(*sqfs_ll_ops));
     sqfs_ll_ops->getattr = sqfs_ll_op_getattr;
@@ -217,7 +228,7 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         // OPEN FS
         err = !(ll = sqfs_ll_open(entry.sqfs.c_str(), offset));
         if (err) {
-            return util::unexpected{"sqfs_ll_open failed\n"};
+            child_fail("sqfs_ll_open failed");
         }
         if (!err) {
             // startup fuse
@@ -233,7 +244,7 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                     close(pipe_wait[0]);
                     write_pipe(pipe_wait[1]);
 
-                    // setup signlal handlers and enter fuse_session_loop
+                    // setup signal handlers and enter fuse_session_loop
                     if (fuse_set_signal_handlers(ch.session) != -1) {
                         if (idle_timeout_secs) {
                             setup_idle_timeout(ch.session, idle_timeout_secs);
@@ -258,10 +269,10 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                         teardown_idle_timeout();
                         fuse_remove_signal_handlers(ch.session);
                     } else {
-                        util::unexpected{"set signal handlers failed."};
+                        child_fail("set signal handlers failed.");
                     }
                 } else {
-                    util::unexpected{"daemonize failed"};
+                    child_fail("daemonize failed");
                 }
                 sqfs_ll_destroy(ll);
 
@@ -282,22 +293,19 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
             } else {
                 switch (sqfs_ret) {
                 case SQFS_ERR: {
-                    return util::unexpected{
-                        fmt::format("SQFS_ERR {} ", strerror(errno))};
+                    child_fail(fmt::format("SQFS_ERR {} ", strerror(errno)));
                 }
                 case SQFS_BADFORMAT: {
-                    return util::unexpected{
-                        "SQFS_BADFORMAT (unsupported file format)"};
+                    child_fail("SQFS_BADFORMAT (unsupported file format)");
                 }
                 case SQFS_BADVERSION: {
-                    return util::unexpected{"SQFS_BADVERSION\n"};
+                    child_fail("SQFS_BADVERSION");
                 }
                 case SQFS_BADCOMP: {
-                    return util::unexpected{"SQFS_BADCOMP\n"};
+                    child_fail("SQFS_BADCOMP");
                 }
                 case SQFS_UNSUP: {
-                    return util::unexpected{
-                        "SQFS_UNSUP, unsupported feature\n"};
+                    child_fail("SQFS_UNSUP, unsupported feature");
                 }
                 case SQFS_OK: {
                     break;
@@ -305,7 +313,7 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                 }
             }
         } else {
-            return util::unexpected{"sqfs_ll_open_failed"};
+            child_fail("sqfs_ll_open_failed");
         }
         fuse_opt_free_args(&args);
         free(ll);
@@ -314,13 +322,14 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         // parent block on pipe until fusemount has finished.
         char buf[256];
         close(pipe_wait[1]);
-        int res = read(pipe_wait[0], buf, 256);
-        if (res == 0) {
-            // The child process has exited before reaching fuse_session_loop.
-            util::unexpected{"mounting sqfs file failed\n"};
-        }
-        if (res < 0) {
-            util::unexpected{"mounting sqfs file failed\n"};
+        int res = read(pipe_wait[0], buf, sizeof(buf));
+        close(pipe_wait[0]);
+        if (res <= 0) {
+            // res == 0: the child exited (see child_fail) before reaching
+            // fuse_session_loop. res < 0: the read itself failed.
+            return util::unexpected{fmt::format(
+                "mounting squashfs image {} at {} failed", entry.sqfs.string(),
+                entry.mount.string())};
         }
     }
 
