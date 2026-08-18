@@ -18,6 +18,7 @@ extern "C" {
 #include <uenv/mount.h>
 #include <unistd.h>
 #include <util/expected.h>
+#include <util/ready_fork.h>
 
 namespace uenv {
 namespace rootless {
@@ -124,18 +125,6 @@ util::expected<void, std::string> exit_sandbox(uid_t uid, gid_t gid) {
     return {};
 }
 
-static util::expected<void, std::string> write_pipe(int pipe) {
-    char c[32];
-    // AppImage seems doing something more advanced:
-    // https://github.com/AppImage/AppImageKit/blob/master/src/runtime.c#L138
-    memset(c, 'x', sizeof(c));
-    auto res = write(pipe, c, sizeof(c));
-    if (!res) {
-        return util::unexpected{"writing to pipe failed"};
-    }
-    return {};
-}
-
 // The forked child shares the parent's entire call stack. A plain `return`
 // from an error path here would unwind back into the caller's normal control
 // flow *inside the child*, which would then go on to do whatever the parent
@@ -173,10 +162,17 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                                                    bool fuse_st) {
     spdlog::trace("do_sqfs_ll_mount");
     // use a pipe to synchronize parent and child process
-    int pipe_wait[2];
-    Z_e(pipe(pipe_wait));
+    auto rf = util::ready_fork::create();
+    if (!rf) {
+        return util::unexpected(rf.error());
+    }
 
-    int pid = fork();
+    pid_t pid = rf->fork();
+    if (pid < 0) {
+        return util::unexpected(
+            fmt::format("fork() failed: {}", strerror(errno)));
+    }
+
     if (pid == 0) {
 
         // kill the fuse process when the parent exits
@@ -241,8 +237,7 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
 
                 if (sqfs_ll_daemonize(true /*foreground*/) != -1) {
                     // inform parent process that sqfs has been mounted
-                    close(pipe_wait[0]);
-                    write_pipe(pipe_wait[1]);
+                    rf->notify_ready();
 
                     // setup signal handlers and enter fuse_session_loop
                     if (fuse_set_signal_handlers(ch.session) != -1) {
@@ -318,19 +313,13 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         fuse_opt_free_args(&args);
         free(ll);
         exit(0);
-    } else {
-        // parent block on pipe until fusemount has finished.
-        char buf[256];
-        close(pipe_wait[1]);
-        int res = read(pipe_wait[0], buf, sizeof(buf));
-        close(pipe_wait[0]);
-        if (res <= 0) {
-            // res == 0: the child exited (see child_fail) before reaching
-            // fuse_session_loop. res < 0: the read itself failed.
-            return util::unexpected{fmt::format(
-                "mounting squashfs image {} at {} failed", entry.sqfs.string(),
-                entry.mount.string())};
-        }
+    }
+
+    // parent block on pipe until fusemount has finished.
+    if (auto ok = rf->wait_ready(); !ok) {
+        return util::unexpected(fmt::format(
+            "mounting squashfs image {} at {} failed: {}", entry.sqfs.string(),
+            entry.mount.string(), ok.error()));
     }
 
     return {};

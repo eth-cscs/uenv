@@ -112,6 +112,7 @@ unit_src = [
         'unit/shell.cpp',
         'unit/signal.cpp',
         'unit/strings.cpp',
+        'unit/ready_fork.cpp',
         'unit/repository.cpp',
         'unit/settings.cpp',
         'unit/subprocess.cpp',

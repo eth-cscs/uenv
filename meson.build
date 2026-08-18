@@ -135,6 +135,7 @@ lib_src = [
         'src/util/lustre.cpp',
         'src/util/parse.cpp',
         'src/util/proc_barrier.cpp',
+        'src/util/ready_fork.cpp',
         'src/util/semver.cpp',
         'src/util/setns.cpp',
         'src/util/sha.cpp',
