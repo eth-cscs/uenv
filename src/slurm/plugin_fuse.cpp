@@ -104,8 +104,7 @@ int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
     } else {
         // the leader publishes the PID that entered the squashfs namespace,
         // so joining its namespaces gives us the same view
-        auto r =
-            util::namespaces_join(barrier.leader_pid(), {"user", "mnt"});
+        auto r = util::namespaces_join(barrier.leader_pid(), {"user", "mnt"});
         if (auto sr = util::barrier_signal_done(barrier); !sr) {
             slurm_error("barrier_signal_done failed: %s", sr.error().c_str());
         }
@@ -218,8 +217,7 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
     } else {
         // the leader publishes the PID that entered the squashfs namespace,
         // so joining its namespaces gives us the same view
-        auto r =
-            util::namespaces_join(barrier.leader_pid(), {"user", "mnt"});
+        auto r = util::namespaces_join(barrier.leader_pid(), {"user", "mnt"});
         // signal the leader regardless of outcome, so it isn't left waiting
         // out the full barrier timeout for a peer that will never succeed.
         if (auto sr = util::barrier_signal_done(barrier); !sr) {

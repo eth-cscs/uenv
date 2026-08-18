@@ -86,9 +86,8 @@ util::expected<void, std::string> barrier_begin(proc_barrier& barrier,
 
 // Leader only. Publish the pid and the peer count, then release the
 // followers blocked in barrier_begin().
-util::expected<void, std::string> barrier_ready(proc_barrier& barrier,
-                                                int nprocs,
-                                                std::optional<pid_t> pid) {
+util::expected<void, std::string>
+barrier_ready(proc_barrier& barrier, int nprocs, std::optional<pid_t> pid) {
     spdlog::trace("barrier: leader initializing shared data");
     barrier.shared->leader_pid = pid.value_or(getpid());
     barrier.shared->procs_remaining = nprocs;
