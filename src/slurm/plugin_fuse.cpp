@@ -7,8 +7,9 @@
 #include <sys/prctl.h>
 #include <sys/wait.h>
 #include <uenv/log.h>
-#include <uenv/ns_join.h>
 #include <uenv/rootless.h>
+#include <util/proc_barrier.h>
+#include <util/setns.h>
 
 //
 // Forward declare the implementation of the plugin callbacks.
@@ -50,24 +51,24 @@ int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
     uint32_t step_id = 0;
     spank_get_item(sp, S_JOB_ID, &job_id);
     spank_get_item(sp, S_JOB_STEPID, &step_id);
-    const auto join_tag = fmt::format("{}-{}", job_id, step_id);
+    const auto barrier_tag = fmt::format("{}-{}", job_id, step_id);
 
     int ntasks = 1;
     spank_get_item(sp, S_JOB_LOCAL_TASK_COUNT, &ntasks);
 
-    uenv::join_t join;
-    if (auto r = uenv::join_begin(join, join_tag); !r) {
-        slurm_error("join_begin failed: %s", r.error().c_str());
+    util::proc_barrier barrier;
+    if (auto r = util::barrier_begin(barrier, barrier_tag); !r) {
+        slurm_error("barrier_begin failed: %s", r.error().c_str());
         return -ESPANK_ERROR;
     }
 
-    std::optional<pid_t> winner_pid = std::nullopt;
-    if (join.winner_p) {
+    std::optional<pid_t> ns_pid = std::nullopt;
+    if (barrier.is_leader) {
         const auto mount_str =
             fmt::format("{}", fmt::join(mounts.value(), ","));
 
-        winner_pid = fork();
-        if (winner_pid.value() == 0) {
+        ns_pid = fork();
+        if (ns_pid.value() == 0) {
             prctl(PR_SET_PDEATHSIG, SIGHUP);
             execlp("squashfs-mount", "squashfs-mount", "--sqfs",
                    mount_str.c_str(), "--", "sh", "-c", "kill -STOP $$; exit 0",
@@ -75,38 +76,38 @@ int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
             slurm_error("uenv: exec squashfs-mount failed: %s",
                         strerror(errno));
             return -ESPANK_ERROR;
-        } else if (winner_pid.value() < 0) {
+        } else if (ns_pid.value() < 0) {
             slurm_error("uenv: fork failed: %s", strerror(errno));
             return -ESPANK_ERROR;
         }
 
         // wait until squashfs-mount-rootless stops itself after mounting
         siginfo_t sig_info;
-        if (waitid(P_PID, winner_pid.value(), &sig_info, WSTOPPED) < 0) {
+        if (waitid(P_PID, ns_pid.value(), &sig_info, WSTOPPED) < 0) {
             slurm_error("uenv: waitid failed: %s", strerror(errno));
             return -ESPANK_ERROR;
         }
 
         // enter the user+mount namespace created by squashfs-mount (rootless)
-        if (auto r = uenv::namespaces_join(winner_pid.value(), {"user", "mnt"});
+        if (auto r = util::namespaces_join(ns_pid.value(), {"user", "mnt"});
             !r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
         }
 
-        // publish winner_pid (the forked child, not our own pid) so losing
-        // tasks can join the same namespace
-        if (auto r = uenv::join_ready(join, ntasks, winner_pid); !r) {
-            slurm_error("join_ready failed: %s", r.error().c_str());
+        // publish the forked child's pid rather than our own, so the other
+        // tasks join the same namespace
+        if (auto r = util::barrier_ready(barrier, ntasks, ns_pid); !r) {
+            slurm_error("barrier_ready failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
         }
     } else {
-        // winner_pid is the winner task's PID after it entered the squashfs
-        // namespace, so joining its namespaces gives us the same view
+        // the leader publishes the PID that entered the squashfs namespace,
+        // so joining its namespaces gives us the same view
         auto r =
-            uenv::namespaces_join(join.shared->winner_pid, {"user", "mnt"});
-        if (auto sr = uenv::join_signal_done(join); !sr) {
-            slurm_error("join_signal_done failed: %s", sr.error().c_str());
+            util::namespaces_join(barrier.leader_pid(), {"user", "mnt"});
+        if (auto sr = util::barrier_signal_done(barrier); !sr) {
+            slurm_error("barrier_signal_done failed: %s", sr.error().c_str());
         }
         if (!r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
@@ -114,8 +115,8 @@ int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
         }
     }
 
-    if (auto r = uenv::join_end(join); !r) {
-        slurm_error("join_end failed: %s", r.error().c_str());
+    if (auto r = util::barrier_end(barrier); !r) {
+        slurm_error("barrier_end failed: %s", r.error().c_str());
         return -ESPANK_ERROR;
     }
 
@@ -144,7 +145,7 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
     spank_get_item(sp, S_JOB_LOCAL_TASK_COUNT, &ntasks);
     spank_get_item(sp, S_JOB_ID, &job_id);
     spank_get_item(sp, S_JOB_STEPID, &step_id);
-    const auto join_tag = fmt::format("{}-{}", job_id, step_id);
+    const auto barrier_tag = fmt::format("{}-{}", job_id, step_id);
 
     // parse and validate the mount descriptions
     // note that it is very important to carefully validate the mount_list
@@ -156,13 +157,13 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
         return -ESPANK_ERROR;
     }
 
-    uenv::join_t join;
-    if (auto r = uenv::join_begin(join, join_tag); !r) {
+    util::proc_barrier barrier;
+    if (auto r = util::barrier_begin(barrier, barrier_tag); !r) {
         slurm_error("%s", r.error().c_str());
         return -ESPANK_ERROR;
     }
 
-    if (join.winner_p) {
+    if (barrier.is_leader) {
         if (auto result = uenv::rootless::unshare_mount_map_root(); !result) {
             slurm_error("%s", result.error().c_str());
             return -ESPANK_ERROR;
@@ -180,27 +181,27 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
 
         // exit fake-root. Note: this does its own unshare(CLONE_NEWUSER |
         // CLONE_NEWNS), so it moves us into a *new* mount namespace (a copy
-        // of the current one) -- losers must join this final namespace, not
-        // the one from before this call, so the release below must come
-        // after it.
+        // of the current one) -- the other tasks must join this final
+        // namespace, not the one from before this call, so the release below
+        // must come after it.
         if (auto r = uenv::rootless::map_effective_user(uid, gid); !r) {
             slurm_error("failed map effective user %s %d %d", r.error().c_str(),
                         uid, gid);
             return -ESPANK_ERROR;
         }
 
-        // publish winner_pid and release the losers blocked in join_begin
-        // so they can join our (now final) namespaces *before* we go
+        // publish our pid and release the tasks blocked in barrier_begin so
+        // they can join our (now final) namespaces *before* we go
         // non-dumpable below.
-        if (auto r = uenv::join_ready(join, ntasks, std::nullopt); !r) {
-            slurm_error("join_ready failed: %s", r.error().c_str());
+        if (auto r = util::barrier_ready(barrier, ntasks, std::nullopt); !r) {
+            slurm_error("barrier_ready failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
         }
 
         // wait until every other local task has finished joining our
         // namespaces -- only then is it safe to flip DUMPABLE off.
-        if (auto r = uenv::join_wait_peers(join, ntasks); !r) {
-            slurm_error("join_wait_peers failed: %s", r.error().c_str());
+        if (auto r = util::barrier_wait_peers(barrier, ntasks); !r) {
+            slurm_error("barrier_wait_peers failed: %s", r.error().c_str());
             return -ESPANK_ERROR;
         }
 
@@ -215,14 +216,14 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
             return -ESPANK_ERROR;
         }
     } else {
-        // winner_pid is the winner task's PID after it entered the squashfs
-        // namespace, so joining its namespaces gives us the same view
+        // the leader publishes the PID that entered the squashfs namespace,
+        // so joining its namespaces gives us the same view
         auto r =
-            uenv::namespaces_join(join.shared->winner_pid, {"user", "mnt"});
-        // signal the winner regardless of outcome, so it isn't left waiting
-        // out the full join timeout for a peer that will never succeed.
-        if (auto sr = uenv::join_signal_done(join); !sr) {
-            slurm_error("join_signal_done failed: %s", sr.error().c_str());
+            util::namespaces_join(barrier.leader_pid(), {"user", "mnt"});
+        // signal the leader regardless of outcome, so it isn't left waiting
+        // out the full barrier timeout for a peer that will never succeed.
+        if (auto sr = util::barrier_signal_done(barrier); !sr) {
+            slurm_error("barrier_signal_done failed: %s", sr.error().c_str());
         }
         if (!r) {
             slurm_error("namespaces_join failed: %s", r.error().c_str());
@@ -230,8 +231,8 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
         }
     }
 
-    if (auto r = uenv::join_end(join); !r) {
-        slurm_error("join_end failed %s", r.error().c_str());
+    if (auto r = util::barrier_end(barrier); !r) {
+        slurm_error("barrier_end failed %s", r.error().c_str());
         return -ESPANK_ERROR;
     }
 

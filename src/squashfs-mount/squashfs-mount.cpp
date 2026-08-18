@@ -13,10 +13,11 @@
 #include <uenv/config.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
-#include <uenv/ns_join.h>
 #include <uenv/parse.h>
 #include <util/color.h>
 #include <util/envvars.h>
+#include <util/proc_barrier.h>
+#include <util/setns.h>
 #include <util/shell.h>
 
 #ifdef UENV_FUSE_MOUNT
@@ -38,29 +39,30 @@ bool is_setuid() {
     return euid != real_uid;
 }
 
-// synchronize tasks on the same node: the winner performs the mounts, the
-// rest join the winner's namespaces.
+// synchronize tasks on the same node: the elected leader performs the
+// mounts, the rest join the leader's namespaces.
 template <typename R>
 void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
-    uenv::join_t join;
+    util::proc_barrier barrier;
 
     if (tasks_join) {
-        auto r = uenv::join_begin(join, "tag");
+        auto r = util::barrier_begin(barrier, "tag");
         if (!r) {
-            error_and_exit("join_begin failed {}", r.error());
+            error_and_exit("barrier_begin failed {}", r.error());
         }
     }
 
-    if (!tasks_join || join.winner_p) {
+    if (!tasks_join || barrier.is_leader) {
         auto r = mount();
         if (!r) {
             error_and_exit("mount failed {}", r.error());
         }
         if (tasks_join) {
-            // publish winner_pid and release the losers blocked in
-            // join_begin so they can join our namespaces.
-            if (auto rr = uenv::join_ready(join, ntasks, std::nullopt); !rr) {
-                error_and_exit("join_ready failed {}", rr.error());
+            // publish our pid and release the tasks blocked in
+            // barrier_begin so they can join our namespaces.
+            if (auto rr = util::barrier_ready(barrier, ntasks, std::nullopt);
+                !rr) {
+                error_and_exit("barrier_ready failed {}", rr.error());
             }
         }
     } else {
@@ -71,9 +73,9 @@ void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
         } else {
             namespaces = {"user", "mnt"};
         }
-        auto r = uenv::namespaces_join(join.shared->winner_pid, namespaces);
-        if (auto sr = uenv::join_signal_done(join); !sr) {
-            spdlog::warn("join_signal_done failed: {}", sr.error());
+        auto r = util::namespaces_join(barrier.leader_pid(), namespaces);
+        if (auto sr = util::barrier_signal_done(barrier); !sr) {
+            spdlog::warn("barrier_signal_done failed: {}", sr.error());
         }
         if (!r) {
             error_and_exit("namespaces_join failed {}", r.error());
@@ -81,7 +83,7 @@ void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
     }
 
     if (tasks_join) {
-        uenv::join_end(join);
+        util::barrier_end(barrier);
     }
 }
 

@@ -7,7 +7,7 @@
 extern "C" {
 #include <squashfuse/ll.h>
 }
-#include "macros.h"
+#include <util/macros.h>
 #include "posix_io.h"
 #include <fcntl.h>
 #include <spdlog/spdlog.h>
