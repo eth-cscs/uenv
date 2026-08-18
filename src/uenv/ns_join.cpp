@@ -48,7 +48,7 @@ util::expected<void, std::string> namespace_join(pid_t pid,
 util::expected<void, std::string>
 namespaces_join(pid_t pid, const std::vector<std::string>& ns_names) {
     for (auto& ns : ns_names) {
-        spdlog::warn("joining namespace {} of pid {}", ns, pid);
+        spdlog::trace("joining namespace {} of pid {}", ns, pid);
         auto r = namespace_join(pid, ns);
         if (!r) {
             return r;
