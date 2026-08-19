@@ -134,6 +134,7 @@ jobs:
         run: |
           useradd --create-home --shell /bin/bash citest
           chown -R citest:citest "$PWD/build"
+          chown citest:citest /user-tools /user-environment
       - name: unit tests
         run: sudo -u citest ./meson/meson test -Cbuild --verbose unit
       - name: cli integration tests
