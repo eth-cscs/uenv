@@ -70,8 +70,8 @@ TEST_CASE("barrier orders leader after all followers", "[proc_barrier]") {
                 // timestamp before at least one (staggered) follower.
                 sleep_ms(50);
 
-                if (auto rr = util::barrier_ready(barrier, ntasks,
-                                                  std::nullopt);
+                if (auto rr =
+                        util::barrier_ready(barrier, ntasks, std::nullopt);
                     !rr) {
                     _exit(2);
                 }
@@ -125,10 +125,9 @@ TEST_CASE("barrier orders leader after all followers", "[proc_barrier]") {
         // returned) must not be earlier than any follower's (recorded before
         // barrier_signal_done).
         const auto& follower_ts = tl->ts[i];
-        bool leader_after_follower =
-            (leader_ts.tv_sec > follower_ts.tv_sec) ||
-            (leader_ts.tv_sec == follower_ts.tv_sec &&
-             leader_ts.tv_nsec >= follower_ts.tv_nsec);
+        bool leader_after_follower = (leader_ts.tv_sec > follower_ts.tv_sec) ||
+                                     (leader_ts.tv_sec == follower_ts.tv_sec &&
+                                      leader_ts.tv_nsec >= follower_ts.tv_nsec);
         REQUIRE(leader_after_follower);
     }
 

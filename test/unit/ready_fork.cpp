@@ -51,8 +51,7 @@ TEST_CASE("child exits without signaling", "[ready_fork]") {
 
     auto ok = rf->wait_ready();
     REQUIRE(!ok);
-    REQUIRE_THAT(ok.error(),
-                 matchers::ContainsSubstring("before signaling"));
+    REQUIRE_THAT(ok.error(), matchers::ContainsSubstring("before signaling"));
 
     int status;
     waitpid(pid, &status, 0);
@@ -94,13 +93,13 @@ TEST_CASE("wait_ready retries after EINTR", "[ready_fork]") {
         _exit(0);
     }
 
-    struct sigaction sa {};
+    struct sigaction sa{};
     sa.sa_handler = [](int) {};
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0; // no SA_RESTART: the blocking read() must see EINTR
     sigaction(SIGALRM, &sa, nullptr);
 
-    struct itimerval timer {};
+    struct itimerval timer{};
     timer.it_value.tv_usec = 100'000;
     setitimer(ITIMER_REAL, &timer, nullptr);
 
