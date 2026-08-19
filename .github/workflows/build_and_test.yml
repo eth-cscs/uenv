@@ -159,6 +159,12 @@ jobs:
                    /proc/sys/user/max_user_namespaces; do
             echo "$f: $(cat "$f" 2>/dev/null || echo n/a)"
           done
+          echo "== attempt to disable apparmor_restrict_unprivileged_userns =="
+          if echo 0 > /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/tmp/sysctl_err; then
+            echo "write succeeded, now: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)"
+          else
+            echo "write failed: $(cat /tmp/sysctl_err)"
+          fi
           echo "== /proc mount options =="
           mount | grep ' on /proc '
           echo "== initial /proc/self/uid_map (as citest, before unshare) =="
