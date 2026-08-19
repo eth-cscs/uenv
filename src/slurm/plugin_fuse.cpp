@@ -132,9 +132,8 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
     auto mount_var = uenv::slurm::getenv_wrapper(sp, "UENV_MOUNT_LIST");
 
     // variable is not set - nothing to do here
-    if (!mount_var) {
+    if (!mount_var)
         return ESPANK_SUCCESS;
-    }
 
     const uid_t uid = getuid();
     const uid_t gid = getgid();
@@ -219,6 +218,7 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
         // the leader publishes the PID that entered the squashfs namespace,
         // so joining its namespaces gives us the same view
         auto r = util::namespaces_join(barrier->leader_pid(), {"user", "mnt"});
+
         // signal the leader regardless of outcome, so it isn't left waiting
         // out the full barrier timeout for a peer that will never succeed.
         if (auto sr = barrier->signal_done(); !sr) {

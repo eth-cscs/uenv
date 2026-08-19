@@ -7,7 +7,6 @@
 extern "C" {
 #include <squashfuse/ll.h>
 }
-#include <util/macros.h>
 #include "posix_io.h"
 #include <fcntl.h>
 #include <spdlog/spdlog.h>
@@ -18,6 +17,8 @@ extern "C" {
 #include <uenv/mount.h>
 #include <unistd.h>
 #include <util/expected.h>
+#include <util/macros.h>
+#include <util/ready_fork.h>
 
 namespace uenv {
 namespace rootless {
@@ -32,11 +33,10 @@ util::expected<void, std::string> unshare_mount_map_root() {
     // enable coredumps, otherwise we cannot write to uid_map/gid_map etc.
     Z_e(prctl(PR_SET_DUMPABLE, 1));
 
-    if (auto r =
-            mount(std::nullopt, "/", std::nullopt, MS_SHARED | MS_REC, nullptr);
-        !r) {
+    if (auto r = mount(std::nullopt, "/", std::nullopt, MS_REC | MS_PRIVATE,
+                       nullptr);
+        !r)
         return r;
-    }
 
     // map current uid to root
     char buf[256];
@@ -44,18 +44,16 @@ util::expected<void, std::string> unshare_mount_map_root() {
     if (!proc_uid_map)
         return util::unexpected(proc_uid_map.error());
     snprintf(buf, sizeof(buf), "0 %d 1", uid);
-    if (auto r = write(proc_uid_map.value(), buf, strlen(buf)); !r) {
+    if (auto r = write(proc_uid_map.value(), buf, strlen(buf)); !r)
         return r;
-    }
     Z_e(close(proc_uid_map.value()));
 
     // write /proc/self/gid_setgroups -> deny
     auto proc_setgroups = openat(AT_FDCWD, "/proc/self/setgroups", O_WRONLY);
     if (!proc_setgroups)
         return util::unexpected(proc_setgroups.error());
-    if (auto r = write(proc_setgroups.value(), "deny", 4); !r) {
+    if (auto r = write(proc_setgroups.value(), "deny", 4); !r)
         return r;
-    }
     Z_e(close(proc_setgroups.value()));
 
     // map gid  to root group
@@ -63,16 +61,10 @@ util::expected<void, std::string> unshare_mount_map_root() {
     if (!proc_gid_map)
         return util::unexpected(proc_gid_map.error());
     snprintf(buf, sizeof(buf), "0 %d 1", gid);
-    if (auto r = write(proc_gid_map.value(), buf, strlen(buf)); !r) {
+    if (auto r = write(proc_gid_map.value(), buf, strlen(buf)); !r)
         return r;
-    }
     Z_e(close(proc_gid_map.value()));
 
-    // the following is executed by `unshare --mount --map-root-user`
-    if (auto r = mount("none", "/", std::nullopt, MS_REC | MS_PRIVATE, nullptr);
-        !r) {
-        return r;
-    }
     return {};
 }
 
@@ -87,9 +79,8 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
     if (!proc_uid_map)
         return util::unexpected(proc_uid_map.error());
     sprintf(buf, "%d 0 1", uid);
-    if (auto r = write(proc_uid_map.value(), buf, strlen(buf)); !r) {
+    if (auto r = write(proc_uid_map.value(), buf, strlen(buf)); !r)
         return r;
-    }
     Z_e(close(proc_uid_map.value()));
 
     // note: setgroups is already "deny" here, inherited from the enclosing
@@ -101,9 +92,8 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
     if (!proc_gid_map)
         return util::unexpected(proc_gid_map.error());
     sprintf(buf, "%d 0 1", gid);
-    if (auto r = write(proc_gid_map.value(), buf, strlen(buf)); !r) {
+    if (auto r = write(proc_gid_map.value(), buf, strlen(buf)); !r)
         return r;
-    }
     Z_e(close(proc_gid_map.value()));
 
     // disable coredump again (slurm policy)
@@ -114,25 +104,11 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
 }
 
 util::expected<void, std::string> exit_sandbox(uid_t uid, gid_t gid) {
-    if (auto r = map_effective_user(uid, gid); !r) {
+    if (auto r = map_effective_user(uid, gid); !r)
         return r;
-    }
 
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0)
         return util::unexpected("PR_SET_NO_NEW_PRIVS failed");
-    }
-    return {};
-}
-
-static util::expected<void, std::string> write_pipe(int pipe) {
-    char c[32];
-    // AppImage seems doing something more advanced:
-    // https://github.com/AppImage/AppImageKit/blob/master/src/runtime.c#L138
-    memset(c, 'x', sizeof(c));
-    auto res = write(pipe, c, sizeof(c));
-    if (!res) {
-        return util::unexpected{"writing to pipe failed"};
-    }
     return {};
 }
 
@@ -173,10 +149,15 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                                                    bool fuse_st) {
     spdlog::trace("do_sqfs_ll_mount");
     // use a pipe to synchronize parent and child process
-    int pipe_wait[2];
-    Z_e(pipe(pipe_wait));
+    auto rf = util::ready_fork::create();
+    if (!rf)
+        return util::unexpected(rf.error());
 
-    int pid = fork();
+    pid_t pid = rf->fork();
+    if (pid < 0)
+        return util::unexpected(
+            fmt::format("fork() failed: {}", strerror(errno)));
+
     if (pid == 0) {
 
         // kill the fuse process when the parent exits
@@ -207,12 +188,11 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         // we must get a different fd.
         while (true) {
             int fd = open("/dev/null", O_RDONLY);
-            if (fd == -1) {
+            if (fd == -1)
                 // Can't open /dev/null, how bizarre! However,
                 // fuse_deamonize won't clobber fds if it can't
                 // open /dev/null either, so we ought to be OK.
                 break;
-            }
             if (fd > 2) {
                 // fds 0-2 are now guaranteed to be open.
                 close(fd);
@@ -227,9 +207,8 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         int offset = 0;
         // OPEN FS
         err = !(ll = sqfs_ll_open(entry.sqfs.c_str(), offset));
-        if (err) {
+        if (err)
             child_fail("sqfs_ll_open failed");
-        }
         if (!err) {
             // startup fuse
             sqfs_ll_chan ch;
@@ -241,8 +220,8 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
 
                 if (sqfs_ll_daemonize(true /*foreground*/) != -1) {
                     // inform parent process that sqfs has been mounted
-                    close(pipe_wait[0]);
-                    write_pipe(pipe_wait[1]);
+                    if (auto ok = rf->notify_ready(); !ok)
+                        child_fail(ok.error());
 
                     // setup signal handlers and enter fuse_session_loop
                     if (fuse_set_signal_handlers(ch.session) != -1) {
@@ -258,9 +237,8 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                             err = fuse_session_loop_mt(ch.session, &config);
                         }
 #else  /* FUSE_USE_VERSION < 30 */
-                        if (!fuse_st) {
+                        if (!fuse_st)
                             err = fuse_session_loop_mt(ch.session);
-                        }
 #endif /* FUSE_USE_VERSION */
                         else
 #endif
@@ -268,12 +246,10 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
 
                         teardown_idle_timeout();
                         fuse_remove_signal_handlers(ch.session);
-                    } else {
+                    } else
                         child_fail("set signal handlers failed.");
-                    }
-                } else {
+                } else
                     child_fail("daemonize failed");
-                }
                 sqfs_ll_destroy(ll);
 
                 // Rely on OS cleanup for the actual unmount, to avoid
@@ -312,25 +288,18 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                 }
                 }
             }
-        } else {
+        } else
             child_fail("sqfs_ll_open_failed");
-        }
         fuse_opt_free_args(&args);
         free(ll);
         exit(0);
-    } else {
-        // parent block on pipe until fusemount has finished.
-        char buf[256];
-        close(pipe_wait[1]);
-        int res = read(pipe_wait[0], buf, sizeof(buf));
-        close(pipe_wait[0]);
-        if (res <= 0) {
-            // res == 0: the child exited (see child_fail) before reaching
-            // fuse_session_loop. res < 0: the read itself failed.
-            return util::unexpected{fmt::format(
-                "mounting squashfs image {} at {} failed", entry.sqfs.string(),
-                entry.mount.string())};
-        }
+    }
+
+    // parent block on pipe until fusemount has finished.
+    if (auto ok = rf->wait_ready(); !ok) {
+        return util::unexpected(
+            fmt::format("mounting squashfs image {} at {} failed: {}",
+                        entry.sqfs.string(), entry.mount.string(), ok.error()));
     }
 
     return {};

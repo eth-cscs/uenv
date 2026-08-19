@@ -203,17 +203,13 @@ function teardown() {
     assert_failure
     assert_line --partial "unable to create repository"
 
-    # try to create a uenv in a read-only path
-    # root ignores directory permissions, so skip this subtest when running as root
-    if [[ "$(id -u)" -ne 0 ]]; then
-        RP=$TMP/ro
-        mkdir --mode=-w $RP
-        # run with logging to check for detailed "Permission denied" message
-        run uenv -v repo create $RP/test
-        assert_failure
-        assert_line --partial "error: unable to create repository"
-        assert_line --partial "Permission denied"
-    fi
+    RP=$TMP/ro
+    mkdir --mode=-w $RP
+    # run with logging to check for detailed "Permission denied" message
+    run uenv -v repo create $RP/test
+    assert_failure
+    assert_line --partial "error: unable to create repository"
+    assert_line --partial "Permission denied"
 }
 
 @test "run" {

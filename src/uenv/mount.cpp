@@ -23,10 +23,10 @@
 #include <libmount/libmount.h>
 #include <spdlog/spdlog.h>
 
-#include <util/macros.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <util/expected.h>
+#include <util/macros.h>
 
 namespace uenv {
 

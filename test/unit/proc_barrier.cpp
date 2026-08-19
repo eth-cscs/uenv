@@ -143,10 +143,9 @@ TEST_CASE("barrier orders leader after all followers", "[proc_barrier]") {
         // the leader's timestamp (recorded after wait_peers returned) must
         // not be earlier than any follower's (recorded before signal_done).
         const auto& follower_ts = tl->ts[i];
-        bool leader_after_follower =
-            (leader_ts.tv_sec > follower_ts.tv_sec) ||
-            (leader_ts.tv_sec == follower_ts.tv_sec &&
-             leader_ts.tv_nsec >= follower_ts.tv_nsec);
+        bool leader_after_follower = (leader_ts.tv_sec > follower_ts.tv_sec) ||
+                                     (leader_ts.tv_sec == follower_ts.tv_sec &&
+                                      leader_ts.tv_nsec >= follower_ts.tv_nsec);
         REQUIRE(leader_after_follower);
     }
 
