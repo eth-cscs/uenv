@@ -33,6 +33,11 @@ util::expected<void, std::string> unshare_mount_map_root() {
     // enable coredumps, otherwise we cannot write to uid_map/gid_map etc.
     Z_e(prctl(PR_SET_DUMPABLE, 1));
 
+    if (auto r =
+            mount(std::nullopt, "/", std::nullopt, MS_SHARED | MS_REC, nullptr);
+        !r)
+        return r;
+
     // map current uid to root
     char buf[256];
     auto proc_uid_map = openat(AT_FDCWD, "/proc/self/uid_map", O_WRONLY);
