@@ -24,13 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     container:
         image: ubuntu:noble
-        # apparmor=unconfined: Ubuntu's AppArmor restricts completing
-        # privilege gain inside an unprivileged user namespace (the
-        # /proc/self/uid_map write in rootless::unshare_mount_map_root())
-        # for unconfined processes when
-        # kernel.apparmor_restrict_unprivileged_userns=1, which is set on
-        # the runner host; --privileged alone does not lift this.
-        options: --privileged --security-opt apparmor=unconfined
+        options: --privileged
     steps:
       - uses: actions/checkout@v7
       - name: Update apt repositories for ccache
@@ -141,62 +135,15 @@ jobs:
           useradd --create-home --shell /bin/bash citest
           chown -R citest:citest "$PWD/build"
           chown citest:citest /user-tools /user-environment
-      - name: diagnose unprivileged userns/uid_map
-        # temporary: investigating an EPERM on write(/proc/self/uid_map)
-        # inside rootless::unshare_mount_map_root() that only appears on the
-        # actual GitHub-hosted runner (a local `docker run --privileged
-        # ubuntu:noble` + citest reproduction of the same unshare/prctl/write
-        # sequence succeeds, so something about this environment specifically
-        # is different). Remove once root-caused.
-        run: |
-          echo "== id citest =="
-          id citest
-          echo "== capabilities (as citest) =="
-          sudo -u citest cat /proc/self/status | grep -E '^Cap(Inh|Prm|Eff|Bnd|Amb):'
-          echo "== relevant sysctls =="
-          for f in /proc/sys/kernel/apparmor_restrict_unprivileged_userns \
-                   /proc/sys/kernel/unprivileged_userns_clone \
-                   /proc/sys/user/max_user_namespaces; do
-            echo "$f: $(cat "$f" 2>/dev/null || echo n/a)"
-          done
-          echo "== attempt to disable apparmor_restrict_unprivileged_userns =="
-          if echo 0 > /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/tmp/sysctl_err; then
-            echo "write succeeded, now: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)"
-          else
-            echo "write failed: $(cat /tmp/sysctl_err)"
-          fi
-          echo "== /proc mount options =="
-          mount | grep ' on /proc '
-          echo "== initial /proc/self/uid_map (as citest, before unshare) =="
-          sudo -u citest cat /proc/self/uid_map
-          echo "== probe: unshare + prctl(DUMPABLE) + write uid_map, as citest =="
-          printf '%s\n' \
-            '#define _GNU_SOURCE' \
-            '#include <sched.h>' \
-            '#include <sys/prctl.h>' \
-            '#include <stdio.h>' \
-            '#include <errno.h>' \
-            '#include <string.h>' \
-            '#include <unistd.h>' \
-            '#include <fcntl.h>' \
-            'int main(void) {' \
-            '    int uid = getuid();' \
-            '    if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0) { printf("unshare failed: %s\n", strerror(errno)); return 1; }' \
-            '    printf("unshare ok\n");' \
-            '    if (prctl(PR_SET_DUMPABLE, 1) != 0) { printf("prctl DUMPABLE failed: %s\n", strerror(errno)); return 1; }' \
-            '    printf("prctl DUMPABLE ok\n");' \
-            '    char buf[256]; snprintf(buf, sizeof(buf), "0 %d 1", uid);' \
-            '    int fd = open("/proc/self/uid_map", O_WRONLY);' \
-            '    if (fd < 0) { printf("open uid_map failed: %s\n", strerror(errno)); return 1; }' \
-            '    ssize_t n = write(fd, buf, strlen(buf));' \
-            '    if (n < 0) { printf("write uid_map \"%s\" failed: %s\n", buf, strerror(errno)); return 1; }' \
-            '    printf("write uid_map ok\n");' \
-            '    return 0;' \
-            '}' \
-            > /tmp/uidmap_probe.c
-          gcc-12 -o /tmp/uidmap_probe /tmp/uidmap_probe.c
-          chmod 755 /tmp/uidmap_probe
-          sudo -u citest /tmp/uidmap_probe || true
+      - name: disable apparmor restriction on unprivileged user namespaces
+        # rootless::unshare_mount_map_root() (src/uenv/rootless.cpp) creates
+        # an unprivileged user namespace and maps citest's own uid to root
+        # within it -- normally privilege-free, but blocked with EPERM here
+        # because the runner host sets
+        # kernel.apparmor_restrict_unprivileged_userns=1 (Ubuntu's AppArmor
+        # hardening for unprivileged userns). The container is privileged,
+        # so the sysctl can be disabled directly.
+        run: echo 0 > /proc/sys/kernel/apparmor_restrict_unprivileged_userns
       - name: unit tests
         run: sudo -u citest ./meson/meson test -Cbuild --verbose unit
       - name: cli integration tests
