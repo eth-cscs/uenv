@@ -13,7 +13,6 @@
 #include <spdlog/spdlog.h>
 
 #include <util/expected.h>
-#include <util/macros.h>
 #include <util/proc_barrier.h>
 #include <util/shared_mapping.h>
 
@@ -83,20 +82,32 @@ class named_semaphore {
         timespec deadline{};
 
         // sem_timedwait() requires a deadline rather than a timeout.
-        Z_e(clock_gettime(CLOCK_REALTIME, &deadline));
+        if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+            return util::unexpected(
+                fmt::format("clock_gettime failed: {}", strerror(errno)));
+        }
         deadline.tv_sec += timeout;
-        Zfe(sem_timedwait(sem_, &deadline), "failure waiting for barrier lock");
+        if (sem_timedwait(sem_, &deadline) != 0) {
+            return util::unexpected(fmt::format(
+                "failure waiting for barrier lock: {}", strerror(errno)));
+        }
         return {};
     }
 
     util::expected<void, std::string> post() {
-        Z_e(sem_post(sem_));
+        if (sem_post(sem_) != 0) {
+            return util::unexpected(
+                fmt::format("sem_post failed: {}", strerror(errno)));
+        }
         return {};
     }
 
     // remove the name from the system; existing handles stay usable.
     util::expected<void, std::string> unlink() {
-        Zfe(sem_unlink(name_.c_str()), "barrier: can't unlink sem: {}", name_);
+        if (sem_unlink(name_.c_str()) != 0) {
+            return util::unexpected(fmt::format(
+                "unable to unlink semaphore {}: {}", name_, strerror(errno)));
+        }
         return {};
     }
 
@@ -287,9 +298,11 @@ util::expected<void, std::string> proc_barrier::end() {
 
     if (impl_->shared->procs_remaining <= 0) {
         spdlog::trace("barrier: cleaning up IPC resources");
-        Tf_(impl_->shared->procs_remaining == 0,
-            "barrier: expected 0 peers left but found {}",
-            impl_->shared->procs_remaining);
+        if (impl_->shared->procs_remaining != 0) {
+            return util::unexpected(
+                fmt::format("barrier: expected 0 peers left but found {}",
+                           impl_->shared->procs_remaining));
+        }
         if (auto r = impl_->lock.unlink(); !r) {
             return r;
         }

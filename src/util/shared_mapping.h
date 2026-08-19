@@ -12,7 +12,6 @@
 #include <fmt/core.h>
 
 #include <util/expected.h>
-#include <util/macros.h>
 
 namespace util {
 
@@ -93,7 +92,10 @@ template <typename T> class shared_mapping {
     }
 
     util::expected<void, std::string> unlink() {
-        Zfe(shm_unlink(name_.c_str()), "barrier: can't unlink shm: {}", name_);
+        if (shm_unlink(name_.c_str()) != 0) {
+            return util::unexpected(fmt::format(
+                "unable to unlink shm {}: {}", name_, strerror(errno)));
+        }
         return {};
     }
 
