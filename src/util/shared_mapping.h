@@ -7,6 +7,7 @@
 
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include <fmt/core.h>
@@ -15,12 +16,15 @@
 
 namespace util {
 
+template <class T>
+concept trivial = std::is_trivial_v<T>;
+
 // A POSIX shared memory object holding a single T, mapped into this process.
 //
 // Closing and unlinking are separate operations: every peer closes its own
 // mapping when the object is destroyed, but only the last peer out should
 // unlink the name, so unlink() is explicit rather than automatic.
-template <typename T> class shared_mapping {
+template <trivial T> class shared_mapping {
   public:
     shared_mapping() = default;
 
@@ -93,8 +97,8 @@ template <typename T> class shared_mapping {
 
     util::expected<void, std::string> unlink() {
         if (shm_unlink(name_.c_str()) != 0) {
-            return util::unexpected(fmt::format(
-                "unable to unlink shm {}: {}", name_, strerror(errno)));
+            return util::unexpected(fmt::format("unable to unlink shm {}: {}",
+                                                name_, strerror(errno)));
         }
         return {};
     }
