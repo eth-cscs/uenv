@@ -7,7 +7,6 @@
 extern "C" {
 #include <squashfuse/ll.h>
 }
-#include <util/macros.h>
 #include "posix_io.h"
 #include <fcntl.h>
 #include <spdlog/spdlog.h>
@@ -18,6 +17,7 @@ extern "C" {
 #include <uenv/mount.h>
 #include <unistd.h>
 #include <util/expected.h>
+#include <util/macros.h>
 #include <util/ready_fork.h>
 
 namespace uenv {
@@ -317,9 +317,9 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
 
     // parent block on pipe until fusemount has finished.
     if (auto ok = rf->wait_ready(); !ok) {
-        return util::unexpected(fmt::format(
-            "mounting squashfs image {} at {} failed: {}", entry.sqfs.string(),
-            entry.mount.string(), ok.error()));
+        return util::unexpected(
+            fmt::format("mounting squashfs image {} at {} failed: {}",
+                        entry.sqfs.string(), entry.mount.string(), ok.error()));
     }
 
     return {};
