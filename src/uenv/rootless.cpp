@@ -224,7 +224,8 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
 
                 if (sqfs_ll_daemonize(true /*foreground*/) != -1) {
                     // inform parent process that sqfs has been mounted
-                    rf->notify_ready();
+                    if (auto ok = rf->notify_ready(); !ok)
+                        child_fail(ok.error());
 
                     // setup signal handlers and enter fuse_session_loop
                     if (fuse_set_signal_handlers(ch.session) != -1) {

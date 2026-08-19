@@ -41,14 +41,18 @@ pid_t ready_fork::fork() {
     return pid;
 }
 
-void ready_fork::notify_ready() {
+expected<void, std::string> ready_fork::notify_ready() {
     char buf[32];
     memset(buf, 'x', sizeof(buf));
     // AppImage seems to do something more advanced:
     // https://github.com/AppImage/AppImageKit/blob/master/src/runtime.c#L138
-    (void)::write(write_fd_, buf, sizeof(buf));
+    ssize_t n = ::write(write_fd_, buf, sizeof(buf));
     (void)::close(write_fd_);
     write_fd_ = -1;
+    if (n < 0) {
+        return unexpected(fmt::format("write() failed: {}", strerror(errno)));
+    }
+    return {};
 }
 
 expected<void, std::string> ready_fork::wait_ready() {

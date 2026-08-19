@@ -37,9 +37,12 @@ class ready_fork {
     pid_t fork();
 
     // child-side; call exactly once, right before entering the "serve
-    // forever" loop, only once setup has fully succeeded. Best-effort: the
-    // write result is discarded, matching the pre-refactor behavior.
-    void notify_ready();
+    // forever" loop, only once setup has fully succeeded. Returns an error
+    // if the write to the parent fails (e.g. the parent has already died
+    // and closed its read end) -- callers that don't arm their own
+    // parent-death signal (e.g. PR_SET_PDEATHSIG) should check this rather
+    // than assume the child can safely keep running unsupervised.
+    expected<void, std::string> notify_ready();
 
     // parent-side; call exactly once after fork(). Blocks until the child
     // calls notify_ready(), or returns an error if the child exits/dies
