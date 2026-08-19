@@ -109,6 +109,7 @@ unit_src = [
         'unit/parse.cpp',
         'unit/proc_barrier.cpp',
         'unit/sha.cpp',
+        'unit/shared_mapping.cpp',
         'unit/shell.cpp',
         'unit/signal.cpp',
         'unit/strings.cpp',

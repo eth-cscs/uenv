@@ -1,7 +1,6 @@
 #include <cstring>
 #include <fcntl.h>
 #include <semaphore.h>
-#include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -16,6 +15,7 @@
 #include <util/expected.h>
 #include <util/macros.h>
 #include <util/proc_barrier.h>
+#include <util/shared_mapping.h>
 
 namespace util {
 
@@ -25,10 +25,10 @@ namespace {
 constexpr int barrier_timeout = 30;
 
 //
-// RAII wrappers over the POSIX IPC objects the barrier is built from. Both
-// follow the util::file_lock pattern in util/fs.h: a private handle, a static
-// factory returning expected, deleted copy, a move that steals and nulls the
-// handle, and an idempotent release() run by the destructor.
+// RAII wrapper over the POSIX named semaphore the barrier is built from.
+// Follows the util::file_lock pattern in util/fs.h: a private handle, a
+// static factory returning expected, deleted copy, a move that steals and
+// nulls the handle, and an idempotent release() run by the destructor.
 //
 // Closing and unlinking are separate operations: every peer closes its own
 // handle when the barrier is destroyed, but only the last peer out unlinks the
@@ -64,8 +64,8 @@ class named_semaphore {
 
     // open (creating if required) the named semaphore, initialising it to
     // `value` if this call is the one that creates it.
-    static util::expected<named_semaphore, std::string>
-    open(std::string name, unsigned value) {
+    static util::expected<named_semaphore, std::string> open(std::string name,
+                                                             unsigned value) {
         sem_t* sem = sem_open(name.c_str(), O_CREAT, 0600, value);
         if (sem == SEM_FAILED) {
             return util::unexpected(fmt::format(
@@ -114,114 +114,6 @@ class named_semaphore {
 
     std::string name_;
     sem_t* sem_ = SEM_FAILED;
-};
-
-// A POSIX shared memory object holding a single T, mapped into this process.
-template <typename T> class shared_mapping {
-  public:
-    shared_mapping() = default;
-
-    shared_mapping(const shared_mapping&) = delete;
-    shared_mapping& operator=(const shared_mapping&) = delete;
-
-    shared_mapping(shared_mapping&& other) noexcept
-        : name_(std::move(other.name_)), data_(other.data_) {
-        other.data_ = nullptr;
-    }
-
-    shared_mapping& operator=(shared_mapping&& other) noexcept {
-        if (this != &other) {
-            release();
-            name_ = std::move(other.name_);
-            data_ = other.data_;
-            other.data_ = nullptr;
-        }
-        return *this;
-    }
-
-    ~shared_mapping() {
-        release();
-    }
-
-    // create the shared memory object. Returns nullopt -- which is a success,
-    // not an error -- if another peer created it first; that race is how the
-    // leader is elected.
-    static util::expected<std::optional<shared_mapping>, std::string>
-    create_exclusive(std::string name) {
-        int fd = shm_open(name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
-        if (fd < 0) {
-            if (errno == EEXIST) {
-                return std::optional<shared_mapping>{};
-            }
-            return util::unexpected(fmt::format("unable to create shm {}: {}",
-                                                name, strerror(errno)));
-        }
-        if (ftruncate(fd, sizeof(T)) != 0) {
-            std::string err{strerror(errno)};
-            close(fd);
-            return util::unexpected(
-                fmt::format("unable to size shm {}: {}", name, err));
-        }
-        auto mapped = map(std::move(name), fd);
-        if (!mapped) {
-            return util::unexpected(mapped.error());
-        }
-        return std::optional<shared_mapping>{std::move(*mapped)};
-    }
-
-    // open a shared memory object created by another peer.
-    static util::expected<shared_mapping, std::string>
-    open_existing(std::string name) {
-        int fd = shm_open(name.c_str(), O_RDWR, 0);
-        if (fd < 0) {
-            return util::unexpected(fmt::format("unable to open shm {}: {}",
-                                                name, strerror(errno)));
-        }
-        return map(std::move(name), fd);
-    }
-
-    const std::string& name() const {
-        return name_;
-    }
-
-    T* operator->() const {
-        return data_;
-    }
-
-    util::expected<void, std::string> unlink() {
-        Zfe(shm_unlink(name_.c_str()), "barrier: can't unlink shm: {}", name_);
-        return {};
-    }
-
-  private:
-    shared_mapping(std::string name, T* data)
-        : name_(std::move(name)), data_(data) {
-    }
-
-    // map the whole object and close fd, which the mapping does not need to
-    // stay alive. Consumes fd on every path.
-    static util::expected<shared_mapping, std::string> map(std::string name,
-                                                           int fd) {
-        void* p = mmap(nullptr, sizeof(T), PROT_READ | PROT_WRITE, MAP_SHARED,
-                       fd, 0);
-        std::string err{strerror(errno)};
-        close(fd);
-        if (p == MAP_FAILED) {
-            return util::unexpected(
-                fmt::format("unable to map shm {}: {}", name, err));
-        }
-        return shared_mapping{std::move(name), static_cast<T*>(p)};
-    }
-
-    void release() {
-        if (data_ != nullptr) {
-            munmap(data_, sizeof(T));
-            data_ = nullptr;
-        }
-    }
-
-    std::string name_;
-    T* data_ = nullptr;
 };
 
 } // namespace

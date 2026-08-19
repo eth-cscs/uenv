@@ -20,3 +20,5 @@ packaging/*.rpm
 install
 build
 pyenv
+
+task.md
