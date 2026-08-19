@@ -34,7 +34,7 @@ util::expected<void, std::string> unshare_mount_map_root() {
     Z_e(prctl(PR_SET_DUMPABLE, 1));
 
     if (auto r =
-            mount(std::nullopt, "/", std::nullopt, MS_SHARED | MS_REC, nullptr);
+            mount(std::nullopt, "/", std::nullopt, MS_REC | MS_PRIVATE, nullptr);
         !r)
         return r;
 
@@ -65,10 +65,6 @@ util::expected<void, std::string> unshare_mount_map_root() {
         return r;
     Z_e(close(proc_gid_map.value()));
 
-    // the following is executed by `unshare --mount --map-root-user`
-    if (auto r = mount("none", "/", std::nullopt, MS_REC | MS_PRIVATE, nullptr);
-        !r)
-        return r;
     return {};
 }
 
