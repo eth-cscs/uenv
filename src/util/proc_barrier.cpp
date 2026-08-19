@@ -1,5 +1,6 @@
 #include <unistd.h>
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -17,8 +18,8 @@ namespace util {
 
 namespace {
 
-// timeout in seconds for waiting on a barrier semaphore.
-constexpr int barrier_timeout = 30;
+// timeout for waiting on a barrier semaphore.
+constexpr std::chrono::seconds barrier_timeout{30};
 
 } // namespace
 

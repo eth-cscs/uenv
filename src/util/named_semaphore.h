@@ -5,6 +5,7 @@
 #include <semaphore.h>
 #include <time.h>
 
+#include <chrono>
 #include <string>
 #include <utility>
 
@@ -61,16 +62,24 @@ class named_semaphore {
         return name_;
     }
 
-    // wait for up to `timeout` seconds.
-    util::expected<void, std::string> wait(int timeout) {
+    // wait for up to `timeout`.
+    util::expected<void, std::string> wait(std::chrono::milliseconds timeout) {
+        using namespace std::chrono;
+
         timespec deadline{};
 
-        // sem_timedwait() requires a deadline rather than a timeout.
+        // sem_timedwait() requires an absolute deadline rather than a
+        // relative timeout.
         if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
             return util::unexpected(
                 fmt::format("clock_gettime failed: {}", strerror(errno)));
         }
-        deadline.tv_sec += timeout;
+        const auto total = seconds{deadline.tv_sec} +
+                           nanoseconds{deadline.tv_nsec} + timeout;
+        const auto secs = duration_cast<seconds>(total);
+        deadline.tv_sec = secs.count();
+        deadline.tv_nsec = (total - secs).count();
+
         if (sem_timedwait(sem_, &deadline) != 0) {
             return util::unexpected(fmt::format(
                 "failure waiting for barrier lock: {}", strerror(errno)));
