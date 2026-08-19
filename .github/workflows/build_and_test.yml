@@ -24,7 +24,13 @@ jobs:
     runs-on: ubuntu-24.04
     container:
         image: ubuntu:noble
-        options: --privileged
+        # apparmor=unconfined: Ubuntu's AppArmor restricts completing
+        # privilege gain inside an unprivileged user namespace (the
+        # /proc/self/uid_map write in rootless::unshare_mount_map_root())
+        # for unconfined processes when
+        # kernel.apparmor_restrict_unprivileged_userns=1, which is set on
+        # the runner host; --privileged alone does not lift this.
+        options: --privileged --security-opt apparmor=unconfined
     steps:
       - uses: actions/checkout@v7
       - name: Update apt repositories for ccache
