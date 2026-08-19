@@ -33,8 +33,8 @@ util::expected<void, std::string> unshare_mount_map_root() {
     // enable coredumps, otherwise we cannot write to uid_map/gid_map etc.
     Z_e(prctl(PR_SET_DUMPABLE, 1));
 
-    if (auto r =
-            mount(std::nullopt, "/", std::nullopt, MS_REC | MS_PRIVATE, nullptr);
+    if (auto r = mount(std::nullopt, "/", std::nullopt, MS_REC | MS_PRIVATE,
+                       nullptr);
         !r)
         return r;
 
