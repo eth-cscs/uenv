@@ -131,9 +131,7 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
     auto mount_var = uenv::slurm::getenv_wrapper(sp, "UENV_MOUNT_LIST");
 
     // variable is not set - nothing to do here
-    if (!mount_var) {
-        return ESPANK_SUCCESS;
-    }
+    if (!mount_var) return ESPANK_SUCCESS;
 
     const uid_t uid = getuid();
     const uid_t gid = getgid();

@@ -64,9 +64,8 @@ util::expected<void, std::string> barrier_begin(proc_barrier& barrier,
 // then release the followers blocked in barrier_begin() so they can act on
 // the leader while it is still in the state they need. Must be called before
 // anything that would invalidate that state.
-util::expected<void, std::string> barrier_ready(proc_barrier& barrier,
-                                                int nprocs,
-                                                std::optional<pid_t> pid);
+util::expected<void, std::string>
+barrier_ready(proc_barrier& barrier, int nprocs, std::optional<pid_t> pid);
 
 // Leader only. Block until every follower has called barrier_signal_done().
 util::expected<void, std::string> barrier_wait_peers(proc_barrier& barrier,

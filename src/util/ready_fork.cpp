@@ -14,10 +14,10 @@ ready_fork::ready_fork(int read_fd, int write_fd)
 
 ready_fork::~ready_fork() {
     if (read_fd_ >= 0) {
-        (void) ::close(read_fd_);
+        (void)::close(read_fd_);
     }
     if (write_fd_ >= 0) {
-        (void) ::close(write_fd_);
+        (void)::close(write_fd_);
     }
 }
 
@@ -32,10 +32,10 @@ expected<ready_fork, std::string> ready_fork::create() {
 pid_t ready_fork::fork() {
     pid_t pid = ::fork();
     if (pid == 0) {
-        (void) ::close(read_fd_);
+        (void)::close(read_fd_);
         read_fd_ = -1;
     } else if (pid > 0) {
-        (void) ::close(write_fd_);
+        (void)::close(write_fd_);
         write_fd_ = -1;
     }
     return pid;
@@ -46,8 +46,8 @@ void ready_fork::notify_ready() {
     memset(buf, 'x', sizeof(buf));
     // AppImage seems to do something more advanced:
     // https://github.com/AppImage/AppImageKit/blob/master/src/runtime.c#L138
-    (void) ::write(write_fd_, buf, sizeof(buf));
-    (void) ::close(write_fd_);
+    (void)::write(write_fd_, buf, sizeof(buf));
+    (void)::close(write_fd_);
     write_fd_ = -1;
 }
 
@@ -57,7 +57,7 @@ expected<void, std::string> ready_fork::wait_ready() {
     do {
         res = ::read(read_fd_, buf, sizeof(buf));
     } while (res < 0 && errno == EINTR);
-    (void) ::close(read_fd_);
+    (void)::close(read_fd_);
     read_fd_ = -1;
     if (res < 0) {
         return unexpected(fmt::format("read() failed: {}", strerror(errno)));
