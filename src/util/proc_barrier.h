@@ -47,7 +47,8 @@ class proc_barrier {
     // All peers. Elects the leader: on return exactly one peer has
     // is_leader() set. Followers stay blocked here until the leader calls
     // ready(). `tag` must be unique to the group; `nprocs` is the number of
-    // peers that will join this barrier.
+    // peers that will join this barrier and must be >= 1, or this returns an
+    // error.
     static util::expected<proc_barrier, std::string> create(std::string tag,
                                                             int nprocs);
 

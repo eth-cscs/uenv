@@ -1,7 +1,3 @@
-#include <cstring>
-#include <fcntl.h>
-#include <semaphore.h>
-#include <time.h>
 #include <unistd.h>
 
 #include <memory>
@@ -13,6 +9,7 @@
 #include <spdlog/spdlog.h>
 
 #include <util/expected.h>
+#include <util/named_semaphore.h>
 #include <util/proc_barrier.h>
 #include <util/shared_mapping.h>
 
@@ -22,110 +19,6 @@ namespace {
 
 // timeout in seconds for waiting on a barrier semaphore.
 constexpr int barrier_timeout = 30;
-
-//
-// RAII wrapper over the POSIX named semaphore the barrier is built from.
-// Follows the util::file_lock pattern in util/fs.h: a private handle, a
-// static factory returning expected, deleted copy, a move that steals and
-// nulls the handle, and an idempotent release() run by the destructor.
-//
-// Closing and unlinking are separate operations: every peer closes its own
-// handle when the barrier is destroyed, but only the last peer out unlinks the
-// name, so unlink() is explicit.
-//
-
-// A POSIX named semaphore.
-class named_semaphore {
-  public:
-    named_semaphore() = default;
-
-    named_semaphore(const named_semaphore&) = delete;
-    named_semaphore& operator=(const named_semaphore&) = delete;
-
-    named_semaphore(named_semaphore&& other) noexcept
-        : name_(std::move(other.name_)), sem_(other.sem_) {
-        other.sem_ = SEM_FAILED;
-    }
-
-    named_semaphore& operator=(named_semaphore&& other) noexcept {
-        if (this != &other) {
-            release();
-            name_ = std::move(other.name_);
-            sem_ = other.sem_;
-            other.sem_ = SEM_FAILED;
-        }
-        return *this;
-    }
-
-    ~named_semaphore() {
-        release();
-    }
-
-    // open (creating if required) the named semaphore, initialising it to
-    // `value` if this call is the one that creates it.
-    static util::expected<named_semaphore, std::string> open(std::string name,
-                                                             unsigned value) {
-        sem_t* sem = sem_open(name.c_str(), O_CREAT, 0600, value);
-        if (sem == SEM_FAILED) {
-            return util::unexpected(fmt::format(
-                "unable to open semaphore {}: {}", name, strerror(errno)));
-        }
-        return named_semaphore{std::move(name), sem};
-    }
-
-    const std::string& name() const {
-        return name_;
-    }
-
-    // wait for up to `timeout` seconds.
-    util::expected<void, std::string> wait(int timeout) {
-        timespec deadline{};
-
-        // sem_timedwait() requires a deadline rather than a timeout.
-        if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
-            return util::unexpected(
-                fmt::format("clock_gettime failed: {}", strerror(errno)));
-        }
-        deadline.tv_sec += timeout;
-        if (sem_timedwait(sem_, &deadline) != 0) {
-            return util::unexpected(fmt::format(
-                "failure waiting for barrier lock: {}", strerror(errno)));
-        }
-        return {};
-    }
-
-    util::expected<void, std::string> post() {
-        if (sem_post(sem_) != 0) {
-            return util::unexpected(
-                fmt::format("sem_post failed: {}", strerror(errno)));
-        }
-        return {};
-    }
-
-    // remove the name from the system; existing handles stay usable.
-    util::expected<void, std::string> unlink() {
-        if (sem_unlink(name_.c_str()) != 0) {
-            return util::unexpected(fmt::format(
-                "unable to unlink semaphore {}: {}", name_, strerror(errno)));
-        }
-        return {};
-    }
-
-  private:
-    named_semaphore(std::string name, sem_t* sem)
-        : name_(std::move(name)), sem_(sem) {
-    }
-
-    void release() {
-        if (sem_ != SEM_FAILED) {
-            sem_close(sem_);
-            sem_ = SEM_FAILED;
-        }
-    }
-
-    std::string name_;
-    sem_t* sem_ = SEM_FAILED;
-};
 
 } // namespace
 
@@ -162,6 +55,11 @@ class proc_barrier_impl {
 // Enter the coordinated section and elect the leader.
 util::expected<proc_barrier, std::string> proc_barrier::create(std::string tag,
                                                                int nprocs) {
+    if (nprocs < 1) {
+        return util::unexpected(fmt::format(
+            "proc_barrier: nprocs must be >= 1, got {}", nprocs));
+    }
+
     using shared_state = proc_barrier_impl::shared_state;
 
     // Serialise.

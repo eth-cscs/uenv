@@ -282,3 +282,23 @@ TEST_CASE("barrier end is idempotent", "[proc_barrier]") {
     REQUIRE(barrier->end());
     REQUIRE(barrier->end());
 }
+
+// nprocs <= 0 must be rejected up front. Left unchecked, it would make
+// wait_peers()'s `nprocs - 1` loop bound <= 0, so the leader would return
+// from wait_peers() immediately without waiting for any follower -- exactly
+// the happens-before guarantee "barrier orders leader after all followers"
+// exists to enforce.
+TEST_CASE("barrier rejects a non-positive nprocs", "[proc_barrier]") {
+    const auto tag = fmt::format("unittest-nprocs-{}", getpid());
+    const auto sem_name = fmt::format("/uenv-run_sem-{}", tag);
+    const auto shm_name = fmt::format("/uenv-run_shm-{}", tag);
+
+    REQUIRE(!util::proc_barrier::create(tag, 0));
+    REQUIRE(!util::proc_barrier::create(tag, -1));
+
+    // rejected before any IPC object was created.
+    REQUIRE(sem_open(sem_name.c_str(), 0) == SEM_FAILED);
+    REQUIRE(errno == ENOENT);
+    REQUIRE(shm_open(shm_name.c_str(), O_RDWR, 0) == -1);
+    REQUIRE(errno == ENOENT);
+}
