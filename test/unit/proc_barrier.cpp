@@ -251,8 +251,8 @@ TEST_CASE("barrier cleans up when the leader never calls ready",
     const auto sem_name = fmt::format("/uenv-run_sem-{}", tag);
     const auto shm_name = fmt::format("/uenv-run_shm-{}", tag);
 
-    struct timespec before {};
-    struct timespec after {};
+    struct timespec before{};
+    struct timespec after{};
     clock_gettime(CLOCK_MONOTONIC, &before);
     {
         auto barrier = util::proc_barrier::create(tag, 1);
