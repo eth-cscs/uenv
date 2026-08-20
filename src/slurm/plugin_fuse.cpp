@@ -1,15 +1,19 @@
-#include "environ.h"
-#include <fmt/ranges.h>
+#include <sys/prctl.h>
+#include <sys/wait.h>
+
 #include <optional>
+
+#include <fmt/ranges.h>
 #include <slurm/slurm_errno.h>
 #include <slurm/spank.h>
 #include <spdlog/spdlog.h>
-#include <sys/prctl.h>
-#include <sys/wait.h>
+
 #include <uenv/log.h>
 #include <uenv/rootless.h>
 #include <util/proc_barrier.h>
 #include <util/setns.h>
+
+#include "environ.h"
 
 //
 // Forward declare the implementation of the plugin callbacks.
@@ -151,4 +155,5 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
 
     return ESPANK_SUCCESS;
 }
+
 } // namespace impl

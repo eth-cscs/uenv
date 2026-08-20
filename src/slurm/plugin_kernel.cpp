@@ -4,12 +4,12 @@
 
 #include <spdlog/spdlog.h>
 
-#include <slurm/mount_slurm.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <util/defer.h>
 
+#include "mount_slurm.h"
 #include "environ.h"
 
 extern "C" {
