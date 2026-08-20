@@ -19,7 +19,9 @@ extern "C" {
 
 #include <uenv/mount.h>
 #include <util/expected.h>
+#include <util/proc_barrier.h>
 #include <util/ready_fork.h>
+#include <util/setns.h>
 
 namespace {
 util::expected<int, std::string>
@@ -161,22 +163,32 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
             fmt::format("close failed: {}", strerror(errno)));
     }
 
-    // disable coredump again (slurm policy)
-    // this breaks both slurm plugin and squashfs-mount, as other tasks can't
-    // access the /proc/pid/ns anymore
-    // prctl(PR_SET_DUMPABLE, 0);
     return {};
 }
 
-util::expected<void, std::string> exit_sandbox(uid_t uid, gid_t gid) {
-    if (auto r = map_effective_user(uid, gid); !r) {
-        return r;
+// restore `dumps_allowed` (the caller's dumpable state before it was forced
+// on -- see mount_and_join_ns) and disallow gaining any new privileges. Not
+// safe to call until every peer that needs /proc/<this pid>/ns/* has already
+// opened it: once dumpable goes to 0, that access is refused.
+util::expected<void, std::string> lock_down(bool dumps_allowed) {
+    if (!dumps_allowed) {
+        if (prctl(PR_SET_DUMPABLE, 0) != 0) {
+            return util::unexpected(fmt::format(
+                "prctl(PR_SET_DUMPABLE) failed: {}", strerror(errno)));
+        }
     }
-
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
         return util::unexpected("PR_SET_NO_NEW_PRIVS failed");
     }
     return {};
+}
+
+util::expected<void, std::string> exit_sandbox(uid_t uid, gid_t gid,
+                                               bool dumps_allowed) {
+    if (auto r = map_effective_user(uid, gid); !r) {
+        return r;
+    }
+    return lock_down(dumps_allowed);
 }
 
 // The forked child shares the parent's entire call stack. A plain `return`
@@ -373,6 +385,93 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         return util::unexpected(
             fmt::format("mounting squashfs image {} at {} failed: {}",
                         entry.sqfs.string(), entry.mount.string(), ok.error()));
+    }
+
+    return {};
+}
+
+util::expected<void, std::string>
+unshare_and_mount(const uenv::mount_list& mounts, bool fuse_single_threaded) {
+    if (auto r = unshare_mount_map_root(); !r) {
+        return r;
+    }
+    for (auto& entry : mounts) {
+        if (auto r = do_sqfs_ll_mount(entry, fuse_single_threaded); !r) {
+            return r;
+        }
+    }
+    return {};
+}
+
+util::expected<void, std::string>
+mount_and_join_ns(const std::string& tag, int ntasks,
+                  const uenv::mount_list& mounts, bool fuse_single_threaded,
+                  uid_t uid, gid_t gid) {
+    // capture the caller's dumpable state before unshare_and_mount forces it
+    // on, so that lock_down can restore it once the dance is done.
+    const bool dumps_allowed = prctl(PR_GET_DUMPABLE) == 1;
+
+    if (ntasks == 1) {
+        // no peers to join, just mount and drop privileges
+        if (auto r = unshare_and_mount(mounts, fuse_single_threaded); !r) {
+            return r;
+        }
+        return exit_sandbox(uid, gid, dumps_allowed);
+    }
+
+    auto barrier = util::proc_barrier::create(tag, ntasks);
+    if (!barrier) {
+        return util::unexpected(barrier.error());
+    }
+
+    if (barrier->is_leader()) {
+        if (auto r = unshare_and_mount(mounts, fuse_single_threaded); !r) {
+            return r;
+        }
+
+        // exit fake-root. Note: this does its own unshare(CLONE_NEWUSER |
+        // CLONE_NEWNS), so it moves us into a *new* mount namespace (a copy
+        // of the current one) -- the other tasks must join this final
+        // namespace, not the one from before this call, so ready() below
+        // must come after it.
+        if (auto r = map_effective_user(uid, gid); !r) {
+            return r;
+        }
+
+        // publish our pid and release the tasks blocked in the barrier so
+        // they can join our (now final) namespaces *before* we lock down
+        // below.
+        if (auto r = barrier->ready(); !r) {
+            return r;
+        }
+
+        // wait until every other local task has finished joining our
+        // namespaces -- only then is it safe to change our dumpable state.
+        if (auto r = barrier->wait_peers(); !r) {
+            return r;
+        }
+
+        // safe now: every peer has already opened /proc/<our pid>/ns/*.
+        if (auto r = lock_down(dumps_allowed); !r) {
+            return r;
+        }
+    } else {
+        // the leader publishes the PID that entered the squashfs namespace,
+        // so joining its namespaces gives us the same view
+        auto r = util::namespaces_join(barrier->leader_pid(), {"user", "mnt"});
+
+        // signal the leader regardless of outcome, so it isn't left waiting
+        // out the full barrier timeout for a peer that will never succeed.
+        if (auto sr = barrier->signal_done(); !sr) {
+            spdlog::warn("barrier signal_done failed: {}", sr.error());
+        }
+        if (!r) {
+            return r;
+        }
+    }
+
+    if (auto r = barrier->end(); !r) {
+        spdlog::warn("barrier end failed: {}", r.error());
     }
 
     return {};

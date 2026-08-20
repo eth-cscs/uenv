@@ -16,8 +16,6 @@
 #include <uenv/rootless.h>
 #include <util/color.h>
 #include <util/envvars.h>
-#include <util/proc_barrier.h>
-#include <util/setns.h>
 #include <util/shell.h>
 
 // print a formtted error message and exit with return code 1
@@ -33,68 +31,6 @@ bool is_setuid() {
     uid_t real_uid = getuid();
 
     return euid != real_uid;
-}
-
-// unshare into a new mount namespace, perform the requested squashfs
-// mounts, and drop privileges back to the calling user.
-util::expected<void, std::string> do_mounts(const uenv::mount_list& mounts,
-                                            bool fuse_single_threaded,
-                                            uid_t uid, gid_t gid) {
-    if (auto r = uenv::rootless::unshare_mount_map_root(); !r) {
-        return r;
-    }
-    for (auto& entry : mounts) {
-        if (auto r =
-                uenv::rootless::do_sqfs_ll_mount(entry, fuse_single_threaded);
-            !r) {
-            return r;
-        }
-    }
-    return uenv::rootless::exit_sandbox(uid, gid);
-}
-
-// synchronize tasks on the same node: the elected leader performs the
-// mounts, the rest join the leader's namespaces.
-void mount_and_join_ns(int ntasks, const uenv::mount_list& mounts,
-                       bool fuse_single_threaded, uid_t uid, gid_t gid) {
-
-    if (ntasks == 1) {
-        // no tasks need to join, just perform the mounts
-        auto r = do_mounts(mounts, fuse_single_threaded, uid, gid);
-        if (!r) {
-            error_and_exit("mount failed {}", r.error());
-        }
-        return;
-    }
-
-    auto barrier = util::proc_barrier::create("tag", ntasks);
-    if (!barrier) {
-        error_and_exit("unable to create the barrier {}", barrier.error());
-    }
-
-    if (barrier->is_leader()) {
-        auto r = do_mounts(mounts, fuse_single_threaded, uid, gid);
-        if (!r) {
-            error_and_exit("mount failed {}", r.error());
-        }
-        // publish our pid and release the tasks blocked in the barrier so
-        // they can join our namespaces.
-        if (auto rr = barrier->ready(); !rr) {
-            error_and_exit("barrier ready failed {}", rr.error());
-        }
-    } else {
-        auto r = util::namespaces_join(barrier->leader_pid(), {"user", "mnt"});
-        if (auto sr = barrier->signal_done(); !sr) {
-            spdlog::warn("barrier signal_done failed: {}", sr.error());
-        }
-        if (!r) {
-            error_and_exit("namespaces_join failed {}", r.error());
-        }
-    }
-
-    if (auto r = barrier->end(); !r) {
-        spdlog::warn("barrier end failed: {}", r.error());
-    }
 }
 
 // squashfs-mount --sqfs=file:mount[,file:mount] -- cmd [args]
@@ -200,7 +136,12 @@ int main(int argc, char** argv, char** envp) {
         spdlog::trace("SLURM_STEP_TASKS_PER_NODE: {}", ntasks);
         // join only if > 1 task and --join was requested
         ntasks = tasks_join ? ntasks : 1;
-        mount_and_join_ns(ntasks, mounts, fuse_single_threaded, uid, gid);
+        if (auto r = uenv::rootless::mount_and_join_ns(
+                "squashfs-mount", ntasks, mounts, fuse_single_threaded, uid,
+                gid);
+            !r) {
+            error_and_exit("mount failed {}", r.error());
+        }
     } else {
         spdlog::warn("nothing mounted (no --sqfs flag provided)");
     }
