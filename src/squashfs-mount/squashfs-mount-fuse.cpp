@@ -35,14 +35,32 @@ bool is_setuid() {
     return euid != real_uid;
 }
 
+// unshare into a new mount namespace, perform the requested squashfs
+// mounts, and drop privileges back to the calling user.
+util::expected<void, std::string> do_mounts(const uenv::mount_list& mounts,
+                                            bool fuse_single_threaded,
+                                            uid_t uid, gid_t gid) {
+    if (auto r = uenv::rootless::unshare_mount_map_root(); !r) {
+        return r;
+    }
+    for (auto& entry : mounts) {
+        if (auto r =
+                uenv::rootless::do_sqfs_ll_mount(entry, fuse_single_threaded);
+            !r) {
+            return r;
+        }
+    }
+    return uenv::rootless::exit_sandbox(uid, gid);
+}
+
 // synchronize tasks on the same node: the elected leader performs the
 // mounts, the rest join the leader's namespaces.
-template <typename R>
-void mount_and_join_ns(bool tasks_join, int ntasks, R&& pipeline) {
+void mount_and_join_ns(int ntasks, const uenv::mount_list& mounts,
+                       bool fuse_single_threaded, uid_t uid, gid_t gid) {
 
-    if (!tasks_join) {
-        // no tasks need to join, just call pipeline
-        auto r = pipeline();
+    if (ntasks == 1) {
+        // no tasks need to join, just perform the mounts
+        auto r = do_mounts(mounts, fuse_single_threaded, uid, gid);
         if (!r) {
             error_and_exit("mount failed {}", r.error());
         }
@@ -55,7 +73,7 @@ void mount_and_join_ns(bool tasks_join, int ntasks, R&& pipeline) {
     }
 
     if (barrier->is_leader()) {
-        auto r = pipeline();
+        auto r = do_mounts(mounts, fuse_single_threaded, uid, gid);
         if (!r) {
             error_and_exit("mount failed {}", r.error());
         }
@@ -176,28 +194,13 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
 
     if (!mounts.empty()) {
-        auto pipeline = [mounts, fuse_single_threaded, uid,
-                         gid]() -> util::expected<void, std::string> {
-            if (auto r = uenv::rootless::unshare_mount_map_root(); !r) {
-                return r;
-            }
-            for (auto& entry : mounts) {
-                if (auto r = uenv::rootless::do_sqfs_ll_mount(
-                        entry, fuse_single_threaded);
-                    !r) {
-                    return r;
-                }
-            }
-            return uenv::rootless::exit_sandbox(uid, gid);
-        };
-
         int ntasks = std::stoi(
             calling_env.get("SLURM_STEP_TASKS_PER_NODE").value_or("1"));
         /// SLURM only at the moment
         spdlog::trace("SLURM_STEP_TASKS_PER_NODE: {}", ntasks);
-        // join only if > 1 task
-        tasks_join = ntasks > 1 ? tasks_join : false;
-        mount_and_join_ns(tasks_join, ntasks, pipeline);
+        // join only if > 1 task and --join was requested
+        ntasks = tasks_join ? ntasks : 1;
+        mount_and_join_ns(ntasks, mounts, fuse_single_threaded, uid, gid);
     } else {
         spdlog::warn("nothing mounted (no --sqfs flag provided)");
     }
