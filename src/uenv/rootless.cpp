@@ -146,7 +146,7 @@ static void init_fs_ops(struct fuse_lowlevel_ops* sqfs_ll_ops) {
 // Adapted from `squashfuse_ll` written by Dave Vasilevsky <dave@vasilevsky.ca>
 // Ref: https://github.com/vasi/squashfuse/blob/master/ll_main.c
 util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
-                                                   bool fuse_st) {
+                                                   bool fuse_single_threaded) {
     spdlog::trace("do_sqfs_ll_mount");
     // use a pipe to synchronize parent and child process
     auto rf = util::ready_fork::create();
@@ -230,7 +230,7 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                         }
 #ifdef SQFS_MULTITHREADED
 #if FUSE_USE_VERSION >= 30
-                        if (!fuse_st) {
+                        if (!fuse_single_threaded) {
                             struct fuse_loop_config config;
                             config.clone_fd = 1;
                             config.max_idle_threads = 10;

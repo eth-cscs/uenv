@@ -38,30 +38,31 @@ bool is_setuid() {
 // synchronize tasks on the same node: the elected leader performs the
 // mounts, the rest join the leader's namespaces.
 template <typename R>
-void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
-    // empty unless the tasks are to be joined, so that "there is no barrier"
-    // is explicit instead of an unused barrier in an unusable state.
-    std::optional<util::proc_barrier> barrier;
+void mount_and_join_ns(bool tasks_join, int ntasks, R&& pipeline) {
 
-    if (tasks_join) {
-        auto r = util::proc_barrier::create("tag", ntasks);
-        if (!r) {
-            error_and_exit("unable to create the barrier {}", r.error());
-        }
-        barrier = std::move(*r);
-    }
-
-    if (!barrier || barrier->is_leader()) {
-        auto r = mount();
+    if (!tasks_join) {
+        // no tasks need to join, just call pipeline
+        auto r = pipeline();
         if (!r) {
             error_and_exit("mount failed {}", r.error());
         }
-        if (barrier) {
-            // publish our pid and release the tasks blocked in the barrier so
-            // they can join our namespaces.
-            if (auto rr = barrier->ready(); !rr) {
-                error_and_exit("barrier ready failed {}", rr.error());
-            }
+        return;
+    }
+
+    auto barrier = util::proc_barrier::create("tag", ntasks);
+    if (!barrier) {
+        error_and_exit("unable to create the barrier {}", barrier.error());
+    }
+
+    if (barrier->is_leader()) {
+        auto r = pipeline();
+        if (!r) {
+            error_and_exit("mount failed {}", r.error());
+        }
+        // publish our pid and release the tasks blocked in the barrier so
+        // they can join our namespaces.
+        if (auto rr = barrier->ready(); !rr) {
+            error_and_exit("barrier ready failed {}", rr.error());
         }
     } else {
         auto r = util::namespaces_join(barrier->leader_pid(), {"user", "mnt"});
@@ -73,10 +74,8 @@ void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
         }
     }
 
-    if (barrier) {
-        if (auto r = barrier->end(); !r) {
-            spdlog::warn("barrier end failed: {}", r.error());
-        }
+    if (auto r = barrier->end(); !r) {
+        spdlog::warn("barrier end failed: {}", r.error());
     }
 }
 
@@ -107,7 +106,7 @@ int main(int argc, char** argv, char** envp) {
 
     bool print_version = false;
     bool tasks_join = false;
-    bool fuse_st = false;
+    bool fuse_single_threaded = false;
     int verbosity = 1;
     std::optional<std::string> raw_mounts;
     std::optional<std::vector<std::string>> commands;
@@ -121,7 +120,7 @@ int main(int argc, char** argv, char** envp) {
                    "comma separated list of squashfs files to mount");
     cli.add_option("commands", commands,
                    "the command to run, including with arguments");
-    cli.add_flag("--fuse-single", fuse_st, "fuse single threaded");
+    cli.add_flag("--fuse-single", fuse_single_threaded, "fuse single threaded");
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -176,50 +175,19 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("uenv_mount_list {}", uenv_mount_list);
     spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
 
-    //
-    // The rootless (squashfuse in a user namespace) mount pipeline:
-    //  * setup_sandbox: unshare the user + mount namespaces and map the
-    //    calling user to root inside them.
-    //  * mount_sqfs: mount a single squashfs image with squashfuse_ll.
-    //  * exit_sandbox: return to the unprivileged calling user and disallow
-    //    gaining any new privileges.
-    //
-    auto setup_sandbox = []() {
-        return uenv::rootless::unshare_mount_map_root();
-    };
-    auto mount_sqfs = [fuse_st](const uenv::mount_pair& entry) {
-        return uenv::rootless::do_sqfs_ll_mount(entry, fuse_st);
-    };
-    auto exit_sandbox = [uid, gid]() {
-        return uenv::rootless::exit_sandbox(uid, gid);
-    };
-
-    //
-    // mount: the squashfs images.
-    //
-    auto do_mounts = [&mounts,
-                      &mount_sqfs]() -> util::expected<void, std::string> {
-        for (auto& entry : mounts) {
-            if (auto r = mount_sqfs(entry); !r) {
+    if (!mounts.empty()) {
+        auto pipeline = [mounts, fuse_single_threaded, uid,
+                         gid]() -> util::expected<void, std::string> {
+            if (auto r = uenv::rootless::unshare_mount_map_root(); !r) {
                 return r;
             }
-        }
-
-        return {};
-    };
-
-    const bool has_work = !mounts.empty();
-
-    if (has_work) {
-        auto pipeline = [&setup_sandbox, &do_mounts,
-                         &exit_sandbox]() -> util::expected<void, std::string> {
-            if (auto r = setup_sandbox(); !r) {
-                return r;
+            for (auto& entry : mounts) {
+                if (auto r = uenv::rootless::do_sqfs_ll_mount(entry, fuse_single_threaded);
+                    !r) {
+                    return r;
+                }
             }
-            if (auto r = do_mounts(); !r) {
-                return r;
-            }
-            return exit_sandbox();
+            return uenv::rootless::exit_sandbox(uid, gid);
         };
 
         int ntasks = std::stoi(
@@ -236,7 +204,6 @@ int main(int argc, char** argv, char** envp) {
     //
     // Generate the runtime environment variables
     //
-
     envvars::state runtime_env{};
 
     // forward all environment variables not prefixed with SQFSMNT_FWD_
