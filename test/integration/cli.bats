@@ -558,29 +558,18 @@ EOF
     assert_line --partial 'quokka/24:v1'
     [ "${#lines[@]}" -eq "4" ]
 
-    # trying to add the same image with a different label pointing to an SQFS file inside the repo should generate a warning
-    run uenv --repo=$RP image add wombat/24:replica@arapiles%zen3 $(uenv --repo=$RP image inspect --format='{sqfs}' wombat/24:v1@arapiles%zen3)
-    assert_success
-    assert_output --partial "warning"
-    assert_output --partial "a uenv with the same sha"
-
-    run uenv --repo=$RP image ls --no-header
-    assert_success
-    assert_line --partial 'wombat/24:v1'
-    assert_line --partial 'wombat/24:replica'
-    [ "${#lines[@]}" -eq "5" ]
-
-    # trying to add the same image by label
+    # adding a new label that aliases an image already in the repo (by label)
+    # is the sanctioned way to retag, and succeeds cleanly
     run uenv --repo=$RP image add numbat/24:replica@arapiles%zen3 numbat/24:v1
     assert_success
-    assert_output --partial "warning"
-    assert_output --partial "a uenv with the same sha"
+    refute_output --partial "warning"
+    refute_output --partial "error"
 
     run uenv --repo=$RP image ls --no-header
     assert_success
     assert_line --partial 'numbat/24:v1'
     assert_line --partial 'numbat/24:replica'
-    [ "${#lines[@]}" -eq "6" ]
+    [ "${#lines[@]}" -eq "5" ]
 
     # TODO:
     # - check a read-only repo
@@ -631,9 +620,10 @@ EOF
     assert_success
 
     # add uenv to a repo for us to try removing
-    # the wombat uenv have the same sha
+    # the wombat uenv have the same sha: the second label is added by aliasing
+    # the first, because adding the same squashfs a second time is an error
     uenv --repo=$UENV_REPO_PATH image add wombat/24:rc1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs > /dev/null
-    uenv --repo=$UENV_REPO_PATH image add wombat/24:v1@arapiles%zen3  $SQFS_LIB/apptool/standalone/tool.squashfs > /dev/null
+    uenv --repo=$UENV_REPO_PATH image add wombat/24:v1@arapiles%zen3  wombat/24:rc1@arapiles%zen3 > /dev/null
     # the bilby images have unique sha
     uenv --repo=$UENV_REPO_PATH image add bilby/24:v1@arapiles%zen3   $SQFS_LIB/apptool/standalone/app42.squashfs > /dev/null
     uenv --repo=$UENV_REPO_PATH image add bilby/24:v2@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
@@ -682,9 +672,10 @@ EOF
     assert_output ""
 
     # removing a one of multiple labels on the same sha removes the label but leaves the others untouched
-    # step 1: add another image with the same hash as the remaining image
-    run uenv --repo=$UENV_REPO_PATH image add wallaby/24:v2@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
-    run uenv --repo=$UENV_REPO_PATH image add wallaby/24:v3@arapiles%zen3   $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
+    # step 1: add more labels with the same hash as the remaining image
+    # (bilby/24:v2) by aliasing it, since re-adding the squashfs is an error
+    run uenv --repo=$UENV_REPO_PATH image add wallaby/24:v2@arapiles%zen3   bilby/24:v2@arapiles%zen3 > /dev/null
+    run uenv --repo=$UENV_REPO_PATH image add wallaby/24:v3@arapiles%zen3   bilby/24:v2@arapiles%zen3 > /dev/null
 
     pattern=wallaby/24:v2
     sha=$(uenv --repo=$UENV_REPO_PATH image inspect $pattern --format={sha256})

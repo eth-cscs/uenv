@@ -259,6 +259,11 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         // copy or move the squashfs file
         if (!args.move) {
             spdlog::debug("image_add: copying {} to {}", sqfs->sqfs, uenv_paths.squashfs);
+            // record the source modification time so that it can be preserved
+            // on the copy: fs::copy_file stamps the destination with the current
+            // time, whereas fs::rename (the move case) keeps the source time.
+            std::error_code tec;
+            const auto src_time = fs::last_write_time(sqfs->sqfs, tec);
             fs::copy_file(sqfs->sqfs, uenv_paths.squashfs, ec);
             if (ec) {
                 spdlog::error("unable to copy squashfs image {} to {}: {}",
@@ -266,6 +271,16 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                               ec.message());
                 term::error("unable to add the uenv");
                 return 1;
+            }
+            // preserve the source modification time on the copy so that the
+            // creation date recorded in the repository matches the source.
+            if (!tec) {
+                fs::last_write_time(uenv_paths.squashfs, src_time, tec);
+            }
+            if (tec) {
+                spdlog::warn(
+                    "image_add: unable to preserve modification time on {}: {}",
+                    uenv_paths.squashfs.string(), tec.message());
             }
         } else {
             spdlog::debug("image_add: moving {} to {}", sqfs->sqfs, uenv_paths.squashfs);
@@ -300,7 +315,10 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     }
 
     // add the label to the database
-    const uenv::uenv_date date{*util::file_creation_date(sqfs->sqfs)};
+    // read the creation date from the image in its final destination in the
+    // repository: in the --move case the source path no longer exists, and in
+    // both cases the in-repo copy is the authoritative file.
+    const uenv::uenv_date date{*util::file_creation_date(uenv_paths.squashfs)};
     if (!date.validate()) {
         spdlog::error("the date {} is invalid", date);
         term::error("unable to add the uenv");
