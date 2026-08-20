@@ -57,8 +57,8 @@ class proc_barrier_impl {
 util::expected<proc_barrier, std::string> proc_barrier::create(std::string tag,
                                                                int nprocs) {
     if (nprocs < 1) {
-        return util::unexpected(fmt::format(
-            "proc_barrier: nprocs must be >= 1, got {}", nprocs));
+        return util::unexpected(
+            fmt::format("proc_barrier: nprocs must be >= 1, got {}", nprocs));
     }
 
     using shared_state = proc_barrier_impl::shared_state;
@@ -200,7 +200,7 @@ util::expected<void, std::string> proc_barrier::end() {
         if (impl_->shared->procs_remaining != 0) {
             return util::unexpected(
                 fmt::format("barrier: expected 0 peers left but found {}",
-                           impl_->shared->procs_remaining));
+                            impl_->shared->procs_remaining));
         }
         if (auto r = impl_->lock.unlink(); !r) {
             return r;

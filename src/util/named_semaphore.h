@@ -74,8 +74,8 @@ class named_semaphore {
             return util::unexpected(
                 fmt::format("clock_gettime failed: {}", strerror(errno)));
         }
-        const auto total = seconds{deadline.tv_sec} +
-                           nanoseconds{deadline.tv_nsec} + timeout;
+        const auto total =
+            seconds{deadline.tv_sec} + nanoseconds{deadline.tv_nsec} + timeout;
         const auto secs = duration_cast<seconds>(total);
         deadline.tv_sec = secs.count();
         deadline.tv_nsec = (total - secs).count();
