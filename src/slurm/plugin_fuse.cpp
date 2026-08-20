@@ -15,7 +15,6 @@
 // Forward declare the implementation of the plugin callbacks.
 //
 namespace impl {
-int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac, char** av);
 int slurm_spank_task_init_sqfs_ll(spank_t sp);
 } // namespace impl
 
@@ -23,7 +22,6 @@ extern "C" {
 
 int slurm_spank_task_init(spank_t sp, [[maybe_unused]] int ac,
                           [[maybe_unused]] char** av) {
-    // return impl::slurm_spank_task_init_sqfs_mount(sp, ac, av);
     return impl::slurm_spank_task_init_sqfs_ll(sp);
 }
 
@@ -31,95 +29,11 @@ int slurm_spank_task_init(spank_t sp, [[maybe_unused]] int ac,
 
 namespace impl {
 
-// fork + call `squashfs_mount` executable
-int slurm_spank_task_init_sqfs_mount(spank_t sp, int ac [[maybe_unused]],
-                                     char** av [[maybe_unused]]) {
-    uenv::init_log(spdlog::level::off);
-
-    auto mount_var = uenv::slurm::getenv_wrapper(sp, "UENV_MOUNT_LIST");
-    if (!mount_var) {
-        return ESPANK_SUCCESS;
-    }
-
-    auto mounts = uenv::parse_and_validate_mounts(mount_var.value());
-    if (!mounts) {
-        slurm_error("%s", mounts.error().c_str());
-        return -ESPANK_ERROR;
-    }
-
-    uint32_t job_id = 0;
-    uint32_t step_id = 0;
-    spank_get_item(sp, S_JOB_ID, &job_id);
-    spank_get_item(sp, S_JOB_STEPID, &step_id);
-    const auto barrier_tag = fmt::format("{}-{}", job_id, step_id);
-
-    int ntasks = 1;
-    spank_get_item(sp, S_JOB_LOCAL_TASK_COUNT, &ntasks);
-
-    auto barrier = util::proc_barrier::create(barrier_tag, ntasks);
-    if (!barrier) {
-        slurm_error("unable to create the barrier: %s",
-                    barrier.error().c_str());
-        return -ESPANK_ERROR;
-    }
-
-    std::optional<pid_t> ns_pid = std::nullopt;
-    if (barrier->is_leader()) {
-        const auto mount_str =
-            fmt::format("{}", fmt::join(mounts.value(), ","));
-
-        ns_pid = fork();
-        if (ns_pid.value() == 0) {
-            prctl(PR_SET_PDEATHSIG, SIGHUP);
-            execlp("squashfs-mount", "squashfs-mount", "--sqfs",
-                   mount_str.c_str(), "--", "sh", "-c", "kill -STOP $$; exit 0",
-                   nullptr);
-            slurm_error("uenv: exec squashfs-mount failed: %s",
-                        strerror(errno));
-            return -ESPANK_ERROR;
-        } else if (ns_pid.value() < 0) {
-            slurm_error("uenv: fork failed: %s", strerror(errno));
-            return -ESPANK_ERROR;
-        }
-
-        // wait until squashfs-mount-rootless stops itself after mounting
-        siginfo_t sig_info;
-        if (waitid(P_PID, ns_pid.value(), &sig_info, WSTOPPED) < 0) {
-            slurm_error("uenv: waitid failed: %s", strerror(errno));
-            return -ESPANK_ERROR;
-        }
-
-        // enter the user+mount namespace created by squashfs-mount (rootless)
-        if (auto r = util::namespaces_join(ns_pid.value(), {"user", "mnt"});
-            !r) {
-            slurm_error("namespaces_join failed: %s", r.error().c_str());
-            return -ESPANK_ERROR;
-        }
-
-        // publish the forked child's pid rather than our own, so the other
-        // tasks join the same namespace
-        if (auto r = barrier->ready(ns_pid); !r) {
-            slurm_error("barrier ready failed: %s", r.error().c_str());
-            return -ESPANK_ERROR;
-        }
-    } else {
-        // the leader publishes the PID that entered the squashfs namespace,
-        // so joining its namespaces gives us the same view
-        auto r = util::namespaces_join(barrier->leader_pid(), {"user", "mnt"});
-        if (auto sr = barrier->signal_done(); !sr) {
-            slurm_error("barrier signal_done failed: %s", sr.error().c_str());
-        }
-        if (!r) {
-            slurm_error("namespaces_join failed: %s", r.error().c_str());
-            return -ESPANK_ERROR;
-        }
-    }
-
-    if (auto r = barrier->end(); !r) {
-        slurm_error("barrier end failed: %s", r.error().c_str());
-        return -ESPANK_ERROR;
-    }
-
+// The FUSE backend mounts per task in slurm_spank_task_init, so there is
+// nothing to do in the remote context. This no-op satisfies the shared
+// dispatcher in plugin.cpp (the kernel backend provides the real
+// implementation in plugin_kernel.cpp).
+int init_post_opt_remote(spank_t) {
     return ESPANK_SUCCESS;
 }
 

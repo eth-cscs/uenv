@@ -16,7 +16,7 @@ jobs:
       matrix:
         buildtype: [debug, release]
         sanitizer: [none, address, leak, undefined, thread]
-        fuse: [true, false]
+        mount_backend: [setuid, fuse]
         exclude:
           # False positive warnings in release builds: https://godbolt.org/z/vT3nqGxzW
           - buildtype: release
@@ -74,7 +74,7 @@ jobs:
               --buildtype ${{ matrix.buildtype }} \
               -Db_sanitize=${{ matrix.sanitizer }} \
               -Dtests=enabled \
-              -Dfuse=${{ matrix.fuse }} \
+              -Dmount_backend=${{ matrix.mount_backend }} \
               -Dsquashfs_mount=true \
               --warnlevel 3 \
               --werror \

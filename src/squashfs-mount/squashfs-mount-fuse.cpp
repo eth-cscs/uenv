@@ -13,8 +13,11 @@
 #include <uenv/log.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
+#include <uenv/rootless.h>
 #include <util/color.h>
 #include <util/envvars.h>
+#include <util/proc_barrier.h>
+#include <util/setns.h>
 #include <util/shell.h>
 
 // print a formtted error message and exit with return code 1
@@ -25,24 +28,86 @@ void error_and_exit(fmt::format_string<T...> fmt, T&&... args) {
     exit(1);
 }
 
+bool is_setuid() {
+    uid_t euid = geteuid();
+    uid_t real_uid = getuid();
+
+    return euid != real_uid;
+}
+
+// synchronize tasks on the same node: the elected leader performs the
+// mounts, the rest join the leader's namespaces.
+template <typename R>
+void mount_and_join_ns(bool tasks_join, int ntasks, R&& mount) {
+    // empty unless the tasks are to be joined, so that "there is no barrier"
+    // is explicit instead of an unused barrier in an unusable state.
+    std::optional<util::proc_barrier> barrier;
+
+    if (tasks_join) {
+        auto r = util::proc_barrier::create("tag", ntasks);
+        if (!r) {
+            error_and_exit("unable to create the barrier {}", r.error());
+        }
+        barrier = std::move(*r);
+    }
+
+    if (!barrier || barrier->is_leader()) {
+        auto r = mount();
+        if (!r) {
+            error_and_exit("mount failed {}", r.error());
+        }
+        if (barrier) {
+            // publish our pid and release the tasks blocked in the barrier so
+            // they can join our namespaces.
+            if (auto rr = barrier->ready(); !rr) {
+                error_and_exit("barrier ready failed {}", rr.error());
+            }
+        }
+    } else {
+        auto r = util::namespaces_join(barrier->leader_pid(), {"user", "mnt"});
+        if (auto sr = barrier->signal_done(); !sr) {
+            spdlog::warn("barrier signal_done failed: {}", sr.error());
+        }
+        if (!r) {
+            error_and_exit("namespaces_join failed {}", r.error());
+        }
+    }
+
+    if (barrier) {
+        if (auto r = barrier->end(); !r) {
+            spdlog::warn("barrier end failed: {}", r.error());
+        }
+    }
+}
+
 // squashfs-mount --sqfs=file:mount[,file:mount] -- cmd [args]
 //
 // --version --verbose=2, -v, -vv, -vvv
 int main(int argc, char** argv, char** envp) {
+    //
+    // refuse to use fuse/rootless with setuid
+    //
+    if (is_setuid()) {
+        error_and_exit("Error: attempt to use fuse as setuid.");
+    }
+
     //
     // Capture the environment variables
     //
 
     const auto calling_env = envvars::state(envp);
 
-    // get the uid before performing any privilege/namespace changes
+    // get the uid/gid before performing any privilege/namespace changes
     const uid_t uid = getuid();
+    const gid_t gid = getgid();
 
     //
     // Command line argument parsing
     //
 
     bool print_version = false;
+    bool tasks_join = false;
+    bool fuse_st = false;
     int verbosity = 1;
     std::optional<std::string> raw_mounts;
     std::optional<std::vector<std::string>> commands;
@@ -50,10 +115,13 @@ int main(int argc, char** argv, char** envp) {
     CLI::App cli(fmt::format("squashfs-mount {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
     cli.add_flag("--version", print_version, "print version");
+    cli.add_flag("--join", tasks_join,
+                 "join namespaces of tasks on the same node");
     cli.add_option("-s,--sqfs", raw_mounts,
                    "comma separated list of squashfs files to mount");
     cli.add_option("commands", commands,
                    "the command to run, including with arguments");
+    cli.add_flag("--fuse-single", fuse_st, "fuse single threaded");
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -109,27 +177,60 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
 
     //
-    // mount the squashfs images with the kernel squashfs driver:
-    //  * unshare the mount namespace and become the real root user, so that
-    //    the images can be mounted;
-    //  * mount each image with libmount;
-    //  * drop back to the calling user and disallow gaining new privileges.
+    // The rootless (squashfuse in a user namespace) mount pipeline:
+    //  * setup_sandbox: unshare the user + mount namespaces and map the
+    //    calling user to root inside them.
+    //  * mount_sqfs: mount a single squashfs image with squashfuse_ll.
+    //  * exit_sandbox: return to the unprivileged calling user and disallow
+    //    gaining any new privileges.
     //
-    if (!mounts.empty()) {
-        if (auto r = uenv::unshare_and_become_root(); !r) {
-            error_and_exit("{}", r.error());
+    auto setup_sandbox = []() {
+        return uenv::rootless::unshare_mount_map_root();
+    };
+    auto mount_sqfs = [fuse_st](const uenv::mount_pair& entry) {
+        return uenv::rootless::do_sqfs_ll_mount(entry, fuse_st);
+    };
+    auto exit_sandbox = [uid, gid]() {
+        return uenv::rootless::exit_sandbox(uid, gid);
+    };
+
+    //
+    // mount: the squashfs images.
+    //
+    auto do_mounts = [&mounts,
+                      &mount_sqfs]() -> util::expected<void, std::string> {
+        for (auto& entry : mounts) {
+            if (auto r = mount_sqfs(entry); !r) {
+                return r;
+            }
         }
-        if (auto r = uenv::do_mount(mounts); !r) {
-            error_and_exit("mount failed {}", r.error());
-        }
+
+        return {};
+    };
+
+    const bool has_work = !mounts.empty();
+
+    if (has_work) {
+        auto pipeline = [&setup_sandbox, &do_mounts,
+                         &exit_sandbox]() -> util::expected<void, std::string> {
+            if (auto r = setup_sandbox(); !r) {
+                return r;
+            }
+            if (auto r = do_mounts(); !r) {
+                return r;
+            }
+            return exit_sandbox();
+        };
+
+        int ntasks = std::stoi(
+            calling_env.get("SLURM_STEP_TASKS_PER_NODE").value_or("1"));
+        /// SLURM only at the moment
+        spdlog::trace("SLURM_STEP_TASKS_PER_NODE: {}", ntasks);
+        // join only if > 1 task
+        tasks_join = ntasks > 1 ? tasks_join : false;
+        mount_and_join_ns(tasks_join, ntasks, pipeline);
     } else {
         spdlog::warn("nothing mounted (no --sqfs flag provided)");
-    }
-
-    // the setuid binary always starts with an elevated effective uid, so it
-    // has to be dropped even when there is nothing to mount.
-    if (auto r = uenv::return_to_user_and_no_new_privs(uid); !r) {
-        error_and_exit("{}", r.error());
     }
 
     //

@@ -7,6 +7,7 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
+#include <uenv/config.h>
 #include <uenv/env.h>
 #include <util/expected.h>
 #include <util/shell.h>
@@ -26,8 +27,13 @@ void run_args::add_cli(CLI::App& cli, global_settings& settings) {
     auto* run_cli = cli.add_subcommand("run", "run a uenv session");
     run_cli->add_option("-v,--view", view_description,
                         "comma separated list of views to load");
+#if UENV_BACKEND_FUSE
+    // the --join flag is only meaningful for the FUSE backend, where a single
+    // task mounts and the others join its namespaces. The setuid/kernel
+    // backend mounts independently in every task.
     run_cli->add_flag("-j,--join", join,
-                      "comma separated list of views to load");
+                      "join namespaces of tasks on the same node");
+#endif
     run_cli
         ->add_option("uenv", uenv_description,
                      "comma separated list of uenv to mount")

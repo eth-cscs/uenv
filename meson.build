@@ -146,7 +146,7 @@ lib_src = [
         'src/util/toml.cpp',
         'src/util/url.cpp',
 ]
-use_fuse = get_option('fuse')
+use_fuse = get_option('mount_backend') == 'fuse'
 
 if use_fuse
     # squashfuse (userspace SquashFS mounting) is built from source.
@@ -240,13 +240,12 @@ if uenv_slurm_plugin
 endif
 
 if uenv_squashfs_mount
-    if get_option('fuse')
+    if use_fuse
         squashfs_mount_build = executable('squashfs-mount',
-                                          sources: ['src/squashfs-mount/squashfs-mount.cpp'],
+                                          sources: ['src/squashfs-mount/squashfs-mount-fuse.cpp'],
                                           dependencies: [uenv_dep, fmt_dep, cli11_dep, squashfuse_dep, fuse_dep],
                                           cpp_args: [
                                               '-DVERSION="@0@"'.format(version),
-                                              '-DUENV_FUSE_MOUNT=1',
                                           ],
                                           install: true
                                          )

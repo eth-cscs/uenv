@@ -14,7 +14,8 @@ module_src = [
 cpp_args_list = ['-Wall', '-Wpedantic', '-Wextra']
 if use_fuse
     module_src += ['plugin_fuse.cpp']
-    cpp_args_list += ['-DUENV_FUSE']
+else
+    module_src += ['plugin_kernel.cpp']
 endif
 
 

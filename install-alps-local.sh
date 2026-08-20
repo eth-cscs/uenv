@@ -21,7 +21,7 @@ echo "== configure in $build"
 
 export CC=gcc-12
 export CXX=g++-12
-uvx --with meson,ninja meson setup -Dsquashfs_mount=true -Dfuse=true --prefix=$install $build $root
+uvx --with meson,ninja meson setup -Dsquashfs_mount=true -Dmount_backend=fuse --prefix=$install $build $root
 uvx --with meson,ninja meson compile -C$build
 uvx --with meson,ninja meson install -C$build --skip-subprojects
 
