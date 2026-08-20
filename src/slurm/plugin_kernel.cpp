@@ -9,8 +9,8 @@
 #include <uenv/parse.h>
 #include <util/defer.h>
 
-#include "mount_slurm.h"
 #include "environ.h"
+#include "mount_slurm.h"
 
 extern "C" {
 #include <slurm/slurm_errno.h>

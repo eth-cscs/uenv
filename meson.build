@@ -120,7 +120,6 @@ lib_src = [
         'src/oci/types.cpp',
         'src/oci/util.cpp',
         'src/uenv/parse.cpp',
-        'src/uenv/posix_io.cpp',
         'src/uenv/print.cpp',
         'src/uenv/repository.cpp',
         'src/uenv/settings.cpp',
@@ -163,11 +162,8 @@ if use_fuse
     fuse_dep = dependency('fuse3', required: true)
 endif
 
-
-
 if use_fuse
     lib_src += ['src/uenv/rootless.cpp']
-    # dependencies += [squashfuse_dep, fuse_dep]
 endif
 
 lib_inc = include_directories('src')
