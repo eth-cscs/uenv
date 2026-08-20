@@ -19,7 +19,6 @@ extern "C" {
 
 #include <uenv/mount.h>
 #include <util/expected.h>
-#include <util/macros.h>
 #include <util/ready_fork.h>
 
 namespace {
@@ -59,9 +58,15 @@ util::expected<void, std::string> unshare_mount_map_root() {
     int uid = getuid(); // get current uid
     int gid = getgid();
 
-    Z_e(unshare(CLONE_NEWUSER | CLONE_NEWNS));
+    if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0) {
+        return util::unexpected(
+            fmt::format("unshare failed: {}", strerror(errno)));
+    }
     // enable coredumps, otherwise we cannot write to uid_map/gid_map etc.
-    Z_e(prctl(PR_SET_DUMPABLE, 1));
+    if (prctl(PR_SET_DUMPABLE, 1) != 0) {
+        return util::unexpected(
+            fmt::format("prctl(PR_SET_DUMPABLE) failed: {}", strerror(errno)));
+    }
 
     if (auto r = mount(std::nullopt, "/", std::nullopt, MS_REC | MS_PRIVATE,
                        nullptr);
@@ -79,7 +84,10 @@ util::expected<void, std::string> unshare_mount_map_root() {
     if (auto r = write_wrap(proc_uid_map.value(), buf, strlen(buf)); !r) {
         return r;
     }
-    Z_e(close(proc_uid_map.value()));
+    if (close(proc_uid_map.value()) != 0) {
+        return util::unexpected(
+            fmt::format("close failed: {}", strerror(errno)));
+    }
 
     // write /proc/self/gid_setgroups -> deny
     auto proc_setgroups =
@@ -90,7 +98,10 @@ util::expected<void, std::string> unshare_mount_map_root() {
     if (auto r = write_wrap(proc_setgroups.value(), "deny", 4); !r) {
         return r;
     }
-    Z_e(close(proc_setgroups.value()));
+    if (close(proc_setgroups.value()) != 0) {
+        return util::unexpected(
+            fmt::format("close failed: {}", strerror(errno)));
+    }
 
     // map gid  to root group
     auto proc_gid_map = openat_wrap(AT_FDCWD, "/proc/self/gid_map", O_WRONLY);
@@ -101,7 +112,10 @@ util::expected<void, std::string> unshare_mount_map_root() {
     if (auto r = write_wrap(proc_gid_map.value(), buf, strlen(buf)); !r) {
         return r;
     }
-    Z_e(close(proc_gid_map.value()));
+    if (close(proc_gid_map.value()) != 0) {
+        return util::unexpected(
+            fmt::format("close failed: {}", strerror(errno)));
+    }
 
     return {};
 }
@@ -109,7 +123,10 @@ util::expected<void, std::string> unshare_mount_map_root() {
 // go back to effective user
 util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
 
-    Z_e(unshare(CLONE_NEWUSER | CLONE_NEWNS));
+    if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0) {
+        return util::unexpected(
+            fmt::format("unshare failed: {}", strerror(errno)));
+    }
     // map current user id to root
     char buf[256];
     spdlog::trace("map_effective_user({}, {})", uid, gid);
@@ -121,7 +138,10 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
     if (auto r = write_wrap(proc_uid_map.value(), buf, strlen(buf)); !r) {
         return r;
     }
-    Z_e(close(proc_uid_map.value()));
+    if (close(proc_uid_map.value()) != 0) {
+        return util::unexpected(
+            fmt::format("close failed: {}", strerror(errno)));
+    }
 
     // note: setgroups is already "deny" here, inherited from the enclosing
     // fake-root namespace (unshare_mount_map_root) -- once a namespace's
@@ -136,12 +156,15 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
     if (auto r = write_wrap(proc_gid_map.value(), buf, strlen(buf)); !r) {
         return r;
     }
-    Z_e(close(proc_gid_map.value()));
+    if (close(proc_gid_map.value()) != 0) {
+        return util::unexpected(
+            fmt::format("close failed: {}", strerror(errno)));
+    }
 
     // disable coredump again (slurm policy)
     // this breaks both slurm plugin and squashfs-mount, as other tasks can't
     // access the /proc/pid/ns anymore
-    // Z_e(prctl(PR_SET_DUMPABLE, 0));
+    // prctl(PR_SET_DUMPABLE, 0);
     return {};
 }
 
