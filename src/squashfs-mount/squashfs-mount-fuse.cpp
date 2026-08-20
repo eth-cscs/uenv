@@ -182,7 +182,8 @@ int main(int argc, char** argv, char** envp) {
                 return r;
             }
             for (auto& entry : mounts) {
-                if (auto r = uenv::rootless::do_sqfs_ll_mount(entry, fuse_single_threaded);
+                if (auto r = uenv::rootless::do_sqfs_ll_mount(
+                        entry, fuse_single_threaded);
                     !r) {
                     return r;
                 }
