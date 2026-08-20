@@ -4,8 +4,6 @@
 #include <optional>
 
 #include <fmt/ranges.h>
-#include <slurm/slurm_errno.h>
-#include <slurm/spank.h>
 #include <spdlog/spdlog.h>
 
 #include <uenv/log.h>
@@ -14,6 +12,11 @@
 #include <util/setns.h>
 
 #include "environ.h"
+
+extern "C" {
+#include <slurm/slurm_errno.h>
+#include <slurm/spank.h>
+}
 
 //
 // Forward declare the implementation of the plugin callbacks.
