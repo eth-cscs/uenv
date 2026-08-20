@@ -480,6 +480,29 @@ EOF
     refute_output --partial "warning"
     refute_output --partial "error"
 
+    # trying to add the same image should be a failure
+    run uenv --repo=$RP image add wombat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
+    assert_failure
+    assert_output --partial "uenv already exists"
+
+    # trying to add the same image with a different label should be an error
+    run uenv --repo=$RP image add numbat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
+    assert_failure
+    assert_output --partial "already in the repo"
+
+    # trying to add the same image via label should work
+    run uenv --repo=$RP image add numbat/24:v1@arapiles%zen3 wombat/24:v1@arapiles%zen3
+    assert_success
+    assert_output --partial "the uenv numbat/24:v1@arapiles%zen3"
+    assert_output --partial "was added to $RP"
+    refute_output --partial "warning"
+    refute_output --partial "error"
+
+    run uenv --repo=$RP image ls --no-header
+    assert_success
+    assert_output --partial "numbat/24:v1"
+    assert_output --partial "wombat/24:v1"
+
     # the manifest that identifies the image is persisted alongside it, and
     # the <hash> used to store/index the image is exactly the sha256 of that
     # manifest.
@@ -487,21 +510,6 @@ EOF
     wombat_manifest=$RP/images/$wombat_sha/manifest.json
     [ -f "$wombat_manifest" ]
     [ "$wombat_sha" = "$(sha256sum "$wombat_manifest" | cut -d' ' -f1)" ]
-
-    run uenv --repo=$RP image ls --no-header
-    assert_success
-    assert_output --partial "wombat/24:v1"
-
-    # trying to add the same image should be a failure
-    run uenv --repo=$RP image add wombat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
-    assert_failure
-    assert_output --partial "uenv already exists"
-
-    # trying to add the same image with a different label should add the image and generate a warning
-    run uenv --repo=$RP image add numbat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs
-    assert_success
-    assert_output --partial "warning"
-    assert_output --partial "a uenv with the same sha"
 
     # the manifest hash is deterministic: adding identical squashfs content
     # under a different label reuses the same store/images/<hash> directory
@@ -516,7 +524,7 @@ EOF
     # assert that the number of lines in the output is 2: one for each uenv
     [ "${#lines[@]}" -eq "2" ]
 
-    # trying to add the same image with a different label should add the image and generate a warning
+    # add a different image with a different label
     run uenv --repo=$RP image add bilby/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/app42.squashfs
     assert_success
     refute_output --partial "warning"
@@ -535,7 +543,7 @@ EOF
     sqfs_file=$TMP/app43.squashfs
     cp $SQFS_LIB/apptool/standalone/app43.squashfs $sqfs_file
     [ -f  $sqfs_file ]
-    run uenv --repo=$RP image add --move quokka/24:v1@arapiles%zen3 $sqfs_file
+    run uenv -vv --repo=$RP image add --move quokka/24:v1@arapiles%zen3 $sqfs_file
     assert_success
     refute_output --partial "warning"
     refute_output --partial "error"
