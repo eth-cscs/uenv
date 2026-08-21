@@ -145,6 +145,7 @@ lib_uenv_src = [
         'src/uenv/uenv.cpp',
         'src/util/archive.cpp',
         'src/util/color.cpp',
+        'src/util/compact_partition.cpp',
         'src/util/curl.cpp',
         'src/util/envvars.cpp',
         'src/util/fs.cpp',

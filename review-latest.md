@@ -5,8 +5,10 @@ mounting loop and namespacery"), touching:
 
 - `src/slurm/plugin_fuse.cpp`
 - `src/squashfs-mount/squashfs-mount-fuse.cpp`
-- `src/uenv/rootless.cpp`
-- `src/uenv/rootless.h`
+- `src/uenv/mount_rootless.cpp`
+- `src/uenv/mount_rootless.h`
+
+NOTE: `rootless.[h,cpp]` have been renamed `mount_rootless.[h,cpp]`
 
 Effort level: **xhigh** (10 parallel finder angles, cross-verified).
 
@@ -15,6 +17,27 @@ Effort level: **xhigh** (10 parallel finder angles, cross-verified).
 ## Correctness findings
 
 ### 1. `src/uenv/rootless.cpp:412` — Slurm leader can end up still dumpable
+
+**FIXED**, but not for the reason originally written up below. The real bug:
+`map_effective_user`'s own `unshare(CLONE_NEWUSER | CLONE_NEWNS)` resets
+DUMPABLE to 0 as a kernel side effect (the same reason
+`unshare_mount_map_root` has to force it back to 1 right after its own
+`unshare`), but nothing re-enabled it afterward. That's the namespace
+followers actually join, so DUMPABLE was silently 0 right as `barrier->ready()`
+released them to open `/proc/<leader pid>/ns/*` -- and separately,
+`lock_down` only ever explicitly cleared DUMPABLE, never explicitly set it,
+so a caller that started out dumpable (SLURM's actual policy notwithstanding)
+could end up stuck non-dumpable regardless of `dumps_allowed`. Fixed by
+forcing DUMPABLE back to 1 immediately after `map_effective_user`'s `unshare`,
+and making `lock_down` set it explicitly in both directions
+(`prctl(PR_SET_DUMPABLE, dumps_allowed ? 1 : 0)`) instead of only clearing it.
+
+Verified with a manual two-peer `squashfs-mount --join` smoke test (real
+`unshare`/`setns`, not mocked); both peers still exec successfully. The
+original write-up below is left for context but its "typically true, so
+`lock_down` skips the disable" reasoning doesn't hold: SLURM disables
+DUMPABLE before invoking plugin callbacks, so `dumps_allowed` was typically
+`false` for the Slurm leader, not `true`.
 
 The refactor turns the Slurm plugin's previously-unconditional "always end
 non-dumpable" hardening into a conditional restore-original-state policy, so
@@ -37,6 +60,12 @@ process sharing the same real uid indefinitely — a security-hardening
 regression, not a deliberate documented tradeoff.
 
 ### 2. `src/uenv/rootless.cpp:473` — barrier teardown failure silently swallowed
+
+**FIXED**: `barrier->end()` failure now returns `util::unexpected` instead of
+warning-and-continuing, restoring hard-error behavior. A comment notes this
+could be downgraded back to a warning later if it proves noisy in practice,
+but that should be a deliberate call made during a debug session, not the
+default.
 
 `barrier->end()` failure, fatal in the old Slurm plugin, is now only
 `spdlog::warn`'d and treated as success — and that warning is completely
@@ -80,6 +109,10 @@ see the wrong peer count and hang until timeout. The Slurm plugin call site
 
 ### 4. `src/uenv/rootless.cpp:412` — `PR_GET_DUMPABLE` return value mishandled
 
+**FIXED**: the `prctl()` result is now checked for -1 and propagated via
+`util::unexpected`, and `SUID_DUMP_ROOT` (2) is treated as dumpable
+(`dumps_allowed = dumpable != 0`) rather than folded into "not dumpable".
+
 `prctl(PR_GET_DUMPABLE)` return value is not checked for -1 (error) and folds
 `SUID_DUMP_ROOT` (2) into `dumps_allowed=false`, and the fallible `prctl()`
 call bypasses `util::expected` unlike every other `prctl` in this file.
@@ -97,6 +130,8 @@ propagate `util::unexpected` — this new line is the one inconsistent case.
 
 ### 5. `src/uenv/rootless.cpp:455` — NO_NEW_PRIVS applied later than before for squashfs-mount-fuse
 
+**WON'T FIX**
+
 For the squashfs-mount-fuse leader, `PR_SET_NO_NEW_PRIVS` is now applied only
 after followers have joined (post `wait_peers`), whereas the old code applied
 it before any follower was released via `barrier->ready()`.
@@ -112,6 +147,8 @@ permitted, where before it was locked down first. Low practical impact since
 it is a real, unremarked ordering change for this call site.
 
 ### 6. `src/slurm/plugin_fuse.cpp:55` — `uid_t`/`gid_t` type slip
+
+**FIXED**: retyped as `const gid_t gid = getgid();`.
 
 `const uid_t gid = getgid();` should be typed `gid_t`, a copy-paste slip in
 the function this diff substantially rewrote. Harmless on Linux since
@@ -173,6 +210,9 @@ finding 1).
 
 ### 12. `src/uenv/rootless.cpp:412` — unconditional syscall with no consumer on some paths
 
+**FIXED as a side effect of finding 14**: the follower branch now calls
+`lock_down(dumps_allowed)` too, so this is no longer a discarded result.
+
 `dumps_allowed` is computed unconditionally at function entry but is never
 consumed on the follower branch or on any early-return error path out of
 `unshare_and_mount`. Every follower task in the common `ntasks>1` case pays a
@@ -186,14 +226,43 @@ explaining why, when `proc_barrier::create` is documented to support
 exactly that). Worth a one-line comment given it is now shared by both call
 sites.
 
+### 14. `src/uenv/rootless.cpp:480` — followers never dropped privileges before exec
+
+**FIXED**: only the leader ever called `lock_down` (NO_NEW_PRIVS +
+DUMPABLE restore). Every follower task is a distinct process that, after
+`namespaces_join` succeeds, returns to its caller and goes on to `execve()`
+the real payload in that same process -- in `squashfs-mount-fuse.cpp` every
+process (leader and followers alike) reaches the same `util::exec(...)` call
+at the end of `main()`; in the Slurm plugin, `slurm_spank_task_init_sqfs_ll`
+runs once per local task in the process slurmstepd will go on to exec the
+job step in. So each of the N processes is an independent exec endpoint, but
+only 1 of them was getting `NO_NEW_PRIVS` before its own exec.
+
+This was also cross-checked against Charliecloud's `--join` implementation
+(`ch-run.c`/`ch_core.c`), which this design took inspiration from: every
+`--join` peer independently sets `PR_SET_NO_NEW_PRIVS` right before its own
+`execve`, winner and losers alike -- there is no "only the leader needs it"
+shortcut in the reference implementation either.
+
+Fixed by calling `lock_down(dumps_allowed)` in the follower branch too,
+right after `namespaces_join` succeeds (no ordering constraint applies here,
+unlike the leader: nobody else needs to open a follower's own
+`/proc/<pid>/ns/*` afterward). Verified with a manual 3-peer
+`squashfs-mount --join` run: before the fix, only the leader's exec'd process
+showed `NoNewPrivs: 1` in `/proc/self/status`; after the fix, all three do.
+
 ---
 
 ## Summary
 
-Findings 1–2 are the most severe: a security-hardening regression (leader
-process may stay dumpable/ptraceable) and a silently-swallowed IPC-teardown
-failure in the Slurm plugin path, both introduced by collapsing two
-call-site-specific policies into one shared function without preserving
-either original policy exactly. Findings 3–6 are smaller but real
-correctness issues on touched lines. Findings 7–13 are cleanup/maintenance
-observations, ranked below correctness per review policy.
+Findings 1–2 are the most severe: a DUMPABLE-restore bug that could leave the
+leader stuck non-dumpable or briefly block followers from joining its
+namespaces, and a silently-swallowed IPC-teardown failure in the Slurm
+plugin path, both introduced by collapsing two call-site-specific policies
+into one shared function without preserving either original policy exactly.
+Finding 14, raised in follow-up discussion, is arguably as severe as 1–2:
+follower processes never dropped privileges before exec at all. Findings 3–6
+are smaller but real correctness issues on touched lines. Findings 7–13 are
+cleanup/maintenance observations, ranked below correctness per review policy;
+finding 5 (NO_NEW_PRIVS timing on the leader) was reviewed and intentionally
+left as-is.

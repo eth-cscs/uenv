@@ -91,6 +91,7 @@ setup_suite = custom_target (
 
 unit_src = [
         'unit/archive.cpp',
+        'unit/compact_partition.cpp',
         'unit/curl.cpp',
         'unit/dates.cpp',
         'unit/env.cpp',
@@ -119,6 +120,7 @@ unit_src = [
         'unit/subprocess.cpp',
         'unit/telemetry.cpp',
         'unit/url.cpp',
+        'unit/util_parse.cpp',
 ]
 
 unit = executable('unit',
