@@ -53,9 +53,9 @@ TEST_CASE("local_rank_count parse errors", "[tasks_per_node]") {
     // malformed tasks_per_node
     REQUIRE_FALSE(util::local_rank_count("", "0"));
     REQUIRE_FALSE(util::local_rank_count("a", "0"));
-    REQUIRE_FALSE(util::local_rank_count("4(3)", "0"));  // missing 'x'
-    REQUIRE_FALSE(util::local_rank_count("4(x3", "0"));  // missing ')'
-    REQUIRE_FALSE(util::local_rank_count("4(x)", "0"));  // missing NODES
+    REQUIRE_FALSE(util::local_rank_count("4(3)", "0")); // missing 'x'
+    REQUIRE_FALSE(util::local_rank_count("4(x3", "0")); // missing ')'
+    REQUIRE_FALSE(util::local_rank_count("4(x)", "0")); // missing NODES
     REQUIRE_FALSE(util::local_rank_count(",", "0"));
 
     // malformed node_id
