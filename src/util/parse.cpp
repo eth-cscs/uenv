@@ -34,8 +34,7 @@ util::expected<unsigned, parse_error> parse_unsigned(std::string_view text) {
     if (t != lex::tok::integer) {
         return util::unexpected(parse_error{
             L.string(),
-            fmt::format("expected an unsigned integer, found '{}'",
-                        t.spelling),
+            fmt::format("expected an unsigned integer, found '{}'", t.spelling),
             t});
     }
 

@@ -72,9 +72,9 @@ local_task_count(const envvars::state& calling_env, bool tasks_join) {
 
     auto node_id = util::parse_unsigned(*node_id_str);
     if (!node_id) {
-        return util::unexpected(fmt::format(
-            "unable to parse SLURM_NODEID '{}': {}", *node_id_str,
-            node_id.error().message()));
+        return util::unexpected(
+            fmt::format("unable to parse SLURM_NODEID '{}': {}", *node_id_str,
+                        node_id.error().message()));
     }
 
     auto local_tasks = partition->find_size(*node_id);
