@@ -16,7 +16,7 @@ jobs:
       matrix:
         buildtype: [debug, release]
         sanitizer: [none, address, leak, undefined, thread]
-        mount_backend: [setuid, fuse]
+        mount_backend: [kernel, fuse]
         exclude:
           # False positive warnings in release builds: https://godbolt.org/z/vT3nqGxzW
           - buildtype: release
