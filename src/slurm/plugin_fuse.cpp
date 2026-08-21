@@ -52,7 +52,7 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
         return ESPANK_SUCCESS;
 
     const uid_t uid = getuid();
-    const uid_t gid = getgid();
+    const gid_t gid = getgid();
 
     int ntasks = 1;
     uint32_t job_id = 0;

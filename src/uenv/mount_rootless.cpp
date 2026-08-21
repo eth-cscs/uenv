@@ -410,8 +410,16 @@ mount_and_join_ns(const std::string& tag, int ntasks,
                   const uenv::mount_list& mounts, bool fuse_single_threaded,
                   uid_t uid, gid_t gid) {
     // capture the caller's dumpable state before unshare_and_mount forces it
-    // on, so that lock_down can restore it once the dance is done.
-    const bool dumps_allowed = prctl(PR_GET_DUMPABLE) == 1;
+    // on, so that lock_down can restore it once the dance is done. Any
+    // non-zero result (SUID_DUMP_USER or SUID_DUMP_ROOT) counts as
+    // "dumpable"; only SUID_DUMP_DISABLE (0) means lock_down must turn it
+    // back off.
+    const int dumpable = prctl(PR_GET_DUMPABLE);
+    if (dumpable < 0) {
+        return util::unexpected(
+            fmt::format("prctl(PR_GET_DUMPABLE) failed: {}", strerror(errno)));
+    }
+    const bool dumps_allowed = dumpable != 0;
 
     if (ntasks == 1) {
         // no peers to join, just mount and drop privileges
@@ -472,8 +480,13 @@ mount_and_join_ns(const std::string& tag, int ntasks,
         }
     }
 
+    // treated as fatal: barrier teardown (sem_unlink/shm_unlink) failing
+    // means the IPC objects backing this barrier were not cleaned up. If this
+    // turns out to be noisy in practice (e.g. spurious races on teardown),
+    // it may be safe to downgrade to a warning.
     if (auto r = barrier->end(); !r) {
-        spdlog::warn("barrier end failed: {}", r.error());
+        return util::unexpected(
+            fmt::format("barrier teardown failed: {}", r.error()));
     }
 
     return {};
