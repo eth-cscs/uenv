@@ -17,16 +17,20 @@ namespace oci {
 
 // Push a squashfs image as an OCI artifact (the native replacement for
 // `oras push --artifact-type application/x-squashfs`). Uploads the squashfs
-// blob and the empty config, builds an oras-compatible image manifest with the
-// layer titled "store.squashfs", and PUTs it under `ref` (a tag). Returns the
-// manifest digest — the canonical image id.
+// blob and the empty config, then PUTs an image manifest under `ref` (a tag).
+// Returns the manifest digest — the canonical image id.
 // `layer_digest` is the sha256 of `squashfs`; supply it when it has already
 // been computed, else it is calculated here, which reads the whole file.
+// `existing_manifest_body`, when set, is PUT verbatim instead of building a
+// fresh manifest — use this to push a manifest that was already minted (and
+// hashed) elsewhere, e.g. one persisted alongside a repository image, so the
+// pushed digest matches a digest already recorded locally.
 util::expected<digest, std::string>
 push_squashfs(client& c, const std::filesystem::path& squashfs,
               const reference& ref,
               std::optional<digest> layer_digest = std::nullopt,
-              std::function<void(std::uint64_t, std::uint64_t)> progress = {});
+              std::function<void(std::uint64_t, std::uint64_t)> progress = {},
+              std::optional<std::string> existing_manifest_body = std::nullopt);
 
 // Attach typed side-data to an existing image as an OCI referrer (the native
 // replacement for `oras attach`). `subject` identifies the target image (tag or

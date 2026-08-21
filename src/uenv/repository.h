@@ -176,6 +176,7 @@ struct repository {
         std::filesystem::path store;
         std::filesystem::path meta;
         std::filesystem::path squashfs;
+        std::filesystem::path manifest;
     };
 
     using enum repo_open_mode;

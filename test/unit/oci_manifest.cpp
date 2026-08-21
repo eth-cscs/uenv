@@ -1,3 +1,5 @@
+#include <ctime>
+
 #include <catch2/catch_all.hpp>
 
 #include <oci/digest.h>
@@ -102,6 +104,46 @@ TEST_CASE("serialize meta referrer manifest is oras-identical",
     REQUIRE(digest_of(body) ==
             "sha256:"
             "f7f04f3b2cf562336c73542f0c53503c3b853ac459f081878843f878955cf267");
+}
+
+// make_squashfs_manifest is the single place both `uenv image add` (minting a
+// manifest for a newly-added local squashfs) and oci::push_squashfs (minting
+// one for a fresh push) build a squashfs manifest, so it must reproduce
+// exactly the same bytes as the hand-built manifest above.
+TEST_CASE("make_squashfs_manifest matches a hand-built manifest",
+          "[oci][manifest]") {
+    auto m = make_squashfs_manifest(sha_digest(image_layer_hex), 4046512128,
+                                    "2024-08-23T16:00:40Z");
+
+    const std::string expected =
+        R"({"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/x-squashfs","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:b563b338a3797eb908b1f60a3b710b7021599aaac61d02f11b273bd2ff0986d4","size":4046512128,"annotations":{"org.opencontainers.image.title":"store.squashfs"}}],"annotations":{"org.opencontainers.image.created":"2024-08-23T16:00:40Z"}})";
+
+    REQUIRE(serialize_manifest(m) == expected);
+}
+
+TEST_CASE("rfc3339 formats a std::tm as a UTC RFC3339 timestamp",
+          "[oci][manifest]") {
+    std::tm tm{};
+    tm.tm_year = 2024 - 1900;
+    tm.tm_mon = 8 - 1;
+    tm.tm_mday = 23;
+    tm.tm_hour = 16;
+    tm.tm_min = 0;
+    tm.tm_sec = 40;
+    REQUIRE(rfc3339(tm) == "2024-08-23T16:00:40Z");
+}
+
+TEST_CASE("rfc3339_now looks like an RFC3339 UTC timestamp",
+          "[oci][manifest]") {
+    auto s = rfc3339_now();
+    // "YYYY-MM-DDTHH:MM:SSZ"
+    REQUIRE(s.size() == 20);
+    REQUIRE(s[4] == '-');
+    REQUIRE(s[7] == '-');
+    REQUIRE(s[10] == 'T');
+    REQUIRE(s[13] == ':');
+    REQUIRE(s[16] == ':');
+    REQUIRE(s[19] == 'Z');
 }
 
 // parse_manifest is the read counterpart: parsing a serialized manifest must

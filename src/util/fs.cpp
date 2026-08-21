@@ -2,6 +2,7 @@
 #include <cstring>
 #include <deque>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <vector>
@@ -266,6 +267,22 @@ read_single_line_file(const std::filesystem::path& path) {
         }
     }
     return std::nullopt;
+}
+
+util::expected<std::string, std::string>
+read_file(const std::filesystem::path& path) {
+    std::ifstream file{path, std::ios::binary};
+    if (!file) {
+        return util::unexpected{fmt::format(
+            "unable to open {}: {}", path.string(), std::strerror(errno))};
+    }
+    std::string content{std::istreambuf_iterator<char>{file},
+                        std::istreambuf_iterator<char>{}};
+    if (file.bad()) {
+        return util::unexpected{fmt::format(
+            "unable to read {}: {}", path.string(), std::strerror(errno))};
+    }
+    return content;
 }
 
 bool is_child(const std::filesystem::path& child,
