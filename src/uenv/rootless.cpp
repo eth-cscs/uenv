@@ -202,22 +202,26 @@ util::expected<void, std::string> exit_sandbox(uid_t uid, gid_t gid,
     _exit(1);
 }
 
-static void init_fs_ops(struct fuse_lowlevel_ops* sqfs_ll_ops) {
-    memset(sqfs_ll_ops, 0, sizeof(*sqfs_ll_ops));
-    sqfs_ll_ops->getattr = sqfs_ll_op_getattr;
-    sqfs_ll_ops->opendir = sqfs_ll_op_opendir;
-    sqfs_ll_ops->releasedir = sqfs_ll_op_releasedir;
-    sqfs_ll_ops->readdir = sqfs_ll_op_readdir;
-    sqfs_ll_ops->lookup = sqfs_ll_op_lookup;
-    sqfs_ll_ops->open = sqfs_ll_op_open;
-    sqfs_ll_ops->create = sqfs_ll_op_create;
-    sqfs_ll_ops->release = sqfs_ll_op_release;
-    sqfs_ll_ops->read = sqfs_ll_op_read;
-    sqfs_ll_ops->readlink = sqfs_ll_op_readlink;
-    sqfs_ll_ops->listxattr = sqfs_ll_op_listxattr;
-    sqfs_ll_ops->getxattr = sqfs_ll_op_getxattr;
-    sqfs_ll_ops->forget = sqfs_ll_op_forget;
-    sqfs_ll_ops->statfs = stfs_ll_op_statfs;
+fuse_lowlevel_ops make_fuse_lowlevel_options() {
+    fuse_lowlevel_ops options;
+    memset(&options, 0, sizeof(fuse_lowlevel_ops));
+
+    options.getattr = sqfs_ll_op_getattr;
+    options.opendir = sqfs_ll_op_opendir;
+    options.releasedir = sqfs_ll_op_releasedir;
+    options.readdir = sqfs_ll_op_readdir;
+    options.lookup = sqfs_ll_op_lookup;
+    options.open = sqfs_ll_op_open;
+    options.create = sqfs_ll_op_create;
+    options.release = sqfs_ll_op_release;
+    options.read = sqfs_ll_op_read;
+    options.readlink = sqfs_ll_op_readlink;
+    options.listxattr = sqfs_ll_op_listxattr;
+    options.getxattr = sqfs_ll_op_getxattr;
+    options.forget = sqfs_ll_op_forget;
+    options.statfs = stfs_ll_op_statfs;
+
+    return options;
 }
 
 // Mount a squashfs image in the background (forked process), unmount the image
@@ -258,8 +262,7 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         sqfs_ll* ll;
 
         // define squashfs file system operations
-        struct fuse_lowlevel_ops sqfs_ll_ops;
-        init_fs_ops(&sqfs_ll_ops);
+        auto sqfs_ll_ops = make_fuse_lowlevel_options();
 
         // fuse_daemonize() will unconditionally clobber fds 0-2.
         // If we get one of these file descriptors in sqfs_ll_open,
