@@ -55,12 +55,8 @@ util::expected<void, std::string> write_wrap(int fd, const void* buf,
 namespace uenv {
 
 namespace rootless {
-// Same effect as `unshare --mount --map-root-user`
-util::expected<void, std::string> unshare_mount_map_root() {
-    spdlog::trace("become fake root");
-    int uid = getuid(); // get current uid
-    int gid = getgid();
 
+util::expected<void, std::string> clone_new_ns_and_set_dumpable() {
     if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0) {
         return util::unexpected(
             fmt::format("unshare failed: {}", strerror(errno)));
@@ -69,6 +65,19 @@ util::expected<void, std::string> unshare_mount_map_root() {
     if (prctl(PR_SET_DUMPABLE, 1) != 0) {
         return util::unexpected(
             fmt::format("prctl(PR_SET_DUMPABLE) failed: {}", strerror(errno)));
+    }
+
+    return {};
+}
+
+// Same effect as `unshare --mount --map-root-user`
+util::expected<void, std::string> unshare_mount_map_root() {
+    spdlog::trace("become fake root");
+    int uid = getuid(); // get current uid
+    int gid = getgid();
+
+    if (auto r = clone_new_ns_and_set_dumpable(); !r) {
+        return r;
     }
 
     if (auto r = mount(std::nullopt, "/", std::nullopt, MS_REC | MS_PRIVATE,
@@ -125,11 +134,10 @@ util::expected<void, std::string> unshare_mount_map_root() {
 
 // go back to effective user
 util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
-
-    if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0) {
-        return util::unexpected(
-            fmt::format("unshare failed: {}", strerror(errno)));
+    if (auto r = clone_new_ns_and_set_dumpable(); !r) {
+        return r;
     }
+
     // map current user id to root
     char buf[256];
     spdlog::trace("map_effective_user({}, {})", uid, gid);
@@ -172,7 +180,10 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
 // safe to call until every peer that needs /proc/<this pid>/ns/* has already
 // opened it: once dumpable goes to 0, that access is refused.
 util::expected<void, std::string> lock_down(const bool dumps_allowed) {
-    if (!dumps_allowed && (prctl(PR_SET_DUMPABLE, 0) != 0)) {
+    // set explicitly rather than only clearing: map_effective_user's own
+    // unshare(CLONE_NEWUSER) already reset DUMPABLE to 0 once, so it cannot
+    // be assumed to still be 1 here even when dumps_allowed is true.
+    if (prctl(PR_SET_DUMPABLE, dumps_allowed ? 1 : 0) != 0) {
         return util::unexpected(
             fmt::format("prctl(PR_SET_DUMPABLE) failed: {}", strerror(errno)));
     }
@@ -180,14 +191,6 @@ util::expected<void, std::string> lock_down(const bool dumps_allowed) {
         return util::unexpected("PR_SET_NO_NEW_PRIVS failed");
     }
     return {};
-}
-
-util::expected<void, std::string> exit_sandbox(uid_t uid, gid_t gid,
-                                               bool dumps_allowed) {
-    if (auto r = map_effective_user(uid, gid); !r) {
-        return r;
-    }
-    return lock_down(dumps_allowed);
 }
 
 // The forked child shares the parent's entire call stack. A plain `return`
@@ -410,8 +413,8 @@ mount_and_join_ns(const std::string& tag, int ntasks,
                   const uenv::mount_list& mounts, bool fuse_single_threaded,
                   uid_t uid, gid_t gid) {
     // capture the caller's dumpable state before unshare_and_mount forces it
-    // on, so that lock_down can restore it once the dance is done. Any
-    // non-zero result (SUID_DUMP_USER or SUID_DUMP_ROOT) counts as
+    // on, so that lock_down can restore it once the mounts are ready.
+    // Any non-zero result (SUID_DUMP_USER or SUID_DUMP_ROOT) counts as
     // "dumpable"; only SUID_DUMP_DISABLE (0) means lock_down must turn it
     // back off.
     const int dumpable = prctl(PR_GET_DUMPABLE);
@@ -426,7 +429,10 @@ mount_and_join_ns(const std::string& tag, int ntasks,
         if (auto r = unshare_and_mount(mounts, fuse_single_threaded); !r) {
             return r;
         }
-        return exit_sandbox(uid, gid, dumps_allowed);
+        if (auto r = map_effective_user(uid, gid); !r) {
+            return r;
+        }
+        return lock_down(dumps_allowed);
     }
 
     auto barrier = util::proc_barrier::create(tag, ntasks);
@@ -461,10 +467,6 @@ mount_and_join_ns(const std::string& tag, int ntasks,
             return r;
         }
 
-        // safe now: every peer has already opened /proc/<our pid>/ns/*.
-        if (auto r = lock_down(dumps_allowed); !r) {
-            return r;
-        }
     } else {
         // the leader publishes the PID that entered the squashfs namespace,
         // so joining its namespaces gives us the same view
@@ -478,6 +480,11 @@ mount_and_join_ns(const std::string& tag, int ntasks,
         if (!r) {
             return r;
         }
+    }
+
+    // drop capabilities for every process
+    if (auto r = lock_down(dumps_allowed); !r) {
+        return r;
     }
 
     // treated as fatal: barrier teardown (sem_unlink/shm_unlink) failing
