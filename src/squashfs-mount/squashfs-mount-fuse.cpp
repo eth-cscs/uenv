@@ -17,10 +17,9 @@
 #include <uenv/mount_rootless.h>
 #include <uenv/parse.h>
 #include <util/color.h>
-#include <util/compact_partition.h>
 #include <util/envvars.h>
-#include <util/parse.h>
 #include <util/shell.h>
+#include <util/tasks_per_node.h>
 
 // print a formtted error message and exit with return code 1
 template <typename... T>
@@ -56,33 +55,19 @@ local_task_count(const envvars::state& calling_env, bool tasks_join) {
             "to determine how many tasks to join");
     }
 
-    auto partition = util::parse_compact_partition(*tasks_per_node);
-    if (!partition) {
-        return util::unexpected(
-            fmt::format("unable to parse SLURM_STEP_TASKS_PER_NODE '{}': {}",
-                        *tasks_per_node, partition.error().message()));
-    }
-
-    const auto node_id_str = calling_env.get("SLURM_NODEID");
-    if (!node_id_str) {
+    const auto node_id = calling_env.get("SLURM_NODEID");
+    if (!node_id) {
         return util::unexpected(
             "--join requires SLURM_NODEID to be set in order to determine "
             "how many tasks to join");
     }
 
-    auto node_id = util::parse_unsigned(*node_id_str);
-    if (!node_id) {
-        return util::unexpected(
-            fmt::format("unable to parse SLURM_NODEID '{}': {}", *node_id_str,
-                        node_id.error().message()));
-    }
-
-    auto local_tasks = partition->find_size(*node_id);
+    auto local_tasks = util::local_rank_count(*tasks_per_node, *node_id);
     if (!local_tasks) {
         return util::unexpected(fmt::format(
-            "SLURM_NODEID {} is out of range for SLURM_STEP_TASKS_PER_NODE "
-            "'{}'",
-            *node_id, *tasks_per_node));
+            "unable to determine local task count from "
+            "SLURM_STEP_TASKS_PER_NODE='{}' SLURM_NODEID='{}': {}",
+            *tasks_per_node, *node_id, local_tasks.error().message()));
     }
 
     return static_cast<int>(*local_tasks);
