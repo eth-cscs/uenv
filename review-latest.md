@@ -142,6 +142,8 @@ original external callers were replaced by direct calls to
 
 ### 9. `src/uenv/rootless.h:9` — API surface bloat
 
+**FIXED**
+
 5 of 7 functions declared in `rootless.h` (`unshare_mount_map_root`,
 `map_effective_user`, `lock_down`, `do_sqfs_ll_mount`, `unshare_and_mount`)
 plus `exit_sandbox` no longer have any caller outside `rootless.cpp` itself.
