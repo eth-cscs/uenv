@@ -18,6 +18,7 @@ extern "C" {
 #include <spdlog/spdlog.h>
 
 #include <uenv/mount.h>
+#include <uenv/mount_rootless.h>
 #include <util/expected.h>
 #include <util/proc_barrier.h>
 #include <util/ready_fork.h>
@@ -170,12 +171,10 @@ util::expected<void, std::string> map_effective_user(uid_t uid, gid_t gid) {
 // on -- see mount_and_join_ns) and disallow gaining any new privileges. Not
 // safe to call until every peer that needs /proc/<this pid>/ns/* has already
 // opened it: once dumpable goes to 0, that access is refused.
-util::expected<void, std::string> lock_down(bool dumps_allowed) {
-    if (!dumps_allowed) {
-        if (prctl(PR_SET_DUMPABLE, 0) != 0) {
-            return util::unexpected(fmt::format(
-                "prctl(PR_SET_DUMPABLE) failed: {}", strerror(errno)));
-        }
+util::expected<void, std::string> lock_down(const bool dumps_allowed) {
+    if (!dumps_allowed && (prctl(PR_SET_DUMPABLE, 0) != 0)) {
+        return util::unexpected(
+            fmt::format("prctl(PR_SET_DUMPABLE) failed: {}", strerror(errno)));
     }
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
         return util::unexpected("PR_SET_NO_NEW_PRIVS failed");

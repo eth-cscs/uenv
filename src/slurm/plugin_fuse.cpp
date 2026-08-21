@@ -4,7 +4,7 @@
 #include <spdlog/spdlog.h>
 
 #include <uenv/log.h>
-#include <uenv/rootless.h>
+#include <uenv/mount_rootless.h>
 
 #include "environ.h"
 

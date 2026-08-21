@@ -100,7 +100,11 @@ std::vector<std::string>
 squashfs_mount_args(const envvars::state& calling_environment,
                     const std::vector<std::string>& mounts, bool join,
                     int verbosity, const std::vector<std::string>& args) {
-    std::vector<std::string> commands = {"squashfs-mount"};
+    // explicitly set the full path of squashfs-mount, for better logging.
+    std::string exe = util::which("squashfs-mount",
+                                  calling_environment.get("PATH").value_or(""))
+                          .value_or("squashfs-mount");
+    std::vector<std::string> commands = {exe};
     if (join) {
         commands.push_back("--join");
     }

@@ -12,6 +12,7 @@
 #include <uenv/config.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
+#include <uenv/mount_kernel.h>
 #include <uenv/parse.h>
 #include <util/color.h>
 #include <util/envvars.h>

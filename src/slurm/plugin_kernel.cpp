@@ -6,6 +6,7 @@
 
 #include <uenv/log.h>
 #include <uenv/mount.h>
+#include <uenv/mount_kernel.h>
 #include <uenv/parse.h>
 #include <util/defer.h>
 

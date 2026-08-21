@@ -1,7 +1,6 @@
 #pragma once
 
 #include <filesystem>
-#include <optional>
 #include <string>
 #include <sys/types.h>
 #include <vector>
@@ -36,22 +35,6 @@ using mount_list = std::vector<mount_pair>;
 // }
 util::expected<mount_list, std::string>
 parse_and_validate_mounts(const std::string& description);
-
-/// called as root, in slurm-plugin
-util::expected<void, std::string> unshare_as_root();
-
-/// setup hook for the setuid squashfs-mount build: unshare the mount
-/// namespace and become the real root user, so that squashfs images can be
-/// mounted with the kernel driver.
-util::expected<void, std::string> unshare_and_become_root();
-
-/// post hook for the setuid squashfs-mount build: return to the calling
-/// user and disallow gaining any new privileges.
-util::expected<void, std::string> return_to_user_and_no_new_privs(uid_t uid);
-
-/// mount sqfs images, make sure mnt ns has been unshared before calling this
-/// function
-util::expected<void, std::string> do_mount(const mount_list& mount_entries);
 
 /// wrapper to `mount` from `sys/mount.h`
 util::expected<void, std::string> mount(std::optional<std::string> source,

@@ -12,8 +12,8 @@
 #include <uenv/config.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
+#include <uenv/mount_rootless.h>
 #include <uenv/parse.h>
-#include <uenv/rootless.h>
 #include <util/color.h>
 #include <util/envvars.h>
 #include <util/shell.h>
