@@ -171,10 +171,9 @@ int image_push([[maybe_unused]] const image_push_args& args,
                                      env->sqfs_path.string());
                     }
                 } else {
-                    spdlog::warn(
-                        "manifest.json for {} has no squashfs layer; "
-                        "ignoring it",
-                        env->sqfs_path.string());
+                    spdlog::warn("manifest.json for {} has no squashfs layer; "
+                                 "ignoring it",
+                                 env->sqfs_path.string());
                 }
             } else {
                 spdlog::warn("unable to parse manifest.json for {}",
@@ -193,9 +192,8 @@ int image_push([[maybe_unused]] const image_push_args& args,
             [&prepare_bar, &env](std::uint64_t done, std::uint64_t total) {
                 if (!prepare_bar) {
                     prepare_bar = uenv::make_transfer_bar(
-                        total,
-                        fmt::format("validating {}",
-                                    env->sqfs_path.filename().string()));
+                        total, fmt::format("validating {}",
+                                           env->sqfs_path.filename().string()));
                 }
                 prepare_bar->update(done);
             });

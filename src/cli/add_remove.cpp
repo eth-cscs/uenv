@@ -148,9 +148,9 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     std::optional<std::string> manifest_body;
     if (!from_label) {
         auto created = oci::rfc3339(*util::file_creation_date(sqfs->sqfs));
-        auto m = oci::make_squashfs_manifest(oci::digest::sha256(sqfs->hash),
-                                             fs::file_size(sqfs->sqfs),
-                                             created);
+        auto m =
+            oci::make_squashfs_manifest(oci::digest::sha256(sqfs->hash),
+                                        fs::file_size(sqfs->sqfs), created);
         manifest_body = oci::serialize_manifest(m);
         spdlog::debug("image_add: creating manifest {}", *manifest_body);
 
@@ -193,8 +193,9 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     // If a sqfs file is already in repo then it must be added using:
     //   uenv image add <new-label> <existing-label>
     if (source_in_repo && !from_label) {
-        term::error("image_add: Trying to add a squashfs file which is already "
-                    "in the repository. Add using a label instead of squashfs.");
+        term::error(
+            "image_add: Trying to add a squashfs file which is already "
+            "in the repository. Add using a label instead of squashfs.");
         return 1;
     }
 
@@ -212,20 +213,20 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
         if (existing_hash && !from_label) {
             term::error("a uenv with the same sha {} is already in the repo",
-                       image_hash);
+                        image_hash);
             return 1;
         }
     }
 
     // If copying the squashfs file into the repository
-    // Create the path <repo>/images/<hash> and populate with meta data, manifest
-    // and the image iteself.
+    // Create the path <repo>/images/<hash> and populate with meta data,
+    // manifest and the image iteself.
     if (!source_in_repo) {
         // create the path inside the repo
         std::error_code ec;
         // if the path exists, delete it: it was probably caused by an aborted
-        // `image add` or `image pull` command that did not complete the download
-        // and database update.
+        // `image add` or `image pull` command that did not complete the
+        // download and database update.
         if (fs::exists(uenv_paths.store)) {
             spdlog::debug("image_add: remove the target path {} before copying",
                           uenv_paths.store.string());
@@ -258,10 +259,12 @@ int image_add(const image_add_args& args, const global_settings& settings) {
 
         // copy or move the squashfs file
         if (!args.move) {
-            spdlog::debug("image_add: copying {} to {}", sqfs->sqfs, uenv_paths.squashfs);
+            spdlog::debug("image_add: copying {} to {}", sqfs->sqfs,
+                          uenv_paths.squashfs);
             // record the source modification time so that it can be preserved
-            // on the copy: fs::copy_file stamps the destination with the current
-            // time, whereas fs::rename (the move case) keeps the source time.
+            // on the copy: fs::copy_file stamps the destination with the
+            // current time, whereas fs::rename (the move case) keeps the source
+            // time.
             std::error_code tec;
             const auto src_time = fs::last_write_time(sqfs->sqfs, tec);
             fs::copy_file(sqfs->sqfs, uenv_paths.squashfs, ec);
@@ -283,7 +286,8 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                     uenv_paths.squashfs.string(), tec.message());
             }
         } else {
-            spdlog::debug("image_add: moving {} to {}", sqfs->sqfs, uenv_paths.squashfs);
+            spdlog::debug("image_add: moving {} to {}", sqfs->sqfs,
+                          uenv_paths.squashfs);
             fs::rename(sqfs->sqfs, uenv_paths.squashfs, ec);
             if (ec) {
                 spdlog::error("unable to move squashfs image {} to {}: {}",
