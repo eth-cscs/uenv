@@ -54,6 +54,22 @@ into invocation A's leader and runs invocation B's command inside A's mounted
 squashfs/user namespace, or mismatched `nprocs` drives `shared->procs_remaining`
 negative in `end()`.
 
+**Fixed:** `local_task_count()` was replaced with `uenv::local_join_context()`
+(`src/uenv/join_context.h`/`.cpp`), which determines the local task count and
+the barrier tag together from the same source, instead of computing the tag
+separately from a fixed literal. It scopes the tag to `SLURM_JOBID`/
+`SLURM_STEPID` (alongside the existing `SLURM_STEP_TASKS_PER_NODE`/
+`SLURM_NODEID` used for the task count), and is a hard error if any of the
+four is unset, rather than silently falling back to a shared tag. Covered by
+`test/unit/join_context.cpp`, including a case asserting two different job
+ids on the same node produce different tags. A common-parent-process fallback
+(for non-Slurm launchers) was considered and deliberately deferred: it can
+derive a collision-free tag (e.g. session id + session-leader start time),
+but not a trustworthy `ntasks` — `proc_barrier::create()` needs an exact peer
+count up front, and there is no race-free way to count siblings from a shared
+ancestor without a barrier to synchronize the count. See the comment above
+`uenv::local_join_context()` for details.
+
 ### 2. Leader holds the barrier lock across the whole mount, with no owner-death recovery — `src/uenv/mount_rootless.cpp:443`
 
 The barrier leader holds the `lock` semaphore continuously from

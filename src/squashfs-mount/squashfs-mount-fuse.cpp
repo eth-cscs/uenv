@@ -12,6 +12,7 @@
 #include <spdlog/spdlog.h>
 
 #include <uenv/config.h>
+#include <uenv/join_context.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
 #include <uenv/mount_rootless.h>
@@ -19,7 +20,6 @@
 #include <util/color.h>
 #include <util/envvars.h>
 #include <util/shell.h>
-#include <util/tasks_per_node.h>
 
 // print a formtted error message and exit with return code 1
 template <typename... T>
@@ -34,43 +34,6 @@ bool is_setuid() {
     uid_t real_uid = getuid();
 
     return euid != real_uid;
-}
-
-// determine the number of tasks on this node that --join should join
-// namespaces with. always 1 when tasks_join is false.
-//
-// SLURM only at the moment -- more methods for determining the number of
-// tasks to join (e.g. a non-SLURM launcher, or an explicit override) can be
-// added here later.
-util::expected<int, std::string>
-local_task_count(const envvars::state& calling_env, bool tasks_join) {
-    if (!tasks_join) {
-        return 1;
-    }
-
-    const auto tasks_per_node = calling_env.get("SLURM_STEP_TASKS_PER_NODE");
-    if (!tasks_per_node) {
-        return util::unexpected(
-            "--join requires SLURM_STEP_TASKS_PER_NODE to be set in order "
-            "to determine how many tasks to join");
-    }
-
-    const auto node_id = calling_env.get("SLURM_NODEID");
-    if (!node_id) {
-        return util::unexpected(
-            "--join requires SLURM_NODEID to be set in order to determine "
-            "how many tasks to join");
-    }
-
-    auto local_tasks = util::local_rank_count(*tasks_per_node, *node_id);
-    if (!local_tasks) {
-        return util::unexpected(fmt::format(
-            "unable to determine local task count from "
-            "SLURM_STEP_TASKS_PER_NODE='{}' SLURM_NODEID='{}': {}",
-            *tasks_per_node, *node_id, local_tasks.error().message()));
-    }
-
-    return static_cast<int>(*local_tasks);
 }
 
 // squashfs-mount --sqfs=file:mount[,file:mount] -- cmd [args]
@@ -170,23 +133,16 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
 
     if (!mounts.empty()) {
-        auto ntasks = local_task_count(calling_env, tasks_join);
-        if (!ntasks) {
-            error_and_exit("{}", ntasks.error());
+        auto join_ctx = uenv::local_join_context(calling_env, tasks_join);
+        if (!join_ctx) {
+            error_and_exit("{}", join_ctx.error());
         }
-        spdlog::trace("joining {} task(s) on this node", *ntasks);
-
-        // only tasks that are actually joining namespaces need to rendezvous
-        // at a barrier, so only they need a tag shared with their peers. a
-        // solo task (--join not requested, or only one local task) gets a
-        // tag unique to this process instead, since mount_and_join_ns skips
-        // the barrier entirely in that case and the tag is otherwise unused.
-        const std::string barrier_tag =
-            *ntasks > 1 ? "squashfs-mount"
-                        : fmt::format("squashfs-mount-{}", getpid());
+        spdlog::trace("joining {} task(s) on this node with tag '{}'",
+                       join_ctx->ntasks, join_ctx->tag);
 
         if (auto r = uenv::rootless::mount_and_join_ns(
-                barrier_tag, *ntasks, mounts, fuse_single_threaded, uid, gid);
+                join_ctx->tag, join_ctx->ntasks, mounts, fuse_single_threaded,
+                uid, gid);
             !r) {
             error_and_exit("mount failed {}", r.error());
         }

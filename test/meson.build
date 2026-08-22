@@ -96,6 +96,7 @@ unit_src = [
         'unit/env.cpp',
         'unit/envvars.cpp',
         'unit/fs.cpp',
+        'unit/join_context.cpp',
         'unit/lex.cpp',
         'unit/main.cpp',
         'unit/mount.cpp',

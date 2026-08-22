@@ -134,6 +134,7 @@ lib_uenv_src = [
         'src/oci/util.cpp',
         'src/uenv/elastic.cpp',
         'src/uenv/env.cpp',
+        'src/uenv/join_context.cpp',
         'src/uenv/log.cpp',
         'src/uenv/meta.cpp',
         'src/uenv/mount.cpp',
