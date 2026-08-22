@@ -79,10 +79,85 @@ recovery.
 
 **Failure scenario:** If the leader process is SIGKILLed, OOM-killed, or hits a
 Slurm job time limit anywhere during that multi-second window (an ordinary HPC
-operational event, no code defect needed), the lock is never posted and stays
-held forever. Combined with finding 1's fixed tag, this permanently wedges
-`--join` for every user on that node until an operator manually clears the
-semaphore from `/dev/shm` or the node reboots.
+operational event, no code defect needed), `lock` (a POSIX named semaphore at
+`/dev/shm/sem.uenv-run_sem-{tag}`, initial value 1) is never posted back. POSIX
+semaphores have no owner-death recovery, so the value just stays at 0. Each
+subsequent `--join` attempt against that tag doesn't hang forever — `wait()`
+uses `sem_timedwait()` with a fixed 30s deadline (`barrier_timeout` in
+`proc_barrier.cpp`) — but it fails the same way every time thereafter, since
+nothing ever posts the semaphore. The tag is permanently wedged until an
+operator manually unlinks the semaphore (and the paired `/uenv-run_shm-{tag}`
+mapping) from `/dev/shm`, or the node reboots (`/dev/shm` is typically tmpfs).
+
+Note: this scenario was originally written against finding 1's *unfixed*
+literal tag, where a wedge was node-wide and cross-user. Now that finding 1
+scopes the tag to `SLURM_JOBID`-`SLURM_STEPID`, a wedge from this finding is
+scoped to that job step instead — still a permanent, unrecoverable-without-an-
+operator failure for any repeat or racing `--join` call sharing that job/step,
+but no longer node-wide. At CSCS specifically, the aggressive Slurm prologue
+that clears `/dev/shm` and kills stray daemons before each job bounds the
+practical impact further: since step ids are never reused within a job, the
+worst case degrades to "the other local tasks in that one step each stall for
+the fixed 30s timeout, then fail with a clear error" rather than an
+operator-page-worthy leak — a real but bounded, self-healing job failure. That
+is a site-specific mitigation, not something the code can rely on in general.
+
+**Fixed:** the barrier's `lock` was replaced with a `robust_mutex`
+(`src/util/robust_mutex.h`) embedded in the barrier's shared-memory segment —
+`PTHREAD_MUTEX_ROBUST` + `PTHREAD_PROCESS_SHARED`, the purpose-built Linux
+primitive for exactly this problem: the kernel walks a dying process's robust
+mutex list on *any* exit path, SIGKILL and OOM-kill included, so the next
+`pthread_mutex_lock()` gets `EOWNERDEAD` immediately instead of a 30s timeout.
+The peer that observes `EOWNERDEAD` deliberately does not call
+`pthread_mutex_consistent()` before unlocking — per POSIX, that leaves the
+mutex permanently `ENOTRECOVERABLE` for every other current or future peer, so
+the whole barrier fails cleanly and uniformly rather than one peer silently
+resuming on state nobody finished writing. No attempt is made to resume the
+dead leader's setup or elect a replacement — the failure is deliberately
+terminal (see the "clean up and get out" discussion this was designed
+against). The original `lock` semaphore is kept, renamed `bootstrap`, but its
+role is now narrowed to the brief `create_exclusive()`/`open_existing()`
+race, no longer held across the mount; `end()`'s `procs_remaining` decrement
+was moved onto the same robust mutex for the same reason.
+
+One correctness trap surfaced by testing this: the failure-path helper
+(`fail_after_owner_death()`, formerly named `dead_leader_cleanup()`)
+originally unlinked the shm/semaphore objects eagerly on `EOWNERDEAD`. A
+multi-follower unit test caught that this races a peer that has not yet
+reached its own `create_exclusive()`/`open_existing()` call — freeing the shm
+name lets that late peer's `create_exclusive()` (`O_EXCL`) succeed, making it
+a bogus second leader for a barrier that had already failed.
+
+**This finding is only half fixed, deliberately.** The fix eliminates the
+part that was actually damaging: instead of every future `--join` attempt on
+a wedged tag hanging for the full 30s timeout and then failing, forever, the
+first attempt after the leader's death gets an immediate, clear error, and
+every attempt after that fails the same clean way (the mutex is permanently
+`ENOTRECOVERABLE`, so it can never silently look fine again). What it does
+*not* do is reclaim the `/dev/shm` objects — `fail_after_owner_death()`
+unlocks the mutex and returns an error, nothing else; the shm segment and
+both semaphores are abandoned. A "last of `nprocs` peers to arrive can safely
+unlink" scheme was considered and rejected: it assumes every peer eventually
+calls `create()`, but the same OOM event that killed the leader could kill a
+second task before it gets there, in which case the count never completes
+and nothing is ever safely unlinked — trading one wedge for a subtler one.
+The leak is therefore left as-is, folded into findings 3/4 (same shape,
+already tracked there) rather than solved here — it is inert (a tag is never
+reused within a job, so nothing ever looks the leaked names up again) and,
+per the note above, further bounded at CSCS by the per-job prologue.
+
+`robust_mutex::lock()` also gained a `recover` parameter (default `false`):
+when a caller *can* actually repair the state a mutex guards, passing `true`
+calls `pthread_mutex_consistent()` on `EOWNERDEAD` so the mutex stays usable
+normally, rather than proc_barrier's always-fail-clean policy. proc_barrier
+itself doesn't use it (its two call sites rely on the default), but the
+wrapper is meant to be reusable beyond this one fail-clean use case.
+
+Covered by `test/unit/proc_barrier.cpp`: a leader SIGKILLed while holding the
+lock is reported well under the old 30s timeout (not silently, not by
+hanging); a second attempt on the same tag also fails cleanly rather than
+racing to become a new leader; and every peer racing to join after the leader
+dies fails, not just the one that observed `EOWNERDEAD`.
 
 ### 3. `proc_barrier::create()` leaks its lock semaphore on error paths — `src/util/proc_barrier.cpp:86`
 

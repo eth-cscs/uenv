@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <semaphore.h>
+#include <signal.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -73,6 +74,42 @@ template <typename Body> void run_tasks(int ntasks, Body&& body) {
         REQUIRE(WIFEXITED(status));
         REQUIRE(WEXITSTATUS(status) == 0);
     }
+}
+
+// fork a peer that becomes the leader of `tag`/`nprocs`, hand off to the
+// caller once it is confirmed to be holding the barrier's setup lock (i.e.
+// has not called ready()), then SIGKILL it -- a faithful simulation of an
+// OOM-kill or a Slurm time-limit kill, since the process never runs any
+// cleanup code of its own.
+void kill_leader_holding_lock(const std::string& tag, int nprocs) {
+    int pipefd[2];
+    REQUIRE(pipe(pipefd) == 0);
+
+    pid_t pid = fork();
+    REQUIRE(pid >= 0);
+    if (pid == 0) {
+        close(pipefd[0]);
+        auto barrier = util::proc_barrier::create(tag, nprocs);
+        if (!barrier || !barrier->is_leader()) {
+            _exit(1);
+        }
+        char c = 'x';
+        if (write(pipefd[1], &c, 1) != 1) {
+            _exit(2);
+        }
+        pause(); // wait to be killed; no ready(), so the lock stays held
+        _exit(3);
+    }
+    close(pipefd[1]);
+    char c = 0;
+    REQUIRE(read(pipefd[0], &c, 1) == 1);
+    close(pipefd[0]);
+
+    REQUIRE(kill(pid, SIGKILL) == 0);
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    REQUIRE(WIFSIGNALED(status));
+    REQUIRE(WTERMSIG(status) == SIGKILL);
 }
 
 } // namespace
@@ -301,4 +338,50 @@ TEST_CASE("barrier rejects a non-positive nprocs", "[proc_barrier]") {
     REQUIRE(errno == ENOENT);
     REQUIRE(shm_open(shm_name.c_str(), O_RDWR, 0) == -1);
     REQUIRE(errno == ENOENT);
+}
+
+// The core crash-safety property: a leader SIGKILLed while holding the
+// setup lock (an OOM-kill or a Slurm time-limit kill, no code defect
+// involved) must not wedge the tag: silently succeeding or hanging for the
+// full 30s barrier timeout are both unacceptable. The next peer to join
+// should be told promptly and clearly instead.
+TEST_CASE("barrier reports a leader killed while holding the lock",
+          "[proc_barrier]") {
+    const auto tag = fmt::format("unittest-ownerdead-{}", getpid());
+
+    kill_leader_holding_lock(tag, 2);
+
+    struct timespec before{};
+    struct timespec after{};
+    clock_gettime(CLOCK_MONOTONIC, &before);
+    auto follower = util::proc_barrier::create(tag, 2);
+    clock_gettime(CLOCK_MONOTONIC, &after);
+
+    // reported promptly, not after the 30s barrier timeout.
+    REQUIRE(after.tv_sec - before.tv_sec < 5);
+    REQUIRE_FALSE(follower);
+
+    // a later attempt on the same tag also fails cleanly, rather than racing
+    // to become a bogus new leader for state nobody finished writing (the
+    // IPC objects are deliberately left in place rather than unlinked here
+    // -- see dead_leader_cleanup() -- since a peer that hasn't looked them
+    // up yet could otherwise win that race).
+    REQUIRE_FALSE(util::proc_barrier::create(tag, 2));
+}
+
+// Only one peer ever observes EOWNERDEAD; check that every *other* peer
+// racing to join after the leader died also comes back with a clear error
+// (via ENOTRECOVERABLE), rather than one succeeding on state nobody
+// finished writing.
+TEST_CASE("barrier: every peer fails cleanly after the leader dies, not "
+          "just the first",
+          "[proc_barrier]") {
+    const auto tag = fmt::format("unittest-ownerdead-multi-{}", getpid());
+
+    kill_leader_holding_lock(tag, 3);
+
+    run_tasks(2, [&](int) {
+        auto barrier = util::proc_barrier::create(tag, 3);
+        _exit(barrier ? 1 : 0);
+    });
 }

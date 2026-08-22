@@ -12,6 +12,7 @@
 #include <util/expected.h>
 #include <util/named_semaphore.h>
 #include <util/proc_barrier.h>
+#include <util/robust_mutex.h>
 #include <util/shared_mapping.h>
 
 namespace util {
@@ -23,35 +24,55 @@ constexpr std::chrono::seconds barrier_timeout{30};
 
 } // namespace
 
-// The barrier's state: three IPC objects that own themselves, plus the few
-// scalars describing this peer's role in the rendezvous.
+// The barrier's state: three IPC objects that own themselves (one of them,
+// `shared`, holding a fourth -- the robust mutex embedded in shared_state),
+// plus the few scalars describing this peer's role in the rendezvous.
 class proc_barrier_impl {
   public:
     struct shared_state {
+        // guards leader_pid/procs_remaining, and doubles as the "followers
+        // wait here until the leader is ready" gate: held by the leader from
+        // create() to ready(), and re-taken around the decrement in end().
+        // Robust, so a peer that dies while holding it is reported to the
+        // next lock() instead of wedging every future peer on this tag.
+        robust_mutex setup;
         pid_t leader_pid;
-        int procs_remaining; // serial-only access, guarded by `lock`
+        int procs_remaining;
     };
 
-    proc_barrier_impl(bool is_leader, int nprocs, named_semaphore lock,
-                      named_semaphore done, shared_mapping<shared_state> shared)
-        : is_leader(is_leader), nprocs(nprocs), holds_lock(is_leader),
-          lock(std::move(lock)), done(std::move(done)),
+    proc_barrier_impl(bool is_leader, int nprocs, bool holds_setup,
+                      named_semaphore bootstrap, named_semaphore done,
+                      shared_mapping<shared_state> shared)
+        : is_leader(is_leader), nprocs(nprocs), holds_setup(holds_setup),
+          bootstrap(std::move(bootstrap)), done(std::move(done)),
           shared(std::move(shared)) {
     }
 
     bool is_leader;
     int nprocs;
     bool ended = false;
-    // the leader comes out of create() still holding the lock, and keeps it
-    // until ready(); everyone else acquires it only inside end(). Tracked so
-    // that end() -- which may be reached from the destructor on an error path
-    // that never got as far as ready() -- does not wait on a lock this peer
-    // already owns.
-    bool holds_lock;
-    named_semaphore lock; // serialises the peers
-    named_semaphore done; // followers post, the leader waits
+    bool holds_setup;
+    named_semaphore bootstrap; // only used during create(); unlinked in end()
+    named_semaphore done;      // followers post, the leader waits
     shared_mapping<shared_state> shared;
 };
+
+namespace {
+
+using shared_state = proc_barrier_impl::shared_state;
+
+// Called by whichever peer's setup.lock() discovers the leader died holding
+// it. Does NOT unlink the shm/semaphore objects: a not-yet-arrived peer could
+// otherwise win the create_exclusive() race and become a bogus second
+// leader. They are deliberately abandoned in /dev/shm (findings 3/4's leak,
+// not fixed here) rather than risk that.
+std::string fail_after_owner_death(robust_mutex& setup) {
+    setup.unlock();
+    return "proc_barrier: the leader died before finishing setup; the "
+          "barrier has failed";
+}
+
+} // namespace
 
 // Enter the coordinated section and elect the leader.
 util::expected<proc_barrier, std::string> proc_barrier::create(std::string tag,
@@ -61,12 +82,17 @@ util::expected<proc_barrier, std::string> proc_barrier::create(std::string tag,
             fmt::format("proc_barrier: nprocs must be >= 1, got {}", nprocs));
     }
 
-    using shared_state = proc_barrier_impl::shared_state;
-
-    // Serialise.
-    auto lock = named_semaphore::open(fmt::format("/uenv-run_sem-{}", tag), 1);
-    if (!lock) {
-        return util::unexpected(lock.error());
+    // Serialises access to the shared segment while it is being created and
+    // sized: shm_open(O_EXCL) alone picks the leader, but a follower must not
+    // open_existing()/mmap() the segment before the leader has finished
+    // ftruncate()-ing and initialising it. Not needed again once every peer
+    // has passed through this function once, but kept around (and unlinked)
+    // alongside the other IPC objects since there is no cheaper safe point to
+    // retire it at (see the "why keep it if it's dead weight" discussion).
+    auto bootstrap =
+        named_semaphore::open(fmt::format("/uenv-run_sem-{}", tag), 1);
+    if (!bootstrap) {
+        return util::unexpected(bootstrap.error());
     }
     // Counts how many peers have finished acting on the leader; posted once
     // by each follower, waited on by the leader.
@@ -75,7 +101,7 @@ util::expected<proc_barrier, std::string> proc_barrier::create(std::string tag,
     if (!done) {
         return util::unexpected(done.error());
     }
-    if (auto r = lock->wait(barrier_timeout); !r) {
+    if (auto r = bootstrap->wait(barrier_timeout); !r) {
         return util::unexpected(r.error());
     }
 
@@ -89,14 +115,26 @@ util::expected<proc_barrier, std::string> proc_barrier::create(std::string tag,
 
     const bool is_leader = created->has_value();
     shared_mapping<shared_state> shared;
+    bool holds_setup = false;
     if (is_leader) {
         spdlog::trace("barrier: set as leader PID {}", getpid());
         shared = std::move(**created);
+        if (auto r = shared->setup.init(); !r) {
+            return util::unexpected(r.error());
+        }
+        auto locked = shared->setup.lock();
+        if (!locked) {
+            return util::unexpected(locked.error());
+        }
+        holds_setup = true;
         // seed the peer count here rather than in ready(), so that a leader
         // that fails before it gets that far still leaves a count the
         // remaining peers can decrement to zero and clean up behind.
         shared->procs_remaining = nprocs;
         shared->leader_pid = 0;
+        if (auto r = bootstrap->post(); !r) {
+            return util::unexpected(r.error());
+        }
     } else {
         spdlog::trace("barrier: set as follower");
         auto opened = shared_mapping<shared_state>::open_existing(shm_name);
@@ -104,17 +142,27 @@ util::expected<proc_barrier, std::string> proc_barrier::create(std::string tag,
             return util::unexpected(opened.error());
         }
         shared = std::move(*opened);
+        if (auto r = bootstrap->post(); !r) {
+            return util::unexpected(r.error());
+        }
 
-        // Leader keeps the lock; followers parallelize (the leader will be
-        // done by then).
-        if (auto r = lock->post(); !r) {
+        // Block here until the leader calls ready() -- or, if it died first,
+        // fail the whole barrier cleanly instead of wedging this tag.
+        auto locked = shared->setup.lock();
+        if (!locked) {
+            return util::unexpected(locked.error());
+        }
+        if (*locked == robust_mutex::owner_state::previous_owner_died) {
+            return util::unexpected(fail_after_owner_death(shared->setup));
+        }
+        if (auto r = shared->setup.unlock(); !r) {
             return util::unexpected(r.error());
         }
     }
 
     return proc_barrier{std::make_unique<proc_barrier_impl>(
-        is_leader, nprocs, std::move(*lock), std::move(*done),
-        std::move(shared))};
+        is_leader, nprocs, holds_setup, std::move(*bootstrap),
+        std::move(*done), std::move(shared))};
 }
 
 proc_barrier::proc_barrier(std::unique_ptr<proc_barrier_impl> impl)
@@ -148,11 +196,10 @@ util::expected<void, std::string>
 proc_barrier::ready(std::optional<pid_t> pid) {
     spdlog::trace("barrier: leader initializing shared data");
     impl_->shared->leader_pid = pid.value_or(getpid());
-    // release the followers queued in create()
-    if (auto r = impl_->lock.post(); !r) {
+    if (auto r = impl_->shared->setup.unlock(); !r) {
         return r;
     }
-    impl_->holds_lock = false;
+    impl_->holds_setup = false;
     return {};
 }
 
@@ -184,11 +231,15 @@ util::expected<void, std::string> proc_barrier::end() {
     // destructor can run the protocol a second time.
     impl_->ended = true;
 
-    if (!impl_->holds_lock) {
-        if (auto r = impl_->lock.wait(barrier_timeout); !r) {
-            return r;
+    if (!impl_->holds_setup) {
+        auto locked = impl_->shared->setup.lock();
+        if (!locked) {
+            return util::unexpected(locked.error());
         }
-        impl_->holds_lock = true;
+        if (*locked == robust_mutex::owner_state::previous_owner_died) {
+            return util::unexpected(fail_after_owner_death(impl_->shared->setup));
+        }
+        impl_->holds_setup = true;
     }
 
     impl_->shared->procs_remaining--;
@@ -202,7 +253,7 @@ util::expected<void, std::string> proc_barrier::end() {
                 fmt::format("barrier: expected 0 peers left but found {}",
                             impl_->shared->procs_remaining));
         }
-        if (auto r = impl_->lock.unlink(); !r) {
+        if (auto r = impl_->bootstrap.unlink(); !r) {
             return r;
         }
         if (auto r = impl_->done.unlink(); !r) {
@@ -213,10 +264,10 @@ util::expected<void, std::string> proc_barrier::end() {
         }
     }
 
-    if (auto r = impl_->lock.post(); !r) { // parallelize (all)
+    if (auto r = impl_->shared->setup.unlock(); !r) {
         return r;
     }
-    impl_->holds_lock = false;
+    impl_->holds_setup = false;
 
     spdlog::trace("barrier: done");
     return {};
