@@ -1,243 +1,231 @@
-# Code review: squashfs-only branch (ultra effort)
+# Code Review: `squashfuse-only` branch
 
-Findings from a multi-agent `/code-review xhigh` (ultra) pass, ranked most severe first.
+Reviewed diff: `git diff main...HEAD` on branch `squashfuse-only` (commit `6585ace`
+at time of review), focused on security and correctness.
 
-## 1. Privilege drop never happens (security)
+Effort level: **max** (10 parallel finder angles, cross-verified, gap sweep).
 
-**`src/squashfs-mount/squashfs-mount.cpp:274`**
+## What this branch does
 
-The final privilege-drop is gated on `is_setuid()`, but `setup_sandbox()` already
-called `setreuid(0,0)` via `uenv::unshare_and_become_root()`
-(`src/uenv/mount.cpp:194`), so `geteuid()==getuid()==0` by this point and the gate
-is always false, skipping `return_to_user_and_no_new_privs()`.
+Adds a rootless, FUSE-based squashfs mounting backend (via user/mount namespaces +
+squashfuse_ll) as a build-time alternative to the existing setuid kernel-driver
+backend, plus new IPC coordination primitives (`proc_barrier`, `named_semaphore`,
+`shared_mapping`, `ready_fork`, `setns`) so that multiple Slurm tasks sharing a
+node can rendezvous around one leader's mount.
 
-**Failure scenario:** Any `uenv run`/`uenv start` invocation on the shipped setuid
-(non-FUSE) build mounts an image (`has_work=true`, the normal case), which sets
-real=effective=saved uid to 0 via `setreuid(0,0)`; `if (is_setuid())` then
-evaluates false so `return_to_user_and_no_new_privs(uid)` is never called, and
-`util::exec(*commands, cenv)` execs the user's shell/command with
-real=effective=saved uid=0 -- full privilege escalation to root.
+## Where the risk concentrates
 
-## 2. Hardcoded barrier tag (correctness)
+Almost every high-severity finding sits in the new coordination layer. The most
+serious is a hardcoded, unscoped barrier tag in the interactive CLI path
+(`squashfs-mount-fuse.cpp:185`) that lets one job's tasks join a completely
+different job's mount namespace — contrasted with the Slurm-plugin path, which
+correctly scopes its tag by job/step. Close behind: the barrier's `lock`
+semaphore is held by the leader across the *entire* mount sequence with no
+recovery if the leader is killed (an everyday HPC event via SIGKILL/OOM/job time
+limits), several error paths in the new semaphore/shared-memory wrappers leak IPC
+objects in a permanently-held state, and a follower joins the leader's namespace
+via a bare, unverified PID (a reuse/TOCTOU race). A concrete process gap: the
+four new tests meant to verify the FUSE backend's own privilege-dropping logic
+all skip on that build, so that code ships with zero test coverage.
 
-**`src/squashfs-mount/squashfs-mount.cpp:51`**
-
-`mount_and_join_ns()` creates the process barrier with a hardcoded literal tag
-`"tag"` instead of a per-job/step-unique identifier, unlike
-`src/slurm/plugin_fuse.cpp` which uses `job_id-step_id`.
-
-**Failure scenario:** `util::proc_barrier::create("tag", ntasks)` names its POSIX
-objects `/uenv-run_sem-tag`, `/uenv-run_sem_ready-tag`, `/uenv-run_shm-tag` with no
-job/user scoping (`sem_open` has no `O_EXCL`). Two concurrent `uenv run --join`/Slurm
-invocations on the same node (different job steps or sessions) collide on the same
-names, causing a follower from one job to `setns()` into the mount/user namespace
-of a completely unrelated job's leader, or hang/fail on stale semaphore state.
-
-## 3. Unguarded stoi mis-parses Slurm task-list format (correctness)
-
-**`src/squashfs-mount/squashfs-mount.cpp:264`**
-
-`int ntasks = std::stoi(calling_env.get("SLURM_STEP_TASKS_PER_NODE").value_or("1"))`
-is unguarded: throws on malformed input and mis-parses Slurm's real compressed
-multi-node format.
-
-**Failure scenario:** No try/catch exists anywhere in the file. An empty or
-non-numeric `SLURM_STEP_TASKS_PER_NODE` throws `std::invalid_argument`, aborting
-the process. Separately, Slurm's real format is a run-length-encoded list like
-`"5,4(x2)"` exported identically on every node; `std::stoi` only consumes the
-leading digits, so on any node but the first group it silently returns the wrong
-node's task count, corrupting the barrier's nprocs.
-
-## 4. Namespace fd opened without O_CLOEXEC and never closed (resource leak)
-
-**`src/util/setns.cpp:24`**
-
-`namespace_join()` opens `/proc/{pid}/ns/{ns}` without `O_CLOEXEC` and never
-closes the fd on any path.
-
-**Failure scenario:** Every follower task that joins namespaces
-(squashfs-mount's `mount_and_join_ns`, `plugin_fuse.cpp`'s
-`slurm_spank_task_init_sqfs_ll`) leaks one fd per namespace joined. Because
-`O_CLOEXEC` isn't set, these fds survive the later execvp/execvpe in
-`util::exec` and are inherited by the user's job process.
-
-## 5. exit(1) skips proc_barrier destructor, leaking IPC state (resource leak)
-
-**`src/squashfs-mount/squashfs-mount.cpp:61`**
-
-`error_and_exit()` calls `exit(1)` directly, which does not run destructors of
-automatic-storage objects; `mount_and_join_ns()`'s `barrier`
-(`std::optional<util::proc_barrier>`) is a stack local, so every
-`error_and_exit()` reached while it is alive skips `~proc_barrier()` and its
-`end()`-based IPC cleanup entirely.
-
-**Failure scenario:** The leader's `do_mount()` fails after
-`proc_barrier::create()` succeeded and the leader holds the `lock` semaphore.
-`error_and_exit("mount failed {}", ...)` calls `exit(1)`; `~proc_barrier()`
-never runs, so `lock` is never posted. Every follower blocked in `create()`'s
-`lock->wait()` times out after the full 30s `barrier_timeout`, and the named
-semaphore/shm objects are leaked under `/dev/shm`, poisoning every subsequent
-`squashfs-mount --join` invocation on the node (compounded by the hardcoded
-`"tag"` bug above).
-
-## 6. create() error paths can leak the held lock semaphore (resource leak)
-
-**`src/util/proc_barrier.cpp:78`**
-
-`proc_barrier::create()` acquires the lock semaphore but several later
-error-return paths (`create_exclusive` failure, `open_existing` failure,
-follower's `lock->post()` failure) return without releasing it, and no
-`proc_barrier` object exists yet to auto-release via destructor.
-
-**Failure scenario:** If `shm_open` fails for a non-EEXIST reason, or a
-follower's `shared_mapping::open_existing()`/`lock->post()` fails, `create()`
-returns `util::unexpected` without posting the lock. `/uenv-run_sem-<tag>`
-stays permanently held; any subsequent `create()` call with the same tag
-blocks and times out after 30s.
-
-## 7. end() can strand cleanup permanently on partial failure (correctness)
-
-**`src/util/proc_barrier.cpp:205`**
-
-`proc_barrier::end()` sets `impl_->ended=true` before cleanup; if
-`lock.unlink()` succeeds but `done.unlink()` or `shared.unlink()` fails, the
-function returns early and never reaches `lock.post()`, and `ended==true`
-prevents any retry.
-
-**Failure scenario:** On the last peer's cleanup, a failure in
-`done.unlink()` or `shared.unlink()` after `lock.unlink()` already succeeded
-permanently leaks the done semaphore name and/or shared memory segment, with
-no way to retry since `end()` short-circuits from then on (including from the
-destructor).
-
-## 8. create_exclusive() leaves broken shm segment on failure (resource leak)
-
-**`src/util/shared_mapping.h:66`**
-
-`shared_mapping<T>::create_exclusive()` opens with `O_CREAT|O_EXCL`, but if
-the subsequent `ftruncate()` or `mmap()` fails, it returns an error without
-calling `shm_unlink(name)` -- the just-created, broken shm segment is left
-behind under that name.
-
-**Failure scenario:** A transient ftruncate/mmap failure (tmpfs low on
-memory, ENOSPC on `/dev/shm`) leaves a zero-length shm object named e.g.
-`/uenv-run_shm-<tag>` permanently in place. Because `create_exclusive` uses
-`O_EXCL`, every subsequent call with the same tag gets EEXIST, becomes a
-follower, and its `open_existing()`'s mmap fails against the undersized
-object -- permanently breaking `proc_barrier` for that tag until an operator
-manually clears `/dev/shm`.
-
-## 9. Leader skips wait_peers(), can race ahead of followers (correctness)
-
-**`src/squashfs-mount/squashfs-mount.cpp:66`**
-
-The leader branch in `mount_and_join_ns()` calls `barrier->ready()` then
-falls straight to `barrier->end()` with no `wait_peers()` call, unlike
-`plugin_fuse.cpp`'s leader which explicitly waits for followers before
-proceeding.
-
-**Failure scenario:** `proc_barrier::end()` only decrements a shared counter
-and posts the lock mutex -- it does not block on followers. A leader whose
-exec'd command exits quickly can race ahead of slow followers still opening
-`/proc/<leader_pid>/ns/{user,mnt}`, causing those followers' `namespace_join`
-to fail with ENOENT. Reachable via the live `uenv run --join` CLI path.
-
-## 10. FUSE Slurm path never adopts job GID before mounting (correctness)
-
-**`src/slurm/plugin_fuse.cpp:127`**
-
-Ben's note: is effective GID important with squashfuse, because we are not
-root (so squash-root is not in effect).
-
-`slurm_spank_task_init_sqfs_ll()` (the FUSE-build Slurm path) never adopts
-the job's effective GID before mounting, unlike `src/slurm/plugin.cpp`'s
-`init_post_opt_remote()` (classic path) which calls `setegid(job_gid)` to
-work around NFS root_squash denying access to group-readable images.
-
-**Failure scenario:** A squashfs image readable only by the job's group
-(mode 640) on an NFS root_squash export mounts successfully via the classic
-Slurm plugin path but fails to open via the FUSE/rootless path on the same
-setup, since the process never adopts the job GID needed for read access.
-
-## 11. PR_SET_DUMPABLE never reset for FUSE squashfs-mount leader (security)
-
-**`src/uenv/rootless.cpp:102`**
-
-`PR_SET_DUMPABLE` is never reset to 0 for the FUSE-build squashfs-mount
-leader: `map_effective_user()`'s reset is commented out and no hook
-re-enables it, unlike `plugin_fuse.cpp`'s Slurm path which explicitly does
-after `wait_peers()`.
-
-**Failure scenario:** The FUSE squashfs-mount leader session (and the user
-command it execs into) stays dumpable/ptraceable for its entire lifetime,
-widening the ptrace/proc-access attack surface relative to the Slurm
-plugin's equivalent path.
-
-## 12. Dead code: forked child returns instead of _exit() on fail (correctness)
-
-**`src/slurm/plugin_fuse.cpp:71`**
-
-In the currently-dead `slurm_spank_task_init_sqfs_mount()`, the forked child
-does a plain `return -ESPANK_ERROR;` instead of `_exit()` when `execlp()`
-fails -- the exact fork-safety hazard `rootless.cpp`'s own `child_fail()`
-comment documents.
-
-**Failure scenario:** The call to this function is commented out today, so
-it's unreachable, but it ships compiled in the plugin binary. If ever
-reactivated and `execlp` fails, the forked child unwinds back into
-slurmstepd's/SPANK's normal control flow instead of terminating, duplicating
-task execution.
-
-## 13. Error path treats generic void* buffer as a C string (correctness)
-
-**`src/uenv/posix_io.cpp:25`**
-
-`uenv::write(fd, buf, count)`'s error path formats the failure message via
-`fmt::format("...{}...", (char*)buf, ...)`, reinterpreting the generic
-`const void*` parameter as a null-terminated C string.
-
-**Failure scenario:** `uenv::write()` is declared as a general-purpose
-wrapper over arbitrary void*/size_t data, currently only called with
-null-terminated uid_map/gid_map buffers so it happens not to misbehave. Any
-future caller passing non-null-terminated or binary data whose `write()`
-fails will have the error-reporting path itself read out of bounds while
-building the message explaining the failure.
-
-## 14. Debug __FILE__:__LINE__ glued onto user-facing mount error (polish)
-
-**`src/uenv/mount.cpp:264`**
-
-`do_mount()`'s error path appends `fmt::format("{}:{}", __FILE__, __LINE__)`
-directly onto the libmount error string with no separator, unlike the other
-5 error returns in the same function.
-
-**Failure scenario:** A user-facing mount-failure message reads as the
-libmount error text glued directly onto the build machine's absolute source
-path, leaking build-host paths into production error output -- looks like
-leftover debug instrumentation never cleaned up before merge.
-
-## 15. --join help text copy-pasted from --view option (polish)
-
-**`src/cli/run.cpp:29`**
-
-The new `-j,--join` boolean flag's help text is copy-pasted from the
-`-v,--view` option above it: "comma separated list of views to load".
-
-**Failure scenario:** Running `uenv run --help` shows a factually wrong
-description for `--join`, telling users it takes a comma-separated list of
-views when it actually takes no argument and controls namespace-join
-behavior for multi-task jobs.
+Key files: `src/uenv/mount_rootless.cpp`, `src/util/proc_barrier.cpp`/`.h`,
+`src/util/shared_mapping.h`, `src/util/setns.cpp`, `src/slurm/plugin_fuse.cpp`,
+`src/squashfs-mount/squashfs-mount-fuse.cpp`, `test/integration/squashfs-mount.bats`,
+`src/uenv/mount_kernel.cpp`.
 
 ---
 
-## Lower-severity items (cut for output cap, still confirmed)
+## Findings
 
-- `src/util/setns.cpp`'s non-ENOENT `open()` failure path also drops
-  `strerror(errno)` (inconsistent with the rest of the diff).
-- `src/uenv/rootless.cpp`'s `map_effective_user()` uses raw `sprintf` + signed
-  `%d` for unsigned uid/gid where the sibling function two lines above uses
-  bounded `snprintf`.
-- Style-only items deprioritized below correctness bugs: missing braces per
-  CLAUDE.md, undocumented `MS_SLAVE`/`MS_PRIVATE` divergence, `uid_t`/`gid_t`
-  mismatches, `util/macros.h` missing include guard.
+### 1. Unscoped barrier tag lets unrelated jobs collide — `src/squashfs-mount/squashfs-mount-fuse.cpp:185`
 
+The interactive `uenv run --join` path uses a fixed, unscoped proc_barrier tag
+(`"squashfs-mount"`) for every multi-task rendezvous, instead of scoping it to a
+job/step like the Slurm plugin path does.
+
+**Failure scenario:** Two unrelated `--join` invocations land on the same
+shared/oversubscribed node at the same time (two job steps, possibly the same
+user's two overlapping steps). Both open identical POSIX semaphores/shm named
+after the literal tag (created before any namespace unshare, so genuinely
+node-global). Mode-0600 permissions mean a different uid gets a hard
+permission-denied failure, but a same-uid collision succeeds silently: a
+follower from invocation B calls `namespaces_join(barrier->leader_pid(), ...)`
+into invocation A's leader and runs invocation B's command inside A's mounted
+squashfs/user namespace, or mismatched `nprocs` drives `shared->procs_remaining`
+negative in `end()`.
+
+### 2. Leader holds the barrier lock across the whole mount, with no owner-death recovery — `src/uenv/mount_rootless.cpp:443`
+
+The barrier leader holds the `lock` semaphore continuously from
+`proc_barrier::create()` until `ready()` — spanning forking, mounting, and
+daemonizing every squashfs image — and POSIX semaphores have no owner-death
+recovery.
+
+**Failure scenario:** If the leader process is SIGKILLed, OOM-killed, or hits a
+Slurm job time limit anywhere during that multi-second window (an ordinary HPC
+operational event, no code defect needed), the lock is never posted and stays
+held forever. Combined with finding 1's fixed tag, this permanently wedges
+`--join` for every user on that node until an operator manually clears the
+semaphore from `/dev/shm` or the node reboots.
+
+### 3. `proc_barrier::create()` leaks its lock semaphore on error paths — `src/util/proc_barrier.cpp:86`
+
+`proc_barrier::create()` acquires the `lock` semaphore, then three separate
+error paths (`create_exclusive` failing for a would-be leader at line 86-88,
+`open_existing` failing for a follower at 103-105, a follower's own
+`lock->post()` failing at 110-112) return without releasing it, and no
+`proc_barrier` object yet exists whose destructor could.
+
+**Failure scenario:** A transient `shm_open`/`ftruncate`/`mmap` failure (EMFILE,
+ENOSPC, ENOMEM) right after this process wins the lock leaves
+`/uenv-run_sem-{tag}` permanently held at 0, wedging that tag the same way as
+the previous finding but via an ordinary resource hiccup instead of a job kill.
+
+### 4. `shared_mapping::create_exclusive()` can leave a SIGBUS trap behind — `src/util/shared_mapping.h:66`
+
+`create_exclusive()`'s `ftruncate()` failure path (and the subsequent
+`map()`/mmap failure path) close the fd and return an error without
+`shm_unlink()`-ing the shared-memory object that was just exclusively created.
+
+**Failure scenario:** `ftruncate()` failing (ENOSPC/ENOMEM on a constrained
+`/dev/shm` tmpfs) leaves a permanent 0-byte-but-named `/uenv-run_shm-{tag}`.
+Every later `proc_barrier::create()` for that tag gets `EEXIST`, treats itself
+as a follower, and its own `open_existing()` -> `mmap(sizeof(shared_state))`
+succeeds at the mmap call but SIGBUSes the first time it touches
+`shared->procs_remaining` or `leader_pid`, since the backing object is smaller
+than the mapped length.
+
+### 5. Namespace join by bare PID is a reuse/TOCTOU race — `src/uenv/mount_rootless.cpp:473`
+
+A follower joins the leader's namespaces via a bare `pid_t` published through
+shared memory (`namespaces_join(barrier->leader_pid(), {"user", "mnt"})`) with
+no liveness or identity verification — no pidfd, no process-start-time
+comparison.
+
+**Failure scenario:** If the leader dies and the kernel recycles its pid to an
+unrelated process before a slow follower calls `setns()`, the follower joins
+that unrelated process's user/mount namespace instead of the intended leader's,
+silently running the user's job in the wrong (or an attacker-influenced)
+namespace.
+
+### 6. `exit(0)` instead of `_exit(0)` in the forked FUSE-server child — `src/uenv/mount_rootless.cpp:385`
+
+`do_sqfs_ll_mount`'s forked child calls plain `exit(0)` on its normal/success
+shutdown path, inconsistent with `child_fail()`'s `_exit(1)` used on every
+error path in the same function.
+
+**Failure scenario:** The code's own comment on `child_fail` explains error
+paths must terminate the child directly because it shares the parent's whole
+call stack; the same reasoning applies to `exit()` re-running inherited atexit
+handlers/static destructors (spdlog sinks, libcurl, sqlite3 statics) a second
+time in this forked child on the successful-mount path, racing or duplicating
+the parent's own eventual cleanup.
+
+### 7. Unchecked `spank_get_item()` return values, plus a type mismatch — `src/slurm/plugin_fuse.cpp:60`
+
+`spank_get_item()` return values for `S_JOB_LOCAL_TASK_COUNT`, `S_JOB_ID`, and
+`S_JOB_STEPID` are never checked (unlike `plugin_kernel.cpp:60`, which checks
+`S_JOB_GID`), and `int ntasks` is passed where Slurm's `spank.h` documents a
+`uint32_t *` for that item.
+
+**Failure scenario:** If any of these lookups fails, `ntasks`/`job_id`/`step_id`
+silently keep their initializers (1/0/0): a failed `S_JOB_LOCAL_TASK_COUNT`
+makes a genuinely multi-task node silently skip `--join`'s namespace sharing
+with no error logged, and `job_id=0,step_id=0` reproduces finding 1's cross-job
+tag collision for every job hitting the same failure concurrently.
+
+### 8. `proc_barrier::end()` marks itself done before it actually is — `src/util/proc_barrier.cpp:185`
+
+`end()` sets `impl_->ended = true` before its lock-acquire/decrement/unlink
+sequence actually succeeds, so a failure partway through (e.g. the
+`lock.wait()` at line 188 timing out) permanently skips the retry — including
+from the destructor, which checks the same flag.
+
+**Failure scenario:** If acquiring the lock inside `end()` times out (plausible
+given finding 3's leak), `end()` returns an error but `ended` is already true;
+neither a caller retry nor `~proc_barrier()` will ever re-decrement
+`shared->procs_remaining`, so it may never reach 0 and the tag's IPC objects
+are never unlinked by anyone.
+
+### 9. `namespace_join()` leaks a file descriptor into the final job process — `src/util/setns.cpp:24`
+
+`namespace_join()` opens `/proc/<pid>/ns/<ns>` into a local fd via `open()` but
+never closes it on the success path or the final-retry-failure path, and
+doesn't set `O_CLOEXEC`.
+
+**Failure scenario:** Every `--join` follower leaks two fds (`ns/user`,
+`ns/mnt`) per mount invocation. Lacking `O_CLOEXEC`, both survive the later
+`execvp` of the user's actual job/MPI binary, which inherits stray open handles
+onto another process's namespace files it never asked for.
+
+### 10. FUSE backend's privilege-drop logic has zero test coverage — `test/integration/squashfs-mount.bats:46`
+
+All four new privilege-drop/NoNewPrivs regression tests (lines 46, 61, 72, 86)
+`skip` unless the binary is setuid, which is unconditionally false for the
+entire `mount_backend=fuse` CI leg by design.
+
+**Failure scenario:** The FUSE backend's own `map_effective_user()`/
+`lock_down()` uid-drop and `NO_NEW_PRIVS` logic — exactly the security-critical
+new code this PR adds — has zero automated test coverage under
+`mount_backend=fuse`; a future regression there would pass CI green on that leg
+while appearing covered.
+
+### 11. FUSE mount has no explicit read-only mount option — `src/uenv/mount_rootless.cpp:304`
+
+The FUSE mount is set up with no explicit read-only mount option (the dummy
+`fuse_args` carries no `-o ro`), unlike the kernel backend's libmount call
+which explicitly passes `"loop,nosuid,nodev,ro"`; the test suite confirms and
+accepts this by asserting `"rw,nosuid"` for the fuse mount table entry.
+
+**Failure scenario:** Read-only enforcement for the FUSE backend relies
+entirely on squashfuse's op table never registering a `.write` callback rather
+than on the mount itself — a defense-in-depth gap versus the kernel path, where
+any future squashfuse op-table change (e.g. gaining a write/setxattr handler)
+would silently make mounted images writable at the VFS level with no
+mount-flag backstop.
+
+### 12. Classic `PR_SET_PDEATHSIG` race — `src/uenv/mount_rootless.cpp:250`
+
+`prctl(PR_SET_PDEATHSIG, SIGHUP)` is armed as the first statement after
+`fork()` returns in the child, not before forking.
+
+**Failure scenario:** If the parent is killed in the (very narrow) window
+between `fork()` returning and this `prctl()` executing in the child, the
+death signal is armed too late and never delivered; the FUSE-daemon child is
+reparented to init and keeps the mount held open with nothing left able to
+signal it to exit.
+
+### 13. `wait_peers()`'s per-follower timeout can multiply the leader's wait — `src/util/proc_barrier.cpp:162`
+
+`wait_peers()` gives each follower's `done.wait(barrier_timeout)` its own fresh
+30-second deadline inside a serial loop, so the leader's worst-case wait is
+`(nprocs-1)*30s` rather than the single 30s the constant's name implies.
+
+**Failure scenario:** One hung or slow-to-signal follower makes the leader wait
+out a full 30s for it before even checking the next follower, so N stuck
+followers serialize into N*30s of total leader-side blocking instead of one
+bounded 30s window.
+
+### 14. Stale AI-review reports committed at the repo root — `review-latest.md:1`
+
+`review.md` and `review-latest.md` are AI-generated code-review reports
+committed directly into the repository root; `review.md` is listed in
+`.gitignore` and git history shows both were deliberately "untrack"-ed before,
+yet they're tracked again in this diff.
+
+**Failure scenario:** These review artifacts duplicate each other and
+reference code that has since been renamed/split (stale immediately); per
+independent cross-checking, `review-latest.md` also narrates a historical
+full-privilege-escalation exploit against this code — permanently baking that
+writeup into the shipped repository history rather than keeping it
+out-of-band.
+
+### 15. Debug leftover leaks build path into user-facing errors — `src/uenv/mount_kernel.cpp:110`
+
+`do_mount()`'s failure path appends `fmt::format("{}:{}", __FILE__, __LINE__)`
+to the mount-failure message; confirmed absent from the pre-PR `mount.cpp`
+version of this same code, so it's newly introduced by this diff.
+
+**Failure scenario:** Any ordinary kernel-backend mount failure (bad image,
+exhausted loop devices, permission issue) now leaks the build machine's
+absolute source path into normal user- and Slurm-log-facing error output.
