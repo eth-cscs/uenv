@@ -13,6 +13,7 @@
 #include <util/named_semaphore.h>
 #include <util/proc_barrier.h>
 #include <util/robust_mutex.h>
+#include <util/setns.h>
 #include <util/shared_mapping.h>
 
 namespace util {
@@ -37,6 +38,7 @@ class proc_barrier_impl {
         // next lock() instead of wedging every future peer on this tag.
         robust_mutex setup;
         pid_t leader_pid;
+        unsigned long long leader_start_time;
         int procs_remaining;
     };
 
@@ -71,7 +73,7 @@ using shared_state = proc_barrier_impl::shared_state;
 std::string fail_after_owner_death(robust_mutex& setup) {
     setup.unlock();
     return "proc_barrier: the leader died before finishing setup; the "
-          "barrier has failed";
+           "barrier has failed";
 }
 
 } // namespace
@@ -176,8 +178,8 @@ util::expected<proc_barrier, std::string> proc_barrier::create(std::string tag,
     }
 
     return proc_barrier{std::make_unique<proc_barrier_impl>(
-        is_leader, nprocs, holds_setup, std::move(*bootstrap),
-        std::move(*done), std::move(shared))};
+        is_leader, nprocs, holds_setup, std::move(*bootstrap), std::move(*done),
+        std::move(shared))};
 }
 
 proc_barrier::proc_barrier(std::unique_ptr<proc_barrier_impl> impl)
@@ -205,12 +207,22 @@ pid_t proc_barrier::leader_pid() const {
     return impl_->shared->leader_pid;
 }
 
-// Leader only. Publish the pid, then release the followers blocked in
-// create().
+unsigned long long proc_barrier::leader_start_time() const {
+    return impl_->shared->leader_start_time;
+}
+
+// Leader only. Publish the pid and its start time, then release the
+// followers blocked in create().
 util::expected<void, std::string>
 proc_barrier::ready(std::optional<pid_t> pid) {
     spdlog::trace("barrier: leader initializing shared data");
-    impl_->shared->leader_pid = pid.value_or(getpid());
+    const pid_t p = pid.value_or(getpid());
+    auto start_time = process_start_time(p);
+    if (!start_time) {
+        return util::unexpected(start_time.error());
+    }
+    impl_->shared->leader_pid = p;
+    impl_->shared->leader_start_time = *start_time;
     if (auto r = impl_->shared->setup.unlock(); !r) {
         return r;
     }
@@ -252,7 +264,8 @@ util::expected<void, std::string> proc_barrier::end() {
             return util::unexpected(locked.error());
         }
         if (*locked == robust_mutex::owner_state::previous_owner_died) {
-            return util::unexpected(fail_after_owner_death(impl_->shared->setup));
+            return util::unexpected(
+                fail_after_owner_death(impl_->shared->setup));
         }
         impl_->holds_setup = true;
     }

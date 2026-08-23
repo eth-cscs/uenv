@@ -19,8 +19,8 @@ class proc_barrier_impl;
 // while the rest wait, and the last one out releases the shared resources.
 //
 // The barrier knows nothing about what the setup is. The leader publishes a
-// single pid -- its own, or any other it chooses -- which is all the
-// followers get told about it.
+// single pid -- its own, or any other it chooses -- and that pid's start
+// time, which is all the followers get told about it.
 //
 // Peers find each other by tag: everyone sharing a tag joins the same
 // barrier. The POSIX semaphores and shared memory the barrier is built from
@@ -65,10 +65,19 @@ class proc_barrier {
     // follower, once create() has returned.
     pid_t leader_pid() const;
 
-    // Leader only. Publish pid (its own, if nullopt), then release the
-    // followers blocked in create() so they can act on the leader while it is
-    // still in the state they need. Must be called before anything that would
-    // invalidate that state.
+    // The start time of leader_pid() at the moment it was published in
+    // ready() (see util::process_start_time()). Lets a follower detect
+    // leader_pid() having been recycled onto an unrelated process before it
+    // gets around to acting on it. Only meaningful to a follower, once
+    // create() has returned.
+    unsigned long long leader_start_time() const;
+
+    // Leader only. Publish pid (its own, if nullopt) and its current start
+    // time, then release the followers blocked in create() so they can act
+    // on the leader while it is still in the state they need. Must be called
+    // before anything that would invalidate that state. Fails if pid's start
+    // time cannot be read -- pid must therefore name a process that is still
+    // alive at the point ready() is called.
     util::expected<void, std::string>
     ready(std::optional<pid_t> pid = std::nullopt);
 

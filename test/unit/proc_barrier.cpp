@@ -13,6 +13,7 @@
 #include <fmt/core.h>
 
 #include <util/proc_barrier.h>
+#include <util/setns.h>
 
 namespace {
 
@@ -27,10 +28,11 @@ struct timeline {
     bool set[max_tasks];
 };
 
-// shared, cross-process record of the pid each follower read out of the
-// barrier, indexed the same way.
+// shared, cross-process record of the pid (and its start time) each follower
+// read out of the barrier, indexed the same way.
 struct pid_report {
     pid_t observed[max_tasks];
+    unsigned long long observed_start_time[max_tasks];
     bool is_leader[max_tasks];
     bool set[max_tasks];
 };
@@ -200,8 +202,13 @@ TEST_CASE("barrier publishes an explicit pid", "[proc_barrier]") {
     auto* rep = shared_alloc<pid_report>();
     const auto barrier_tag = fmt::format("unittest-pid-{}", getpid());
 
-    // an arbitrary pid that is not any of the participating processes.
-    const pid_t published = 424242;
+    // ready() now snapshots the published pid's start time (see
+    // leader_start_time()), so it must name a process that is actually alive
+    // at the point ready() is called. Use this test process's own pid: it is
+    // distinct from every forked child below, and stays alive throughout
+    // (this function blocks in run_tasks()'s waitpid() loop until they all
+    // exit).
+    const pid_t published = getpid();
 
     run_tasks(ntasks, [&](int i) {
         auto barrier = util::proc_barrier::create(barrier_tag, ntasks);
@@ -220,6 +227,7 @@ TEST_CASE("barrier publishes an explicit pid", "[proc_barrier]") {
             }
         } else {
             rep->observed[i] = barrier->leader_pid();
+            rep->observed_start_time[i] = barrier->leader_start_time();
             rep->set[i] = true;
             if (auto rr = barrier->signal_done(); !rr) {
                 _exit(4);
@@ -231,17 +239,43 @@ TEST_CASE("barrier publishes an explicit pid", "[proc_barrier]") {
         }
     });
 
+    auto expected_start_time = util::process_start_time(published);
+    REQUIRE(expected_start_time);
+
     int followers = 0;
     for (int i = 0; i < ntasks; ++i) {
         REQUIRE(rep->set[i]);
         if (!rep->is_leader[i]) {
             REQUIRE(rep->observed[i] == published);
+            REQUIRE(rep->observed_start_time[i] == *expected_start_time);
             ++followers;
         }
     }
     REQUIRE(followers == ntasks - 1);
 
     munmap(rep, sizeof(pid_report));
+}
+
+// ready() snapshots the published pid's start time so that followers can
+// later detect it having been recycled (finding 5 of review.md). It can only
+// do that for a pid that is still alive at the point ready() is called, so
+// it must fail rather than publish a meaningless start time for one that
+// isn't.
+TEST_CASE("barrier ready fails for a pid that does not exist",
+          "[proc_barrier]") {
+    const auto tag = fmt::format("unittest-readypid-{}", getpid());
+
+    pid_t dead = fork();
+    REQUIRE(dead >= 0);
+    if (dead == 0) {
+        _exit(0);
+    }
+    REQUIRE(waitpid(dead, nullptr, 0) == dead);
+
+    auto barrier = util::proc_barrier::create(tag, 1);
+    REQUIRE(barrier);
+    REQUIRE(barrier->is_leader());
+    REQUIRE_FALSE(barrier->ready(dead));
 }
 
 // a barrier that goes out of scope without end() having been called must

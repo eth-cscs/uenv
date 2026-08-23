@@ -324,7 +324,6 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                                 err);
                         }
 
-                        teardown_idle_timeout();
                         fuse_remove_signal_handlers(ch.session);
                     } else {
                         child_fail("set signal handlers failed.");
@@ -455,7 +454,8 @@ mount_and_join_ns(const std::string& tag, int ntasks,
     } else {
         // the leader publishes the PID that entered the squashfs namespace,
         // so joining its namespaces gives us the same view
-        auto r = util::namespaces_join(barrier->leader_pid(), {"user", "mnt"});
+        auto r = util::namespaces_join(barrier->leader_pid(), {"user", "mnt"},
+                                       barrier->leader_start_time());
 
         // signal the leader regardless of outcome, so it isn't left waiting
         // out the full barrier timeout for a peer that will never succeed.

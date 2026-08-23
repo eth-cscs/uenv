@@ -233,6 +233,33 @@ that unrelated process's user/mount namespace instead of the intended leader's,
 silently running the user's job in the wrong (or an attacker-influenced)
 namespace.
 
+**Fixed:** the leader now publishes its start time (`process_start_time()`,
+field 22 of `/proc/pid/stat`) alongside its pid in `proc_barrier::ready()`,
+stored in the barrier's shared memory next to `leader_pid` and exposed as
+`leader_start_time()`. `namespace_join()` re-reads the target pid's start
+time after `open()`-ing its namespace file but before calling `setns()`, and
+refuses to join on a mismatch — `open()` pins the namespace once it succeeds,
+so a match at that point guarantees the fd refers to the process the caller
+actually meant, not one that reused its pid. `ready()` now fails outright if
+the published pid's start time can't be read, so a pid can only be published
+while it's still alive. Covered by `test/unit/setns.cpp` (start-time
+stability for a live process, failure once a process has exited, and
+`namespace_join()` refusing a deliberately mismatched start time without
+needing namespace privileges to test) and two new cases in
+`test/unit/proc_barrier.cpp` (`leader_start_time()` observed by followers
+matches the published pid's actual start time; `ready()` fails for a pid that
+no longer exists).
+
+This narrows but does not eliminate the race to the theoretical limit: two
+processes starting within the same clock tick (`/proc/pid/stat`'s
+`starttime` has `USER_HZ` granularity, often 10ms) could in principle share a
+value, so pairing the pid with that exact tick's worth of luck could still
+collide. Considered and rejected as the primary fix: passing real fds from
+leader to followers over a `SCM_RIGHTS` control socket, which would close the
+window entirely rather than narrow it — but this IPC model has no such
+channel today (pure shared memory + named semaphores), so it would be a much
+larger change for a residual risk this small.
+
 ### 6. `exit(0)` instead of `_exit(0)` in the forked FUSE-server child — `src/uenv/mount_rootless.cpp:385`
 
 `do_sqfs_ll_mount`'s forked child calls plain `exit(0)` on its normal/success
@@ -245,6 +272,8 @@ call stack; the same reasoning applies to `exit()` re-running inherited atexit
 handlers/static destructors (spdlog sinks, libcurl, sqlite3 statics) a second
 time in this forked child on the successful-mount path, racing or duplicating
 the parent's own eventual cleanup.
+
+**Fixed**: replaced `exit(0)` with `_exit(0)`
 
 ### 7. Unchecked `spank_get_item()` return values, plus a type mismatch — `src/slurm/plugin_fuse.cpp:60`
 

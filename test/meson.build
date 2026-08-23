@@ -117,6 +117,7 @@ unit_src = [
         'unit/ready_fork.cpp',
         'unit/repository.cpp',
         'unit/settings.cpp',
+        'unit/setns.cpp',
         'unit/subprocess.cpp',
         'unit/tasks_per_node.cpp',
         'unit/telemetry.cpp',
