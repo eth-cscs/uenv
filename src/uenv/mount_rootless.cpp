@@ -233,6 +233,7 @@ fuse_lowlevel_ops make_fuse_lowlevel_options() {
 util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                                                    bool fuse_single_threaded) {
     spdlog::trace("do_sqfs_ll_mount");
+
     // use a pipe to synchronize parent and child process
     auto rf = util::ready_fork::create();
     if (!rf) {
@@ -253,15 +254,10 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         signal(SIGINT, SIG_IGN);
 
         // setup dummy fuse_args to make sqfs_ll_open happy
-        struct fuse_args args;
         std::string dummy{"dummy"};
         std::vector<char*> dummy_args{const_cast<char*>(dummy.c_str()),
                                       nullptr};
-        args.argc = 1;
-        args.argv = dummy_args.data();
-        args.allocated = 0;
-        int err;
-        sqfs_ll* ll;
+        fuse_args args{.argc = 1, .argv = dummy_args.data(), .allocated = 0};
 
         // define squashfs file system operations
         auto sqfs_ll_ops = make_fuse_lowlevel_options();
@@ -286,50 +282,47 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
             }
         }
 
-        int idle_timeout_secs = 0;
         // the child process starts fuse and informs the calling process via
         // pipe when done
 
-        int offset = 0;
-        // OPEN FS
-        err = !(ll = sqfs_ll_open(entry.sqfs.c_str(), offset));
-        if (err) {
-            child_fail("sqfs_ll_open failed");
-        }
-        if (!err) {
+        if (auto ll = sqfs_ll_open(entry.sqfs.c_str(), 0); ll == nullptr) {
+            child_fail("sqfs_ll_open_failed");
+        } else {
             // startup fuse
             sqfs_ll_chan ch;
-            // err = -1;
             sqfs_err sqfs_ret =
                 sqfs_ll_mount(&ch, entry.mount.c_str(), &args, &sqfs_ll_ops,
                               sizeof(sqfs_ll_ops), ll);
             if (sqfs_ret == SQFS_OK) {
-
                 if (sqfs_ll_daemonize(true /*foreground*/) != -1) {
                     // inform parent process that sqfs has been mounted
-                    if (auto ok = rf->notify_ready(); !ok)
+                    if (auto ok = rf->notify_ready(); !ok) {
                         child_fail(ok.error());
+                    }
 
                     // setup signal handlers and enter fuse_session_loop
                     if (fuse_set_signal_handlers(ch.session) != -1) {
-                        if (idle_timeout_secs) {
-                            setup_idle_timeout(ch.session, idle_timeout_secs);
-                        }
-#ifdef SQFS_MULTITHREADED
-#if FUSE_USE_VERSION >= 30
+                        int err;
                         if (!fuse_single_threaded) {
-                            struct fuse_loop_config config;
-                            config.clone_fd = 1;
-                            config.max_idle_threads = 10;
+                            fuse_loop_config config{.clone_fd = 1,
+                                                    .max_idle_threads = 10};
                             err = fuse_session_loop_mt(ch.session, &config);
-                        }
-#else  /* FUSE_USE_VERSION < 30 */
-                        if (!fuse_st)
-                            err = fuse_session_loop_mt(ch.session);
-#endif /* FUSE_USE_VERSION */
-                        else
-#endif
+                        } else {
                             err = fuse_session_loop(ch.session);
+                        }
+                        // nonzero means the loop faulted (e.g. a
+                        // pthread_create failure under a node's
+                        // thread/process limits, an I/O error on
+                        // /dev/fuse) rather than the ordinary
+                        // PDEATHSIG-turned-SIGHUP/unmount shutdown, which
+                        // returns 0. Nothing waits on this child's exit
+                        // status, so this log -- not the exit code -- is
+                        // what's actually observable.
+                        if (err != 0) {
+                            spdlog::warn(
+                                "fuse session loop exited with an error: {}",
+                                err);
+                        }
 
                         teardown_idle_timeout();
                         fuse_remove_signal_handlers(ch.session);
@@ -340,6 +333,7 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                     child_fail("daemonize failed");
                 }
                 sqfs_ll_destroy(ll);
+                free(ll);
 
                 // Rely on OS cleanup for the actual unmount, to avoid
                 // additional synchronization when mounts are nested:
@@ -357,32 +351,23 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                 fuse_session_destroy(ch.session);
             } else {
                 switch (sqfs_ret) {
-                case SQFS_ERR: {
+                case SQFS_ERR:
                     child_fail(fmt::format("SQFS_ERR {} ", strerror(errno)));
-                }
-                case SQFS_BADFORMAT: {
+                case SQFS_BADFORMAT:
                     child_fail("SQFS_BADFORMAT (unsupported file format)");
-                }
-                case SQFS_BADVERSION: {
+                case SQFS_BADVERSION:
                     child_fail("SQFS_BADVERSION");
-                }
-                case SQFS_BADCOMP: {
+                case SQFS_BADCOMP:
                     child_fail("SQFS_BADCOMP");
-                }
-                case SQFS_UNSUP: {
+                case SQFS_UNSUP:
                     child_fail("SQFS_UNSUP, unsupported feature");
-                }
-                case SQFS_OK: {
-                    break;
-                }
+                default:
+                    child_fail("SQFS unknown failure");
                 }
             }
-        } else {
-            child_fail("sqfs_ll_open_failed");
         }
         fuse_opt_free_args(&args);
-        free(ll);
-        exit(0);
+        _exit(0);
     }
 
     // parent block on pipe until fusemount has finished.

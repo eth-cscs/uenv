@@ -141,10 +141,11 @@ unlink" scheme was considered and rejected: it assumes every peer eventually
 calls `create()`, but the same OOM event that killed the leader could kill a
 second task before it gets there, in which case the count never completes
 and nothing is ever safely unlinked — trading one wedge for a subtler one.
-The leak is therefore left as-is, folded into findings 3/4 (same shape,
-already tracked there) rather than solved here — it is inert (a tag is never
-reused within a job, so nothing ever looks the leaked names up again) and,
-per the note above, further bounded at CSCS by the per-job prologue.
+The leak is therefore left as-is — same shape as, and now the same accepted
+trade-off as, findings 3/4 below — rather than solved here. It is inert (a
+tag is never reused within a job, so nothing ever looks the leaked names up
+again) and, per the note above, further bounded at CSCS by the per-job
+prologue.
 
 `robust_mutex::lock()` also gained a `recover` parameter (default `false`):
 when a caller *can* actually repair the state a mutex guards, passing `true`
@@ -159,20 +160,42 @@ hanging); a second attempt on the same tag also fails cleanly rather than
 racing to become a new leader; and every peer racing to join after the leader
 dies fails, not just the one that observed `EOWNERDEAD`.
 
-### 3. `proc_barrier::create()` leaks its lock semaphore on error paths — `src/util/proc_barrier.cpp:86`
+### 3. `proc_barrier::create()` leaves its bootstrap semaphore held on error paths — `src/util/proc_barrier.cpp:104` — closed, not a bug
 
-`proc_barrier::create()` acquires the `lock` semaphore, then three separate
-error paths (`create_exclusive` failing for a would-be leader at line 86-88,
-`open_existing` failing for a follower at 103-105, a follower's own
-`lock->post()` failing at 110-112) return without releasing it, and no
+`proc_barrier::create()` acquires the `bootstrap` semaphore (renamed from
+`lock` by finding #2's fix), then several error paths (leader's
+`create_exclusive`/`setup.init`/`setup.lock` failing, a follower's
+`open_existing` failing) return without posting it back, and no
 `proc_barrier` object yet exists whose destructor could.
 
-**Failure scenario:** A transient `shm_open`/`ftruncate`/`mmap` failure (EMFILE,
-ENOSPC, ENOMEM) right after this process wins the lock leaves
-`/uenv-run_sem-{tag}` permanently held at 0, wedging that tag the same way as
-the previous finding but via an ordinary resource hiccup instead of a job kill.
+**Re-evaluated:** this was originally written as a plain leak to fix, but the
+requirement is that *any* peer failing during barrier creation must fail the
+whole rendezvous -- proceeding with fewer than `nprocs` peers is not
+acceptable. Leaving `bootstrap` held at 0 is exactly what enforces that:
+every other peer, whenever it arrives (even long after the failure, even
+after a purely transient cause like `ENOSPC`/`EMFILE`/`ENOMEM` has cleared),
+blocks on its own `wait()` and times out rather than racing past this point
+to a rendezvous that no longer includes the failed peer. Posting `bootstrap`
+back on these paths -- the fix originally proposed here -- was rejected
+specifically because it removes that guarantee: a peer arriving after the
+failure would retry `create_exclusive()` fresh and could succeed alongside
+the surviving peers while the failed one has already exited, silently
+quorating on `< nprocs`. It would also, for the `setup.init`/`setup.lock`
+failure paths specifically, let a follower reach `open_existing()` on a
+`shared_state` whose `setup` mutex was never `pthread_mutex_init()`-ed --
+undefined behaviour, though in practice a locked-then-unlocked no-op on
+glibc/Linux since a zero-filled `pthread_mutex_t` reads as a valid unlocked
+default mutex, silently reporting a successful join on uninitialized state.
 
-### 4. `shared_mapping::create_exclusive()` can leave a SIGBUS trap behind — `src/util/shared_mapping.h:66`
+**Left as-is, deliberately:** same accepted trade-off as finding #2's
+residual leak -- a `barrier_timeout`-bounded (30s), clean, hard failure for
+every peer racing on that tag, at the cost of abandoned `/dev/shm` objects
+for that tag's lifetime (bounded by the tag being job/step-scoped since
+finding #1, and by CSCS's per-job prologue clearing `/dev/shm`). Documented
+at the point of `bootstrap->wait()` in `create()` so it isn't mistaken for an
+oversight and "fixed" into the bug this reasoning avoids.
+
+### 4. `shared_mapping::create_exclusive()` can leave a SIGBUS trap behind — `src/util/shared_mapping.h:66` — not applicable via `proc_barrier`
 
 `create_exclusive()`'s `ftruncate()` failure path (and the subsequent
 `map()`/mmap failure path) close the fd and return an error without
@@ -180,11 +203,22 @@ the previous finding but via an ordinary resource hiccup instead of a job kill.
 
 **Failure scenario:** `ftruncate()` failing (ENOSPC/ENOMEM on a constrained
 `/dev/shm` tmpfs) leaves a permanent 0-byte-but-named `/uenv-run_shm-{tag}`.
-Every later `proc_barrier::create()` for that tag gets `EEXIST`, treats itself
-as a follower, and its own `open_existing()` -> `mmap(sizeof(shared_state))`
-succeeds at the mmap call but SIGBUSes the first time it touches
-`shared->procs_remaining` or `leader_pid`, since the backing object is smaller
-than the mapped length.
+A later `proc_barrier::create()` for that tag that reached `open_existing()`
+would get `EEXIST`, treat itself as a follower, and its own
+`open_existing()` -> `mmap(sizeof(shared_state))` would succeed at the mmap
+call but SIGBUS the first time it touched `shared->procs_remaining` or
+`leader_pid`, since the backing object is smaller than the mapped length.
+
+**Re-evaluated:** unreachable in practice through `proc_barrier`, given
+finding #3's resolution. `shared_mapping::create_exclusive()` is only ever
+called from `proc_barrier::create()`'s leader branch, strictly after this
+peer's own `bootstrap->wait()` has succeeded; since finding #3 leaves
+`bootstrap` permanently held on this exact failure, no peer -- present or
+future, for this tag -- can ever reach `open_existing()` on the broken
+object. Left unfixed here as a result; still a real latent bug in
+`shared_mapping.h` as a generic reusable utility (a future caller unrelated
+to `proc_barrier` could hit it), so worth an independent hardening pass if
+`shared_mapping` grows other callers, but not bundled into this change.
 
 ### 5. Namespace join by bare PID is a reuse/TOCTOU race — `src/uenv/mount_rootless.cpp:473`
 

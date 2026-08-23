@@ -64,8 +64,10 @@ using shared_state = proc_barrier_impl::shared_state;
 // Called by whichever peer's setup.lock() discovers the leader died holding
 // it. Does NOT unlink the shm/semaphore objects: a not-yet-arrived peer could
 // otherwise win the create_exclusive() race and become a bogus second
-// leader. They are deliberately abandoned in /dev/shm (findings 3/4's leak,
-// not fixed here) rather than risk that.
+// leader. They are deliberately abandoned in /dev/shm instead -- same
+// accepted trade-off as bootstrap being left held in create() above, but for
+// a later failure point (the leader died after create() succeeded, not
+// during it).
 std::string fail_after_owner_death(robust_mutex& setup) {
     setup.unlock();
     return "proc_barrier: the leader died before finishing setup; the "
@@ -104,6 +106,19 @@ util::expected<proc_barrier, std::string> proc_barrier::create(std::string tag,
     if (auto r = bootstrap->wait(barrier_timeout); !r) {
         return util::unexpected(r.error());
     }
+    // Deliberately not released on any of the error returns below
+    // (create_exclusive/setup.init/setup.lock failing). A peer failing here
+    // means node-wide resource exhaustion (ENOSPC/EMFILE/ENOMEM), not a bug
+    // in one peer -- and any peer of this barrier failing must fail the
+    // whole rendezvous, never let the survivors quorate without it. Leaving
+    // bootstrap held at 0 is what enforces that: every other peer, whenever
+    // it arrives, blocks on its own wait() above and times out instead of
+    // racing past this point to a partial rendezvous. The cost is a
+    // barrier_timeout-bounded delay and abandoned /dev/shm objects for this
+    // tag, the same accepted trade-off as the residual leak in
+    // fail_after_owner_death() below. Do not "fix" this by posting bootstrap
+    // back on these paths -- that would let a peer arriving after the
+    // failure retry create_exclusive() and succeed without the failed peer.
 
     // Am I the leader? Whoever creates the shared memory object wins; the
     // rest find it already there.
