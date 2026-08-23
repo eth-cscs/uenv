@@ -54,12 +54,21 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
     const uid_t uid = getuid();
     const gid_t gid = getgid();
 
-    int ntasks = 1;
+    uint32_t ntasks = 0;
     uint32_t job_id = 0;
     uint32_t step_id = 0;
-    spank_get_item(sp, S_JOB_LOCAL_TASK_COUNT, &ntasks);
-    spank_get_item(sp, S_JOB_ID, &job_id);
-    spank_get_item(sp, S_JOB_STEPID, &step_id);
+    if (spank_get_item(sp, S_JOB_LOCAL_TASK_COUNT, &ntasks) != ESPANK_SUCCESS) {
+        slurm_error("uenv: failed to get local task count");
+        return -ESPANK_ERROR;
+    }
+    if (spank_get_item(sp, S_JOB_ID, &job_id) != ESPANK_SUCCESS) {
+        slurm_error("uenv: failed to get job id");
+        return -ESPANK_ERROR;
+    }
+    if (spank_get_item(sp, S_JOB_STEPID, &step_id) != ESPANK_SUCCESS) {
+        slurm_error("uenv: failed to get job step id");
+        return -ESPANK_ERROR;
+    }
     const auto barrier_tag = fmt::format("{}-{}", job_id, step_id);
 
     // parse and validate the mount descriptions
@@ -73,7 +82,7 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
     }
 
     if (auto r = uenv::rootless::mount_and_join_ns(
-            barrier_tag, ntasks, mounts.value(),
+            barrier_tag, static_cast<int>(ntasks), mounts.value(),
             true /*use multi threaded fuse*/, uid, gid);
         !r) {
         slurm_error("%s", r.error().c_str());

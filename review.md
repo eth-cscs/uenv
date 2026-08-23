@@ -288,6 +288,13 @@ makes a genuinely multi-task node silently skip `--join`'s namespace sharing
 with no error logged, and `job_id=0,step_id=0` reproduces finding 1's cross-job
 tag collision for every job hitting the same failure concurrently.
 
+**Fixed:** each `spank_get_item()` call now checks its return value against
+`ESPANK_SUCCESS` and returns `-ESPANK_ERROR` with a `slurm_error()` message on
+failure, matching the pattern already used for `S_JOB_GID` in
+`plugin_kernel.cpp`. `ntasks` is now a `uint32_t` (matching the type
+`spank.h` documents for `S_JOB_LOCAL_TASK_COUNT`), `static_cast<int>` at the
+one point it's passed into `mount_and_join_ns()`, which takes `int`.
+
 ### 8. `proc_barrier::end()` marks itself done before it actually is — `src/util/proc_barrier.cpp:185`
 
 `end()` sets `impl_->ended = true` before its lock-acquire/decrement/unlink
