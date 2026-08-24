@@ -1,6 +1,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 
 #include <err.h>
@@ -23,6 +24,7 @@ extern "C" {
 #include <util/proc_barrier.h>
 #include <util/ready_fork.h>
 #include <util/setns.h>
+#include <util/shell.h>
 
 namespace {
 util::expected<int, std::string>
@@ -465,6 +467,15 @@ mount_and_join_ns(const std::string& tag, int ntasks,
         }
 
     } else {
+        // setns() into a mount namespace drops the working directory: the
+        // cwd this process holds belongs to the namespace it is leaving, and
+        // the kernel leaves it sitting on the new namespace's root instead.
+        // Every relative path the command was given -- `./a.out`, the usual
+        // way a job names its binary -- would then resolve against "/" in
+        // the followers while resolving normally in the leader. Capture it
+        // before the join so it can be restored after.
+        const auto cwd = util::cwd();
+
         // the leader publishes the PID that entered the squashfs namespace,
         // so joining its namespaces gives us the same view
         auto r = util::namespaces_join(barrier->leader_pid(), {"user", "mnt"},
@@ -477,6 +488,21 @@ mount_and_join_ns(const std::string& tag, int ntasks,
         }
         if (!r) {
             return r;
+        }
+
+        // restore the working directory inside the joined namespace. Not
+        // fatal if it fails: the command may not care about its cwd, and
+        // failing the whole task would be a worse outcome than the warning.
+        if (!cwd) {
+            spdlog::warn("unable to determine the working directory to "
+                         "restore after joining the mount namespace");
+        } else {
+            try {
+                std::filesystem::current_path(*cwd);
+            } catch (...) {
+                spdlog::warn("unable to restore the working directory {}",
+                             cwd->string());
+            }
         }
     }
 

@@ -20,7 +20,12 @@ namespace util {
 // shared memory this lives in, before any other peer can see it.
 class robust_mutex {
   public:
-    enum class owner_state { ok, previous_owner_died };
+    // `unrecoverable`: a previous owner died holding this mutex and nobody
+    // repaired the state it guards (see `recover` below), so the mutex is
+    // permanently unusable. Reported as a state rather than an error because
+    // for a caller that deliberately never repairs, this is an expected
+    // outcome for every peer after the first one.
+    enum class owner_state { ok, previous_owner_died, unrecoverable };
 
     util::expected<void, std::string> init() {
         pthread_mutexattr_t attr;
@@ -53,6 +58,10 @@ class robust_mutex {
                 pthread_mutex_consistent(&mutex_);
             }
             return owner_state::previous_owner_died;
+        }
+        if (rc == ENOTRECOVERABLE) {
+            // note: the mutex was NOT acquired, so this must not be unlocked.
+            return owner_state::unrecoverable;
         }
         return util::unexpected(
             fmt::format("pthread_mutex_lock failed: {}", strerror(rc)));

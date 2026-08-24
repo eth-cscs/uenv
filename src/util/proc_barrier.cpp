@@ -63,6 +63,13 @@ namespace {
 
 using shared_state = proc_barrier_impl::shared_state;
 
+// Reported by every peer that finds the barrier dead, whichever way it
+// finds out: EOWNERDEAD for the first one to lock() after the leader died,
+// ENOTRECOVERABLE for all the rest.
+constexpr auto barrier_failed =
+    "proc_barrier: the leader died before finishing setup; the "
+    "barrier has failed";
+
 // Called by whichever peer's setup.lock() discovers the leader died holding
 // it. Does NOT unlink the shm/semaphore objects: a not-yet-arrived peer could
 // otherwise win the create_exclusive() race and become a bogus second
@@ -72,8 +79,7 @@ using shared_state = proc_barrier_impl::shared_state;
 // during it).
 std::string fail_after_owner_death(robust_mutex& setup) {
     setup.unlock();
-    return "proc_barrier: the leader died before finishing setup; the "
-           "barrier has failed";
+    return barrier_failed;
 }
 
 } // namespace
@@ -172,6 +178,11 @@ util::expected<proc_barrier, std::string> proc_barrier::create(std::string tag,
         if (*locked == robust_mutex::owner_state::previous_owner_died) {
             return util::unexpected(fail_after_owner_death(shared->setup));
         }
+        // a peer got here first and left the mutex unrecoverable: same
+        // failure, and nothing to unlock since lock() did not acquire it.
+        if (*locked == robust_mutex::owner_state::unrecoverable) {
+            return util::unexpected(barrier_failed);
+        }
         if (auto r = shared->setup.unlock(); !r) {
             return util::unexpected(r.error());
         }
@@ -266,6 +277,9 @@ util::expected<void, std::string> proc_barrier::end() {
         if (*locked == robust_mutex::owner_state::previous_owner_died) {
             return util::unexpected(
                 fail_after_owner_death(impl_->shared->setup));
+        }
+        if (*locked == robust_mutex::owner_state::unrecoverable) {
+            return util::unexpected(barrier_failed);
         }
         impl_->holds_setup = true;
     }

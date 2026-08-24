@@ -71,6 +71,11 @@ endif
 if uenv_squashfs_mount
   fs.copyfile('integration/squashfs-mount.bats', 'squashfs-mount.bats')
 endif
+# --join only exists in the fuse build, and the tests need Slurm to launch
+# several tasks on one node (they self-skip when it is unavailable)
+if use_fuse
+  fs.copyfile('integration/join.bats', 'join.bats')
+endif
 
 suite_input = integration_path + '/setup_suite.bash.in'
 suite_ouput = meson.current_build_dir() + '/setup_suite.bash'
@@ -140,6 +145,9 @@ if uenv_cli
   endif
   test('cli', bats, args: ['./test/cli.bats'], env: cli_env, is_parallel : false)
   test('registry', bats, args: ['./test/registry.bats'], is_parallel : false)
+endif
+if use_fuse
+  test('join', bats, args: ['./test/join.bats'], is_parallel : false)
 endif
 if uenv_squashfs_mount
   test('squashfs-mount', bats, args: ['./test/squashfs-mount.bats'],

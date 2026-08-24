@@ -3,6 +3,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <optional>
@@ -77,12 +78,31 @@ template <trivial T> class shared_mapping {
     }
 
     // open a shared memory object created by another peer.
+    //
+    // The size is checked before mapping: mmap() happily maps sizeof(T) bytes
+    // of a segment shorter than that, and every access past the object's end
+    // then raises SIGBUS. A short segment under this name is never something
+    // this peer created, so refuse it rather than crash on first touch.
     static util::expected<shared_mapping, std::string>
     open_existing(std::string name) {
         int fd = shm_open(name.c_str(), O_RDWR, 0);
         if (fd < 0) {
             return util::unexpected(fmt::format("unable to open shm {}: {}",
                                                 name, strerror(errno)));
+        }
+        struct stat info;
+        if (fstat(fd, &info) != 0) {
+            std::string err{strerror(errno)};
+            close(fd);
+            return util::unexpected(
+                fmt::format("unable to stat shm {}: {}", name, err));
+        }
+        if (info.st_size < static_cast<off_t>(sizeof(T))) {
+            close(fd);
+            return util::unexpected(fmt::format(
+                "shm {} is {} bytes, too small to hold the {} bytes expected: "
+                "an unrelated or truncated object is using this name",
+                name, static_cast<long long>(info.st_size), sizeof(T)));
         }
         return map(std::move(name), fd);
     }
