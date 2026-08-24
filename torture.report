@@ -1,0 +1,382 @@
+# `uenv run --join` — evaluation and torture test report
+
+Branch `squashfuse-only`, build `-Dmount_backend=fuse -Dsquashfs_mount=true
+-Dtests=enabled -Dslurm_plugin=false`, run on one exclusive Alps/daint gh200
+node (288 CPUs) held by an interactive `salloc`, driven entirely through
+`srun`, one step at a time. 106 Slurm steps across six phases. Plan in
+`torture/plan.md`, scripts and raw per-step artifacts in `torture/`.
+
+## Verdict
+
+The core mechanism is sound. Across 2–288 tasks the rendezvous reliably
+elects one leader, mounts the image exactly once, and puts every task in that
+leader's mount and user namespaces with identical content — 288 ranks on a
+10.6 GB image in 13 s, a 288×40-file read storm with zero failures, 30
+staggered runs with no flakes and no IPC or daemon accumulation. The
+all-or-nothing guarantee the design is built around holds under direct fault
+injection, including for a peer arriving 8 s after the leader died.
+
+What broke is around the edges of that mechanism: the lifetime of the mount
+was tied to one arbitrary rank's command, followers used to lose their working
+directory, and several inputs that a peer or a co-tenant can control were
+accepted without validation. Four defects are fixed on this branch with
+regression tests, including the design-level one (J-1); the rest are written up
+for a later pass.
+
+| ID | Finding | Severity | Status |
+|---|---|---|---|
+| J-1 | The leader exiting tears the mount out from under every other rank | **high** | fixed |
+| J-2 | Followers lost their working directory; relative paths broke | **high** | fixed |
+| J-3 | `SIGBUS` core dump from a short shared-memory segment | **high** | fixed |
+| J-4 | A stale system `squashfs-mount` on `PATH` silently wins | medium | partly fixed |
+| J-5 | Peers asking for different images/mount points are accepted silently | medium | open — noted |
+| J-6 | Peer-count disagreement produces a negative counter and a cryptic error | low | open — noted |
+| J-7 | Second and later peers reported `pthread_mutex_lock failed: State not recoverable` | low | fixed |
+| J-8 | A rendezvous that times out never says who failed to arrive | low | open — noted |
+| J-9 | The barrier tag is interpolated into POSIX IPC names unvalidated | low | open — noted |
+
+---
+
+## J-1 — the leader exiting destroys the mount for every other rank (fixed)
+
+**Severity: high.** The one design-level finding, and the reason this report
+exists.
+
+Reproducer: `torture/payloads/lifetime.sh leader-exit`, driven by
+`torture/phase3.sh`, and — added before the fix, as a failing test —
+`test/integration/join.bats`, "`--join` keeps the mount alive when the leader
+exits first". Eight tasks, the rank that won the election exits immediately,
+the other seven keep reading the mount:
+
+```
+FAIL K1  leader exit killed the mount for 7/7 surviving ranks:
+         ls: cannot access '/user-tools': Transport endpoint is not connected
+         cat: /user-tools/meta/env.json: Transport endpoint is not connected
+```
+
+**Root cause.** The squashfuse daemon is forked in `do_sqfs_ll_mount()` and
+tied to its parent with `PR_SET_PDEATHSIG` (`mount_rootless.cpp`). That parent
+was the leader's `squashfs-mount` process, which then `exec`s the *user's
+command*. So the daemon's lifetime was the lifetime of whichever rank happened
+to win the election. `barrier->wait_peers()` synchronises the *join*, not the
+*use*: once every follower has called `signal_done()` the barrier is finished,
+and nothing afterwards kept the mount alive for them.
+
+**Why it mattered.** The leader is genuinely arbitrary — observed across eight
+consecutive runs: ranks 5, 4, 5, 1, 3, 5, 1, 4. Ranks in a real MPI job
+routinely finish at different times, and rank teardown is not synchronised. So
+any job where the elected leader returned first lost its uenv for every other
+rank on the node, with an error (`Transport endpoint is not connected`) that
+points nowhere near the cause. Killing a *non-leader* early was always harmless
+(K1b, K5): the asymmetry was entirely about which process the daemon hung off.
+
+**Fix: a mount supervisor, ended by Slurm.** The leader now forks a supervisor
+(`fork_mount_supervisor()`/`supervisor_main()` in `src/uenv/mount_rootless.cpp`)
+which forks the daemons, reports readiness over the existing
+`util::ready_fork` pipe, detaches its stdio and sleeps. The daemons are
+`PDEATHSIG`-tied to *it*, so no rank's command can take the mount down, and a
+killed supervisor still cannot leak daemons.
+
+What ends the supervisor is the job step itself. `--join` only exists inside a
+Slurm step; every process a step creates is in the step's cgroup, membership is
+inherited across `fork` and cannot be escaped from user space, and
+`slurmstepd` `SIGKILL`s whatever remains in that cgroup once the last task
+exits. Measured here (`torture/exp0.sh`) before committing to the design: a
+leftover that ignores `SIGTERM`/`SIGINT`/`SIGHUP` *and* sits in its own
+user+mount namespace — i.e. exactly the supervisor — was reaped **3 ms** after
+the last task exited, and a leftover holding the task's stdout added no delay
+to the step.
+
+That makes the mount's lifetime the step's lifetime on the node, which is the
+lifetime it should have had all along. It also needs no cooperation from user
+code, which the two alternatives considered do: watching the mount namespace's
+population (`/proc/*/ns/mnt`) releases too early for a rank that enters a
+nested container, and refcounting an fd inherited across `exec` releases too
+early for a command that closes its file descriptors — a silent recurrence of
+this very bug. Three properties of the supervisor are load-bearing and are
+documented in `CLAUDE.md` so they are not "tidied up" later: it arms no
+`PDEATHSIG` of its own, it never `setsid()`s out of the cgroup, and it ignores
+`SIGTERM`.
+
+Because the mechanism is Slurm's rather than uenv's, the leader checks for it
+rather than assuming it: if `/proc/self/cgroup` does not carry Slurm's
+`/job_<id>/` component (`util::cgroup_is_slurm_managed()`, unit tested against
+both the cgroup v1 and v2 layouts), it warns and mounts in-process instead —
+the old model, J-1 included. That is the right way round: a leaked fuse daemon
+and the namespace pinning its image is worse than a mount that ends with the
+leader's command. Verified on this system that the supervisor lands in
+`.../slurmstepd.scope/job_<id>/step_<n>/user/task_0`, i.e. the step's subtree
+and not the job or `extern` cgroup, which outlive the step.
+
+That last one matters on the teardown path: on a time limit or `scancel`, Slurm
+signals every process in the cgroup and *then* gives the ranks `KillWait` (30 s
+here) to shut down. A supervisor that died on that signal would pull the mount
+out from under ranks that are still flushing or checkpointing — J-1 again, at
+teardown. Verified: after `scancel -s TERM` on a live step, all four ranks
+still had a working mount two seconds into the grace period.
+
+**Verified after the fix.** The 8-rank reproducer now reports `ls_rc=0
+cat_rc=0 nfiles=7` for all seven survivors (and the same with two images
+mounted); 288 ranks on one node still see a single shared mount; a `--join`
+step gained no wall-clock tail (1.5 s, unchanged); and after every step the
+node has no `squashfs-mount` processes and no `/dev/shm` residue. Regression
+tests: `join.bats`, "keeps the mount alive when the leader exits first" and
+"releases the mount once the step ends".
+
+The solo path (`uenv run`, `uenv start`) deliberately keeps the old model — the
+daemon tied to the command — because it is correct for a single user and must
+also work on a login node, where no reaper exists.
+
+---
+
+## J-2 — followers lost their working directory (fixed)
+
+Reproducer: `torture/payloads/cwd.sh`. Before the fix, four tasks:
+
+```
+RANK 0 role=follower pwd=[/]  relstat=stat: cannot statx 'relmarker': No such file or directory
+RANK 1 role=follower pwd=[/]  relstat=stat: cannot statx 'relmarker': No such file or directory
+RANK 2 role=leader   pwd=[/users/bcumming/squashfuse/uenv/torture] relstat=ok
+RANK 3 role=follower pwd=[/]  relstat=stat: cannot statx 'relmarker': No such file or directory
+```
+
+**Root cause.** `setns()` into a mount namespace drops the working directory —
+the cwd belongs to the namespace being left, and the kernel leaves the process
+on the new namespace's root. Only the leader, which uses `unshare()` (cwd
+stays reachable), kept it.
+
+**Impact.** Exactly the documented usage fails:
+`srun -N2 -n8 uenv run --join editors/26.6:rc1 ./a.out` — the relative binary
+path resolves for the leader and gives "No such file or directory" on every
+other rank. Anything else reading relative paths, or `$PWD`-relative output
+files, is affected the same way.
+
+**Fix** (`src/uenv/mount_rootless.cpp`): capture the working directory before
+`namespaces_join()` and `chdir()` back into it afterwards. A failure to
+restore warns rather than failing the task — a command that does not care
+about its cwd should not be killed over it. Verified: all four ranks now
+report the real directory and resolve relative paths. Regression test:
+`test/integration/join.bats`, "leaves every task in the working directory it
+started in".
+
+---
+
+## J-3 — `SIGBUS` from a short shared-memory segment (fixed)
+
+Reproducer: `torture/phase4b.sh`. The barrier tag is
+`squashfs-mount-$SLURM_JOBID-$SLURM_STEPID` and step ids are consecutive, so
+the object for the *next* step can be planted:
+
+```
+planted /dev/shm/uenv-run_shm-squashfs-mount-4528035-68 size=0
+srun: error: nid005854: tasks 0-3: Bus error (core dumped)
+```
+
+**Root cause.** `shared_mapping::open_existing()` mapped `sizeof(T)` bytes of
+whatever was under the name without checking its size. `mmap()` succeeds past
+the end of a short object; the first access — `setup.lock()` — raises
+`SIGBUS`. All four peers core-dumped.
+
+**Impact.** A crash rather than an error on a path reachable from leftover
+state, and a denial-of-service primitive on any system where nodes are shared
+between users: the name is predictable and only needs to exist, not be
+writable by the victim. (Nodes are exclusive on daint, which bounds it here.)
+
+**Fix** (`src/util/shared_mapping.h`): `fstat()` the descriptor and refuse a
+segment smaller than `sizeof(T)`. Now:
+
+```
+error: mount failed shm /uenv-run_shm-squashfs-mount-4528035-110 is 0 bytes,
+too small to hold the 72 bytes expected: an unrelated or truncated object is
+using this name
+```
+
+Regression test: `join.bats`, "rejects a shared memory segment that is too
+small".
+
+**Related, still open.** A correctly-sized but zeroed planted segment is not a
+crash but is still confusing: nobody wins `create_exclusive()`, so every peer
+becomes a follower, locks a zero-initialised mutex successfully, reads
+`leader_pid == 0` and fails with `join: no PID 0: /proc/0/ns/user not found`.
+It fails closed, which is the important part, but there is no check that a
+leader ever initialised the segment. A magic number plus a version/`nprocs`
+field written under `setup` and validated by followers would turn all of these
+into one clear message.
+
+---
+
+## J-4 — a stale system `squashfs-mount` on `PATH` silently wins (partly fixed)
+
+**UPDATE from user**: I reverted this change, because it violates basic assumptions by the user.
+No magic behavior: always follow standard practices (i.e. use PATH).
+To fix this when testing, prepend the working path with `uenv` and `squashfs-mount` binaries
+to PATH.
+
+Found immediately: `uenv run --join IMG -- cmd` failed with
+
+```
+The following arguments were not expected: -- --join
+```
+
+which names no binary and does not hint at the cause. The cause is that
+`/usr/bin/squashfs-mount` on this system is **version 10.0.1, setuid root, the
+kernel backend**, and has no `--join`; `squashfs_mount_args()` resolves the
+helper with `which()` on `PATH`, so the system helper beat the freshly built
+one.
+
+The quiet version of this is worse than the loud one: **without** `--join`, a
+fuse-backend `uenv` built in userspace silently `exec`s the setuid-root
+kernel-backend helper and mounts as root. Nothing reports that the binary the
+user built is not the one doing the work — which cuts against the "download
+and build it entirely in userspace" story that `--join` exists to serve.
+
+**Fix** (`src/cli/util.cpp`): for the fuse build only, prefer a
+`squashfs-mount` sitting next to the running `uenv` (via `/proc/self/exe`),
+falling back to `PATH`. Deliberately scoped to the fuse build: the kernel
+backend's helper *must* be the installed setuid-root one, which a local build
+never is, so `PATH` lookup stays correct there. Verified: `--join` now works
+with no `PATH` manipulation at all.
+
+**Left open, worth revisiting.** There is still no compatibility check between
+`uenv` and the helper it execs — not on version, and not on backend. A helper
+that is too old, or built against the other backend, is only detected by
+whatever error it happens to produce. Reporting which binary was chosen and
+why (and refusing a mismatched backend outright) would make all of this
+diagnosable.
+
+---
+
+## J-5 — divergent per-rank arguments are accepted silently
+
+Reproducer: `torture/payloads/divergent.sh`. Ranks on one node ask for
+different images; the leader's mount is what everyone gets, but each rank
+still computes its own environment:
+
+```
+FAIL H1  4/8 ranks have an environment pointing at a mount point that is
+         empty (distinct UENV_MOUNT_LIST values: 2)
+```
+
+Same with one image at two different mount points, once both directories
+exist (`phase4b.sh`, H1b): 4/8 ranks see nothing where their own
+`UENV_MOUNT_LIST` points. The existing "the mount point does not exist" check
+catches the common case, but only by accident — it is not a peer-agreement
+check.
+
+No error, no warning: half the ranks run with an environment describing a uenv
+that is not mounted. Since `local_join_context()` scopes the tag to job+step
+only, peers that disagree about *what to mount* still rendezvous happily.
+
+**Note for later.** The cheap version is to fold a hash of the resolved mount
+list into the barrier tag, so disagreeing peers simply do not meet (they would
+then fail on peer count, which is a worse message). The better version is for
+the leader to publish its mount list in the shared segment and for followers
+to compare and fail with a specific error naming both sides.
+
+---
+
+## J-6 — peer-count disagreement gives a negative counter
+
+Understating `SLURM_STEP_TASKS_PER_NODE` (2 claimed, 4 running):
+
+```
+error: mount failed barrier teardown failed: barrier: expected 0 peers left
+but found -1
+```
+
+`procs_remaining` is seeded with `nprocs` and decremented once per `end()`, so
+more arrivals than expected drive it negative; two of four ranks reached the
+command before the step was killed. It fails, which is right, but the message
+describes an internal invariant rather than the cause. Overstating the count
+(8 claimed, 4 running) fails closed correctly after the 30 s timeout.
+
+Not fixed: the sensible repair is bound up with J-5 and J-8 — a peer-count
+mismatch should be reported as one, wherever it is detected.
+
+---
+
+## J-7 — every peer now reports the same cause for a dead barrier (fixed)
+
+Under fault injection (`torture/patches/p1-leader-die.patch`: the leader
+`SIGKILL`s itself while holding `setup`), the first peer to `lock()` got the
+intended message and the rest got the raw pthread error:
+
+```
+1 mount failed proc_barrier: the leader died before finishing setup; ...
+2 mount failed pthread_mutex_lock failed: State not recoverable
+```
+
+`EOWNERDEAD` goes to whichever peer locks first; every peer after it gets
+`ENOTRECOVERABLE`, which `robust_mutex::lock()` returned as a generic error.
+
+**Fix** (`src/util/robust_mutex.h`, `src/util/proc_barrier.cpp`): added
+`owner_state::unrecoverable` and mapped it to the same barrier-failed message
+(without unlocking — `ENOTRECOVERABLE` does not acquire). All three peers now
+report the same cause.
+
+---
+
+## J-8, J-9 — diagnosability and input validation
+
+**J-8.** When peers do not arrive, the leader times out after 30 s with
+`failure waiting for barrier lock: Connection timed out`. It never says which
+tag, how many peers were expected, or how many arrived — the three things
+needed to tell a peer-count lie from a genuinely slow or dead peer.
+
+**J-9.** The tag flows into POSIX IPC names unvalidated. `SLURM_STEPID` values
+containing `/` or `..`, or 300 characters long, are rejected by `sem_open()`
+(`EINVAL`) and the raw name is echoed back. It fails safe — POSIX name rules
+do the work — but by luck rather than by check, and the echoed name is the
+only diagnostic.
+
+---
+
+## What held up, and how hard it was pushed
+
+| Area | Result |
+|---|---|
+| Single mount per node | 2, 4, 8, 16, 72, 288 tasks: one daemon per image, one mnt+user namespace, identical `st_dev` and content hash on every rank |
+| Scale | 288 tasks (one per CPU) on the 458 MB image; 288 tasks on the 10.6 GB image mounted in 13 s |
+| I/O under contention | 288 ranks × 40 files through one daemon: 0 read failures |
+| Repeatability | 30 staggered 16-rank runs: no failures, no IPC or daemon accumulation |
+| Leader election | genuinely races (leaders observed: 5 4 5 1 3 5 1 4) |
+| All-or-nothing guarantee | leader killed inside `setup`: all peers fail, none proceeds — including a peer arriving 8 s later, which the abandoned IPC objects are there to stop |
+| Resource hygiene | `/dev/shm` and the process table return to baseline after every successful step, and after `SIGTERM`/`SIGKILL` to `srun` mid-session: no orphaned daemons |
+| Follower death | `SIGKILL` of a joined follower leaves the mount intact for the other seven |
+| Multi-image | two images, two mount points, two daemons, all ranks see both |
+| Environment | `UENV_MOUNT_LIST` and view variables identical across ranks (when they agree — see J-5) |
+| Malformed input | missing Slurm variables, `garbage`, `4(x`, `0`, `-1`, `99999999999999999999` all give specific messages |
+| Exit codes | a single failing rank propagates; 72 ranks produce 72 intact output lines |
+| Nested sessions | refused |
+
+Abandoned IPC objects after a *failed* rendezvous (3 per tag) were confirmed
+to be exactly what `CLAUDE.md` documents, and are not cleaned up — deliberately.
+Whether this node's Slurm prologue clears `/dev/shm` could not be verified from
+user space; the objects certainly persist between steps *within* a job, so the
+bound relies on that prologue.
+
+## Changes made on this branch
+
+| File | Change |
+|---|---|
+| `src/uenv/mount_rootless.cpp` | mounts owned by a supervisor process that outlives every rank's command and is reaped by the step cgroup (J-1) |
+| `src/uenv/mount_rootless.cpp` | restore the working directory after `namespaces_join()` (J-2) |
+| `src/util/shared_mapping.h` | size-check a segment before mapping it (J-3) |
+| `src/cli/util.cpp` | fuse build prefers the co-located `squashfs-mount` (J-4) |
+| `src/util/robust_mutex.h`, `src/util/proc_barrier.cpp` | report `ENOTRECOVERABLE` as the barrier failure it is (J-7) |
+| `test/integration/join.bats`, `test/meson.build` | seven `--join` tests, incl. regressions for J-1, J-2 and J-3; self-skip without Slurm or a fuse build |
+| `CLAUDE.md` | new "Mount lifetime (FUSE backend)" section: the two lifetime models and the three supervisor properties that must not be tidied up |
+
+All 221 unit tests (2290 assertions) and all 5 new integration tests pass. The
+fault-injection patch used for J-7 and the leader-death verification is kept in
+`torture/patches/p1-leader-die.patch` and is *not* applied to the tree.
+
+## Caveat on the measurements
+
+The `ps`-based daemon census in the early harness undercounts: a helper that
+has not yet `exec`ed the user command still has `comm=squashfs-mount`, and on a
+node running ~3800 processes `ps` intermittently omits processes altogether.
+Two "FAIL" lines in the raw results (`F3/4`, `F3/72`, `S1`) are this artifact.
+Cross-checked with four independent methods (`ps -eo comm=`, `pgrep -x`, a
+direct `/proc/*/comm` scan, and the namespace-scoped mount table): the
+one-daemon-per-image guarantee was never actually violated.
