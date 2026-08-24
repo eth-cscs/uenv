@@ -247,8 +247,21 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
     }
 
     if (pid == 0) {
-        // kill the fuse process when the parent exits
-        prctl(PR_SET_PDEATHSIG, SIGHUP);
+        // kill the fuse process when the parent exits. prctl(2) documents a
+        // race here: the parent can die in the gap between fork() returning
+        // and this call actually arming the signal, in which case we are
+        // already silently reparented and nothing will ever signal us. The
+        // kernel reparents atomically, so comparing getppid() to the pid
+        // rf captured (in the parent, before fork()) tells us definitively
+        // whether that already happened.
+        if (prctl(PR_SET_PDEATHSIG, SIGHUP) != 0) {
+            child_fail(fmt::format("prctl(PR_SET_PDEATHSIG) failed: {}",
+                                   strerror(errno)));
+        }
+        if (getppid() != rf->parent_pid()) {
+            child_fail("parent process exited before PDEATHSIG could be "
+                       "armed");
+        }
 
         // do not listen for SIGINT (ctrl+c)
         signal(SIGINT, SIG_IGN);

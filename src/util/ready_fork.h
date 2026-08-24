@@ -24,7 +24,7 @@ class ready_fork {
     // public only so that expected<ready_fork, std::string>'s in_place
     // construction (see create()) can reach it -- prefer create() at call
     // sites.
-    ready_fork(int read_fd, int write_fd);
+    ready_fork(int read_fd, int write_fd, pid_t parent_pid);
 
     // creates the pipe(2) backing the handshake. The only failure mode is
     // pipe(2) itself (e.g. EMFILE).
@@ -35,6 +35,15 @@ class ready_fork {
     // return contract as fork(2): 0 in the child, the child's pid in the
     // parent, -1 on failure.
     pid_t fork();
+
+    // child-side; the pid of the process that called create() -- captured
+    // there, since create() is documented to run in the parent before
+    // fork(). A child arming a parent-death signal (e.g. PR_SET_PDEATHSIG)
+    // must check getppid() against this right after arming it: prctl(2)'s
+    // documented race is that the parent can die in the gap between fork()
+    // returning and the signal actually being armed, in which case the
+    // child is already silently reparented and nothing will ever signal it.
+    pid_t parent_pid() const;
 
     // child-side; call exactly once, right before entering the "serve
     // forever" loop, only once setup has fully succeeded. Returns an error
@@ -52,6 +61,7 @@ class ready_fork {
   private:
     int read_fd_;
     int write_fd_;
+    pid_t parent_pid_;
 };
 
 } // namespace util

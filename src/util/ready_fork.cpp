@@ -8,8 +8,8 @@
 
 namespace util {
 
-ready_fork::ready_fork(int read_fd, int write_fd)
-    : read_fd_(read_fd), write_fd_(write_fd) {
+ready_fork::ready_fork(int read_fd, int write_fd, pid_t parent_pid)
+    : read_fd_(read_fd), write_fd_(write_fd), parent_pid_(parent_pid) {
 }
 
 ready_fork::~ready_fork() {
@@ -26,7 +26,12 @@ expected<ready_fork, std::string> ready_fork::create() {
     if (::pipe(fds) != 0) {
         return unexpected(fmt::format("pipe() failed: {}", strerror(errno)));
     }
-    return expected<ready_fork, std::string>(std::in_place, fds[0], fds[1]);
+    return expected<ready_fork, std::string>(std::in_place, fds[0], fds[1],
+                                             ::getpid());
+}
+
+pid_t ready_fork::parent_pid() const {
+    return parent_pid_;
 }
 
 pid_t ready_fork::fork() {

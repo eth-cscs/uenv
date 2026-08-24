@@ -19,6 +19,35 @@ TEST_CASE("create", "[ready_fork]") {
     REQUIRE(rf);
 }
 
+// parent_pid() is what mount_rootless.cpp's PDEATHSIG-race fix relies on: it
+// must be the pid of whoever called create(), captured there since create()
+// runs in the parent, before fork().
+TEST_CASE("parent_pid matches the creating process", "[ready_fork]") {
+    const pid_t self = getpid();
+    auto rf = util::ready_fork::create();
+    REQUIRE(rf);
+    REQUIRE(rf->parent_pid() == self);
+}
+
+// and from the child's side, in the ordinary case where the parent is still
+// alive, it must agree with getppid().
+TEST_CASE("parent_pid matches getppid in the child", "[ready_fork]") {
+    auto rf = util::ready_fork::create();
+    REQUIRE(rf);
+
+    pid_t pid = rf->fork();
+    REQUIRE(pid >= 0);
+
+    if (pid == 0) {
+        _exit(getppid() == rf->parent_pid() ? 0 : 1);
+    }
+
+    int status;
+    waitpid(pid, &status, 0);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 0);
+}
+
 TEST_CASE("ready", "[ready_fork]") {
     auto rf = util::ready_fork::create();
     REQUIRE(rf);

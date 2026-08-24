@@ -356,6 +356,23 @@ death signal is armed too late and never delivered; the FUSE-daemon child is
 reparented to init and keeps the mount held open with nothing left able to
 signal it to exit.
 
+**Fixed:** `util::ready_fork` (already used here for the parent/child
+readiness handshake) now also captures the parent's pid in `create()` --
+which is documented to run in the parent, before `fork()` -- and exposes it
+via `parent_pid()`. The child checks `prctl(PR_SET_PDEATHSIG, SIGHUP)`'s
+return value (previously ignored) and then compares `getppid()` against
+`rf->parent_pid()`: since the kernel reparents atomically the instant the
+original parent exits, a mismatch there means the parent was already gone
+before the signal could be armed, and the child fails via the same
+`child_fail()` path used by every other error case in this forked child,
+rather than silently running on unsupervised. This closes the race rather
+than narrowing it -- there's no gap left in which "parent already dead" can
+go undetected. `parent_pid()` was added to `ready_fork` itself (not kept
+local to `mount_rootless.cpp`) since `create()` already runs at exactly the
+right point to capture it correctly, and the class's own docs already flag
+`PR_SET_PDEATHSIG` as the kind of thing its callers need to coordinate with.
+Covered by two new cases in `test/unit/ready_fork.cpp`.
+
 ### 13. `wait_peers()`'s per-follower timeout can multiply the leader's wait — `src/util/proc_barrier.cpp:162`
 
 `wait_peers()` gives each follower's `done.wait(barrier_timeout)` its own fresh
