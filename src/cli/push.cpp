@@ -17,6 +17,7 @@
 #include <oci/manifest.h>
 #include <oci/push.h>
 #include <site/site.h>
+#include <uenv/env.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -24,6 +25,7 @@
 #include <util/curl.h>
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/sha.h>
 #include <util/signal.h>
 
 #include "help.h"
@@ -125,26 +127,81 @@ int image_push([[maybe_unused]] const image_push_args& args,
         term::msg("the destination already exists and will be overwritten");
     }
 
-    // validate the source squashfs file. This hashes the whole image, which
-    // takes minutes for a multi-GB uenv, so show a progress bar for it. The bar
-    // is created on the first callback, once the image size is known.
-    std::unique_ptr<uenv::transfer_bar> prepare_bar;
-    auto sqfs = uenv::validate_squashfs_image(
-        args.source,
-        [&prepare_bar, &args](std::uint64_t done, std::uint64_t total) {
-            if (!prepare_bar) {
-                prepare_bar = uenv::make_transfer_bar(
-                    total, fmt::format("validating {}",
-                                       std::filesystem::path{args.source}
-                                           .filename()
-                                           .string()));
+    // resolve the source: either a squashfs file path, or a label already in
+    // the local repository. When it resolves to an existing repository
+    // record, its manifest.json (if the record has one, i.e. it was added
+    // after uenv started persisting manifests) is reused verbatim below,
+    // rather than minting a fresh manifest.
+    uenv_description source;
+    if (const auto parse = parse_uenv_description(args.source); !parse) {
+        term::error("invalid uenv specification: {}", parse.error().message());
+        return 1;
+    } else {
+        source = parse.value();
+    }
+    auto env = resolve_uenv(source, settings.config.repos);
+    if (!env) {
+        term::error("{}", env.error());
+        return 1;
+    }
+
+    std::optional<std::string> existing_manifest_body;
+    util::expected<squashfs_image, std::string> sqfs;
+    if (env->record) {
+        // env->record->sha is the *manifest* digest (or, for a legacy record
+        // predating manifest.json, the squashfs file's own hash - the two
+        // coincide only in that legacy case). manifest.json, when present,
+        // gives the true squashfs layer digest via its layer entry.
+        util::sha256 layer_hash = env->record->sha;
+        if (auto read = util::read_file(env->manifest_path.value()); read) {
+            auto body = std::move(*read);
+            if (auto parsed = oci::parse_manifest(body)) {
+                const oci::manifest_layer* layer =
+                    parsed->find_layer_by_title("store.squashfs");
+                if (!layer && parsed->layers.size() == 1) {
+                    layer = &parsed->layers[0];
+                }
+                if (layer) {
+                    if (auto h = util::sha256::parse(layer->digest.hex())) {
+                        layer_hash = *h;
+                        existing_manifest_body = std::move(body);
+                    } else {
+                        spdlog::warn("manifest.json for {} has an invalid "
+                                     "layer digest; ignoring it",
+                                     env->sqfs_path.string());
+                    }
+                } else {
+                    spdlog::warn("manifest.json for {} has no squashfs layer; "
+                                 "ignoring it",
+                                 env->sqfs_path.string());
+                }
+            } else {
+                spdlog::warn("unable to parse manifest.json for {}",
+                             env->sqfs_path.string());
             }
-            prepare_bar->update(done);
-        });
-    // stop the bar before anything else is printed, so that an error message
-    // does not land on the bar's line.
-    if (prepare_bar) {
-        prepare_bar->finish();
+        }
+        sqfs = squashfs_image{env->sqfs_path, env->meta_path, layer_hash};
+    } else {
+        // validate the source squashfs file. This hashes the whole image,
+        // which takes minutes for a multi-GB uenv, so show a progress bar
+        // for it. The bar is created on the first callback, once the image
+        // size is known.
+        std::unique_ptr<uenv::transfer_bar> prepare_bar;
+        sqfs = uenv::validate_squashfs_image(
+            env->sqfs_path.string(),
+            [&prepare_bar, &env](std::uint64_t done, std::uint64_t total) {
+                if (!prepare_bar) {
+                    prepare_bar = uenv::make_transfer_bar(
+                        total, fmt::format("validating {}",
+                                           env->sqfs_path.filename().string()));
+                }
+                prepare_bar->update(done);
+            });
+        // stop the bar before anything else is printed, so that an error
+        // message does not land on the bar's line.
+        if (prepare_bar) {
+            prepare_bar->finish();
+        }
     }
     if (!sqfs) {
         term::error("invalid squashfs file {}: {}", args.source, sqfs.error());
@@ -188,11 +245,15 @@ int image_push([[maybe_unused]] const image_push_args& args,
         auto progress = [&bar](std::uint64_t now, std::uint64_t) {
             bar->update(now);
         };
-        // the image was hashed by validate_squashfs_image; pass that digest in
-        // rather than reading the whole file a second time.
+        // the image was hashed by validate_squashfs_image (or already known
+        // from the resolved repo record); pass that digest in rather than
+        // reading the whole file a second time. When a manifest.json was
+        // found alongside a resolved repo record, reuse it verbatim instead
+        // of minting a fresh one, so the pushed digest matches the hash the
+        // image is already stored under locally.
         auto push_result = oci::push_squashfs(
             *client, sqfs->sqfs, oci::reference::tag(*push_tag),
-            oci::digest::sha256(sqfs->hash), progress);
+            oci::digest::sha256(sqfs->hash), progress, existing_manifest_body);
         // fill the bar on success, which also covers the case where the
         // registry already had the blob and no upload happened.
         if (push_result) {

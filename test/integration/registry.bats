@@ -110,4 +110,58 @@ function teardown() {
     log "${output}"
     [ "${status}" -eq 0 ]
     assert_output --partial "app"
+
+    # the manifest fetched on pull is persisted alongside the image, keyed by
+    # its own digest.
+    [ -f "$RP/images/$digest/manifest.json" ]
+    [ "$digest" = "$(sha256sum "$RP/images/$digest/manifest.json" | cut -d' ' -f1)" ]
+}
+
+@test "uenv image push reuses a locally-added image's manifest.json" {
+    local sqfs=$SQFS_LIB/apptool/standalone/tool.squashfs
+    [ -f "$sqfs" ]
+
+    local RP=$TMP/repo
+    run uenv repo create "$RP"
+    assert_success
+
+    run uenv --repo "$RP" image add tool/1.0:v1@arapiles%zen3 "$sqfs"
+    assert_success
+
+    local local_sha
+    local_sha="$(uenv --repo "$RP" image inspect --format='{sha256}' tool/1.0:v1@arapiles%zen3)"
+    [ -f "$RP/images/$local_sha/manifest.json" ]
+
+    # push by label (not by file path): this resolves the source against the
+    # local repo and must reuse its manifest.json verbatim, rather than
+    # minting a fresh one.
+    run uenv --repo "$RP" image push tool/1.0:v1@arapiles%zen3 "deploy::apptag/1.0:v1@arapiles%zen3"
+    assert_success
+
+    local repo="${REG_PREFIX}/deploy/arapiles/zen3/apptag/1.0"
+    local registry_digest
+    registry_digest="$(registry_ctl digest "$REG_PORT" "$repo" v1)"
+    [ -n "$registry_digest" ]
+
+    # the digest the registry stores the image under must be exactly the hash
+    # it is already stored under locally - proof the manifest was reused, not
+    # re-minted.
+    [ "$registry_digest" = "$local_sha" ]
+
+    # pulling it back into a fresh repo must also persist manifest.json,
+    # byte-identical to the one minted by `image add`.
+    listing_mock add "$LISTING_FILE" \
+        --path "deploy/arapiles/zen3/apptag/1.0/v1" --sha "$registry_digest" \
+        --size "$(stat -c%s "$sqfs")"
+
+    local RP2=$TMP/repo2
+    run uenv repo create "$RP2"
+    assert_success
+
+    run uenv --repo "$RP2" image pull "deploy::apptag/1.0:v1@arapiles%zen3"
+    assert_success
+
+    [ -f "$RP2/images/$registry_digest/manifest.json" ]
+    diff "$RP/images/$local_sha/manifest.json" \
+         "$RP2/images/$registry_digest/manifest.json"
 }
