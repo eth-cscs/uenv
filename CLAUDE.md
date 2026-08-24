@@ -279,6 +279,67 @@ There is no runtime switch between them.
   namespaces with `setns()` rather than each mounting independently. That
   rendezvous is what the next section documents.
 
+### Mount lifetime (FUSE backend)
+
+Who owns a mount's lifetime differs between the solo and the `--join` path,
+because what the mount should die with differs.
+
+- **Solo (`ntasks == 1`: `uenv run`, `uenv start`)**: the squashfuse daemon is
+  `PR_SET_PDEATHSIG`-tied to the process that goes on to `exec` the command.
+  There is exactly one user, and this path also has to work outside Slurm (a
+  login node), where nothing else would clean up after it.
+- **`--join` (`ntasks > 1`)**: the leader forks a **mount supervisor**
+  (`fork_mount_supervisor()`/`supervisor_main()` in `mount_rootless.cpp`) which
+  forks the daemons, reports readiness over a `util::ready_fork` pipe, detaches
+  its stdio and then sleeps forever. The daemons are `PDEATHSIG`-tied to *it*,
+  not to any rank.
+
+  The leader is an arbitrary rank, so anchoring the daemons to the leader's
+  command — as the code originally did — took the uenv away from every other
+  rank on the node the moment that one rank finished, reported only as
+  `Transport endpoint is not connected`.
+
+  **What ends the supervisor is Slurm, and that is deliberate.** `--join` only
+  exists inside a job step; every process a step creates is in the step's
+  cgroup, membership is inherited across `fork` and cannot be escaped from user
+  space, and `slurmstepd` `SIGKILL`s whatever remains in that cgroup as soon as
+  the last task exits — measured at ~3 ms on Alps, including for a
+  signal-ignoring process in its own namespaces. The mount's lifetime is
+  therefore the step's lifetime on that node. Forks, orphans, nested containers
+  and fd-closing commands are all irrelevant to it, unlike any scheme where
+  uenv tries to work out for itself whether anyone still needs the mount.
+
+  Three consequences that must not be "tidied up":
+
+  - the supervisor arms **no** `PR_SET_PDEATHSIG` of its own — outliving the
+    task that forked it is the point;
+  - it must **never** `setsid()` or otherwise leave the cgroup it was forked
+    into, since that cgroup is the entire termination mechanism;
+  - it **ignores `SIGTERM`/`SIGINT`/`SIGHUP`**. On a time limit or `scancel`,
+    Slurm signals every process in the cgroup and *then* gives the ranks
+    `KillWait` seconds to shut down cleanly; a supervisor that died on that
+    signal would pull the mount out from under ranks that are still flushing or
+    checkpointing.
+
+  It also detaches stdio once the mounts are up, so a process outliving the
+  ranks can never hold the step's stdout/stderr pipes open. Mount failures are
+  reported before that point.
+
+  Because that termination mechanism is Slurm's rather than uenv's, the leader
+  checks for it instead of assuming it: `util::cgroup_is_slurm_managed()`
+  (`src/util/cgroup.h`) looks for Slurm's `/job_<id>/` component in
+  `/proc/self/cgroup`, present in both the cgroup v1 and v2 layouts. Where it
+  is absent — a site running `proctrack/linuxproc` or `proctrack/pgid`, where a
+  process reparented away from its task is not reliably reaped — the leader
+  warns and mounts in-process instead, falling back to the solo model. A leaked
+  fuse daemon and the namespace pinning its image is worse than the mount
+  ending with the leader's command.
+
+  Observed on Alps (Slurm 25.05.4, `proctrack/cgroup`, cgroup v2,
+  `PrologFlags=...,Contain`): the supervisor lands in
+  `.../slurmstepd.scope/job_<id>/step_<n>/user/task_0`. Re-check this on a new
+  system or Slurm version.
+
 ### Multi-task rendezvous and IPC error model (FUSE backend)
 
 `src/util/proc_barrier.{h,cpp}` implements the rendezvous the `fuse` backend

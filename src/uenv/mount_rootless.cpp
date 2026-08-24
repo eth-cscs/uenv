@@ -3,6 +3,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include <err.h>
 #include <fcntl.h>
@@ -20,6 +21,7 @@ extern "C" {
 
 #include <uenv/mount.h>
 #include <uenv/mount_rootless.h>
+#include <util/cgroup.h>
 #include <util/expected.h>
 #include <util/proc_barrier.h>
 #include <util/ready_fork.h>
@@ -232,8 +234,11 @@ fuse_lowlevel_ops make_fuse_lowlevel_options() {
 // when the parent process exits (shell is closed).
 // Adapted from `squashfuse_ll` written by Dave Vasilevsky <dave@vasilevsky.ca>
 // Ref: https://github.com/vasi/squashfuse/blob/master/ll_main.c
-util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
-                                                   bool fuse_single_threaded) {
+//
+// Returns the pid of the forked daemon, which is PDEATHSIG-tied to the
+// caller: the caller owns the mount's lifetime.
+util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
+                                                    bool fuse_single_threaded) {
     spdlog::trace("do_sqfs_ll_mount");
 
     // use a pipe to synchronize parent and child process
@@ -391,6 +396,117 @@ util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                         entry.sqfs.string(), entry.mount.string(), ok.error()));
     }
 
+    return pid;
+}
+
+// Point fds 0-2 at /dev/null. The supervisor outlives the task that forked
+// it, and holding that task's stdout/stderr pipes open would stall
+// slurmstepd's I/O forwarding at the end of the step. The fuse daemons need
+// no equivalent: fuse_daemonize already clobbers 0-2.
+util::expected<void, std::string> detach_stdio() {
+    int fd = ::open("/dev/null", O_RDWR);
+    if (fd < 0) {
+        return util::unexpected(
+            fmt::format("opening /dev/null failed: {}", strerror(errno)));
+    }
+    for (int target : {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO}) {
+        if (::dup2(fd, target) < 0) {
+            return util::unexpected(
+                fmt::format("dup2(/dev/null, {}) failed: {}", target,
+                            strerror(errno)));
+        }
+    }
+    if (fd > STDERR_FILENO) {
+        ::close(fd);
+    }
+    return {};
+}
+
+// Fork one squashfuse daemon per image, report readiness to the task that
+// forked this process, then sleep until killed.
+[[noreturn]] void supervisor_main(util::ready_fork& rf,
+                                  const uenv::mount_list& mounts,
+                                  bool fuse_single_threaded) {
+    // Deliberately no PR_SET_PDEATHSIG: this process must outlive the task
+    // that forked it, which goes on to exec the user's command.
+    //
+    // Slurm ends it instead. --join only exists inside a job step, every
+    // process a step creates is in the step's cgroup, and slurmstepd SIGKILLs
+    // whatever is left in that cgroup once the last task exits. The mount's
+    // lifetime is therefore the step's lifetime on this node. So never
+    // setsid() or otherwise leave that cgroup.
+    //
+    // Ignore the signals Slurm sends the step first: on a time limit or
+    // scancel it signals the whole cgroup, then gives the ranks KillWait
+    // seconds to shut down. Dying on that SIGTERM would unmount under ranks
+    // that are still flushing or checkpointing.
+    signal(SIGINT, SIG_IGN);
+    signal(SIGTERM, SIG_IGN);
+    signal(SIGHUP, SIG_IGN);
+
+    std::vector<pid_t> daemons;
+    auto abandon = [&daemons](const std::string& msg) {
+        // the daemons hold a copy of rf's write end: leaving them running
+        // would keep the task blocked in wait_ready() instead of seeing
+        // this failure.
+        for (auto pid : daemons) {
+            ::kill(pid, SIGKILL);
+        }
+        child_fail(msg);
+    };
+
+    for (auto& entry : mounts) {
+        auto pid = do_sqfs_ll_mount(entry, fuse_single_threaded);
+        if (!pid) {
+            abandon(pid.error());
+        }
+        daemons.push_back(*pid);
+    }
+
+    spdlog::info("mount supervisor {} owns {} mount(s) in cgroup {}", getpid(),
+                 daemons.size(),
+                 util::current_cgroup().value_or("<unknown>"));
+
+    // only now: every mount is up and any error already reported. Not fatal
+    // if it fails.
+    if (auto r = detach_stdio(); !r) {
+        spdlog::warn("mount supervisor could not detach stdio: {}", r.error());
+    }
+
+    if (auto ok = rf.notify_ready(); !ok) {
+        abandon(ok.error());
+    }
+
+    while (true) {
+        pause();
+    }
+}
+
+// Fork the supervisor that owns the mounts and block until it reports every
+// image mounted. Must be called after unshare_mount_map_root(), so that the
+// supervisor and its daemons live in the namespaces the mounts belong to.
+util::expected<void, std::string>
+fork_mount_supervisor(const uenv::mount_list& mounts,
+                      bool fuse_single_threaded) {
+    auto rf = util::ready_fork::create();
+    if (!rf) {
+        return util::unexpected(rf.error());
+    }
+
+    pid_t pid = rf->fork();
+    if (pid < 0) {
+        return util::unexpected(
+            fmt::format("fork() failed: {}", strerror(errno)));
+    }
+    if (pid == 0) {
+        supervisor_main(*rf, mounts, fuse_single_threaded);
+    }
+
+    if (auto ok = rf->wait_ready(); !ok) {
+        return util::unexpected(
+            fmt::format("mount supervisor failed: {}", ok.error()));
+    }
+
     return {};
 }
 
@@ -401,7 +517,7 @@ unshare_and_mount(const uenv::mount_list& mounts, bool fuse_single_threaded) {
     }
     for (auto& entry : mounts) {
         if (auto r = do_sqfs_ll_mount(entry, fuse_single_threaded); !r) {
-            return r;
+            return util::unexpected(r.error());
         }
     }
     return {};
@@ -440,7 +556,36 @@ mount_and_join_ns(const std::string& tag, int ntasks,
     }
 
     if (barrier->is_leader()) {
-        if (auto r = unshare_and_mount(mounts, fuse_single_threaded); !r) {
+        if (auto r = unshare_mount_map_root(); !r) {
+            return r;
+        }
+
+        // A supervisor process owns the mounts, not this process: this
+        // process execs the user's command, and the leader is an arbitrary
+        // rank, so tying the daemons here would take the mount away from
+        // every other rank on the node when that one rank's command returns.
+        //
+        // The supervisor is cleaned up by slurmstepd sweeping the step's cgroup
+        // (see supervisor_main), so it is only safe to fork where Slurm
+        // tracks processes with cgroups. Under proctrack/linuxproc or
+        // proctrack/pgid a supervisor reparented away from its task may never
+        // be reaped, and a leaked daemon plus the namespace pinning its image
+        // is worse than the mount ending with this rank's command: mount
+        // in-process there instead, loudly.
+        const auto cgroup = util::current_cgroup();
+        if (!cgroup || !util::cgroup_is_slurm_managed(cgroup.value())) {
+            spdlog::warn("job step not tracked by cgroups (cgroup '{}'): "
+               "mounting in this task, so the uenv may be unmounted "
+               "before other tasks on this node are done with it",
+               cgroup.value_or("<unknown>"));
+            for (auto& entry : mounts) {
+                if (auto r = do_sqfs_ll_mount(entry, fuse_single_threaded);
+                    !r) {
+                    return util::unexpected(r.error());
+                }
+            }
+        } else if (auto r = fork_mount_supervisor(mounts, fuse_single_threaded);
+                   !r) {
             return r;
         }
 

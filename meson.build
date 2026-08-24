@@ -145,6 +145,7 @@ lib_uenv_src = [
         'src/uenv/telemetry.cpp',
         'src/uenv/uenv.cpp',
         'src/util/archive.cpp',
+        'src/util/cgroup.cpp',
         'src/util/color.cpp',
         'src/util/curl.cpp',
         'src/util/envvars.cpp',

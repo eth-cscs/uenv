@@ -89,3 +89,51 @@ function teardown() {
     assert_failure
     assert_output --partial "already running"
 }
+
+@test "--join keeps the mount alive when the leader exits first" {
+    # The leader is an arbitrary rank. If the squashfuse daemons were tied to
+    # its command instead of to the supervisor, the leader returning first
+    # would leave every other rank with "Transport endpoint is not connected".
+    cat >$TMP/leader-exit.sh <<'EOF'
+#!/bin/bash
+mnt=${UENV_MOUNT_LIST##*:}
+# the leader is the rank whose command still owns the forked squashfuse daemon
+role=follower
+if ps -eo ppid=,comm= | awk -v me=$$ '$2=="squashfs-mount" && $1==me{f=1}END{exit !f}'; then
+    role=leader
+fi
+if [[ $role == leader ]]; then
+    echo "LEADER rank=${SLURM_PROCID} exiting immediately"
+    exit 0
+fi
+# outlive the leader, then keep using the mount
+sleep 5
+if out=$(ls -1 "$mnt" 2>&1) && [[ -n $out ]]; then
+    echo "FOLLOWER rank=${SLURM_PROCID} ok nfiles=$(echo "$out" | wc -l)"
+else
+    echo "FOLLOWER rank=${SLURM_PROCID} lost [${out//$'\n'/ }]"
+fi
+EOF
+    chmod +x $TMP/leader-exit.sh
+
+    run $SRUN -n4 uenv run --join $IMG -- $TMP/leader-exit.sh
+    assert_success
+    [ "$(echo "$output" | grep -c '^LEADER ')" -eq 1 ]
+    [ "$(echo "$output" | grep -c '^FOLLOWER .* ok ')" -eq 3 ]
+    refute_output --partial "Transport endpoint"
+}
+
+@test "--join releases the mount once the step ends" {
+    # The supervisor outlives every rank's command; what ends it is
+    # slurmstepd's SIGKILL sweep of the step's cgroup. If that stopped
+    # holding, daemons and the namespaces pinning the images would accumulate
+    # on the node, one set per step.
+    run $SRUN -n4 uenv run --join $IMG -- true
+    assert_success
+
+    run $SRUN -n1 bash -c \
+        'pgrep -x squashfs-mount || echo NO_DAEMONS; ls /dev/shm/uenv-run* 2>/dev/null || echo NO_IPC'
+    assert_success
+    assert_output --partial "NO_DAEMONS"
+    assert_output --partial "NO_IPC"
+}

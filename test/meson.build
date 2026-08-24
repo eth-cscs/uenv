@@ -96,6 +96,7 @@ setup_suite = custom_target (
 
 unit_src = [
         'unit/archive.cpp',
+        'unit/cgroup.cpp',
         'unit/curl.cpp',
         'unit/dates.cpp',
         'unit/env.cpp',
