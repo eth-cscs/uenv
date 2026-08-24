@@ -25,10 +25,14 @@ std::optional<std::string> current_cgroup() {
 }
 
 bool cgroup_is_slurm_managed(std::string_view cgroup) {
-    // the job-id component is present in both the v1 and v2 layouts. The
-    // leading '/' keeps an unrelated component that merely ends in "job_"
-    // from matching.
-    return cgroup.find("/job_") != std::string_view::npos;
+    // leading '/' avoids matching a component that merely ends in these
+    // substrings, e.g. "myjob_17" or "myslurmstepd.scope".
+    if (cgroup.find("/job_") != std::string_view::npos) {
+        return true;
+    }
+    // some cgroup v2 deployments name job/step with an opaque token instead
+    // of "job_<id>/step_<n>"; the scope is the stable part.
+    return cgroup.find("/slurmstepd.scope/") != std::string_view::npos;
 }
 
 } // namespace util

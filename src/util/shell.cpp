@@ -23,7 +23,7 @@ std::optional<std::filesystem::path> make_path(const std::string& name) {
     }
 };
 
-}
+} // namespace
 
 namespace util {
 
@@ -50,8 +50,8 @@ current_shell(const envvars::state& envvars) {
 }
 
 std::optional<std::filesystem::path> cwd() {
-    char *p = ::getcwd(nullptr, 0);
-    if (p==nullptr) {
+    char* p = ::getcwd(nullptr, 0);
+    if (p == nullptr) {
         return std::nullopt;
     }
 

@@ -411,9 +411,8 @@ util::expected<void, std::string> detach_stdio() {
     }
     for (int target : {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO}) {
         if (::dup2(fd, target) < 0) {
-            return util::unexpected(
-                fmt::format("dup2(/dev/null, {}) failed: {}", target,
-                            strerror(errno)));
+            return util::unexpected(fmt::format(
+                "dup2(/dev/null, {}) failed: {}", target, strerror(errno)));
         }
     }
     if (fd > STDERR_FILENO) {
@@ -464,8 +463,7 @@ util::expected<void, std::string> detach_stdio() {
     }
 
     spdlog::info("mount supervisor {} owns {} mount(s) in cgroup {}", getpid(),
-                 daemons.size(),
-                 util::current_cgroup().value_or("<unknown>"));
+                 daemons.size(), util::current_cgroup().value_or("<unknown>"));
 
     // only now: every mount is up and any error already reported. Not fatal
     // if it fails.
@@ -575,9 +573,9 @@ mount_and_join_ns(const std::string& tag, int ntasks,
         const auto cgroup = util::current_cgroup();
         if (!cgroup || !util::cgroup_is_slurm_managed(cgroup.value())) {
             spdlog::warn("job step not tracked by cgroups (cgroup '{}'): "
-               "mounting in this task, so the uenv may be unmounted "
-               "before other tasks on this node are done with it",
-               cgroup.value_or("<unknown>"));
+                         "mounting in this task, so the uenv may be unmounted "
+                         "before other tasks on this node are done with it",
+                         cgroup.value_or("<unknown>"));
             for (auto& entry : mounts) {
                 if (auto r = do_sqfs_ll_mount(entry, fuse_single_threaded);
                     !r) {

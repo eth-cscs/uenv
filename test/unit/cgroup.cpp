@@ -25,6 +25,15 @@ TEST_CASE("cgroup_is_slurm_managed", "[cgroup]") {
 
     // "job_" has to be a path component, not a suffix of an unrelated one
     REQUIRE(!util::cgroup_is_slurm_managed("0::/user.slice/myjob_17/step_0"));
+
+    // cgroup v2, opaque job/step name under slurmstepd.scope
+    REQUIRE(util::cgroup_is_slurm_managed(
+        "0::/system.slice/slurmstepd.scope/s3F9M0T59DSZ00/step_2/user/"
+        "task_special"));
+
+    // "slurmstepd.scope" has to be a path component, not a substring
+    REQUIRE(!util::cgroup_is_slurm_managed(
+        "0::/system.slice/myslurmstepd.scope/s3F9M0T59DSZ00/step_0"));
 }
 
 TEST_CASE("current_cgroup", "[cgroup]") {
