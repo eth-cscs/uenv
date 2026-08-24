@@ -69,7 +69,7 @@ TEST_CASE("local_join_context: --join with each SLURM variable missing in "
     };
 
     for (const auto* missing : {"SLURM_STEP_TASKS_PER_NODE", "SLURM_NODEID",
-                                 "SLURM_JOBID", "SLURM_STEPID"}) {
+                                "SLURM_JOBID", "SLURM_STEPID"}) {
         auto env = full_env();
         env.unset(missing);
         REQUIRE_FALSE(uenv::local_join_context(env, true));

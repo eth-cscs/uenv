@@ -138,7 +138,7 @@ int main(int argc, char** argv, char** envp) {
             error_and_exit("{}", join_ctx.error());
         }
         spdlog::trace("joining {} task(s) on this node with tag '{}'",
-                       join_ctx->ntasks, join_ctx->tag);
+                      join_ctx->ntasks, join_ctx->tag);
 
         if (auto r = uenv::rootless::mount_and_join_ns(
                 join_ctx->tag, join_ctx->ntasks, mounts, fuse_single_threaded,

@@ -33,9 +33,8 @@ local_join_context(const envvars::state& calling_env, bool tasks_join) {
             *tasks_per_node, *node_id, local_tasks.error().message()));
     }
 
-    return join_context{
-        static_cast<int>(*local_tasks),
-        fmt::format("squashfs-mount-{}-{}", *job_id, *step_id)};
+    return join_context{static_cast<int>(*local_tasks),
+                        fmt::format("squashfs-mount-{}-{}", *job_id, *step_id)};
 }
 
 } // namespace uenv
