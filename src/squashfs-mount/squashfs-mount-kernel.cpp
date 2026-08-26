@@ -1,4 +1,5 @@
-#include <ranges>
+#include "util/expected.h"
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -11,17 +12,11 @@
 #include <uenv/config.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
+#include <uenv/mount_kernel.h>
 #include <uenv/parse.h>
 #include <util/color.h>
 #include <util/envvars.h>
 #include <util/shell.h>
-
-#include <libmount.h>
-#include <sys/mount.h>
-#include <sys/prctl.h>
-
-void return_to_user_and_no_new_privs(int uid);
-void unshare_mntns_and_become_root();
 
 // print a formtted error message and exit with return code 1
 template <typename... T>
@@ -40,6 +35,9 @@ int main(int argc, char** argv, char** envp) {
     //
 
     const auto calling_env = envvars::state(envp);
+
+    // get the uid before performing any privilege/namespace changes
+    const uid_t uid = getuid();
 
     //
     // Command line argument parsing
@@ -90,44 +88,50 @@ int main(int argc, char** argv, char** envp) {
     } else if (verbosity >= 3) {
         console_log_level = spdlog::level::trace;
     }
+    // note: syslog uses level::info to capture key events
     uenv::init_log(console_log_level);
 
-    // get the uid before performing any updates to uid
-    const uid_t uid = getuid();
+    //
+    // validate the mount points
+    //
 
-    std::string uenv_mount_list = "";
+    uenv::mount_list mounts;
     if (raw_mounts) {
-        //
-        // validate the mount points
-        //
-
-        auto mounts = uenv::parse_and_validate_mounts(*raw_mounts);
-        if (!mounts) {
-            error_and_exit("{}", mounts.error());
-        }
-        uenv_mount_list = fmt::format("{}", fmt::join(mounts.value(), ","));
-
-        spdlog::info("uenv_mount_list {}", uenv_mount_list);
-        spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
-
-        //
-        // Mount the file systems
-        //
-
-        unshare_mntns_and_become_root();
-
-        if (auto r = uenv::do_mount(mounts.value()); !r) {
+        auto r = uenv::parse_and_validate_mounts(*raw_mounts);
+        if (!r) {
             error_and_exit("{}", r.error());
+        }
+        mounts = r.value();
+    }
+    const std::string uenv_mount_list =
+        fmt::format("{}", fmt::join(mounts, ","));
+
+    spdlog::info("uenv_mount_list {}", uenv_mount_list);
+    spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
+
+    //
+    // mount the squashfs images with the kernel squashfs driver:
+    //  * unshare the mount namespace and become the real root user, so that
+    //    the images can be mounted;
+    //  * mount each image with libmount;
+    //  * drop back to the calling user and disallow gaining new privileges.
+    //
+    if (!mounts.empty()) {
+        if (auto r = uenv::unshare_and_become_root(); !r) {
+            error_and_exit("{}", r.error());
+        }
+        if (auto r = uenv::do_mount(mounts); !r) {
+            error_and_exit("mount failed {}", r.error());
         }
     } else {
         spdlog::warn("nothing mounted (no --sqfs flag provided)");
     }
 
-    //
-    // Drop privelages
-    //
-
-    return_to_user_and_no_new_privs(uid);
+    // the setuid binary always starts with an elevated effective uid, so it
+    // has to be dropped even when there is nothing to mount.
+    if (auto r = uenv::return_to_user_and_no_new_privs(uid); !r) {
+        error_and_exit("{}", r.error());
+    }
 
     //
     // Generate the runtime environment variables
@@ -159,7 +163,7 @@ int main(int argc, char** argv, char** envp) {
         }
     }
 
-    runtime_env.set("SQUASHFS_MOUNT_LIST", uenv_mount_list);
+    runtime_env.set("UENV_MOUNT_LIST", uenv_mount_list);
 
     auto cenv = runtime_env.c_env();
     auto error = util::exec(*commands, cenv);
@@ -170,36 +174,4 @@ int main(int argc, char** argv, char** envp) {
     error_and_exit("{}", error.message);
 
     return error.rcode;
-}
-
-void unshare_mntns_and_become_root() {
-    if (unshare(CLONE_NEWNS) != 0) {
-        error_and_exit("Failed to unshare the mount namespace");
-    }
-
-    if (mount(NULL, "/", NULL, MS_SLAVE | MS_REC, NULL) != 0) {
-        error_and_exit("Failed to remount \"/\" with MS_SLAVE");
-    }
-
-    // Set real user to root before creating the mount context, otherwise it
-    // fails.
-    if (setreuid(0, 0) != 0) {
-        error_and_exit("Failed to setreuid");
-    }
-
-    // Configure the mount
-    // Makes LIBMOUNT_DEBUG=... work.
-    mnt_init_debug(0);
-}
-
-// set real, effective, saved user id to original user and allow no new
-// priviledges
-void return_to_user_and_no_new_privs(int uid) {
-    if (setresuid(uid, uid, uid) != 0) {
-        error_and_exit("setresuid failed");
-    }
-
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-        error_and_exit("PR_SET_NO_NEW_PRIVS failed");
-    }
 }
