@@ -60,6 +60,21 @@ namespace uenv {
 
 namespace rootless {
 
+bool daemon_process_will_cleanup() {
+    // The supervisor is cleaned up by slurmstepd sweeping the step's cgroup
+    // (see supervisor_main), so it is only safe to fork where Slurm
+    // tracks processes with cgroups. Under proctrack/linuxproc or
+    // proctrack/pgid a supervisor reparented away from its task may never
+    // be reaped, and a leaked daemon plus the namespace pinning its image
+    // is worse than the mount ending with this rank's command: mount
+    // in-process there instead, loudly.
+    const auto cgroup = util::current_cgroup();
+    if (!cgroup || !util::cgroup_is_slurm_managed(cgroup.value())) {
+        return false;
+    }
+    return true;
+}
+
 util::expected<void, std::string> clone_new_ns_and_set_dumpable() {
     if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0) {
         return util::unexpected(
@@ -562,20 +577,9 @@ mount_and_join_ns(const std::string& tag, int ntasks,
         // process execs the user's command, and the leader is an arbitrary
         // rank, so tying the daemons here would take the mount away from
         // every other rank on the node when that one rank's command returns.
-        //
-        // The supervisor is cleaned up by slurmstepd sweeping the step's cgroup
-        // (see supervisor_main), so it is only safe to fork where Slurm
-        // tracks processes with cgroups. Under proctrack/linuxproc or
-        // proctrack/pgid a supervisor reparented away from its task may never
-        // be reaped, and a leaked daemon plus the namespace pinning its image
-        // is worse than the mount ending with this rank's command: mount
-        // in-process there instead, loudly.
-        const auto cgroup = util::current_cgroup();
-        if (!cgroup || !util::cgroup_is_slurm_managed(cgroup.value())) {
-            spdlog::warn("job step not tracked by cgroups (cgroup '{}'): "
-                         "mounting in this task, so the uenv may be unmounted "
-                         "before other tasks on this node are done with it",
-                         cgroup.value_or("<unknown>"));
+        if (!daemon_process_will_cleanup()) {
+            spdlog::warn(
+                "squashfuse daemon will not get cleaned up automatically.");
             for (auto& entry : mounts) {
                 if (auto r = do_sqfs_ll_mount(entry, fuse_single_threaded);
                     !r) {
