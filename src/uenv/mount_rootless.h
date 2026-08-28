@@ -29,7 +29,18 @@ namespace rootless {
 util::expected<void, std::string>
 mount_and_join_ns(const std::string& tag, int ntasks,
                   const uenv::mount_list& mounts, bool fuse_single_threaded,
-                  uid_t uid, gid_t gid);
+                  uid_t uid, gid_t gid, bool mutable_root);
+
+// Rebuild "/" from bind mounts of everything currently under it (inspired by
+// bubblewrap), giving the caller a private, writable root directory tree so
+// that mount points which do not already exist on the real root can be
+// created before mounting onto them. Must be called after
+// unshare_mount_map_root(), inside the mount namespace that owns the mounts
+// being set up.
+//
+// Only implemented for the rootless/fuse backend -- the setuid kernel
+// backend does not compile this file in.
+util::expected<void, std::string> make_mutable_root();
 
 } // namespace rootless
 } // namespace uenv

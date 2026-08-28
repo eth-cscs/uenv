@@ -64,12 +64,14 @@ int main(int argc, char** argv, char** envp) {
     bool print_version = false;
     bool tasks_join = false;
     bool fuse_single_threaded = false;
+    bool mutable_root = false;
     int verbosity = 1;
     std::optional<std::string> raw_mounts;
     std::optional<std::vector<std::string>> commands;
 
     CLI::App cli(fmt::format("squashfs-mount {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
+    cli.add_flag("-r,--mutable-root", mutable_root, "mutable root");
     cli.add_flag("--version", print_version, "print version");
     cli.add_flag("--fuse-single", fuse_single_threaded, "fuse single threaded");
     cli.add_flag("--join", tasks_join,
@@ -119,9 +121,13 @@ int main(int argc, char** argv, char** envp) {
     // validate the mount points
     //
 
+    // with a mutable root, mount points are created as needed, so their
+    // existence does not need to be checked up front.
+    const bool mount_points_must_exist = !mutable_root;
     uenv::mount_list mounts;
     if (raw_mounts) {
-        auto r = uenv::parse_and_validate_mounts(*raw_mounts);
+        auto r = uenv::parse_and_validate_mounts(*raw_mounts,
+                                                 mount_points_must_exist);
         if (!r) {
             error_and_exit("{}", r.error());
         }
@@ -133,7 +139,7 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("uenv_mount_list {}", uenv_mount_list);
     spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
 
-    if (!mounts.empty()) {
+    if (!mounts.empty() || mutable_root) {
         auto join_ctx = uenv::local_join_context(calling_env, tasks_join);
         if (!join_ctx) {
             error_and_exit("{}", join_ctx.error());
@@ -143,7 +149,7 @@ int main(int argc, char** argv, char** envp) {
 
         if (auto r = uenv::rootless::mount_and_join_ns(
                 join_ctx->tag, join_ctx->ntasks, mounts, fuse_single_threaded,
-                uid, gid);
+                uid, gid, mutable_root);
             !r) {
             error_and_exit("mount failed {}", r.error());
         }

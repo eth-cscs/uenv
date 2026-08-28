@@ -83,7 +83,8 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
 
     if (auto r = uenv::rootless::mount_and_join_ns(
             barrier_tag, static_cast<int>(ntasks), mounts.value(),
-            false /*use multi threaded fuse*/, uid, gid);
+            true /*use multi threaded fuse*/, uid, gid,
+            false /*mutable root is not exposed to the slurm plugin*/);
         !r) {
         slurm_error("%s", r.error().c_str());
         return -ESPANK_ERROR;

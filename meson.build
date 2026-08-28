@@ -168,7 +168,7 @@ lib_uenv_src = [
 ]
 
 if use_fuse
-    lib_uenv_src += ['src/uenv/mount_rootless.cpp']
+    lib_uenv_src += ['src/uenv/mount_rootless.cpp', 'src/uenv/mutable_root.cpp']
 else
     lib_uenv_src += ['src/uenv/mount_kernel.cpp']
 endif

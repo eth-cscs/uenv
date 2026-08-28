@@ -34,7 +34,8 @@ using mount_list = std::vector<mount_pair>;
 //     auto mounts = parse_and_validate_mounts(mountvar.value());
 // }
 util::expected<mount_list, std::string>
-parse_and_validate_mounts(const std::string& description);
+parse_and_validate_mounts(const std::string& description,
+                          bool mount_points_must_exist = true);
 
 /// wrapper to `mount` from `sys/mount.h`
 util::expected<void, std::string> mount(std::optional<std::string> source,
