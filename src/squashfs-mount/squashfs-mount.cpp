@@ -16,7 +16,6 @@
 #include <util/envvars.h>
 #include <util/shell.h>
 
-#include <libmount.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
 
@@ -181,15 +180,10 @@ void unshare_mntns_and_become_root() {
         error_and_exit("Failed to remount \"/\" with MS_SLAVE");
     }
 
-    // Set real user to root before creating the mount context, otherwise it
-    // fails.
+    // Set real user to root before mounting, otherwise it fails.
     if (setreuid(0, 0) != 0) {
         error_and_exit("Failed to setreuid");
     }
-
-    // Configure the mount
-    // Makes LIBMOUNT_DEBUG=... work.
-    mnt_init_debug(0);
 }
 
 // set real, effective, saved user id to original user and allow no new
