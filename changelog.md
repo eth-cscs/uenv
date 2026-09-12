@@ -2,6 +2,9 @@
 
 ## 10.1.0
 
+- #174 [fix] generate explicit error when mounting two uenv with the same name
+- #173 [improvement] consistent image hashes
+- #171 [fix] use openssl sha256 implementation to improve download/upload speeds
 - #166 [feature] replace the oras CLI tool with a native OCI registry client
 
 ## 10.0.2

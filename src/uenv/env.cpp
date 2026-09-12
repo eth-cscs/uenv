@@ -414,6 +414,11 @@ concretise_env(const std::vector<resolved_uenv>& input_uenvs,
         const bool has_meta = (bool)info.meta;
         const bool has_record = (bool)info.record;
 
+        if (uenvs.contains(name)) {
+            return unexpected(fmt::format(
+                "trying to mount multiple uenvs with same name '{}'", name));
+        }
+
         uenvs[name] = concrete_uenv{
             .name = name,
             .label = has_record ? fmt::format("{}", info.record.value())
