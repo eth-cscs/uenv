@@ -71,13 +71,13 @@ int main(int argc, char** argv, char** envp) {
     CLI::App cli(fmt::format("squashfs-mount {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
     cli.add_flag("--version", print_version, "print version");
+    cli.add_flag("--fuse-single", fuse_single_threaded, "fuse single threaded");
     cli.add_flag("--join", tasks_join,
                  "join namespaces of tasks on the same node");
     cli.add_option("-s,--sqfs", raw_mounts,
                    "comma separated list of squashfs files to mount");
     cli.add_option("commands", commands,
                    "the command to run, including with arguments");
-    cli.add_flag("--fuse-single", fuse_single_threaded, "fuse single threaded");
 
     CLI11_PARSE(cli, argc, argv);
 
@@ -93,6 +93,7 @@ int main(int argc, char** argv, char** envp) {
     //
     // check that required arguments have been set.
     //
+
     if (!commands) {
         error_and_exit("no command given");
     }
