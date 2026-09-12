@@ -330,13 +330,14 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                               sizeof(sqfs_ll_ops), ll);
             if (sqfs_ret == SQFS_OK) {
                 if (sqfs_ll_daemonize(true /*foreground*/) != -1) {
-                    // inform parent process that sqfs has been mounted
-                    if (auto ok = rf->notify_ready(); !ok) {
-                        child_fail(ok.error());
-                    }
-
                     // setup signal handlers and enter fuse_session_loop
                     if (fuse_set_signal_handlers(ch.session) != -1) {
+                        // inform parent process that sqfs has been mounted with
+                        // signal handlers in place
+                        if (auto ok = rf->notify_ready(); !ok) {
+                            child_fail(ok.error());
+                        }
+
                         int err;
                         if (!fuse_single_threaded) {
                             fuse_loop_config config{.clone_fd = 1,
@@ -363,6 +364,7 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                     } else {
                         child_fail("set signal handlers failed.");
                     }
+
                 } else {
                     child_fail("daemonize failed");
                 }
