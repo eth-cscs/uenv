@@ -9,5 +9,9 @@
 
 // 1 when built with the FUSE/squashfuse backend, 0 for the kernel/setuid
 // backend. Selected by the meson `backend` option.
-#define UENV_BACKEND_FUSE @backend_fuse@
+
+namespace uenv {
+constexpr bool backend_fuse = @backend_fuse@;
+} // namespace uenv
+
 // clang-format on
