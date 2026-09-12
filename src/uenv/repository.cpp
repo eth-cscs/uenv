@@ -803,7 +803,8 @@ repository::pathset repository_impl::uenv_paths(sha256 sha) const {
             .store_root = repo_store_root,
             .store = repo_store_root / lit,
             .meta = repo_store_root / lit / "meta",
-            .squashfs = repo_store_root / lit / "store.squashfs"};
+            .squashfs = repo_store_root / lit / "store.squashfs",
+            .manifest = repo_store_root / lit / "manifest.json"};
 }
 
 util::expected<void, std::string>

@@ -1,4 +1,3 @@
-#include <ctime>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -25,17 +24,6 @@ namespace oci {
 namespace fs = std::filesystem;
 
 namespace {
-
-// current time as an RFC3339 UTC timestamp (e.g. 2024-08-23T16:00:40Z), the
-// format oras writes into org.opencontainers.image.created.
-std::string rfc3339_now() {
-    std::time_t t = std::time(nullptr);
-    std::tm tm{};
-    gmtime_r(&t, &tm);
-    char buf[32];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
-    return buf;
-}
 
 util::expected<digest, std::string> digest_of_file(const fs::path& p) {
     auto d = util::sha256_file(p);
@@ -222,7 +210,8 @@ void maintain_referrers_tag(client& c, const digest& subject,
 util::expected<digest, std::string>
 push_squashfs(client& c, const fs::path& squashfs, const reference& ref,
               std::optional<digest> layer_digest,
-              std::function<void(std::uint64_t, std::uint64_t)> progress) {
+              std::function<void(std::uint64_t, std::uint64_t)> progress,
+              std::optional<std::string> existing_manifest_body) {
     // hashing a multi-GB squashfs is expensive, so a caller that already has
     // the digest passes it in rather than paying for a second pass.
     if (!layer_digest) {
@@ -252,16 +241,10 @@ push_squashfs(client& c, const fs::path& squashfs, const reference& ref,
         return util::unexpected{ok.error().message};
     }
 
-    manifest m;
-    m.artifact_type = std::string{artifact_type_squashfs};
-    m.annotations[std::string{annotation_created}] = rfc3339_now();
-    m.layers.push_back(manifest_layer{
-        .media_type = std::string{media_type_layer_tar},
-        .digest = layer_digest.value(),
-        .size = size,
-        .annotations = {{std::string{annotation_title}, "store.squashfs"}}});
-
-    auto body = serialize_manifest(m);
+    auto body = existing_manifest_body
+                    ? std::move(*existing_manifest_body)
+                    : serialize_manifest(make_squashfs_manifest(
+                          layer_digest.value(), size, rfc3339_now()));
     if (auto ok = c.put_manifest(ref, body); !ok) {
         return util::unexpected{ok.error().message};
     }

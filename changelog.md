@@ -1,7 +1,15 @@
 # Changelog
 
+## 10.2.0
+
+- #168 [fix] replace libmount with direct loop-device ioctls in the kernel backend: libmount >= 2.42 refuses to mount from a setuid process without an `/etc/fstab` entry, and the image is now validated on the same fd that is bound to the loop device.
+- #172 [feature] add a rootless FUSE mounting backend: an unprivileged alternative to the setuid kernel backend.
+
 ## 10.1.0
 
+- #174 [fix] generate explicit error when mounting two uenv with the same name
+- #173 [improvement] consistent image hashes
+- #171 [fix] use openssl sha256 implementation to improve download/upload speeds
 - #166 [feature] replace the oras CLI tool with a native OCI registry client
 
 ## 10.0.2

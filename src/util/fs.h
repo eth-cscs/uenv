@@ -67,6 +67,10 @@ file_level file_access_level(const std::filesystem::path& path);
 std::optional<std::string>
 read_single_line_file(const std::filesystem::path& path);
 
+// read the full contents of a text file into a string.
+util::expected<std::string, std::string>
+read_file(const std::filesystem::path& path);
+
 // return if a path is inside a directory, i.e. direct or indirect child
 bool is_child(const std::filesystem::path& child,
               const std::filesystem::path& parent);

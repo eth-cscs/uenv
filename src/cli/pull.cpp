@@ -2,6 +2,7 @@
 
 #include <csignal>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 #include <fmt/core.h>
@@ -274,6 +275,19 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
                     }
                     term::error("unable to pull uenv.\n{}", result.error());
                     return 1;
+                }
+            }
+
+            // persist the manifest alongside the image, so that the hash
+            // this image is stored under locally (record.sha, the manifest
+            // digest reported by the registry) is explained by a manifest on
+            // disk, same as a locally-added image.
+            {
+                std::ofstream mfid(paths.manifest);
+                mfid << response->body;
+                if (!mfid) {
+                    spdlog::warn("unable to write manifest to {}",
+                                 paths.manifest.string());
                 }
             }
         } catch (util::signal_exception& e) {

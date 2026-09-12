@@ -263,6 +263,22 @@ TEST_CASE("create disk repo", "[repository]") {
     }
 }
 
+TEST_CASE("uenv_paths includes the manifest path", "[repository]") {
+    auto repo_dir = util::make_temp_dir().value();
+    auto R = uenv::create_repository(repo_dir);
+    REQUIRE(R);
+
+    const auto sha = msha('a');
+    const auto paths = R->uenv_paths(sha);
+
+    REQUIRE(paths.store == paths.store_root / sha.string());
+    REQUIRE(paths.manifest == paths.store / "manifest.json");
+    // manifest.json is a sibling of store.squashfs and meta/, inside the same
+    // per-image store directory.
+    REQUIRE(paths.manifest.parent_path() == paths.squashfs.parent_path());
+    REQUIRE(paths.manifest.parent_path() == paths.meta.parent_path());
+}
+
 // helper: make a repo_description with default priority
 static uenv::repo_description
 rd(std::string name, std::string path,

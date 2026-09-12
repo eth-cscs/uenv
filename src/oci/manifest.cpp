@@ -1,3 +1,4 @@
+#include <ctime>
 #include <optional>
 #include <string>
 
@@ -10,6 +11,32 @@
 #include <oci/util.h>
 
 namespace oci {
+
+std::string rfc3339(std::tm tm) {
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+    return buf;
+}
+
+std::string rfc3339_now() {
+    std::time_t t = std::time(nullptr);
+    std::tm tm{};
+    gmtime_r(&t, &tm);
+    return rfc3339(tm);
+}
+
+manifest make_squashfs_manifest(digest layer_digest, std::size_t layer_size,
+                                std::string created) {
+    manifest m;
+    m.artifact_type = std::string{artifact_type_squashfs};
+    m.annotations[std::string{annotation_created}] = std::move(created);
+    m.layers.push_back(manifest_layer{
+        .media_type = std::string{media_type_layer_tar},
+        .digest = layer_digest,
+        .size = layer_size,
+        .annotations = {{std::string{annotation_title}, "store.squashfs"}}});
+    return m;
+}
 
 descriptor empty_config_descriptor() {
     return descriptor{

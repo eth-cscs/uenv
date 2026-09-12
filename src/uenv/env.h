@@ -45,6 +45,8 @@ struct uenv_info {
     std::optional<uenv_record> record;
     // path to meta directory if found
     std::optional<std::filesystem::path> meta_path;
+    // path to manifest.json if looked up from repo
+    std::optional<std::filesystem::path> manifest_path;
     // meta data loaded from meta_path/env.json
     std::optional<uenv::meta> meta;
     // the repo this image was found in (nullopt for squashfs file path inputs)

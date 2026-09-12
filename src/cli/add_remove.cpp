@@ -1,5 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
+#include <fstream>
 #include <memory>
 #include <string>
 
@@ -8,12 +9,15 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
+#include <oci/digest.h>
+#include <oci/manifest.h>
 #include <uenv/env.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
 #include <util/fs.h>
+#include <util/sha.h>
 #include <util/subprocess.h>
 
 #include "add_remove.h"
@@ -91,7 +95,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     }
 
     // derive the full description of the source uenv.
-    auto env = resolve_uenv(source, settings.config.repos);
+    const auto env = resolve_uenv(source, settings.config.repos);
     if (!env) {
         term::error("{}", env.error());
         return 1;
@@ -131,17 +135,39 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                  *label);
 
     //
-    // Open the repository
+    // if this is a newly added squashfs file (not a retag of an existing
+    // repo entry), mint the manifest that identifies it: its sha256 becomes
+    // the <hash> used to store and index it, and it is persisted alongside
+    // the image so that a later `uenv image push` can reuse it verbatim
+    // instead of minting a new one. `created` is derived from the squashfs
+    // file's own creation date, rather than the current time, so that
+    // re-adding identical squashfs content always mints the same manifest
+    // (and hence hash), preserving the existing_hash dedup check below.
     //
+    sha256 image_hash = sqfs->hash;
+    std::optional<std::string> manifest_body;
+    if (!from_label) {
+        auto created = oci::rfc3339(*util::file_creation_date(sqfs->sqfs));
+        auto m =
+            oci::make_squashfs_manifest(oci::digest::sha256(sqfs->hash),
+                                        fs::file_size(sqfs->sqfs), created);
+        manifest_body = oci::serialize_manifest(m);
+        spdlog::debug("image_add: creating manifest {}", *manifest_body);
+
+        image_hash = util::sha256_string(*manifest_body);
+        spdlog::debug("image_add: manifest hash {}", image_hash);
+    }
+
+    // Open the repository
     auto store = uenv::concretise_user_repo(settings.config);
     if (!store) {
         term::error("unable to open repo: {}", store.error());
         return 1;
     }
 
-    //
-    // check whether the label also exists
-    //
+    spdlog::debug("image_add: using repo {}", store->path());
+
+    // check whether the label already exists in the repo
     bool existing_label = false;
     {
         auto results = store->query(*label);
@@ -159,50 +185,48 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         }
     }
 
-    //
+    // check whether the hash already exists in the repo
+
+    const auto uenv_paths = store->uenv_paths(image_hash);
+    const bool source_in_repo = util::is_child(sqfs->sqfs, uenv_paths.root);
+
+    // If a sqfs file is already in repo then it must be added using:
+    //   uenv image add <new-label> <existing-label>
+    if (source_in_repo && !from_label) {
+        term::error(
+            "image_add: Trying to add a squashfs file which is already "
+            "in the repository. Add using a label instead of squashfs.");
+        return 1;
+    }
+
     // check whether repository already contains an image with the same
     // hash
-    //
-    bool existing_hash = false;
     {
-        uenv_label hash_label{sqfs->hash.string()};
+        uenv_label hash_label{image_hash.string()};
         auto results = store->query(hash_label);
         if (!results) {
             term::error(
                 "image_add: internal error search repository for {}\n  {}",
                 *label, results.error());
         }
-        existing_hash = !results->empty();
+        const auto existing_hash = !results->empty();
 
-        if (existing_hash) {
-            spdlog::warn("a uenv with the same sha {} is already in the repo",
-                         sqfs->hash);
-            term::warn("a uenv with the same sha {} is already in the repo",
-                       sqfs->hash);
+        if (existing_hash && !from_label) {
+            term::error("a uenv with the same sha {} is already in the repo",
+                        image_hash);
+            return 1;
         }
     }
 
-    const auto uenv_paths = store->uenv_paths(sqfs->hash);
-    uenv::uenv_date date{*util::file_creation_date(sqfs->sqfs)};
-
-    bool source_in_repo = util::is_child(sqfs->sqfs, uenv_paths.root);
-
-    // If an sqfs file is already in repo, and it was pulled from a repository
-    // then there is a digest mismatch. Do not try to add this image
-    // Such images should be retaged with the command:
-    // uenv image add <new-label> <existing-label>
-    if (source_in_repo && !existing_hash) {
-        term::error("image_add: Trying to add a squashfs file which is already "
-                    "in the repository, but the hashes do not match");
-        return 1;
-    }
-
+    // If copying the squashfs file into the repository
+    // Create the path <repo>/images/<hash> and populate with meta data,
+    // manifest and the image iteself.
     if (!source_in_repo) {
-        //
         // create the path inside the repo
-        //
         std::error_code ec;
-        // if the path exists, delete it, as it might contain a partial download
+        // if the path exists, delete it: it was probably caused by an aborted
+        // `image add` or `image pull` command that did not complete the
+        // download and database update.
         if (fs::exists(uenv_paths.store)) {
             spdlog::debug("image_add: remove the target path {} before copying",
                           uenv_paths.store.string());
@@ -217,9 +241,9 @@ int image_add(const image_add_args& args, const global_settings& settings) {
             return 1;
         }
 
-        //
+        spdlog::debug("image_add: repo path {}", uenv_paths.store);
+
         // copy the meta data into the repo
-        //
         if (sqfs->meta) {
             fs::copy_options options{};
             options |= fs::copy_options::recursive;
@@ -230,10 +254,19 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                 term::error("unable to add the uenv");
                 return 1;
             }
+            spdlog::debug("image_add: added meta path {}", sqfs->meta.value());
         }
 
-        // copy or move the
+        // copy or move the squashfs file
         if (!args.move) {
+            spdlog::debug("image_add: copying {} to {}", sqfs->sqfs,
+                          uenv_paths.squashfs);
+            // record the source modification time so that it can be preserved
+            // on the copy: fs::copy_file stamps the destination with the
+            // current time, whereas fs::rename (the move case) keeps the source
+            // time.
+            std::error_code tec;
+            const auto src_time = fs::last_write_time(sqfs->sqfs, tec);
             fs::copy_file(sqfs->sqfs, uenv_paths.squashfs, ec);
             if (ec) {
                 spdlog::error("unable to copy squashfs image {} to {}: {}",
@@ -242,7 +275,19 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                 term::error("unable to add the uenv");
                 return 1;
             }
+            // preserve the source modification time on the copy so that the
+            // creation date recorded in the repository matches the source.
+            if (!tec) {
+                fs::last_write_time(uenv_paths.squashfs, src_time, tec);
+            }
+            if (tec) {
+                spdlog::warn(
+                    "image_add: unable to preserve modification time on {}: {}",
+                    uenv_paths.squashfs.string(), tec.message());
+            }
         } else {
+            spdlog::debug("image_add: moving {} to {}", sqfs->sqfs,
+                          uenv_paths.squashfs);
             fs::rename(sqfs->sqfs, uenv_paths.squashfs, ec);
             if (ec) {
                 spdlog::error("unable to move squashfs image {} to {}: {}",
@@ -259,11 +304,25 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                 return 1;
             }
         }
+
+        // add the manifest alongside the image
+        if (manifest_body) {
+            std::ofstream mfid(uenv_paths.manifest);
+            mfid << *manifest_body;
+            if (!mfid) {
+                spdlog::error("unable to write manifest to {}",
+                              uenv_paths.manifest.string());
+                term::error("unable to add the uenv");
+                return 1;
+            }
+        }
     }
 
-    //
-    // add the uenv to the database
-    //
+    // add the label to the database
+    // read the creation date from the image in its final destination in the
+    // repository: in the --move case the source path no longer exists, and in
+    // both cases the in-repo copy is the authoritative file.
+    const uenv::uenv_date date{*util::file_creation_date(uenv_paths.squashfs)};
     if (!date.validate()) {
         spdlog::error("the date {} is invalid", date);
         term::error("unable to add the uenv");
@@ -277,15 +336,15 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         *label->tag,
         date,
         fs::file_size(uenv_paths.squashfs),
-        sqfs->hash,
-        uenv_id::parse(sqfs->hash.string().substr(0, 16)).value(),
+        image_hash,
+        uenv_id::parse(image_hash.string().substr(0, 16)).value(),
     };
     if (auto result = store->add(r); !result) {
         spdlog::error("image_add: {}", result.error());
         term::error("unable to add the uenv");
         return 1;
     }
-    term::msg("the uenv {} with sha {} was added to {}", r, sqfs->hash,
+    term::msg("the uenv {} with sha {} was added to {}", r, image_hash,
               store->path()->string());
 
     return 0;

@@ -151,8 +151,10 @@ resolve_uenv_info(const uenv_record& record, const repository& store) {
     uenv_info info;
     info.record = record;
 
-    // set sqfs_path and digest
-    info.sqfs_path = fs::absolute(store.uenv_paths(record.sha).squashfs);
+    // set sqfs_path, manifest_path and digest
+    const auto paths = store.uenv_paths(record.sha);
+    info.sqfs_path = fs::absolute(paths.squashfs);
+    info.manifest_path = paths.manifest;
     if (!fs::exists(info.sqfs_path) || !fs::is_regular_file(info.sqfs_path)) {
         return unexpected(fmt::format(
             "the uenv image {} does not exist or is not a file. Run "
@@ -411,6 +413,11 @@ concretise_env(const std::vector<resolved_uenv>& input_uenvs,
 
         const bool has_meta = (bool)info.meta;
         const bool has_record = (bool)info.record;
+
+        if (uenvs.contains(name)) {
+            return unexpected(fmt::format(
+                "trying to mount multiple uenvs with same name '{}'", name));
+        }
 
         uenvs[name] = concrete_uenv{
             .name = name,
