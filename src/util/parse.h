@@ -71,7 +71,8 @@ parse_string(lex::lexer& L, std::string_view type, Test&& test) {
     if (result.empty()) {
         const auto t = L.peek();
         return util::unexpected(parse_error{
-            L.string(), fmt::format("unexpected '{}'", type, t.spelling), t});
+            L.string(),
+            fmt::format("expected {}, found '{}'", type, t.spelling), t});
     }
 
     return result;

@@ -1,4 +1,5 @@
 #include <charconv>
+#include <cstdint>
 #include <string_view>
 
 #include <fmt/format.h>
@@ -94,7 +95,9 @@ local_rank_count(std::string_view tasks_per_node, std::string_view node_id) {
     }
 
     lex::lexer L(tasks_per_node);
-    unsigned pos = 0u; // nodes accounted for before the current entry
+    // nodes accounted for before the current entry. 64 bit so that the sum of
+    // the (32 bit) node counts cannot wrap.
+    std::uint64_t pos = 0u;
 
     while (true) {
         auto entry = parse_entry(L);

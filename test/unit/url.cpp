@@ -219,3 +219,75 @@ TEST_CASE("url::query_param appends to an existing query", "[url]") {
     REQUIRE(U("https://h/t#frag").query_param("a", "1").string() ==
             "https://h/t?a=1#frag");
 }
+
+// A byte the lexer does not tokenise is rejected. A url arrives from a
+// registry's Location and WWW-Authenticate headers, so the parser has to
+// terminate, with an error, on every input.
+TEST_CASE("parse_url rejects invalid bytes", "[url]") {
+    using namespace std::string_literals;
+    REQUIRE_FALSE(parse_url("\x80").has_value());
+    REQUIRE_FALSE(parse_url("http://a\x80").has_value());
+    REQUIRE_FALSE(parse_url("http://h\xc3\xbc/x").has_value());
+    REQUIRE_FALSE(parse_url("http://h/p\\q").has_value());
+    REQUIRE_FALSE(parse_url("http://h/p\0q"s).has_value());
+    REQUIRE_FALSE(parse_url("http://h\0/x"s).has_value());
+}
+
+// userinfo is the RFC 3986 alphabet only: whitespace, invalid bytes and NUL
+// before an '@' do not make a userinfo, they make the url malformed.
+TEST_CASE("parse_url userinfo alphabet", "[url]") {
+    using namespace std::string_literals;
+    REQUIRE_FALSE(parse_url("user name@host").has_value());
+    REQUIRE_FALSE(parse_url("us\x80"
+                            "er@host")
+                      .has_value());
+    REQUIRE_FALSE(parse_url("us\\er@host").has_value());
+    REQUIRE_FALSE(parse_url("us\0er@host"s).has_value());
+    REQUIRE_FALSE(parse_url("https://u\0ser:pass@h/x"s).has_value());
+    // the full sub-delims set is allowed
+    auto u = parse_url("u!$&'()*+,;=:x@host/p");
+    REQUIRE(u.has_value());
+    REQUIRE(u->userinfo() == "u!$&'()*+,;=:x");
+    REQUIRE(u->host() == "host");
+}
+
+// a scheme starts with a letter (RFC 3986 §3.1)
+TEST_CASE("parse_url scheme starts with a letter", "[url]") {
+    REQUIRE_FALSE(parse_url("1://h").has_value());
+    REQUIRE_FALSE(parse_url("-://h").has_value());
+    REQUIRE_FALSE(parse_url("_://h").has_value());
+    REQUIRE_FALSE(parse_url("+http://h").has_value());
+    REQUIRE(parse_url("h1+x-y.z://h").has_value());
+}
+
+// a port is 16 bits
+TEST_CASE("parse_url port range", "[url]") {
+    REQUIRE(parse_url("http://h:65535").has_value());
+    REQUIRE(parse_url("http://h:0").has_value());
+    REQUIRE_FALSE(parse_url("http://h:65536").has_value());
+    REQUIRE_FALSE(parse_url("http://h:4294967296").has_value());
+    REQUIRE_FALSE(parse_url("http://h:99999999999999999999").has_value());
+}
+
+// the userinfo look-ahead is linear in the length of the url: a url with a
+// hundred thousand tokens before the first '/' parses in the same time as a
+// short one. a registry chooses the length of a Location header.
+TEST_CASE("parse_url long input", "[url]") {
+    std::string host;
+    for (int i = 0; i < 50000; ++i) {
+        host += "a.";
+    }
+    host += "b";
+    {
+        auto u = parse_url("https://" + host + "/x");
+        REQUIRE(u.has_value());
+        REQUIRE(u->host() == host);
+        REQUIRE(u->userinfo().empty());
+    }
+    {
+        auto u = parse_url("https://" + host + "@h/x");
+        REQUIRE(u.has_value());
+        REQUIRE(u->userinfo() == host);
+        REQUIRE(u->host() == "h");
+    }
+}

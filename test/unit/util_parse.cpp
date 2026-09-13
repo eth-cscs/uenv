@@ -29,3 +29,13 @@ TEST_CASE("parse unsigned errors", "[util_parse]") {
     REQUIRE_FALSE(util::parse_unsigned("1 2"));
     REQUIRE_FALSE(util::parse_unsigned("1garbage"));
 }
+
+// a NUL or an invalid byte after the digits is trailing garbage, not the end
+// of the input
+TEST_CASE("parse unsigned rejects invalid bytes", "[util_parse]") {
+    using namespace std::string_literals;
+    REQUIRE_FALSE(util::parse_unsigned("12\0"s));
+    REQUIRE_FALSE(util::parse_unsigned("12\0garbage"s));
+    REQUIRE_FALSE(util::parse_unsigned("12\x80"));
+    REQUIRE_FALSE(util::parse_unsigned("\x80"));
+}

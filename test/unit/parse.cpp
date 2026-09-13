@@ -756,3 +756,94 @@ TEST_CASE("semver", "[parse]") {
     //  11.4
     //  we don't implement correct testing of prerelease dot versions
 }
+
+// the date fields are 32 bit: a value that only fits in 64 bits is rejected
+// rather than truncated to its low 32 bits.
+TEST_CASE("date out of range integers", "[parse]") {
+    for (auto in :
+         {"2024-4294967297-01", "4294969320-01-01", "2024-01-4294967297",
+          "2024-01-01 4294967296:00:00", "2024-01-01 00:4294967296:00",
+          "2024-01-01 00:00:4294967296", "18446744073709551616-01-01"}) {
+        REQUIRE(!uenv::parse_uenv_date(in));
+    }
+}
+
+// a NUL byte inside the input is an invalid character, not the end of the
+// input: nothing after it may be silently dropped.
+TEST_CASE("embedded NUL is rejected", "[parse]") {
+    using namespace std::string_literals;
+    REQUIRE(!uenv::parse_uenv_label("prgenv-gnu\0garbage"s));
+    REQUIRE(!uenv::parse_uenv_label("\0"s));
+    REQUIRE(!uenv::parse_uenv_nslabel("deploy::prgenv-gnu\0/24.7"s));
+    REQUIRE(!uenv::parse_uenv_args("prgenv-gnu\0,wombat"s));
+    REQUIRE(!uenv::parse_uenv_description("/images/store.squashfs\0:/x"s));
+    REQUIRE(!uenv::parse_path("/a\0b"s));
+    REQUIRE(!uenv::parse_view_args("spack\0modules"s));
+    REQUIRE(!uenv::parse_env_view_description("/img/store.squashfs:t:v\0x"s));
+    REQUIRE(!uenv::parse_mount_list("/a.squashfs:/b\0c"s));
+    REQUIRE(!uenv::parse_registry_entry("deploy/balfrin/a100/mch/v8/rc1\0x"s));
+    REQUIRE(!uenv::parse_uenv_date("2024-12-3\0x"s));
+    REQUIRE(!uenv::parse_cluster_name("eiger\0x"s));
+    REQUIRE(!uenv::parse_xthostname("alps-eiger\0x"s));
+    REQUIRE(!uenv::parse_repo_name("main\0x"s));
+    REQUIRE(!uenv::parse_repo_label("main=/store\0x"s));
+    REQUIRE(!uenv::parse_repo_list("main,/store\0x"s));
+    REQUIRE(!uenv::parse_semver("1.2.3\0x"s));
+}
+
+// bytes outside the ascii alphabet of the grammars are rejected, and every
+// parser returns an error rather than looping on the invalid token.
+TEST_CASE("invalid bytes are rejected", "[parse]") {
+    for (auto in : {"prgenv-gnu\x80", "prgenv-gnu/24.7:v1\xc3\xbc", "\xff",
+                    "prgenv\\gnu", "prgenv{gnu}", "prg|env"}) {
+        REQUIRE(!uenv::parse_uenv_label(in));
+        REQUIRE(!uenv::parse_uenv_nslabel(in));
+        REQUIRE(!uenv::parse_uenv_args(in));
+        REQUIRE(!uenv::parse_view_args(in));
+        REQUIRE(!uenv::parse_repo_list(in));
+        REQUIRE(!uenv::parse_semver(in));
+        REQUIRE(!uenv::parse_cluster_name(in));
+    }
+    REQUIRE(!uenv::parse_path("/images/st\xc3\xb6re.squashfs"));
+    REQUIRE(!uenv::parse_mount_list("/a\x80.squashfs:/b"));
+    REQUIRE(!uenv::parse_uenv_date("2024-12-3\x80"));
+}
+
+// parse_string reports the token it found, not the name of the thing it was
+// looking for
+TEST_CASE("parse_string error message", "[parse]") {
+    const auto r = uenv::parse_cluster_name("-");
+    REQUIRE(!r);
+    REQUIRE(r.error().detail == "expected cluster, found '-'");
+}
+
+// the namespace look-ahead is linear in the length of the name: a label with
+// a hundred thousand name tokens parses in the same time as a short one.
+TEST_CASE("parse namespace uenv label long input", "[parse]") {
+    const std::string name(200000, 'a');
+    {
+        auto r = uenv::parse_uenv_nslabel(name + "::prgenv-gnu/24.7:v1");
+        REQUIRE(r);
+        REQUIRE(r->nspace == name);
+        REQUIRE(r->label.name == "prgenv-gnu");
+    }
+    {
+        // the same name without '::' is a plain label, after rewinding
+        auto r = uenv::parse_uenv_nslabel(name + "/24.7:v1");
+        REQUIRE(r);
+        REQUIRE(!r->nspace);
+        REQUIRE(r->label.name == name);
+        REQUIRE(r->label.version == "24.7");
+    }
+    {
+        // many short tokens
+        std::string dashed;
+        for (int i = 0; i < 100000; ++i) {
+            dashed += "a-";
+        }
+        dashed += "a";
+        auto r = uenv::parse_uenv_nslabel(dashed + "::x");
+        REQUIRE(r);
+        REQUIRE(r->nspace == dashed);
+    }
+}

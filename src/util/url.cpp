@@ -25,6 +25,35 @@ bool is_scheme_tok(lex::tok t) {
            t == lex::tok::plus || t == lex::tok::dash || t == lex::tok::dot;
 }
 
+// a URL userinfo component (unreserved / pct-encoded / sub-delims / ":"),
+// RFC 3986 §3.2.1. anything else before the '@' (whitespace, an invalid byte,
+// a '/') means there is no userinfo.
+bool is_userinfo_tok(lex::tok t) {
+    switch (t) {
+    case lex::tok::symbol:
+    case lex::tok::integer:
+    case lex::tok::dash:
+    case lex::tok::dot:
+    case lex::tok::tilde:
+    case lex::tok::percent:
+    case lex::tok::colon:
+    case lex::tok::bang:
+    case lex::tok::dollar:
+    case lex::tok::amp:
+    case lex::tok::squote:
+    case lex::tok::lparen:
+    case lex::tok::rparen:
+    case lex::tok::star:
+    case lex::tok::plus:
+    case lex::tok::comma:
+    case lex::tok::semicolon:
+    case lex::tok::equals:
+        return true;
+    default:
+        return false;
+    }
+}
+
 // a URL reg-name host component (unreserved + pct-encoded); we stop at ':',
 // '/', '?', '#', whitespace or end.
 bool is_regname_tok(lex::tok t) {
@@ -248,8 +277,13 @@ util::expected<url, parse_error> parse_url(std::string_view text) {
         while (is_scheme_tok(L.current_kind())) {
             scheme += L.next().spelling;
         }
-        if (!scheme.empty() && L == lex::tok::colon &&
-            L.peek(1) == lex::tok::slash && L.peek(2) == lex::tok::slash) {
+        // a scheme starts with a letter (RFC 3986 §3.1): "1://h" has no
+        // scheme, and is rejected below because "1:" is not a host.
+        const bool scheme_ok =
+            !scheme.empty() && ((scheme[0] >= 'a' && scheme[0] <= 'z') ||
+                                (scheme[0] >= 'A' && scheme[0] <= 'Z'));
+        if (scheme_ok && L == lex::tok::colon && L.peek(1) == lex::tok::slash &&
+            L.peek(2) == lex::tok::slash) {
             L.next(); // ':'
             L.next(); // '/'
             L.next(); // '/'
@@ -262,27 +296,22 @@ util::expected<url, parse_error> parse_url(std::string_view text) {
     }
 
     // optional userinfo: present only when an '@' occurs before the first
-    // '/', '?', '#' or end.
+    // token that cannot be part of a userinfo ('/', '?', '#', whitespace, an
+    // invalid byte, or the end). the candidate is consumed and the lexer
+    // rewound if no '@' follows: peeking further ahead on every step would
+    // re-lex from the current position each time, which is quadratic in the
+    // length of the url.
     {
-        bool has_userinfo = false;
-        for (unsigned k = 0;; ++k) {
-            const auto t = L.peek(k);
-            if (t == lex::tok::slash || t == lex::tok::question ||
-                t == lex::tok::hash || t == lex::tok::end) {
-                break;
-            }
-            if (t == lex::tok::at) {
-                has_userinfo = true;
-                break;
-            }
+        const unsigned start = L.peek().loc;
+        std::string userinfo;
+        while (is_userinfo_tok(L.current_kind())) {
+            userinfo += L.next().spelling;
         }
-        if (has_userinfo) {
-            std::string userinfo;
-            while (L != lex::tok::at) {
-                userinfo += L.next().spelling;
-            }
+        if (L == lex::tok::at) {
             L.next(); // consume '@'
             u.userinfo_ = std::move(userinfo);
+        } else {
+            L.seek(start);
         }
     }
 
@@ -322,7 +351,7 @@ util::expected<url, parse_error> parse_url(std::string_view text) {
         const auto* first = digits.data();
         const auto* last = digits.data() + digits.size();
         if (auto [ptr, ec] = std::from_chars(first, last, port);
-            ec != std::errc{} || ptr != last) {
+            ec != std::errc{} || ptr != last || port > 65535) {
             return util::unexpected(
                 parse_error{L.string(), "invalid port number", port_tok});
         }

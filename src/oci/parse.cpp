@@ -39,9 +39,20 @@ bool is_tag_tok(lex::tok t) {
            t == lex::tok::dot || t == lex::tok::dash;
 }
 
-// an unquoted auth-parameter value: everything up to a ',' or end.
+// an unquoted auth-parameter value: everything up to a ',', whitespace or the
+// end. an invalid byte (anything outside the lexer's ascii alphabet) ends the
+// value too, and is then rejected by the separator check that follows it.
 bool is_unquoted_value_tok(lex::tok t) {
-    return t != lex::tok::comma && t != lex::tok::end;
+    switch (t) {
+    case lex::tok::comma:
+    case lex::tok::whitespace:
+    case lex::tok::dquote:
+    case lex::tok::end:
+    case lex::tok::error:
+        return false;
+    default:
+        return true;
+    }
 }
 
 // the hex length expected for a recognised algorithm, or 0 if unrecognised.
