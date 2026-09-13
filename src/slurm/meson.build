@@ -7,7 +7,6 @@ subdir('slurm')
 module_src = [
   'elastic.cpp',
   'environ.cpp',
-  'mount_slurm.cpp',
   'plugin.cpp',
 ]
 

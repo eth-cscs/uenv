@@ -199,6 +199,13 @@ sudo meson install --destdir=$STAGE --no-rebuild --skip-subprojects
 
 **IMPORTANT**: Never build with sudo (`sudo meson compile` or `sudo ninja`). Always build as normal user, then install with sudo.
 
+A few cases in `squashfs-mount.bats` and `slurm.bats` need a *root-owned*,
+mode-600 image as a fixture, to check that the privileged mount paths refuse an
+image the calling user cannot read (see "Who opens the image (kernel backend)").
+They create it with `sudo -n` and `skip` when passwordless sudo is unavailable,
+so they are silently skipped in CI and in a normal developer run — if you are
+changing that code path, check they are actually running rather than skipping.
+
 ## Architecture
 
 ### Source Structure
@@ -219,7 +226,7 @@ sudo meson install --destdir=$STAGE --no-rebuild --skip-subprojects
   - Logging (`log.h/cpp`, `print.h/cpp`)
   - Settings management (`settings.h/cpp`)
 - `src/oci/` - Native OCI registry client (container registry interaction: pull, push, copy, manifests, auth); replaces the external `oras` binary. See "Self-contained `src/oci`" below.
-- `src/util/` - Utility libraries (color, curl, envvars, fs, lex, lustre, semver, shell, signal, strings, subprocess, toml), plus the FUSE backend's IPC/process-coordination primitives (`proc_barrier.h/cpp`, `named_semaphore.h`, `shared_mapping.h`, `robust_mutex.h`, `setns.h/cpp`, `ready_fork.h/cpp`) — see "Multi-task rendezvous and IPC error model" below
+- `src/util/` - Utility libraries (color, curl, envvars, fs, lex, lustre, privilege, semver, shell, signal, strings, subprocess, toml, unique_fd), plus the FUSE backend's IPC/process-coordination primitives (`proc_barrier.h/cpp`, `named_semaphore.h`, `shared_mapping.h`, `robust_mutex.h`, `setns.h/cpp`, `ready_fork.h/cpp`) — see "Multi-task rendezvous and IPC error model" below
 - `src/site/` - Site-specific configuration (CSCS-specific logic)
 - `src/slurm/` - Slurm plugin implementation; `plugin_kernel.cpp` or `plugin_fuse.cpp` is compiled in depending on `mount_backend`
 - `src/squashfs-mount/` - Helper for mounting SquashFS images; built from `squashfs-mount-kernel.cpp` (installed setuid) or `squashfs-mount-fuse.cpp` (installed as a plain executable) depending on `mount_backend`
@@ -250,6 +257,7 @@ sudo meson install --destdir=$STAGE --no-rebuild --skip-subprojects
     - the CLI does this by execing the `squashfs-mount` helper, which in turn runs step 6 below
     - the Slurm plugin performs the mount in the remote context before the daemon forks the MPI processes
     - on the `kernel` backend, both paths go through the setuid helper as root; on the `fuse` backend, the mount happens rootlessly in a user/mount namespace, and if multiple Slurm tasks share the node, only one ("the leader") actually mounts — see the next two sections
+    - on the `kernel` backend the image is always **opened with the calling user's credentials** and only then mounted as root — see "Who opens the image (kernel backend)" below
 6. Execute command with environment from view
 
 ### Mounting backends: kernel vs FUSE
@@ -273,7 +281,8 @@ There is no runtime switch between them.
   through that helper at all: its mount runs inside
   `slurm_spank_init_post_opt` in the remote context (`src/slurm/plugin_kernel.cpp`),
   a hook Slurm itself invokes as root, so `uenv::do_mount()` is called
-  directly with the privilege the plugin already has.
+  directly with the privilege the plugin already has. Neither path opens the
+  image with that privilege — see the next section.
 - **`fuse`**: mounts via `squashfuse_ll` inside a fresh user + mount
   namespace, entirely unprivileged — no setuid bit needed
   (`src/uenv/mount_rootless.cpp`). Since Slurm can co-locate several tasks
@@ -282,6 +291,71 @@ There is no runtime switch between them.
   mount (elected among themselves) and the rest join that leader's
   namespaces with `setns()` rather than each mounting independently. That
   rendezvous is what the next section documents.
+
+### Who opens the image (kernel backend)
+
+Both privileged entry points — the setuid helper and the root SPANK hook —
+mount an image that an unprivileged user named. The rule that keeps that safe:
+
+**the image is opened with the calling user's credentials; only the loop-device
+and `mount(2)` syscalls run as root.**
+
+`LOOP_CONFIGURE` binds a *file descriptor*, not a path, and DAC is checked at
+`open(2)` only. So `uenv::open_images()` (`src/uenv/mount_kernel.cpp`) opens
+each image as the user, and `do_mount()` then binds those descriptors as root.
+The mount therefore inherits exactly the user's authority over the image — file
+modes *and* directory traversal — and there is no window in which the path
+could be swapped, because the path is never re-opened. `open_images()` enforces
+this rather than documenting it: it refuses to run when the effective user is
+root and the real user is not.
+
+`parse_and_validate_mounts()` runs inside the same unprivileged window at both
+sites. That is deliberate and must not be moved back above the elevation: as
+root, its `weakly_canonical`/`is_regular_file`/`file_size`/magic-read sequence
+is an existence/type/first-4-bytes oracle for arbitrary paths.
+
+Every change to a process's uids and gids, and the read-back verification of
+each change, lives in `src/util/privilege.{h,cpp}`: `util::ids` is a uid/gid
+pair, `util::process_ids` the real/effective/saved triple plus supplementary
+groups, and `util::user_ids` a user's uid, gid and groups. `mount_kernel.cpp`
+contains no `set*id` calls; it only elevates to the mount namespace with
+`uenv::unshare_mount_namespace()`, which both privileged sites call once they
+are root.
+
+How each site reaches the user's credentials differs, and the difference is all
+about gids:
+
+- **Setuid helper** (`squashfs-mount-kernel.cpp`): `util::set_effective_uid()`
+  to the real uid at the top of `main()`, and that is all that is needed. The
+  binary is setuid but not setgid, so the egid and the supplementary groups are
+  *already* the caller's — which is both what makes the check complete and what
+  the exec'd command must keep. **Never add `setegid()`/`setgroups()` here.**
+  Privilege comes back in `util::become_root()`, which `seteuid(0)`s and then
+  `setreuid(0, 0)`s *before* the namespace is unshared: dropping euid from 0
+  clears the effective capability set, so `unshare(CLONE_NEWNS)` would
+  otherwise fail `EPERM`. It is given up for good in
+  `util::drop_privileges()`, gid before uid and both with `setres*id`, because
+  the saved-set-gid survives `execve` and `PR_SET_NO_NEW_PRIVS` does not prevent
+  regaining a saved id.
+- **Slurm plugin** (`plugin_kernel.cpp`): slurmstepd is full root with *root's*
+  supplementary groups, so all of `S_JOB_UID`, `S_JOB_GID` and
+  `S_JOB_SUPPLEMENTARY_GIDS` must be assumed together — the uid alone leaves
+  root's groups in the credential set (too permissive) while omitting the job's
+  groups refuses images the user reaches through a project group (too
+  restrictive, and a common Alps case). It uses `util::run_as_user()`
+  (`src/util/privilege.cpp`), which does the drop **on a dedicated thread using
+  raw syscalls**. Credentials are per-task on Linux; it is glibc that broadcasts
+  `setuid`/`setgid` to every thread. Confining the change to one thread leaves
+  slurmstepd itself root, which matters because this hook runs before Slurm
+  drops privileges, with the step's message thread already serving RPCs, and
+  Slurm serialises its own euid changes behind `auth_setuid_lock()` — a lock a
+  SPANK plugin cannot take. Do not "clean up" those raw syscalls into the glibc
+  wrappers: that silently turns a one-thread change into a whole-process one.
+
+A consequence worth knowing when debugging a site: an image that only root can
+read, or one under a directory the user cannot traverse, is now refused. That is
+the point of the check, but it does mean an image store deployed with
+restrictive modes will stop working where it used to.
 
 ### Mount lifetime (FUSE backend)
 

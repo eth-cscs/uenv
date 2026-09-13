@@ -9,7 +9,6 @@
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
-#include <slurm/mount_slurm.h>
 #include <uenv/config.h>
 #include <uenv/env.h>
 #include <uenv/log.h>

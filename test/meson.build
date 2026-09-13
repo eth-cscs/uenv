@@ -114,6 +114,7 @@ unit_src = [
         'unit/oci_registry.cpp',
         'unit/oci_tag.cpp',
         'unit/parse.cpp',
+        'unit/privilege.cpp',
         'unit/proc_barrier.cpp',
         'unit/sha.cpp',
         'unit/shared_mapping.cpp',
@@ -128,9 +129,17 @@ unit_src = [
         'unit/subprocess.cpp',
         'unit/tasks_per_node.cpp',
         'unit/telemetry.cpp',
+        'unit/unique_fd.cpp',
         'unit/url.cpp',
         'unit/util_parse.cpp',
 ]
+
+# open_images and the rest of the kernel backend's access check only exist in
+# the kernel build: lib_uenv contains mount_kernel.cpp or mount_rootless.cpp,
+# never both.
+if not use_fuse
+  unit_src += ['unit/mount_kernel.cpp']
+endif
 
 unit = executable('unit',
         sources: unit_src,

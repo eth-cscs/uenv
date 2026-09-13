@@ -13,12 +13,12 @@
 #include <linux/loop.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
-#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
 #include <fmt/format.h>
+#include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
 #include <uenv/mount.h>
@@ -26,12 +26,17 @@
 #include <uenv/parse.h>
 #include <util/defer.h>
 #include <util/expected.h>
+#include <util/privilege.h>
 
 namespace uenv {
 
-util::expected<void, std::string> unshare_and_become_root() {
+util::expected<void, std::string> unshare_mount_namespace() {
+    // unshare(CLONE_NEWNS) and the MS_SLAVE remount both need CAP_SYS_ADMIN in
+    // the effective set, which only an effective uid of 0 provides
+    // (capabilities(7), "Effect of user ID changes").
     if (unshare(CLONE_NEWNS) != 0) {
-        return util::unexpected("Failed to unshare the mount namespace");
+        return util::unexpected(fmt::format(
+            "failed to unshare the mount namespace: {}", strerror(errno)));
     }
 
     if (auto r = uenv::mount(std::nullopt, "/", std::nullopt, MS_SLAVE | MS_REC,
@@ -40,23 +45,55 @@ util::expected<void, std::string> unshare_and_become_root() {
         return r;
     }
 
-    // Set real user to root before mounting, otherwise it fails.
-    if (setreuid(0, 0) != 0) {
-        return util::unexpected("Failed to setreuid");
-    }
     return {};
 }
 
-util::expected<void, std::string> return_to_user_and_no_new_privs(uid_t uid) {
-    // set real, effective, saved user id back to the calling user.
-    if (setresuid(uid, uid, uid) != 0) {
-        return util::unexpected("setresuid failed");
+//
+// open_images
+//
+
+util::expected<std::vector<opened_image>, std::string>
+open_images(const mount_list& mount_entries) {
+    // Precondition: the calling thread has the identity of the user whose
+    // images these are. An effective uid of 0 with a different real uid means
+    // that privilege has not been dropped, and opening the images would bypass
+    // the user's access check.
+    auto ids = util::current_ids();
+    if (!ids) {
+        return util::unexpected(ids.error());
+    }
+    if (ids->effective.uid == 0 && ids->real.uid != 0) {
+        return util::unexpected(
+            "internal error: refusing to open uenv images as root on behalf of "
+            "another user");
     }
 
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-        return util::unexpected("PR_SET_NO_NEW_PRIVS failed");
+    std::vector<opened_image> images;
+    images.reserve(mount_entries.size());
+
+    for (auto& entry : mount_entries) {
+        // O_NOFOLLOW rejects a final-component symlink swap. entry.sqfs is the
+        // already-canonicalized path (see make_mount_pair), so under honest
+        // use the final component is a regular file and O_NOFOLLOW never
+        // triggers. This guarantees that the open is made with the
+        // caller's credentials, a symlink the caller can create points only
+        // at things the caller could have named directly, but it costs
+        // nothing and mirrors util-linux's loopdev symlink-attack fix
+        // (LOOPDEV_FL_NOFOLLOW, advisory GHSA-qq4x-vfq4-9h9g).
+        util::unique_fd fd{
+            open(entry.sqfs.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW)};
+        if (!fd) {
+            return util::unexpected(fmt::format("unable to open the uenv image "
+                                                "{}: {}",
+                                                entry.sqfs, strerror(errno)));
+        }
+        spdlog::debug("open_images: opened {} as uid {}", entry.sqfs,
+                      ids->real.uid);
+        images.push_back(opened_image{
+            .fd = std::move(fd), .sqfs = entry.sqfs, .mount = entry.mount});
     }
-    return {};
+
+    return images;
 }
 
 namespace {
@@ -87,7 +124,15 @@ struct loop_device {
     int fd;
 };
 
-// Attach a squashfs file, opened read-only, to a free loop device.
+// Attach a squashfs image, already opened read-only, to a free loop device.
+//
+// The descriptor is supplied by the caller rather than opened here:
+// open_images() opens the image with the *calling user's* credentials, and this
+// function then binds that descriptor with LOOP_CONFIGURE while running as
+// root. DAC is checked at open(2) only, so the mount inherits the caller's
+// authority over the image and no privileged re-open of a caller-named path
+// ever happens. `display_name` is the canonical path, used for lo_file_name and
+// diagnostics.
 //
 // We use direct loop ioctls + mount(2) instead of libmount's context API
 // because libmount >= 2.42 marks any setuid process as "restricted" (via
@@ -99,36 +144,15 @@ struct loop_device {
 // node, so a concurrent process (another job step or uenv invocation) can
 // claim the device before our LOOP_CONFIGURE.
 util::expected<loop_device, std::string>
-attach_loop_device(const std::string& squashfs_file) {
-    // Open the backing file exactly once and use this same fd both to validate
-    // the image (below) and to bind the loop device (via LOOP_CONFIGURE).
-    // Binding the fd we validated - rather than re-opening the path - closes
-    // the time-of-check/time-of-use gap that would otherwise let an attacker
-    // swap the path between validation and bind.
-    //
-    // O_NOFOLLOW rejects a final-component symlink swap. squashfs_file is the
-    // already-canonicalized path (see make_mount_pair), so under honest use its
-    // final component is a regular file and O_NOFOLLOW never triggers; it fires
-    // only if the path was replaced by a symlink after canonicalization. This
-    // matters because the open happens as root inside the setuid helper, and
-    // mirrors util-linux's loopdev symlink-attack fix (LOOPDEV_FL_NOFOLLOW,
-    // advisory GHSA-qq4x-vfq4-9h9g). Note this only guards the final path
-    // component; intermediate directory-symlink swaps are not covered (neither
-    // does the upstream O_NOFOLLOW fix).
-    const int sqfs_fd =
-        open(squashfs_file.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-    if (sqfs_fd < 0) {
-        return util::unexpected(
-            fmt::format("open {}: {}", squashfs_file, strerror(errno)));
-    }
-    // after LOOP_CONFIGURE the kernel holds its own reference to the backing
-    // file, so the fd is closed on every exit path
-    auto close_sqfs = util::defer([sqfs_fd] { close(sqfs_fd); });
-
-    // Validate the image on the fd we are about to bind, so what we check is
-    // exactly what we mount. make_mount_pair performs the same checks earlier
-    // by path for a fast, friendly error, but those are advisory: the path can
-    // change between then and now, so the security-relevant check is here.
+attach_loop_device(const int sqfs_fd, const std::string& squashfs_file) {
+    // Validate the image on the fd we are about to bind.
+    // Binding the fd we validated, rather than re-opening the path, closes the
+    // time-of-check/time-of-use gap that would otherwise let the path be
+    // swapped between validation and bind.
+    // make_mount_pair performs the same checks earlier by path to give
+    // user-friendly error messages for accidental user errors.
+    // This check ensures that nothing nefarious is going on, and is the
+    // authoritative validation of a caller-provided fd.
     struct stat st = {};
     if (fstat(sqfs_fd, &st) != 0) {
         return util::unexpected(
@@ -229,12 +253,12 @@ attach_loop_device(const std::string& squashfs_file) {
 } // namespace
 
 util::expected<void, std::string>
-do_mount(const std::vector<mount_pair>& mount_entries) {
-    if (mount_entries.size() == 0) {
+do_mount(const std::vector<opened_image>& images) {
+    if (images.size() == 0) {
         return {};
     }
 
-    for (auto& entry : mount_entries) {
+    for (auto& entry : images) {
         std::string mount_point = entry.mount;
         std::string squashfs_file = entry.sqfs;
 
@@ -245,7 +269,7 @@ do_mount(const std::vector<mount_pair>& mount_entries) {
                                     mount_point);
         }
 
-        auto loop = attach_loop_device(squashfs_file);
+        auto loop = attach_loop_device(entry.fd.get(), squashfs_file);
         if (!loop) {
             return util::unexpected(
                 fmt::format("{}: {}", mount_point, loop.error()));

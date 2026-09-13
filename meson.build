@@ -151,6 +151,7 @@ lib_uenv_src = [
         'src/util/lex.cpp',
         'src/util/lustre.cpp',
         'src/util/parse.cpp',
+        'src/util/privilege.cpp',
         'src/util/proc_barrier.cpp',
         'src/util/ready_fork.cpp',
         'src/util/semver.cpp',
