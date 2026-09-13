@@ -16,12 +16,16 @@ function setup() {
 
     # set up location for creation of working repos
     export TMP=$DATA/scratch
-    rm -rf $TMP
-    mkdir -p $TMP
+    reset_scratch_dir $TMP
 }
 
 function teardown() {
-    :
+    # the root-owned fixtures live in a root-owned mode-700 directory, so
+    # setup()'s rm -rf cannot clear them if a test failed before its own
+    # cleanup ran.
+    if [ -d "${TMP:-}/rootonly" ] && sudo -n true 2>/dev/null; then
+        sudo -n rm -rf "$TMP/rootonly"
+    fi
 }
 
 @test "noargs" {
@@ -155,3 +159,112 @@ $my_uid"
     assert_success
 }
 
+
+#
+# the calling user's access to the image is what governs the mount
+#
+# squashfs-mount is setuid root, so it could open any image on the node. These
+# tests check that it does not: the images are opened with the calling user's
+# credentials, before any privilege is reclaimed.
+#
+
+@test "unreadable image is refused" {
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    cp $SQFS_PATH/app42.squashfs $TMP/unreadable.squashfs
+    chmod 000 $TMP/unreadable.squashfs
+
+    run squashfs-mount --sqfs=$TMP/unreadable.squashfs:/user-environment -- true
+    assert_failure
+    assert_output --partial "Permission denied"
+
+    # it must fail before mounting, not after
+    run findmnt -r /user-environment
+    assert_failure
+}
+
+@test "image in an untraversable directory is refused" {
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/closed
+    cp $SQFS_PATH/app42.squashfs $TMP/closed/image.squashfs
+    # the image itself is world readable: only the directory is closed, which
+    # is the half of the bypass a file-mode check would miss
+    chmod 644 $TMP/closed/image.squashfs
+    chmod 000 $TMP/closed
+
+    run squashfs-mount --sqfs=$TMP/closed/image.squashfs:/user-environment -- true
+    chmod 700 $TMP/closed
+
+    assert_failure
+    assert_output --partial "Permission denied"
+}
+
+@test "root-owned image is refused" {
+    squashfs_mount_bin=$(command -v squashfs-mount)
+    if [[ ! -u "$squashfs_mount_bin" ]]; then
+        skip "squashfs-mount is not installed setuid"
+    fi
+
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    make_root_only_image $SQFS_PATH/app42.squashfs $TMP/rootonly
+
+    run squashfs-mount --sqfs=$ROOT_ONLY_IMAGE:/user-environment -- true
+    remove_root_only_image $TMP/rootonly
+
+    assert_failure
+    refute_output --partial "hello app"
+}
+
+@test "a root-owned image is not an existence oracle" {
+    squashfs_mount_bin=$(command -v squashfs-mount)
+    if [[ ! -u "$squashfs_mount_bin" ]]; then
+        skip "squashfs-mount is not installed setuid"
+    fi
+
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    make_root_only_image $SQFS_PATH/app42.squashfs $TMP/rootonly
+
+    # A file that exists and one that does not, both inside a directory the
+    # caller cannot traverse, must fail the same way. As root the helper could
+    # tell them apart and hand the difference back to the caller, which makes
+    # it an existence oracle for any path on the node.
+    run squashfs-mount --sqfs=$ROOT_ONLY_IMAGE:/user-environment -- true
+    assert_failure
+    assert_output --partial "Permission denied"
+    refute_output --partial "No such file"
+
+    run squashfs-mount --sqfs=$TMP/rootonly/absent.squashfs:/user-environment -- true
+    remove_root_only_image $TMP/rootonly
+    assert_failure
+    assert_output --partial "Permission denied"
+    refute_output --partial "No such file"
+}
+
+@test "squashfs-mount keeps the calling user's gid, after mounting" {
+    squashfs_mount_bin=$(command -v squashfs-mount)
+    if [[ ! -u "$squashfs_mount_bin" ]]; then
+        skip "squashfs-mount is not installed setuid"
+    fi
+
+    # The binary is setuid but not setgid, so the caller's group set is
+    # already correct and must survive to the exec'd command. A setegid()
+    # introduced around the mount, or a gid dropped in the wrong order, would
+    # show up here.
+    my_gid=$(id -g)
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    run squashfs-mount --sqfs=$SQFS_PATH/app42.squashfs:/user-environment -- sh -c "id -g; id -rg"
+    assert_success
+    assert_output "$my_gid
+$my_gid"
+}
+
+@test "group-readable image mounts" {
+    # Positive control for the group half of the access check: an image the
+    # caller reaches only through a supplementary group must still mount. This
+    # is what a check that used the primary gid alone would wrongly refuse.
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    make_group_readable_image $SQFS_PATH/app42.squashfs $TMP/group.squashfs
+
+    run squashfs-mount --sqfs=$GROUP_IMAGE:/user-environment -- /user-environment/env/app/bin/app
+    assert_output "hello app"
+    assert_success
+}

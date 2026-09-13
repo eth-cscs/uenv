@@ -5,6 +5,15 @@ function setup() {
     set -u
     export CLUSTER_NAME=arapiles
 
+    # use an isolated XDG_CONFIG_HOME so tests are not affected by the
+    # developer's real uenv config (e.g. an elastic URL that would cause
+    # unexpected telemetry posts).
+    # this must come first: teardown() runs even if setup() fails part way, and
+    # it only removes the directory recorded in SLURM_TEST_XDG_CONFIG - never
+    # whatever XDG_CONFIG_HOME was inherited from the caller.
+    export SLURM_TEST_XDG_CONFIG=$(mktemp -d)
+    export XDG_CONFIG_HOME=$SLURM_TEST_XDG_CONFIG
+
     bats_load_library bats-support
     bats_load_library bats-assert
     load ./common
@@ -17,13 +26,7 @@ function setup() {
 
     # set up location for creation of working repos
     export TMP=$DATA/scratch
-    rm -rf $TMP
-    mkdir -p $TMP
-
-    # use an isolated XDG_CONFIG_HOME so tests are not affected by the
-    # developer's real uenv config (e.g. an elastic URL that would cause
-    # unexpected telemetry posts)
-    export XDG_CONFIG_HOME=$(mktemp -d)
+    reset_scratch_dir $TMP
 
     # force the system name to arapiles via the isolated user config.
     # a system config (e.g. /etc/uenv/config.toml on Alps) sets system_name and
@@ -42,7 +45,13 @@ EOF
 
 function teardown() {
     stop_elastic_mock
-    rm -rf "${XDG_CONFIG_HOME:-}"
+    if [[ -n "${SLURM_TEST_XDG_CONFIG:-}" ]]; then
+        rm -rf "$SLURM_TEST_XDG_CONFIG"
+    fi
+    # root-owned fixtures: setup()'s rm -rf cannot remove what root created
+    if [ -d "${TMP:-}/rootowned" ] && sudo -n true 2>/dev/null; then
+        sudo -n rm -rf "$TMP/rootowned"
+    fi
 }
 
 @test "noargs" {
@@ -453,4 +462,72 @@ EOF
     assert_success
     run elastic_mock assert "$elastic_capture" mount /user-environment --record 1
     assert_success
+}
+
+#
+# the job user's access to the image is what governs the mount
+#
+# The plugin mounts from a SPANK hook that Slurm runs as root, before it drops
+# privileges. `--uenv=<file>:<mount>` is what carries a caller-named image to
+# that hook: the submit-side checks only stat the file, so an image the user can
+# see but not read passes them and reaches the compute node. The hook must
+# refuse it there.
+#
+# Note that setting UENV_MOUNT_LIST directly is not a way in - with no uenv
+# requested and none loaded, the local context unsets it before the step is
+# launched.
+#
+# The remote hook reports its errors through Slurm, which surfaces them to the
+# user only as a launch failure, so these assert on the step failing and on
+# nothing being mounted rather than on the message.
+#
+
+@test "unreadable image is refused" {
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    cp $SQFS_PATH/app42.squashfs $TMP/unreadable.squashfs
+    chmod 000 $TMP/unreadable.squashfs
+
+    run_srun_unchecked --uenv=$TMP/unreadable.squashfs:/user-environment true
+    assert_failure
+}
+
+@test "root-owned image is refused" {
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    make_root_owned_image $SQFS_PATH/app42.squashfs $TMP/rootowned/image.squashfs
+
+    run_srun_unchecked --uenv=$ROOT_OWNED_IMAGE:/user-environment ls /user-environment
+    remove_root_only_image $TMP/rootowned
+
+    assert_failure
+    # the contents of an image the user cannot read must not come back
+    refute_output --partial "meta"
+}
+
+@test "a failed mount leaves slurmstepd's credentials intact" {
+    # The hook assumes the job user's credentials on a thread of its own, so
+    # that slurmstepd itself stays root. If it ever dropped the whole process
+    # instead, the next step on the node would misbehave in ways that are hard
+    # to attribute - so check the obvious end-to-end consequence here.
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    cp $SQFS_PATH/app42.squashfs $TMP/unreadable.squashfs
+    chmod 000 $TMP/unreadable.squashfs
+
+    run_srun_unchecked --uenv=$TMP/unreadable.squashfs:/user-environment true
+    assert_failure
+
+    run_srun_unchecked --repo=$REPOS/apptool --uenv=app/42.0 \
+        bash -c 'findmnt -r | grep /user-environment'
+    assert_output --partial "/user-environment"
+}
+
+@test "group-readable image mounts" {
+    # Positive control for the supplementary-group half of the check: an image
+    # the job user reaches only through a secondary group must still mount,
+    # without the job having to pass --gid. This is what a check using the
+    # primary gid alone would wrongly refuse.
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    make_group_readable_image $SQFS_PATH/app42.squashfs $TMP/group.squashfs
+
+    run_srun_unchecked --uenv=$GROUP_IMAGE:/user-environment /user-environment/env/app/bin/app
+    assert_output --partial "hello app"
 }

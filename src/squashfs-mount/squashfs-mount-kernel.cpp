@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include <unistd.h>
+
 #include <CLI/CLI.hpp>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
@@ -16,6 +18,7 @@
 #include <uenv/parse.h>
 #include <util/color.h>
 #include <util/envvars.h>
+#include <util/privilege.h>
 #include <util/shell.h>
 
 // print a formtted error message and exit with return code 1
@@ -36,8 +39,41 @@ int main(int argc, char** argv, char** envp) {
 
     const auto calling_env = envvars::state(envp);
 
-    // get the uid before performing any privilege/namespace changes
-    const uid_t uid = getuid();
+    // read the ids before performing any privilege/namespace changes
+    const auto caller = util::current_ids();
+    if (!caller) {
+        error_and_exit("{}", caller.error());
+    }
+
+    //
+    // Drop the effective uid to the calling user
+    //
+
+    // A setuid-root binary starts with euid 0. Everything below - argument
+    // parsing, mount-list validation, and above all opening the caller's
+    // squashfs images - is then done with the caller's own authority, so the
+    // kernel decides at open(2) whether this user may read this image. Root
+    // privilege is needed only for the loop device and mount(2) syscalls, and
+    // util::become_root() reclaims it there from the saved set-user-id.
+    //
+    // Only the uid moves. This binary is setuid but not setgid, so the egid
+    // and the supplementary groups are already the caller's: the access check
+    // requires them, and the exec'd command keeps them. Do not add
+    // setegid()/setgroups() here.
+    if (caller->effective.gid != caller->real.gid) {
+        error_and_exit("refusing to run: squashfs-mount must not be installed "
+                       "setgid (egid {} is not the calling gid {})",
+                       caller->effective.gid, caller->real.gid);
+    }
+    // Record whether root can be reclaimed later, while the effective uid
+    // still shows it. Only mounting requires root, so a binary that is not
+    // installed setuid can still run a command with no images: the check is
+    // made when a mount is requested.
+    const bool can_become_root =
+        caller->effective.uid == 0 || caller->real.uid == 0;
+    if (auto r = util::set_effective_uid(caller->real.uid); !r) {
+        error_and_exit("{}", r.error());
+    }
 
     //
     // Command line argument parsing
@@ -110,26 +146,54 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
 
     //
+    // open the images, still as the calling user
+    //
+
+    // This is the access check: the images are opened here, before any
+    // privilege is reclaimed, and it is these descriptors - not the paths -
+    // that are bound to the loop devices further down.
+    std::vector<uenv::opened_image> images;
+    if (!mounts.empty()) {
+        auto r = uenv::open_images(mounts);
+        if (!r) {
+            error_and_exit("{}", r.error());
+        }
+        images = std::move(r).value();
+    }
+
+    //
     // mount the squashfs images with the kernel squashfs driver:
-    //  * unshare the mount namespace and become the real root user, so that
+    //  * become the real root user and unshare the mount namespace, so that
     //    the images can be mounted;
     //  * attach each image to a loop device and mount it with mount(2);
     //  * drop back to the calling user and disallow gaining new privileges.
     //
-    if (!mounts.empty()) {
-        if (auto r = uenv::unshare_and_become_root(); !r) {
+    if (!images.empty()) {
+        if (!can_become_root) {
+            error_and_exit("unable to mount: squashfs-mount is not installed "
+                           "setuid root (mode 4755, owned by root), so it "
+                           "cannot mount squashfs images");
+        }
+        if (auto r = util::become_root(); !r) {
             error_and_exit("{}", r.error());
         }
-        if (auto r = uenv::do_mount(mounts); !r) {
+        if (auto r = uenv::unshare_mount_namespace(); !r) {
+            error_and_exit("{}", r.error());
+        }
+        if (auto r = uenv::do_mount(images); !r) {
             error_and_exit("mount failed {}", r.error());
         }
+        // the mounts hold their own references to the backing files now: after
+        // LOOP_CONFIGURE the kernel keeps a reference, and LO_FLAGS_AUTOCLEAR
+        // releases the loop device when the mount goes away.
+        images.clear();
     } else {
         spdlog::warn("nothing mounted (no --sqfs flag provided)");
     }
 
-    // the setuid binary always starts with an elevated effective uid, so it
-    // has to be dropped even when there is nothing to mount.
-    if (auto r = uenv::return_to_user_and_no_new_privs(uid); !r) {
+    // Give up root for good before the exec. The saved uid is 0 on both paths,
+    // and the real uid is also 0 after mounting.
+    if (auto r = util::drop_privileges(caller->real); !r) {
         error_and_exit("{}", r.error());
     }
 

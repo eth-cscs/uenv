@@ -28,10 +28,16 @@ namespace uenv {
 // The existance of the mount points is not checked, because these need to be
 // checked when mounting.
 // Note: the squashfs validation here is advisory - it produces a fast, clear
-// error before we unshare and become root. It is NOT security-relevant,
-// because the path can change between this check and the mount. The
-// authoritative check is performed on the exact fd that is bound to the loop
-// device, in attach_loop_device().
+// error before anything is mounted. It is NOT security-relevant, because the
+// path can change between this check and the mount. The authoritative check is
+// performed on the exact fd that is bound to the loop device, in
+// attach_loop_device().
+// Both privileged kernel-backend callers (the setuid helper and the Slurm
+// plugin) run this function with the calling user's credentials, so every path
+// it touches, and every error message it produces, is limited to what that
+// user could have discovered for themselves. Do not move it back above a
+// privilege elevation: as root it becomes an existence/type/first-4-bytes
+// oracle for arbitrary paths.
 util::expected<mount_pair, std::string>
 make_mount_pair(const mount_description& d) {
     namespace fs = std::filesystem;
@@ -45,22 +51,42 @@ make_mount_pair(const mount_description& d) {
 
     const auto sqfs = fs::weakly_canonical(fs::path(d.sqfs_path), ec);
     if (ec) {
-        return util::unexpected{fmt::format("invalid squashfs {} ({})",
-                                            d.mount_path, ec.message())};
+        return util::unexpected{
+            fmt::format("invalid squashfs {} ({})", d.sqfs_path, ec.message())};
     }
 
-    if (!fs::is_regular_file(sqfs, ec)) {
+    // Distinguish "cannot look at it" from "is not a regular file". fs::status
+    // reports EACCES through `ec` and then is_regular_file(status) is false, so
+    // folding the two together would report a file the caller may not read - or
+    // whose directory they may not traverse - as "is not a regular file". That
+    // is now the ordinary outcome for an image the caller has no access to,
+    // because these checks run with the caller's credentials, so the
+    // diagnosis has to be accurate.
+    const auto status = fs::status(sqfs, ec);
+    if (ec) {
+        return util::unexpected{fmt::format("unable to read squashfs {} ({})",
+                                            sqfs.string(), ec.message())};
+    }
+    if (!fs::is_regular_file(status)) {
         return util::unexpected{fmt::format(
             "invalid squashfs {} (is not a regular file)", sqfs.string())};
     }
 
     // A valid squashfs file contains the magic string "hsqs" in the first 4
-    // bytes.
-    if (std::filesystem::file_size(sqfs) < 4) {
+    // bytes. Use the error_code overload: the throwing one would terminate the
+    // setuid helper, which has no handler, if the file went away or became
+    // unreadable after the check above.
+    if (fs::file_size(sqfs, ec) < 4 || ec) {
         return util::unexpected{fmt::format(
             "unable to read squashfs {} (not a valid squashfs file)",
             sqfs.string())};
     }
+    // Note that a file the caller has no access to gets this far: its metadata
+    // is readable whenever the containing directory can be traversed, so it is
+    // the open below - not the checks above - that reports the refusal. Say
+    // why it failed: "unable to read" on its own sends users looking for a
+    // corrupt image rather than a permission problem.
+    errno = 0;
     if (auto file = std::ifstream{sqfs, std::ios::binary}) {
         std::array<char, 4> magic{};
         file.read(reinterpret_cast<char*>(magic.data()), magic.size());
@@ -73,8 +99,10 @@ make_mount_pair(const mount_description& d) {
                 sqfs.string())};
         }
     } else {
-        return util::unexpected{
-            fmt::format("unable to read squashfs {}", sqfs.string())};
+        const int open_errno = errno;
+        return util::unexpected{fmt::format(
+            "unable to read squashfs {}{}", sqfs.string(),
+            open_errno ? fmt::format(" ({})", strerror(open_errno)) : "")};
     }
 
     return mount_pair{.sqfs = sqfs, .mount = mount};
