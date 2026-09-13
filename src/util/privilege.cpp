@@ -137,6 +137,16 @@ util::expected<void, std::string> drop_privileges(ids target) {
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
         return util::unexpected("PR_SET_NO_NEW_PRIVS failed");
     }
+
+    // A setuid process is not dumpable, and stays that way through the id
+    // changes above. Now that every id is the target's and no privilege can be
+    // regained, the process is an ordinary one of the target user, and is
+    // marked as such: the execve that normally follows would do the same, and
+    // a process that exits instead needs it for anything that attaches to it
+    // as that user, such as the leak check a sanitizer build runs at exit.
+    if (prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0) {
+        return util::unexpected("PR_SET_DUMPABLE failed");
+    }
     return {};
 }
 

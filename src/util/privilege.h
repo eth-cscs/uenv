@@ -84,8 +84,11 @@ util::expected<void, std::string> become_root();
 /// The real, effective and saved gid are set before the uid, because once the
 /// effective uid is not root the process can no longer change its gids at all.
 /// All three of each are set, so that nothing the process execs afterwards can
-/// regain either from a saved id. The change is read back and verified, and
-/// PR_SET_NO_NEW_PRIVS is applied last.
+/// regain either from a saved id. The change is read back and verified, then
+/// PR_SET_NO_NEW_PRIVS is applied, and finally the process is made dumpable
+/// again: it is now an ordinary process of `target`, as an execve would make
+/// it, and a caller that exits instead of exec'ing can be attached to by that
+/// user (which the leak check of a sanitizer build needs).
 ///
 /// The supplementary groups are left as they are: this is for a process whose
 /// groups are already the caller's own.

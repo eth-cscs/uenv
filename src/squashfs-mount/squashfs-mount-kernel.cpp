@@ -21,13 +21,36 @@
 #include <util/privilege.h>
 #include <util/shell.h>
 
+namespace {
+
+// The calling user's real ids, recorded before any privilege change so that
+// an exit can give up root.
+std::optional<util::ids> caller_ids;
+
+// Exit without exec'ing a command.
+//
+// The only exits that do not exec are --version and errors, and both are
+// reached with root still available from the saved set-user-id. Give it up
+// exactly as the exec path does, so that the process ends as an ordinary one
+// of the caller: a sanitizer build runs its leak check at exit, and the
+// check can only attach to such a process. The result of the drop is not
+// checked, as there is nothing left to protect on the way out.
+[[noreturn]] void exit_as_caller(int code) {
+    if (caller_ids) {
+        [[maybe_unused]] auto r = util::drop_privileges(caller_ids.value());
+    }
+    exit(code);
+}
+
 // print a formtted error message and exit with return code 1
 template <typename... T>
 void error_and_exit(fmt::format_string<T...> fmt, T&&... args) {
     fmt::print(stderr, "{}: {}\n", ::color::red("error"),
                fmt::vformat(fmt, fmt::make_format_args(args...)));
-    exit(1);
+    exit_as_caller(1);
 }
+
+} // namespace
 
 // squashfs-mount --sqfs=file:mount[,file:mount] -- cmd [args]
 //
@@ -44,6 +67,7 @@ int main(int argc, char** argv, char** envp) {
     if (!caller) {
         error_and_exit("{}", caller.error());
     }
+    caller_ids = caller->real;
 
     //
     // Drop the effective uid to the calling user
@@ -100,7 +124,7 @@ int main(int argc, char** argv, char** envp) {
 
     if (print_version) {
         fmt::println("{}", UENV_VERSION);
-        return 0;
+        exit_as_caller(0);
     }
 
     //

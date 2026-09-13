@@ -100,7 +100,8 @@ TEST_CASE("become_root fails without a saved root uid", "[privilege]") {
     REQUIRE(util::current_ids() == before);
 }
 
-TEST_CASE("drop_privileges sets all ids and no_new_privs", "[privilege]") {
+TEST_CASE("drop_privileges sets all ids, no_new_privs and dumpable",
+          "[privilege]") {
     const auto ids = util::current_ids();
     REQUIRE(ids.has_value());
 
@@ -109,6 +110,11 @@ TEST_CASE("drop_privileges sets all ids and no_new_privs", "[privilege]") {
     const pid_t pid = fork();
     REQUIRE(pid >= 0);
     if (pid == 0) {
+        // start non-dumpable, as a setuid process is, to check that the drop
+        // makes it dumpable again
+        if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0) {
+            _exit(5);
+        }
         if (!util::drop_privileges(ids->real)) {
             _exit(1);
         }
@@ -122,6 +128,9 @@ TEST_CASE("drop_privileges sets all ids and no_new_privs", "[privilege]") {
         }
         if (prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 1) {
             _exit(4);
+        }
+        if (prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) != 1) {
+            _exit(6);
         }
         _exit(0);
     }
