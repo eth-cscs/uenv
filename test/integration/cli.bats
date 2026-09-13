@@ -735,3 +735,32 @@ EOF
     refute_output --partial "--username"
     assert_output --partial "unable to get a listing"
 }
+
+@test "malformed user config is reported, not fatal" {
+    # a broken user config is a warning and uenv keeps working: a DEL where a
+    # key is expected, a dotted key deeper than the parser's nesting limit, an
+    # empty repositories array, and a non-ascii byte in a key position.
+    local cfg=$XDG_CONFIG_HOME/uenv/config.toml
+
+    printf '[\n\x7f' > $cfg
+    run uenv status
+    assert_success
+    assert_output --partial "config.toml"
+    assert_output --partial "line 1"
+
+    python3 -c "print('[' + '.'.join(['a']*100000) + ']\nx = 1')" > $cfg
+    run uenv status
+    assert_success
+    assert_output --partial "dotted key depth"
+
+    printf 'system_name = "arapiles"\nrepositories = []\n' > $cfg
+    run uenv status
+    assert_success
+    refute_output --partial "config.toml"
+
+    # a non-ascii byte in a key position
+    printf '1\xc3\x81\t' > $cfg
+    run uenv status
+    assert_success
+    assert_output --partial "config.toml"
+}

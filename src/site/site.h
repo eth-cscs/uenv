@@ -2,6 +2,8 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <uenv/repository.h>
 #include <util/expected.h>
@@ -14,6 +16,12 @@ namespace site {
 // is here rather than a literal inside registry_listing.
 inline constexpr std::string_view default_listing_url =
     "https://uenv-list.svc.cscs.ch/list";
+
+// parse the JSON document returned by the listing service into the records
+// that belong to `nspace`. Records that fail to parse are dropped with a
+// warning; a document that is not the expected shape is an error.
+util::expected<std::vector<uenv::uenv_record>, std::string>
+parse_registry_listing(std::string_view body, const std::string& nspace);
 
 // query the uenv listing service for the uenv available in a namespace.
 // listing_url overrides the service base URL (default: default_listing_url

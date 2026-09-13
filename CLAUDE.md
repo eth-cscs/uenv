@@ -418,6 +418,7 @@ All dependencies are built as static libraries via meson wrap:
 - libcurl - HTTP operations
 - zlib - gzip handling in the native OCI registry client (`src/oci`)
 - libarchive - tar packing/unpacking of the `uenv/meta` artifact, in-process via `src/util/archive.*` (replaces the external `tar`/`gzip` binaries)
+- tomlplusplus (toml++) - TOML parsing for the config files; carries a local patch, see "The toml++ subproject is patched" below
 - Catch2 - testing (when tests enabled)
 - barkeep - progress indicators (header-only in `extern/`)
 - OpenSSL - the TLS backend for libcurl; no uenv code calls it directly
@@ -451,6 +452,26 @@ Consequences worth knowing:
   extracted subproject** - the packagefiles are copied over the unpacked tarball
   only when it is first extracted. Delete `subprojects/openssl-<version>/` to pick
   changes up.
+
+### The toml++ subproject is patched
+
+`subprojects/tomlplusplus.wrap` applies
+`subprojects/packagefiles/tomlplusplus-3.4.0-parser-fixes.diff` (a `diff_files`
+entry) when the tarball is extracted. The header of the diff describes the
+parser defects it fixes - assertions on unexpected input, a stack overflow and
+an unreachable branch, all reachable from a user-written `config.toml` and all
+found by fuzzing. Regression tests live in `test/unit/settings.cpp` ("read config files
+v2 malformed") and `test/integration/cli.bats` ("malformed user config").
+
+- **Editing the diff has no effect on an already extracted subproject**: delete
+  `subprojects/tomlplusplus-3.4.0/` and run `meson setup --reconfigure build`
+  to re-extract and re-apply it (the tarball is cached in
+  `subprojects/packagecache`).
+- **Bumping toml++** means re-checking each hunk against the new version and
+  dropping the ones upstream has fixed; a hunk that no longer applies fails the
+  extraction.
+- `subprojects/.gitignore` anchors the `tomlplusplus-*` pattern so that the
+  diff under `packagefiles/` is tracked.
 
 ## Development Notes
 

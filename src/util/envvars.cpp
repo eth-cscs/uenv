@@ -251,7 +251,7 @@ struct parser {
 
         // ignore the name if we ran off the end of the input without hitting
         // the closing delimiter
-        if (end_delim()) {
+        if (current != e && end_delim()) {
             std::string_view result{start, current};
             // eat the } or @}
             current += (mode == expand_delim::curly) ? 1 : 2;

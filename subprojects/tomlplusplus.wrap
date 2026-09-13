@@ -5,6 +5,9 @@ source_filename = tomlplusplus-3.4.0.tar.gz
 source_hash = 8517f65938a4faae9ccf8ebb36631a38c1cadfb5efa85d9a72e15b9e97d25155
 source_fallback_url = https://github.com/mesonbuild/wrapdb/releases/download/tomlplusplus_3.4.0-1/tomlplusplus-3.4.0.tar.gz
 wrapdb_version = 3.4.0-1
+# local fixes for parser defects reachable from a uenv config file; the header
+# of the diff describes them.
+diff_files = tomlplusplus-3.4.0-parser-fixes.diff
 
 [provide]
 dependency_names = tomlplusplus

@@ -67,3 +67,19 @@ TEST_CASE("local_rank_count parse errors", "[tasks_per_node]") {
     // being strict here keeps the entry parser simple
     REQUIRE_FALSE(util::local_rank_count("4,2,", "2"));
 }
+
+// the running node count is accumulated in 64 bits: node counts that sum past
+// 2^32 do not wrap, so a node in a later section is still found
+TEST_CASE("local_rank_count node count does not wrap", "[tasks_per_node]") {
+    {
+        auto r = util::local_rank_count("1(x4294967295),7(x5)", "4294967295");
+        REQUIRE(r);
+        REQUIRE(r.value() == 7u);
+    }
+    {
+        auto r = util::local_rank_count("1(x4294967295),7(x5)", "4294967294");
+        REQUIRE(r);
+        REQUIRE(r.value() == 1u);
+    }
+    REQUIRE_FALSE(util::local_rank_count("1(x4294967295),7(x5),3", "0x"));
+}

@@ -1,4 +1,5 @@
 #include <charconv>
+#include <climits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -69,10 +70,6 @@ util::expected<std::uint32_t, parse_error> parse_uint32(lex::lexer& L) {
     return parse_int<std::uint32_t>(L);
 }
 
-util::expected<std::uint64_t, parse_error> parse_uint64(lex::lexer& L) {
-    return parse_int<std::uint64_t>(L);
-}
-
 // all of the symbols that can occur in a path.
 // this is a subset of the characters that posix allows (which is
 // effectively every character). But it is a sane subset. If the user
@@ -93,14 +90,39 @@ bool is_sha(lex::tok t) {
 }
 
 util::expected<std::string, parse_error> parse_path(lex::lexer& L) {
+    const auto start = L.peek();
     if (!is_path_start_tok(L.current_kind())) {
-        const auto t = L.peek();
         return util::unexpected(parse_error{
             L.string(),
             fmt::format("expected a path which must start with a '/' or '.'"),
-            t});
+            start});
     }
-    return parse_string(L, "path", is_path_tok);
+    auto path = parse_string(L, "path", is_path_tok);
+    if (!path) {
+        return path;
+    }
+
+    // a path the operating system cannot represent is rejected here, at the
+    // boundary: the std::filesystem calls that consume paths throw on
+    // ENAMETOOLONG, and nothing downstream is prepared to catch that.
+    if (path->size() >= PATH_MAX) {
+        return util::unexpected(parse_error{
+            L.string(),
+            fmt::format("path is longer than the maximum of {} characters",
+                        PATH_MAX - 1),
+            start});
+    }
+    for (const auto& component : util::split(path.value(), '/')) {
+        if (component.size() > NAME_MAX) {
+            return util::unexpected(parse_error{
+                L.string(),
+                fmt::format("path component '{}...' is longer than the "
+                            "maximum of {} characters",
+                            component.substr(0, 16), NAME_MAX),
+                start});
+        }
+    }
+    return path;
 }
 
 util::expected<std::string, parse_error> parse_path(const std::string& in) {
@@ -233,15 +255,20 @@ parse_uenv_nslabel(const std::string& in) {
     auto L = lex::lexer(in);
     std::optional<std::string> nspace;
 
-    // check whether in begins with 'name::'
+    // check whether in begins with 'name::'. the name is consumed to find
+    // out, and the lexer rewound if it is not followed by '::'. peeking ahead
+    // one token further on each iteration instead would re-lex from the
+    // current position every time, which is quadratic in the length of the
+    // name.
     if (is_name_start_tok(L.peek().kind)) {
-        // consume the name tokens
-        auto i = 1u;
-        while (is_name_tok(L.peek(i).kind)) {
-            ++i;
+        const auto start = L.peek().loc;
+        while (is_name_tok(L.current_kind())) {
+            L.next();
         }
-        // check for following colons
-        if (L.peek(i) == lex::tok::colon && L.peek(i + 1) == lex::tok::colon) {
+        const bool has_nspace =
+            L == lex::tok::colon && L.peek(1) == lex::tok::colon;
+        L.seek(start);
+        if (has_nspace) {
             // parse the namespace name
             PARSE(L, name, nspace);
             // gobble the ::
@@ -559,17 +586,17 @@ util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg) {
     auto L = lex::lexer(sanitised);
     uenv_date date;
 
-    PARSE(L, uint64, date.year);
+    PARSE(L, uint32, date.year);
     if (L.peek() != lex::tok::dash) {
         goto unexpected_symbol;
     }
     L.next();
-    PARSE(L, uint64, date.month);
+    PARSE(L, uint32, date.month);
     if (L.peek() != lex::tok::dash) {
         goto unexpected_symbol;
     }
     L.next();
-    PARSE(L, uint64, date.day);
+    PARSE(L, uint32, date.day);
 
     // time to finish - date was in 'yyyy-mm-dd' format
     if (L.peek() == lex::tok::end) {
@@ -586,17 +613,17 @@ util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg) {
     // eat whitespace
     L.next();
 
-    PARSE(L, uint64, date.hour);
+    PARSE(L, uint32, date.hour);
     if (L.peek() != lex::tok::colon) {
         goto unexpected_symbol;
     }
     L.next();
-    PARSE(L, uint64, date.minute);
+    PARSE(L, uint32, date.minute);
     if (L.peek() != lex::tok::colon) {
         goto unexpected_symbol;
     }
     L.next();
-    PARSE(L, uint64, date.second);
+    PARSE(L, uint32, date.second);
 
     if (!(L.peek() == lex::tok::end || L.peek() == lex::tok::dot)) {
         goto unexpected_symbol;

@@ -1,4 +1,3 @@
-#include <cctype>
 #include <string_view>
 
 #include <util/lex.h>
@@ -14,20 +13,34 @@ bool operator==(const token& lhs, tok rhs) {
     return lhs.kind == rhs;
 }
 
-inline bool is_alphanumeric(char c) {
-    return std::isalnum(static_cast<unsigned char>(c));
+// the character classes are ascii-only and independent of the process locale.
+// every input lexed here (labels, paths, urls, http headers) is ascii by
+// specification, and std::isalpha() and friends classify bytes above 0x7f
+// differently depending on the locale of the host process.
+inline bool is_alpha(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
-inline bool is_alpha(char c) {
-    return std::isalpha(static_cast<unsigned char>(c));
+inline bool is_digit(char c) {
+    return c >= '0' && c <= '9';
 }
 
 inline bool is_valid_symbol(char c) {
+    return c == '_' || is_alpha(c);
+}
+
+// the whitespace characters that parse() dispatches to whitespace()
+inline bool is_space(char c) {
     switch (c) {
-    case '_':
+    case ' ':
+    case '\f':
+    case '\n':
+    case '\r':
+    case '\t':
+    case '\v':
         return true;
     default:
-        return is_alpha(c);
+        return false;
     }
 }
 
@@ -93,8 +106,6 @@ class lexer_impl {
 
     // Consume and return the next token in the stream.
     void parse() {
-        using namespace std::string_literals;
-
         while (!empty()) {
             switch (*stream_) {
             case ' ':  // space
@@ -106,10 +117,6 @@ class lexer_impl {
                 token_ = whitespace();
                 return;
 
-            // end of file
-            case 0:
-                character_token(tok::end);
-                return;
             case ':':
                 character_token(tok::colon);
                 ++stream_;
@@ -215,39 +222,33 @@ class lexer_impl {
                 return;
 #pragma GCC diagnostic pop
             default:
+                // every other byte, including NUL and all non-ascii bytes,
+                // is a one character error token. it is consumed like any
+                // other token so that the lexer always makes progress: the
+                // parsers loop on token kinds, and a token that is returned
+                // again and again without the stream advancing is an
+                // infinite loop for every one of them.
                 character_token(tok::error);
+                ++stream_;
                 return;
             }
         }
 
-        if (!empty()) {
-            token_ = {
-                loc(), tok::error,
-                "Internal lexer error: expected end of input, please open a bug report"s};
-            return;
-        }
-        token_ = {loc(), tok::end, std::string_view(&*stream_, 0)};
-        return;
+        token_ = {loc(), tok::end, input_.substr(input_.size())};
     }
 
+    // a single character token at the current position
     void character_token(tok kind) {
-        if (kind != tok::end) {
-            token_ = {loc(), kind, std::string_view(&*stream_, 1)};
-        } else {
-            token_ = {loc(), kind, std::string_view("end", 3)};
-        }
+        token_ = {loc(), kind, input_.substr(loc(), 1)};
     }
 
-    char character() {
-        return *(stream_++);
-    }
-
+    // the loops below must test empty() before dereferencing stream_: the
+    // input is a string_view, which has no terminator to stop on.
     token symbol() {
-        using namespace std::string_literals;
         const auto start_loc = loc();
         const auto start = stream_;
 
-        while (is_valid_symbol(*stream_)) {
+        while (!empty() && is_valid_symbol(*stream_)) {
             ++stream_;
         }
 
@@ -256,14 +257,11 @@ class lexer_impl {
     }
 
     token integer() {
-        using namespace std::string_literals;
         const auto start_loc = loc();
         const auto start = stream_;
 
-        auto v = *stream_;
-        while (v <= '9' && v >= '0') {
+        while (!empty() && is_digit(*stream_)) {
             ++stream_;
-            v = *stream_;
         }
 
         return {start_loc, tok::integer,
@@ -271,11 +269,10 @@ class lexer_impl {
     }
 
     token whitespace() {
-        using namespace std::string_literals;
         const auto start_loc = loc();
         const auto start = stream_;
 
-        while (std::iswspace(*stream_)) {
+        while (!empty() && is_space(*stream_)) {
             ++stream_;
         }
 

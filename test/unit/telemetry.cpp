@@ -40,3 +40,44 @@ TEST_CASE("tostring", "[telemetry]") {
         REQUIRE(lhs.name == rhs.name);
     }
 }
+
+// UENV_TELEMETRY is read from the environment of a slurm job or `uenv status`,
+// so it is user input: anything that is not the exact shape written by
+// to_string must be an error rather than an assertion failure.
+TEST_CASE("parse_telemetry malformed", "[telemetry]") {
+    for (
+        const auto& body : {
+            "",
+            "not json",
+            "{}",
+            "42",
+            "[1]",
+            "[null]",
+            "[[]]",
+            "[{}]",
+            R"([{"sqfs": "/y", "digest": null, "label": null, "name": "n", "views": []}])",
+            R"([{"mount": "/x", "digest": null, "label": null, "name": "n", "views": []}])",
+            R"([{"mount": "/x", "sqfs": "/y", "label": null, "name": "n", "views": []}])",
+            R"([{"mount": "/x", "sqfs": "/y", "digest": null, "name": "n", "views": []}])",
+            R"([{"mount": "/x", "sqfs": "/y", "digest": null, "label": null, "views": []}])",
+            R"([{"mount": "/x", "sqfs": "/y", "digest": null, "label": null, "name": "n"}])",
+            R"([{"mount": 1, "sqfs": "/y", "digest": null, "label": null, "name": "n", "views": []}])",
+            R"([{"mount": "/x", "sqfs": "/y", "digest": 1, "label": null, "name": "n", "views": []}])",
+            R"([{"mount": "/x", "sqfs": "/y", "digest": "zz", "label": null, "name": "n", "views": []}])",
+            R"([{"mount": "/x", "sqfs": "/y", "digest": null, "label": "not a label", "name": "n", "views": []}])",
+            R"([{"mount": "/x", "sqfs": "/y", "digest": null, "label": null, "name": "", "views": []}])",
+            R"([{"mount": "/x", "sqfs": "/y", "digest": null, "label": null, "name": "n", "views": [1]}])",
+            R"([{"mount": "/x", "sqfs": "/y", "digest": null, "label": null, "name": "n", "views": [""]}])",
+            R"([{"mount": "relative", "sqfs": "/y", "digest": null, "label": null, "name": "n", "views": []}])",
+        }) {
+        INFO(body);
+        auto out = uenv::parse_telemetry(body);
+        REQUIRE(!out);
+        REQUIRE(!out.error().empty());
+    }
+
+    // an empty array is a valid, empty, result
+    auto out = uenv::parse_telemetry("[]");
+    REQUIRE(out);
+    REQUIRE(out->empty());
+}

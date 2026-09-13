@@ -192,13 +192,20 @@ std::string make_unique_name(const std::filesystem::path& path,
 void repo_list::accumulate(const std::vector<repo_description>& incoming) {
     // Remove existing entries that conflict with any incoming entry.
     // Incoming wins: same name → update path; same canonical path → rename.
+    // a path that cannot be canonicalised (too long for the filesystem, an
+    // unreadable component) is compared as written.
+    auto canonicalise = [](const fs::path& p) {
+        std::error_code ec;
+        auto c = fs::weakly_canonical(p, ec);
+        return ec ? p : c;
+    };
     for (const auto& inc : incoming) {
-        auto canonical = fs::weakly_canonical(inc.path);
+        auto canonical = canonicalise(inc.path);
         repos_.erase(std::remove_if(repos_.begin(), repos_.end(),
                                     [&](const auto& existing) {
                                         return existing.name == inc.name ||
-                                               fs::weakly_canonical(
-                                                   existing.path) == canonical;
+                                               canonicalise(existing.path) ==
+                                                   canonical;
                                     }),
                      repos_.end());
     }

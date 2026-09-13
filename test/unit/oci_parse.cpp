@@ -130,3 +130,55 @@ TEST_CASE("oci parse_scopes", "[oci][parse]") {
     REQUIRE(parse_scopes("  a   b\tc ") ==
             std::vector<std::string>{"a", "b", "c"});
 }
+
+// a byte the lexer does not tokenise (anything non-ascii, '\\', '<', ...)
+// inside an unquoted parameter value is rejected. this is a header supplied
+// by the registry, so the parser must return, with an error, on every input.
+TEST_CASE("oci parse_bearer_challenge terminates on invalid bytes",
+          "[oci][parse]") {
+    using namespace std::string_literals;
+    REQUIRE_FALSE(
+        parse_bearer_challenge("Bearer realm=http://x/token\xc3\xbc,service=y")
+            .has_value());
+    REQUIRE_FALSE(parse_bearer_challenge("Bearer realm=http://x/token\\,s=y")
+                      .has_value());
+    REQUIRE_FALSE(
+        parse_bearer_challenge("Bearer realm=http://x/t\0ok,s=y"s).has_value());
+    REQUIRE_FALSE(parse_bearer_challenge("Bearer \x80").has_value());
+    // an unquoted value stops at whitespace, like a token does
+    REQUIRE_FALSE(
+        parse_bearer_challenge("Bearer realm=http://x/token y,service=y")
+            .has_value());
+    // an invalid byte inside a quoted value is read raw, and reaches the url
+    // parser, which rejects it
+    REQUIRE_FALSE(
+        parse_bearer_challenge("Bearer realm=\"http://x/tok\xc3\xbcn\"")
+            .has_value());
+    // but a quoted service or scope may carry it (it is only ever
+    // percent-encoded into a query)
+    auto c = parse_bearer_challenge(
+        "Bearer realm=\"http://x/token\",service=\"r\xc3\xa9g\"");
+    REQUIRE(c.has_value());
+    REQUIRE(c->service == "r\xc3\xa9g");
+}
+
+// parse_scopes never fails and always returns: an invalid byte is kept as
+// part of the scope it appears in.
+TEST_CASE("oci parse_scopes terminates on invalid bytes", "[oci][parse]") {
+    using namespace std::string_literals;
+    REQUIRE(parse_scopes("a\x80") == std::vector<std::string>{"a\x80"});
+    REQUIRE(parse_scopes("a\x80 b") == std::vector<std::string>{"a\x80", "b"});
+    REQUIRE(parse_scopes("a\0b"s) == std::vector<std::string>{"a\0b"s});
+}
+
+// digests and tags are ascii: a NUL or a non-ascii byte is not a valid tag
+// character, and must not truncate the value.
+TEST_CASE("oci parse_tag and parse_digest reject invalid bytes",
+          "[oci][parse]") {
+    using namespace std::string_literals;
+    const std::string hex(64, 'a');
+    REQUIRE_FALSE(parse_tag("v1\0garbage"s).has_value());
+    REQUIRE_FALSE(parse_tag("v1\xc3\xbc").has_value());
+    REQUIRE_FALSE(parse_digest("sha256:" + hex + "\0"s).has_value());
+    REQUIRE_FALSE(parse_reference("v1\0"s).has_value());
+}

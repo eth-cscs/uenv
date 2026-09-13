@@ -111,3 +111,156 @@ TEST_CASE("lex", "[lex]") {
         REQUIRE(L.current_kind() == lex::tok::end);
     }
 }
+
+// every byte value lexes to exactly one token of the expected kind followed by
+// end: nothing is skipped, nothing is sticky, and bytes outside the ascii
+// alphabet of the grammar (including NUL and everything above 0x7f) are
+// one-character error tokens rather than a stop or a hang.
+TEST_CASE("every byte value", "[lex]") {
+    using lex::tok;
+    for (unsigned b = 0; b < 256; ++b) {
+        const char c = static_cast<char>(b);
+        tok expected = tok::error;
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+            expected = tok::symbol;
+        } else if (c >= '0' && c <= '9') {
+            expected = tok::integer;
+        } else {
+            switch (c) {
+            case ' ':
+            case '\f':
+            case '\n':
+            case '\r':
+            case '\t':
+            case '\v':
+                expected = tok::whitespace;
+                break;
+            case ':':
+                expected = tok::colon;
+                break;
+            case ',':
+                expected = tok::comma;
+                break;
+            case '.':
+                expected = tok::dot;
+                break;
+            case '-':
+                expected = tok::dash;
+                break;
+            case '/':
+                expected = tok::slash;
+                break;
+            case '=':
+                expected = tok::equals;
+                break;
+            case '#':
+                expected = tok::hash;
+                break;
+            case '@':
+                expected = tok::at;
+                break;
+            case '!':
+                expected = tok::bang;
+                break;
+            case '%':
+                expected = tok::percent;
+                break;
+            case '*':
+                expected = tok::star;
+                break;
+            case '+':
+                expected = tok::plus;
+                break;
+            case '?':
+                expected = tok::question;
+                break;
+            case '&':
+                expected = tok::amp;
+                break;
+            case '~':
+                expected = tok::tilde;
+                break;
+            case '[':
+                expected = tok::lbracket;
+                break;
+            case ']':
+                expected = tok::rbracket;
+                break;
+            case '$':
+                expected = tok::dollar;
+                break;
+            case ';':
+                expected = tok::semicolon;
+                break;
+            case '(':
+                expected = tok::lparen;
+                break;
+            case ')':
+                expected = tok::rparen;
+                break;
+            case '\'':
+                expected = tok::squote;
+                break;
+            case '"':
+                expected = tok::dquote;
+                break;
+            default:
+                break;
+            }
+        }
+        const std::string_view input(&c, 1);
+        lex::lexer L(input);
+        INFO("byte 0x" << std::hex << b);
+        const auto t = L.next();
+        REQUIRE(t.kind == expected);
+        REQUIRE(t.loc == 0u);
+        REQUIRE(t.spelling == input);
+        REQUIRE(L.next() == lex::token{1, tok::end, ""});
+    }
+}
+
+// an invalid byte is consumed, so the token after it is reached: a parser
+// that loops on token kinds must always see the stream advance.
+TEST_CASE("error tokens advance", "[lex]") {
+    lex::lexer L("a\\b|\x80\xff");
+    REQUIRE(L.next() == lex::token{0, lex::tok::symbol, "a"});
+    REQUIRE(L.next() == lex::token{1, lex::tok::error, "\\"});
+    REQUIRE(L.next() == lex::token{2, lex::tok::symbol, "b"});
+    REQUIRE(L.next() == lex::token{3, lex::tok::error, "|"});
+    REQUIRE(L.next() == lex::token{4, lex::tok::error, "\x80"});
+    REQUIRE(L.next() == lex::token{5, lex::tok::error, "\xff"});
+    REQUIRE(L.next() == lex::token{6, lex::tok::end, ""});
+}
+
+// a NUL byte inside the input is an invalid character, not the end of the
+// input: "abc\0xyz" must not silently parse as "abc".
+TEST_CASE("embedded NUL", "[lex]") {
+    const std::string input("ab\0cd", 5);
+    lex::lexer L(input);
+    REQUIRE(L.next() == lex::token{0, lex::tok::symbol, "ab"});
+    REQUIRE(L.next() ==
+            lex::token{2, lex::tok::error, std::string_view("\0", 1)});
+    REQUIRE(L.next() == lex::token{3, lex::tok::symbol, "cd"});
+    REQUIRE(L.next() == lex::token{5, lex::tok::end, ""});
+}
+
+// the input is a string_view with no terminator: a symbol, integer or
+// whitespace run at the end of the view must stop at the view's end rather than
+// reading (and spelling) whatever follows in memory.
+TEST_CASE("unterminated input", "[lex]") {
+    {
+        lex::lexer L(std::string_view("wombats", 3));
+        REQUIRE(L.next() == lex::token{0, lex::tok::symbol, "wom"});
+        REQUIRE(L.next() == lex::token{3, lex::tok::end, ""});
+    }
+    {
+        lex::lexer L(std::string_view("123456", 3));
+        REQUIRE(L.next() == lex::token{0, lex::tok::integer, "123"});
+        REQUIRE(L.next() == lex::token{3, lex::tok::end, ""});
+    }
+    {
+        lex::lexer L(std::string_view("    x", 2));
+        REQUIRE(L.next() == lex::token{0, lex::tok::whitespace, "  "});
+        REQUIRE(L.next() == lex::token{2, lex::tok::end, ""});
+    }
+}
