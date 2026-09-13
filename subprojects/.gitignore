@@ -9,7 +9,7 @@ packagecache
 spdlog-*
 sqlite-amalgamation-*
 squashfuse-*
-tomlplusplus-*
+/tomlplusplus-*
 zlib-*
 zstd-*
 .wraplock

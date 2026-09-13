@@ -1,4 +1,5 @@
 #include <charconv>
+#include <climits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -89,14 +90,39 @@ bool is_sha(lex::tok t) {
 }
 
 util::expected<std::string, parse_error> parse_path(lex::lexer& L) {
+    const auto start = L.peek();
     if (!is_path_start_tok(L.current_kind())) {
-        const auto t = L.peek();
         return util::unexpected(parse_error{
             L.string(),
             fmt::format("expected a path which must start with a '/' or '.'"),
-            t});
+            start});
     }
-    return parse_string(L, "path", is_path_tok);
+    auto path = parse_string(L, "path", is_path_tok);
+    if (!path) {
+        return path;
+    }
+
+    // a path the operating system cannot represent is rejected here, at the
+    // boundary: the std::filesystem calls that consume paths throw on
+    // ENAMETOOLONG, and nothing downstream is prepared to catch that.
+    if (path->size() >= PATH_MAX) {
+        return util::unexpected(parse_error{
+            L.string(),
+            fmt::format("path is longer than the maximum of {} characters",
+                        PATH_MAX - 1),
+            start});
+    }
+    for (const auto& component : util::split(path.value(), '/')) {
+        if (component.size() > NAME_MAX) {
+            return util::unexpected(parse_error{
+                L.string(),
+                fmt::format("path component '{}...' is longer than the "
+                            "maximum of {} characters",
+                            component.substr(0, 16), NAME_MAX),
+                start});
+        }
+    }
+    return path;
 }
 
 util::expected<std::string, parse_error> parse_path(const std::string& in) {

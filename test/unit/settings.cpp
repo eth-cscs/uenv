@@ -1,10 +1,13 @@
 #include <filesystem>
+#include <fstream>
+#include <string>
 
 #include <catch2/catch_all.hpp>
 #include <fmt/format.h>
 #include <toml++/toml.hpp>
 
 #include <uenv/settings.h>
+#include <util/envvars.h>
 #include <util/fs.h>
 
 namespace uenv::impl::v1 {
@@ -273,5 +276,130 @@ home = "hello" # this will be an error")"sv;
         // parsing of an invalid toml file
         auto result = read_config_file(config_root / "error.toml", {});
         REQUIRE(!result);
+    }
+}
+
+// malformed documents are reported as a configuration error (or accepted),
+// never an assertion failure, a stack overflow or an exception.
+TEST_CASE("read config files v2 malformed", "[settings]") {
+    using namespace uenv::impl::v2;
+
+    auto dir = util::make_temp_dir().value();
+    auto write = [&](const std::string& name, const std::string& body) {
+        auto path = dir / name;
+        std::ofstream f(path);
+        f << body;
+        return path;
+    };
+
+    {
+        // an empty repositories array is valid and adds nothing
+        auto result =
+            read_config_file(write("empty-repos", "repositories = []\n"), {});
+        REQUIRE(result);
+        REQUIRE(result->repos.empty());
+    }
+    {
+        // a DEL character where a key is expected
+        auto result = read_config_file(write("del", "[\n\x7f"), {});
+        REQUIRE(!result);
+        REQUIRE(result.error().find("line 1") != std::string::npos);
+    }
+    {
+        // a non-ascii code point in a bare key position
+        auto result = read_config_file(write("latin1", "1\xc3\x81\t"), {});
+        REQUIRE(!result);
+    }
+    {
+        // a dotted key with more segments than the parser's nesting limit: the
+        // nested tables are walked and destroyed recursively, so the depth has
+        // to be bounded before it can overflow the stack
+        std::string deep = "[";
+        for (int i = 0; i < 200000; ++i) {
+            deep += "a.";
+        }
+        deep += "a]\nx = 1\n";
+        auto result = read_config_file(write("deep-key", deep), {});
+        REQUIRE(!result);
+        REQUIRE(result.error().find("dotted key depth") != std::string::npos);
+
+        // the same limit applies to a key-value pair
+        std::string deep_kv;
+        for (int i = 0; i < 200000; ++i) {
+            deep_kv += "a.";
+        }
+        deep_kv += "a = 1\n";
+        REQUIRE(!read_config_file(write("deep-kv", deep_kv), {}));
+    }
+    {
+        // a date-time separator that is not followed by a time, a value that
+        // looks like a local date-time written with a space but ends in a
+        // comment, and a value terminator where an array element is expected
+        for (const auto& body :
+             {"url = 1979-05-27Turl07:32:00\n", "a = 1979-05-27T\n",
+              "e = 10p7-07-00 5#\n", "a = 1979-05-27 5#\n", "a = [}\n",
+              "a = [[[#\n", "a = [1, ]]\n"}) {
+            INFO(body);
+            REQUIRE(!read_config_file(write("date", body), {}));
+        }
+    }
+    {
+        // deeply nested arrays and inline tables are refused by toml++'s
+        // nesting limit
+        REQUIRE(!read_config_file(
+            write("deep-array", "a = " + std::string(100000, '[') +
+                                    std::string(100000, ']') + "\n"),
+            {}));
+    }
+    {
+        // a repository path the filesystem cannot represent is a config
+        // error, not an exception from std::filesystem
+        for (const auto& path : {"/" + std::string(5000, 'a'),
+                                 "/" + std::string(300, 'a') + "/b"}) {
+            auto result = read_config_file(
+                write("long-path",
+                      "[[repositories]]\nname = 'a'\npath = '" + path + "'\n"),
+                {});
+            REQUIRE(!result);
+            REQUIRE(result.error().find("longer than") != std::string::npos);
+        }
+    }
+    {
+        // an unterminated ${ in a path is passed through, not read past the
+        // end of the value
+        envvars::state env{};
+        env.set("HOME", "/users/wombat");
+        auto result = read_config_file(
+            write("unterminated",
+                  "[[repositories]]\nname = 'a'\npath = '${HOME'\n"),
+            env);
+        REQUIRE(!result);
+    }
+    {
+        // wrong types for every key
+        for (const auto& body : {
+                 "color = 'yes'\n",
+                 "system_name = 1\n",
+                 "system_name = ''\n",
+                 "repositories = 1\n",
+                 "repositories = [1]\n",
+                 "[[repositories]]\nname = 1\npath = '/x'\n",
+                 "[[repositories]]\nname = 'a'\npath = 1\n",
+                 "[[repositories]]\nname = 'a'\n",
+                 "[[repositories]]\npath = '/x'\n",
+                 "registry = 1\n",
+                 "[registry]\nurl = 1\n",
+                 "[registry]\nurl = 'a.b'\n",
+                 "[registry]\nurl = 'ftp://a.b'\ndefault_namespace = 'd'\n",
+                 "[registry]\nurl = 'a.b'\ndefault_namespace = 1\n",
+                 "elastic = 'x'\n",
+                 "[elastic]\nurl = 1\n",
+                 "[elastic]\n",
+             }) {
+            INFO(body);
+            auto result = read_config_file(write("bad", body), {});
+            REQUIRE(!result);
+            REQUIRE(!result.error().empty());
+        }
     }
 }

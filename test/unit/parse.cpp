@@ -29,6 +29,27 @@ TEST_CASE("parse names", "[parse]") {
 }
 
 TEST_CASE("parse path", "[parse]") {
+    // paths the filesystem cannot represent are rejected: longer than PATH_MAX
+    // in total, or with a component longer than NAME_MAX. either would make
+    // the std::filesystem calls that consume the path throw.
+    {
+        // 16 components of 255 characters plus their separators is 4096
+        std::string longest;
+        for (int i = 0; i < 16; ++i) {
+            longest += "/" + std::string(255, 'a');
+        }
+        REQUIRE(!uenv::parse_path(longest));
+        REQUIRE(uenv::parse_path(longest.substr(0, 4095)));
+        std::string components = "/" + std::string(255, 'b');
+        REQUIRE(uenv::parse_path(components));
+        REQUIRE(!uenv::parse_path(components + "c"));
+        for (int i = 0; i < 20; ++i) {
+            components += "/" + std::string(200, 'b');
+        }
+        REQUIRE(!uenv::parse_path(components));
+        REQUIRE(uenv::parse_path("/" + std::string(200, 'x') + "/" +
+                                 std::string(200, 'y')));
+    }
     for (const auto& in :
          {"./etc", "/etc", "/etc.", "/etc/usr/file.txt", "/etc-car/hole_s/_.",
           ".", "./.ssh/config", ".bashrc", ".2", "./2-w_00",

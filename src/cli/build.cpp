@@ -139,7 +139,7 @@ int build(const build_args& args,
     // print summary returned by CICD-ext
     try {
         term::msg("{}", format_reply(res.value()));
-    } catch (nlohmann::json::basic_json::out_of_range& e) {
+    } catch (nlohmann::json::exception& e) {
         term::error("unable to parse build service reply - please forward this "
                     "error message along with the arguments to the CSCS "
                     "Service Desk.\n{}\n{}",
@@ -164,10 +164,11 @@ Label       : {label}
         fmt::arg("log", data.at("build_log_url").get<std::string>()),
         fmt::arg("status", data.at("status").get<std::string>()),
         fmt::arg("registry",
-                 data["destination"].at("registry").get<std::string>()),
+                 data.at("destination").at("registry").get<std::string>()),
         fmt::arg("namespace",
-                 data["destination"].at("namespace").get<std::string>()),
-        fmt::arg("label", data["destination"].at("label").get<std::string>()));
+                 data.at("destination").at("namespace").get<std::string>()),
+        fmt::arg("label",
+                 data.at("destination").at("label").get<std::string>()));
 }
 
 } // namespace uenv

@@ -1,3 +1,8 @@
+#include <fstream>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include <catch2/catch_all.hpp>
 #include <fmt/format.h>
 #include <fmt/std.h>
@@ -67,5 +72,85 @@ TEST_CASE("view e2e", "[env]") {
                 "/user-environment/app/bin:/users/wombat/.local/bin:/scratch/"
                 "name/local:/usr/bin");
         REQUIRE(!E.get("BOOST_ROOT"));
+    }
+}
+
+// malformed meta data must be reported (or tolerated) rather than crash: the
+// json is not schema checked, and nlohmann's const operator[] on a missing key
+// is an assertion failure in debug builds and undefined behaviour otherwise.
+TEST_CASE("load_meta malformed input", "[env]") {
+    auto dir = util::make_temp_dir().value();
+    auto write = [&](const std::string& name, const std::string& body) {
+        auto path = dir / name;
+        std::ofstream f(path);
+        f << body;
+        return path;
+    };
+
+    // inputs that must be rejected with an error
+    for (const auto& [name, body] :
+         std::vector<std::pair<std::string, std::string>>{
+             {"empty", ""},
+             {"truncated", "{\"mount\": \"/user-env"},
+             {"array", "[1, 2, 3]"},
+             {"scalar", "42"},
+             {"null", "null"},
+             {"no-mount", "{\"name\": \"app\"}"},
+             {"mount-not-string", "{\"mount\": 7}"},
+             {"deep", std::string(100000, '[') + std::string(100000, ']')},
+         }) {
+        INFO(name);
+        auto path = write(name, body);
+        auto m = uenv::load_meta(path);
+        REQUIRE(!m);
+        REQUIRE(!m.error().empty());
+    }
+
+    // a missing file is an error, not an exception
+    REQUIRE(!uenv::load_meta(dir / "does-not-exist"));
+
+    // inputs with a malformed or incomplete views section load, with the
+    // offending views or variables ignored.
+    {
+        // env.values without "scalar" and without "list"
+        auto m = uenv::load_meta(write("no-scalar", R"({
+            "mount": "/user-environment",
+            "views": {"v": {"env": {"values": {"list": {"PATH": [{"op": "prepend", "value": ["/bin"]}]}}}},
+                      "w": {"env": {"values": {}}},
+                      "x": {"env": {"values": {"scalar": {"A": "b"}}}}}})"));
+        REQUIRE(m);
+        REQUIRE(m->views.size() == 3);
+        REQUIRE(m->views.contains("v"));
+        REQUIRE(m->views.contains("w"));
+        REQUIRE(m->views.contains("x"));
+    }
+    {
+        // env without "values", env that is not an object, views that are not
+        // objects, entries of the wrong type.
+        auto m = uenv::load_meta(write("odd-types", R"({
+            "mount": "/user-environment",
+            "name": 12,
+            "description": null,
+            "views": {"a": {"env": {}},
+                      "b": {"env": "nope"},
+                      "c": 3,
+                      "d": null,
+                      "e": {"env": {"values": {"list": {"P": [1, {"op": "set"}, {"op": "set", "value": "x"},
+                                                              {"op": "set", "value": [1]}]},
+                                               "scalar": {"S": 1, "T": null, "U": "u"}}}}},
+            "default-view": "missing"})"));
+        REQUIRE(m);
+        REQUIRE(m->name == "unnamed");
+        REQUIRE(m->views.size() == 5);
+        // an invalid default view is dropped, not an error
+        REQUIRE(!m->default_view);
+    }
+    {
+        // "views" that is not an object is ignored
+        auto m = uenv::load_meta(
+            write("views-array", R"({"mount": "/x", "views": [1, 2]})"));
+        REQUIRE(m);
+        REQUIRE(m->views.empty());
+        REQUIRE(m->mount == "/x");
     }
 }

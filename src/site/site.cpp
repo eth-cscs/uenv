@@ -15,35 +15,13 @@
 
 namespace site {
 
-util::expected<uenv::repository, std::string>
-registry_listing(const std::optional<util::url>& listing_url,
-                 const std::string& nspace) {
+util::expected<std::vector<uenv::uenv_record>, std::string>
+parse_registry_listing(std::string_view body, const std::string& nspace) {
     using json = nlohmann::json;
-
-    // perform curl call against middleware end point
-    // example of full url end point call:
-    //   https://uenv-list.svc.cscs.ch/list?namespace=deploy&cluster=todi&arch=gh200&app=prgenv-gnu&version=24.7
-    // we only filter on namespace, and use the database to do more querying
-    // later. the base URL can be overridden via registry.listing_url (e.g. to a
-    // local mock endpoint for testing).
-    const auto base =
-        listing_url.value_or(*util::parse_url(default_listing_url));
-    // query_param picks the separator and encodes, so a listing_url that
-    // already carries a query no longer grows a second '?'.
-    const auto url = base.query_param("namespace", nspace).string();
-    spdlog::debug("registry_listing: {}", url);
-    auto raw_records = util::curl::get(url);
-
-    if (!raw_records) {
-        int ec = raw_records.error().code;
-        spdlog::error("curl error {}: {}", ec, raw_records.error().message);
-        return util::unexpected{fmt::format(
-            "unable to reach {} to get list of available uenv", base.string())};
-    }
 
     std::vector<uenv::uenv_record> records;
     try {
-        auto raw = json::parse(*raw_records);
+        auto raw = json::parse(body);
 
         for (auto& j : raw["results"]) {
             const std::string sha = j["sha256"];
@@ -51,6 +29,9 @@ registry_listing(const std::optional<util::url>& listing_url,
             auto rg = uenv::parse_registry_entry(j["path"]);
             if (!rg) {
                 spdlog::warn("drop due to error: {}", rg.error().message());
+            } else if (!date) {
+                spdlog::warn("drop {} due to invalid date: {}", rg.value(),
+                             date.error().message());
             } else if (rg->nspace == nspace) {
                 auto sha_value = util::sha256::parse(sha);
                 auto id_value = util::uenv_id::parse(sha.substr(0, 16));
@@ -75,18 +56,51 @@ registry_listing(const std::optional<util::url>& listing_url,
             }
         }
     } catch (std::exception& e) {
-        spdlog::error("error results returned from uenv listing: {}", e.what());
-        return util::unexpected(fmt::format("", e.what()));
+        return util::unexpected(fmt::format("{}", e.what()));
+    }
+
+    return records;
+}
+
+util::expected<uenv::repository, std::string>
+registry_listing(const std::optional<util::url>& listing_url,
+                 const std::string& nspace) {
+    // perform curl call against middleware end point
+    // example of full url end point call:
+    //   https://uenv-list.svc.cscs.ch/list?namespace=deploy&cluster=todi&arch=gh200&app=prgenv-gnu&version=24.7
+    // we only filter on namespace, and use the database to do more querying
+    // later. the base URL can be overridden via registry.listing_url (e.g. to a
+    // local mock endpoint for testing).
+    const auto base =
+        listing_url.value_or(*util::parse_url(default_listing_url));
+    // query_param picks the separator and encodes, so a listing_url that
+    // already carries a query no longer grows a second '?'.
+    const auto url = base.query_param("namespace", nspace).string();
+    spdlog::debug("registry_listing: {}", url);
+    auto raw_records = util::curl::get(url);
+
+    if (!raw_records) {
+        int ec = raw_records.error().code;
+        spdlog::error("curl error {}: {}", ec, raw_records.error().message);
+        return util::unexpected{fmt::format(
+            "unable to reach {} to get list of available uenv", base.string())};
+    }
+
+    auto records = parse_registry_listing(*raw_records, nspace);
+    if (!records) {
+        spdlog::error("error results returned from uenv listing: {}",
+                      records.error());
+        return util::unexpected(records.error());
     }
 
     //   generate list of records from json
     auto store = uenv::create_repository();
-    for (auto r : records) {
+    for (auto r : records.value()) {
         store->add(r);
     }
 
     spdlog::debug("registry_listing: {} records found in namespace {}",
-                  records.size(), nspace);
+                  records->size(), nspace);
 
     return store;
 }

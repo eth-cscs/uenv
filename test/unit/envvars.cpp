@@ -413,3 +413,21 @@ TEST_CASE("state::expand-view", "[environment]") {
     REQUIRE(V.expand("/usr/lib:${@CUDA_HOME@}/lib:${@CUDA_HOME@}/lib64",
                      mode) == "/usr/lib:/opt/cuda/lib:/opt/cuda/lib64");
 }
+
+TEST_CASE("state::expand-unterminated", "[environment]") {
+    envvars::state env{};
+    env.set("HOME", "/users/wombat");
+
+    // an opening delimiter that is never closed: the text is dropped and the
+    // scan must stop at the end of the input rather than read past it.
+    REQUIRE(env.expand("${HOME", envvars::expand_delim::curly) == "");
+    REQUIRE(env.expand("a/${HOME", envvars::expand_delim::curly) == "a/");
+    REQUIRE(env.expand("${", envvars::expand_delim::curly) == "");
+    REQUIRE(env.expand("${@HOME", envvars::expand_delim::view) == "");
+    REQUIRE(env.expand("${@HOME}", envvars::expand_delim::view) == "");
+    REQUIRE(env.expand("${@", envvars::expand_delim::view) == "");
+    // a lone '$' or '}' is literal text
+    REQUIRE(env.expand("$", envvars::expand_delim::curly) == "$");
+    REQUIRE(env.expand("}", envvars::expand_delim::curly) == "}");
+    REQUIRE(env.expand("$}", envvars::expand_delim::curly) == "$}");
+}

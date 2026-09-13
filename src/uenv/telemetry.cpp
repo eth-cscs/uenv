@@ -58,7 +58,7 @@ parse_telemetry(const std::string& s) {
         for (auto& entry : data) {
             telemetry_data T;
 
-            const std::string mount = entry["mount"];
+            const std::string mount = entry.at("mount");
             const auto mount_r = uenv::parse_path(mount);
             if (!mount_r) {
                 return util::unexpected{fmt::format("invalid mount '{}': {}",
@@ -67,7 +67,7 @@ parse_telemetry(const std::string& s) {
             }
             T.mount = mount_r.value();
 
-            const std::string sqfs = entry["sqfs"];
+            const std::string sqfs = entry.at("sqfs");
             const auto sqfs_r = uenv::parse_path(sqfs);
             if (!sqfs_r) {
                 return util::unexpected{fmt::format(
@@ -75,14 +75,14 @@ parse_telemetry(const std::string& s) {
             }
             T.sqfs = sqfs_r.value();
 
-            T.digest = to_optional(entry["digest"]);
+            T.digest = to_optional(entry.at("digest"));
             if (T.digest && !util::sha256::parse(T.digest.value())) {
                 return util::unexpected{fmt::format(
                     "invalid digest '{}': expected 64-character hex string",
                     T.digest.value())};
             }
 
-            T.label = to_optional(entry["label"]);
+            T.label = to_optional(entry.at("label"));
             if (T.label) {
                 const auto label_r = uenv::parse_uenv_label(T.label.value());
                 if (!label_r) {
@@ -93,12 +93,12 @@ parse_telemetry(const std::string& s) {
                 T.label = fmt::format("{}", label_r.value());
             }
 
-            T.name = entry["name"].get<std::string>();
+            T.name = entry.at("name").get<std::string>();
             if (T.name.empty()) {
                 return util::unexpected{"uenv name is empty"};
             }
 
-            T.views = entry["views"].get<std::vector<std::string>>();
+            T.views = entry.at("views").get<std::vector<std::string>>();
             for (const auto& v : T.views) {
                 if (v.empty()) {
                     return util::unexpected{"view name is empty"};

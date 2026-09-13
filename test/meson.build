@@ -119,6 +119,7 @@ unit_src = [
         'unit/shared_mapping.cpp',
         'unit/shell.cpp',
         'unit/signal.cpp',
+        'unit/site.cpp',
         'unit/strings.cpp',
         'unit/ready_fork.cpp',
         'unit/repository.cpp',

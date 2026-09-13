@@ -501,13 +501,13 @@ parse_repository_array(const toml::node& input,
                     if (auto v = value.value<std::string>()) {
                         std::string expanded = calling_env.expand(
                             v.value(), envvars::expand_delim::curly);
-                        if (parse_path(expanded)) {
+                        if (auto parsed = parse_path(expanded)) {
                             path = std::move(expanded);
                         } else {
                             return make_config_error(
-                                "repository.path must be a string "
-                                "describing a "
-                                "valid path",
+                                fmt::format("repository.path is not a valid "
+                                            "path: {}",
+                                            parsed.error().message()),
                                 value.source().begin.line);
                         }
                     } else {
@@ -735,8 +735,8 @@ parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
             }
         } else if (key == "repositories") {
             if (const auto v = parse_repository_array(value, calling_env)) {
-                spdlog::debug("parse_config_toml: added repo {}",
-                              *(v.value().begin()));
+                spdlog::debug("parse_config_toml: added {} repositories",
+                              v.value().size());
                 config.repos.accumulate(v.value());
             } else {
                 return util::unexpected{v.error()};
