@@ -58,7 +58,7 @@ util::expected<util::user_ids, std::string> job_ids(spank_t sp) {
         slurm_info("uenv: no supplementary groups for the job; access to the "
                    "uenv images will be checked against gid %u only",
                    job.id.gid);
-        job.groups = {job.id.gid};
+        job.groups.assign(1, job.id.gid);
     }
 
     return job;

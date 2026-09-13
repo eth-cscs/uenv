@@ -17,11 +17,11 @@ namespace {
 // normally back into it would re-enter the test machinery inside the child.
 
 std::vector<gid_t> own_groups() {
-    std::vector<gid_t> groups;
     const int n = getgroups(0, nullptr);
+    REQUIRE(n >= 0);
+    std::vector<gid_t> groups(static_cast<std::size_t>(n));
     if (n > 0) {
-        groups.resize(static_cast<std::size_t>(n));
-        getgroups(n, groups.data());
+        REQUIRE(getgroups(n, groups.data()) == n);
     }
     return groups;
 }
