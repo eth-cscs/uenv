@@ -239,15 +239,14 @@ util::expected<void, std::string> make_mutable_root() {
     namespace fs = std::filesystem;
     auto original_path = fs::current_path();
     spdlog::info("make mutable root");
-    std::vector<fs::path> paths;
-    std::vector<std::pair<fs::path, fs::path>> symlinks;
+    std::vector<fs::path> topdirs;
+    std::vector<std::pair<fs::path, fs::path>> files_symlinks;
     for (const auto& entry : fs::directory_iterator("/")) {
         if (entry.is_directory() && !entry.is_symlink()) {
-            paths.push_back(entry);
-        }
-        if (entry.is_directory() && entry.is_symlink()) {
+            topdirs.push_back(entry);
+        } else {
             auto dest = fs::read_symlink(entry);
-            symlinks.push_back(std::make_pair(entry, dest));
+            files_symlinks.push_back(std::make_pair(entry, dest));
         }
     }
 
@@ -299,7 +298,7 @@ util::expected<void, std::string> make_mutable_root() {
     // a directory at the symlink's own path (dst below) and binds there, so
     // e.g. /newroot/lib64 ends up a real directory rather than a symlink to
     // usr/lib.
-    for (auto entry : symlinks) {
+    for (auto entry : files_symlinks) {
         auto src = fs::path("/oldroot") / entry.second.relative_path();
         auto dst = fs::path("/newroot") / entry.first.relative_path();
 
@@ -311,13 +310,13 @@ util::expected<void, std::string> make_mutable_root() {
             return r;
         }
 
-        if (auto r = apply_nosuid_recursive(dst); !r) {
-            return r;
-        }
+        // if (auto r = apply_nosuid_recursive(dst); !r) {
+        //     return r;
+        // }
     }
 
     // 2. the rest
-    for (auto entry : paths) {
+    for (auto entry : topdirs) {
         auto src = fs::path("/oldroot") / entry.relative_path();
         auto dst = fs::path("/newroot") / entry.relative_path();
         fs::create_directory(dst);
