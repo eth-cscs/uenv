@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
@@ -156,27 +157,21 @@ mounts_under(const std::filesystem::path& root) {
             parent.covered = true;
         }
 
-        bool covered = false;
-        for (auto sit = parent.children.begin();
-             sit != parent.children.end();) {
-            auto& sibling = nodes[*sit];
-            if (has_path_prefix(nodes[i].mountpoint, sibling.mountpoint)) {
-                // this mount is nested inside (or equal to) a sibling: the
-                // sibling already covers it.
-                covered = true;
-                break;
-            }
-            if (has_path_prefix(sibling.mountpoint, nodes[i].mountpoint)) {
-                // the sibling is nested inside this mount: this mount
-                // supersedes it.
-                sit = parent.children.erase(sit);
-                continue;
-            }
-            ++sit;
-        }
+        // this mount is nested inside (or equal to) a sibling: the sibling
+        // already covers it.
+        const bool covered = std::any_of(
+            parent.children.begin(), parent.children.end(),
+            [&](std::size_t sidx) {
+                return has_path_prefix(nodes[i].mountpoint,
+                                       nodes[sidx].mountpoint);
+            });
         if (covered) {
             continue;
         }
+        // any sibling nested inside this mount is superseded by it.
+        std::erase_if(parent.children, [&](std::size_t sidx) {
+            return has_path_prefix(nodes[sidx].mountpoint, nodes[i].mountpoint);
+        });
         parent.children.push_back(i);
     }
 
