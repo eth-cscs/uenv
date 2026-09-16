@@ -87,16 +87,24 @@ void collect_mounts(const std::vector<mount_node>& nodes, std::size_t idx,
     }
 }
 
-// Build the list of (mountpoint, current flags) for `root` and every mount
-// stacked at or below it, read from /proc/self/mountinfo. Mounts are
-// attached to their real kernel parent mount, and a mount stacked directly
-// on top of another mount at the exact same path "covers" (hides) the one
-// underneath, mirroring what the kernel itself exposes. This is the C++/
-// libmount equivalent of bwrap's parse_mountinfo()/collect_mounts():
-// https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L207
-util::expected<std::vector<std::pair<std::filesystem::path, unsigned long>>,
-               std::string>
-mounts_under(const std::filesystem::path& root) {
+// A single flattened entry of /proc/self/mountinfo, independent of any
+// particular root - the raw material `mounts_under()` builds a per-root
+// subtree from. Kept separate from `mount_node` (which additionally carries
+// the `covered`/`children` bookkeeping) so that one parse can serve multiple
+// `mounts_under()` queries.
+struct mount_entry {
+    int id{-1};
+    int parent_id{-1};
+    std::filesystem::path mountpoint;
+    unsigned long flags{0};
+};
+
+// Parse /proc/self/mountinfo once. Reading it is the expensive, syscall-heavy
+// part of computing "everything stacked under root X" - callers that need
+// that for several roots (as `make_mutable_root()` does, once per top-level
+// directory) should parse once and pass the result to `mounts_under()`
+// repeatedly instead of re-parsing per root.
+util::expected<std::vector<mount_entry>, std::string> parse_mountinfo() {
     std::unique_ptr<libmnt_table, decltype(&mnt_free_table)> tb(mnt_new_table(),
                                                                 mnt_free_table);
     if (!tb) {
@@ -115,16 +123,41 @@ mounts_under(const std::filesystem::path& root) {
         return util::unexpected{"mnt_new_iter failed"};
     }
 
-    std::vector<mount_node> nodes;
-    std::unordered_map<int, std::size_t> id_to_index;
+    std::vector<mount_entry> entries;
     libmnt_fs* fs = nullptr;
     while (mnt_table_next_fs(tb.get(), itr.get(), &fs) == 0) {
-        mount_node n;
-        n.id = mnt_fs_get_id(fs);
-        n.parent_id = mnt_fs_get_parent_id(fs);
-        n.mountpoint = mnt_fs_get_target(fs);
+        mount_entry e;
+        e.id = mnt_fs_get_id(fs);
+        e.parent_id = mnt_fs_get_parent_id(fs);
+        e.mountpoint = mnt_fs_get_target(fs);
         const char* vfs_options = mnt_fs_get_vfs_options(fs);
-        n.flags = decode_mountoptions(vfs_options ? vfs_options : "");
+        e.flags = decode_mountoptions(vfs_options ? vfs_options : "");
+        entries.push_back(std::move(e));
+    }
+    return entries;
+}
+
+// Build the list of (mountpoint, current flags) for `root` and every mount
+// stacked at or below it, from an already-parsed /proc/self/mountinfo
+// (`parse_mountinfo()`). Mounts are attached to their real kernel parent
+// mount, and a mount stacked directly on top of another mount at the exact
+// same path "covers" (hides) the one underneath, mirroring what the kernel
+// itself exposes. This is the C++/libmount equivalent of bwrap's
+// parse_mountinfo()/collect_mounts():
+// https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L207
+util::expected<std::vector<std::pair<std::filesystem::path, unsigned long>>,
+               std::string>
+mounts_under(const std::vector<mount_entry>& entries,
+             const std::filesystem::path& root) {
+    std::vector<mount_node> nodes;
+    std::unordered_map<int, std::size_t> id_to_index;
+    nodes.reserve(entries.size());
+    for (const auto& e : entries) {
+        mount_node n;
+        n.id = e.id;
+        n.parent_id = e.parent_id;
+        n.mountpoint = e.mountpoint;
+        n.flags = e.flags;
         id_to_index[n.id] = nodes.size();
         nodes.push_back(std::move(n));
     }
@@ -196,8 +229,9 @@ mounts_under(const std::filesystem::path& root) {
 // aborting make_mutable_root, since this is best-effort hardening rather
 // than a security boundary.
 util::expected<void, std::string>
-apply_nosuid_recursive(const std::filesystem::path& dst) {
-    auto mounts = mounts_under(dst);
+apply_nosuid_recursive(const std::vector<mount_entry>& entries,
+                       const std::filesystem::path& dst) {
+    auto mounts = mounts_under(entries, dst);
     if (!mounts) {
         return util::unexpected{mounts.error()};
     }
@@ -311,6 +345,8 @@ util::expected<void, std::string> make_mutable_root() {
     }
 
     // 2. the rest
+    std::vector<fs::path> topdir_dsts;
+    topdir_dsts.reserve(topdirs.size());
     for (auto entry : topdirs) {
         auto src = fs::path("/oldroot") / entry.relative_path();
         auto dst = fs::path("/newroot") / entry.relative_path();
@@ -320,8 +356,19 @@ util::expected<void, std::string> make_mutable_root() {
             !r) {
             return r;
         }
+        topdir_dsts.push_back(std::move(dst));
+    }
 
-        if (auto r = apply_nosuid_recursive(dst); !r) {
+    // All the bind mounts above are in place now, so /proc/self/mountinfo
+    // reflects the full new-root tree - parse it once here rather than once
+    // per top-level directory, and reuse it for every apply_nosuid_recursive
+    // call below.
+    auto mountinfo = parse_mountinfo();
+    if (!mountinfo) {
+        return util::unexpected{mountinfo.error()};
+    }
+    for (const auto& dst : topdir_dsts) {
+        if (auto r = apply_nosuid_recursive(*mountinfo, dst); !r) {
             return r;
         }
     }
