@@ -80,8 +80,11 @@ int main(int argc, char** argv, char** envp) {
                  "join namespaces of tasks on the same node");
     cli.add_option("-s,--sqfs", raw_mounts,
                    "comma separated list of squashfs files to mount");
-    cli.add_option("--tmpfs", tmpfs_arg, "tmpfs mount point[:size]");
-    cli.add_option("--bind-mount", bind_mounts_arg, "bind mount <src>:<dst>");
+    cli.add_option(
+        "--tmpfs", tmpfs_arg,
+        "space-separated list of tmpfs mounts, each <mount>[:<size>] (size in bytes)");
+    cli.add_option("--bind-mount", bind_mounts_arg,
+                   "space-separated list of bind mounts, each <src>:<dst>");
     cli.add_option("commands", commands,
                    "the command to run, including with arguments");
 
@@ -110,7 +113,7 @@ int main(int argc, char** argv, char** envp) {
 
     // By default there is no logging to the console
     // The level of logging is increased by adding --verbose
-    spdlog::level::level_enum console_log_level = spdlog::level::off;
+    spdlog::level::level_enum console_log_level = spdlog::level::critical;
     if (verbosity == 1) {
         console_log_level = spdlog::level::info;
     } else if (verbosity == 2) {

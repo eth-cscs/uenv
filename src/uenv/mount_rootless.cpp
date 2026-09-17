@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -539,7 +540,20 @@ prepare_mount_points(bool mutable_root, const uenv::mount_list& mounts,
                      const std::vector<uenv::bindmount_pair>& bind_mounts,
                      const std::vector<uenv::tmpfs_tuple>& tmpfs) {
     if (mutable_root) {
-        if (auto r = make_mutable_root(); !r) {
+        // collect top level directories
+        std::set<std::filesystem::path> dst_dirs;
+        for (auto item : mounts) {
+            dst_dirs.emplace(item.mount);
+        }
+        for (auto item : bind_mounts) {
+            dst_dirs.emplace(item.dst);
+        }
+
+        for (auto item : tmpfs) {
+            dst_dirs.emplace(item.mount);
+        }
+
+        if (auto r = make_mutable_root(dst_dirs); !r) {
             return r;
         }
     }
@@ -609,13 +623,11 @@ unshare_and_mount(const uenv::mount_list& mounts,
     return {};
 }
 
-util::expected<void, std::string>
-mount_and_join_ns(const std::string& tag, int ntasks,
-                  const uenv::mount_list& mounts,
-                  const std::vector<uenv::bindmount_pair>& bind_mounts,
-                  const std::vector<uenv::tmpfs_tuple>& tmpfs,
-                  bool fuse_single_threaded, uid_t uid, gid_t gid,
-                  bool mutable_root) {
+util::expected<void, std::string> mount_and_join_ns(
+    const std::string& tag, int ntasks, const uenv::mount_list& mounts,
+    const std::vector<uenv::bindmount_pair>& bind_mounts,
+    const std::vector<uenv::tmpfs_tuple>& tmpfs, bool fuse_single_threaded,
+    uid_t uid, gid_t gid, bool mutable_root) {
     // capture the caller's dumpable state before unshare_and_mount forces it
     // on, so that lock_down can restore it once the mounts are ready.
     // Any non-zero result (SUID_DUMP_USER or SUID_DUMP_ROOT) counts as

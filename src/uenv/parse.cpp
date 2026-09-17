@@ -589,43 +589,19 @@ parse_arg_list(std::string_view what, const std::vector<std::string>& args,
 }
 
 namespace {
-bool first_component_exists_under_root(const std::filesystem::path& p) {
-    namespace fs = std::filesystem;
-    if (!p.is_absolute())
-        return false; // no root component at all
-
-    auto it = p.begin();
-    fs::path root = *it; // "/" — guaranteed since p.is_absolute()
-
-    ++it;
-    if (it == p.end()) {
-        // path was just "/"
-        return fs::exists(root);
-    }
-
-    fs::path candidate = root / *it; // e.g. "/foo", direct child of root
-    return fs::exists(candidate) && fs::is_directory(candidate);
-}
-} // namespace
-
-// the destination of --tmpfs or --bind must be an existent directory.
-// if the mutable root option is used, the first component must not exist
-// in / (root), such that the directory can be created in the tmpfs residing in
-// / (root).
 util::expected<void, std::string>
 validate_mount_target(const std::filesystem::path& dst, bool mutable_root) {
     namespace fs = std::filesystem;
-    if (fs::is_directory(dst)) {
-        return {};
-    }
-    //  we allow creation of directories in / since this is a tmpfs
-    if (mutable_root && !first_component_exists_under_root(dst)) {
+    if (fs::is_directory(dst) || mutable_root) {
         return {};
     }
     return util::unexpected{
         fmt::format("the directory {} does not exist", dst.string())};
 }
+}
 
+// parse tmpfs, if mutable_root is used dst directories need not
+// to exists, otherwise check dst is a directory
 util::expected<std::vector<tmpfs_tuple>, std::string>
 parse_tmpfs_and_validate(const std::vector<std::string>& args,
                          bool mutable_root) {
@@ -642,6 +618,8 @@ parse_tmpfs_and_validate(const std::vector<std::string>& args,
     return *result;
 }
 
+// parse bindmounts, if mutable_root is used dst directories need not
+// to exists, otherwise check dst is a directory
 util::expected<std::vector<bindmount_pair>, std::string>
 parse_bindmounts_and_validate(const std::vector<std::string>& args,
                               bool mutable_root) {

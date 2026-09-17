@@ -1,5 +1,8 @@
 #pragma once
 
+#include <filesystem>
+#include <set>
+
 #include "uenv/mount.h"
 
 namespace uenv {
@@ -43,7 +46,7 @@ mount_and_join_ns(const std::string& tag, int ntasks,
 //
 // Only implemented for the rootless/fuse backend -- the setuid kernel
 // backend does not compile this file in.
-util::expected<void, std::string> make_mutable_root();
+util::expected<void, std::string> make_mutable_root(std::set<std::filesystem::path> = {});
 
 } // namespace rootless
 } // namespace uenv

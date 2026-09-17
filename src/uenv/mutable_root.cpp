@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -189,12 +190,12 @@ mounts_under(const std::vector<mount_entry>& entries,
 
         // this mount is nested inside (or equal to) a sibling: the sibling
         // already covers it.
-        const bool covered = std::any_of(
-            parent.children.begin(), parent.children.end(),
-            [&](std::size_t sidx) {
-                return has_path_prefix(nodes[i].mountpoint,
-                                       nodes[sidx].mountpoint);
-            });
+        const bool covered =
+            std::any_of(parent.children.begin(), parent.children.end(),
+                        [&](std::size_t sidx) {
+                            return has_path_prefix(nodes[i].mountpoint,
+                                                   nodes[sidx].mountpoint);
+                        });
         if (covered) {
             continue;
         }
@@ -219,7 +220,8 @@ mounts_under(const std::vector<mount_entry>& entries,
 // Re-apply MS_NOSUID to `dst` and every mount stacked below it, preserving each
 // mount's own other flags (ro/nodev/noexec/atime...). A remount is skipped when
 // it would be a no-op. Remount failure is logged and skipped rather than
-// aborting make_mutable_root. This is equivalent to what bwrap bind-mount.c is doing
+// aborting make_mutable_root. This is equivalent to what bwrap bind-mount.c is
+// doing
 util::expected<void, std::string>
 apply_nosuid_recursive(const std::vector<mount_entry>& entries,
                        const std::filesystem::path& dst) {
@@ -242,17 +244,61 @@ apply_nosuid_recursive(const std::vector<mount_entry>& entries,
     }
     return {};
 }
+
+// returns the first component of the path in absolute form
+std::filesystem::path get_top_component(const std::filesystem::path& p) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    auto abs_p = fs::absolute(p, ec);
+    // ec is ignored
+
+    if (abs_p.begin() == abs_p.end())
+        return {}; // empty path
+
+    auto it = abs_p.begin();
+    fs::path result = *it; // root, e.g. "/"
+
+    ++it;
+    if (it == abs_p.end()) {
+        // path was just "/" — no component after root
+        return result;
+    }
+
+    result /= *it; // "/foo"
+    return result;
+}
 } // namespace
 
 // Rebuild "/" from bind mounts of everything currently under it, inspired by
 // bubblewrap:
 // https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L378
-util::expected<void, std::string> make_mutable_root() {
+util::expected<void, std::string>
+make_mutable_root(std::set<std::filesystem::path> dst_dirs) {
     namespace fs = std::filesystem;
     // exlcude the uenv directories, we might want to create directories below
-    // them (created writable)
-    static const fs::path excluded_topdirs[] = {"/user-environment",
-                                                "/user-tools"};
+    // them (created writable).
+    // destination directories (tmpfs, bind-mount, mount), which do not already
+    // exist are created with mkdir -p. That means their first component is
+    // excluded from the mutable root.
+    std::vector<fs::path> excluded_topdirs;
+    for (auto p : dst_dirs) {
+        auto d = get_top_component(p);
+        // skip directories which do not exist, but whose first component exists
+        // in / (root)
+        //
+        //  Example: --tmpfs /user-environment/foo/bar
+        //    the directory does not exist, but /user-environment does
+        //    --> exclude /user-environment from the mutable-root, the directory
+        //    will be created in the sandbox using mkdir -p
+        if (!fs::is_directory(p) && fs::is_directory(d)) {
+            spdlog::critical(fmt::format("mutable root: skipping {} and all of "
+                                         "it's contents run `mkdir -p {}`"
+                                         "to avoid that",
+                                         d.string(), p.string()));
+            excluded_topdirs.emplace_back(d);
+        }
+    }
+
     auto original_path = fs::current_path();
     spdlog::info("make mutable root");
     std::vector<fs::path> topdirs;
