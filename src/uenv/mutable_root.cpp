@@ -249,6 +249,10 @@ apply_nosuid_recursive(const std::vector<mount_entry>& entries,
 // https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L378
 util::expected<void, std::string> make_mutable_root() {
     namespace fs = std::filesystem;
+    // exlcude the uenv directories, we might want to create directories below
+    // them (created writable)
+    static const fs::path excluded_topdirs[] = {"/user-environment",
+                                                "/user-tools"};
     auto original_path = fs::current_path();
     spdlog::info("make mutable root");
     std::vector<fs::path> topdirs;
@@ -263,6 +267,10 @@ util::expected<void, std::string> make_mutable_root() {
             files_symlinks.push_back(
                 std::make_pair(entry.path(), fs::read_symlink(entry)));
         } else if (entry.is_directory()) {
+            if (std::ranges::find(excluded_topdirs, entry.path()) !=
+                std::ranges::end(excluded_topdirs)) {
+                continue;
+            }
             topdirs.push_back(entry.path());
         } else {
             // a regular file, fifo, socket, or device node living directly
