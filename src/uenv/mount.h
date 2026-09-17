@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <sys/types.h>
 #include <vector>
@@ -19,6 +21,16 @@ struct mount_description {
 struct mount_pair {
     std::filesystem::path sqfs;
     std::filesystem::path mount;
+};
+
+struct tmpfs_tuple {
+    std::filesystem::path mount;
+    std::optional<std::uint64_t> size;
+};
+
+struct bindmount_pair {
+    std::filesystem::path src;
+    std::filesystem::path dst;
 };
 
 // convert a description to a mount_pair that has a validated squashfs path
@@ -43,6 +55,14 @@ util::expected<void, std::string> mount(std::optional<std::string> source,
                                         std::optional<std::string> fstype,
                                         unsigned long mountflags,
                                         const void* nullable_data);
+
+/// create a tmpfs
+util::expected<void, std::string>
+mount_tmpfs(std::filesystem::path dst, std::optional<std::uint64_t> size);
+
+/// bind mount
+util::expected<void, std::string> bind_mount(std::filesystem::path src,
+                                             std::filesystem::path dst);
 
 } // namespace uenv
 

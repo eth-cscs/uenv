@@ -1,5 +1,7 @@
 #include <charconv>
 #include <climits>
+#include <filesystem>
+#include <random>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -68,6 +70,10 @@ util::expected<T, parse_error> parse_int(lex::lexer& L) {
 
 util::expected<std::uint32_t, parse_error> parse_uint32(lex::lexer& L) {
     return parse_int<std::uint32_t>(L);
+}
+
+util::expected<std::uint64_t, parse_error> parse_uint64(lex::lexer& L) {
+    return parse_int<std::uint64_t>(L);
 }
 
 // all of the symbols that can occur in a path.
@@ -350,6 +356,38 @@ parse_mount_description(lex::lexer& L) {
     return result;
 }
 
+util::expected<tmpfs_tuple, parse_error>
+parse_tmpfs_description(lex::lexer& L) {
+    tmpfs_tuple result;
+
+    PARSE(L, path, result.mount);
+    // size is optional
+    if (L.current_kind() == lex::tok::colon) {
+        // eat the colon
+        L.next();
+
+        PARSE(L, uint64, result.size);
+    }
+    return result;
+}
+
+util::expected<bindmount_pair, parse_error>
+parse_bindmount_description(lex::lexer& L) {
+    bindmount_pair result;
+    PARSE(L, path, result.src);
+    if (L.current_kind() != lex::tok::colon) {
+        return util::unexpected{
+            parse_error(L.string(),
+                        fmt::format("expected a ':' separating the bind-mount "
+                                    "src and dest found {}'",
+                                    L.peek().spelling),
+                        L.peek())};
+    }
+    L.next();
+    PARSE(L, path, result.dst);
+    return result;
+}
+
 /* Public interface.
  * These are the high level functions for parsing raw strings passed to the
  * command line.
@@ -520,6 +558,104 @@ parse_mount_list(const std::string& arg) {
             L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
     }
     return mounts;
+}
+
+// shared by parse_tmpfs and parse_bindmounts: both parse a vector of
+// independent CLI argument strings, each into a single item, requiring the
+// whole (stripped) string to be consumed.
+template <typename T, typename ParseItem>
+util::expected<std::vector<T>, parse_error>
+parse_arg_list(std::string_view what, const std::vector<std::string>& args,
+               ParseItem&& parse_item) {
+    std::vector<T> result;
+    for (auto arg : args) {
+        const std::string sanitised = util::strip(arg);
+        spdlog::trace("{} sanitized `{}`", what, sanitised);
+        auto L = lex::lexer(sanitised);
+        auto item = parse_item(L);
+        if (!item) {
+            return util::unexpected(std::move(item.error()));
+        }
+        result.push_back(std::move(*item));
+        // if parsing finished and the string has not been consumed,
+        // and invalid token was encountered
+        if (const auto t = L.peek(); t.kind != lex::tok::end) {
+            return util::unexpected(parse_error{
+                L.string(), fmt::format("unexpected symbol {}", t.spelling),
+                t});
+        }
+    }
+    return result;
+}
+
+namespace {
+bool first_component_exists_under_root(const std::filesystem::path& p) {
+    namespace fs = std::filesystem;
+    if (!p.is_absolute())
+        return false; // no root component at all
+
+    auto it = p.begin();
+    fs::path root = *it; // "/" — guaranteed since p.is_absolute()
+
+    ++it;
+    if (it == p.end()) {
+        // path was just "/"
+        return fs::exists(root);
+    }
+
+    fs::path candidate = root / *it; // e.g. "/foo", direct child of root
+    return fs::exists(candidate) && fs::is_directory(candidate);
+}
+} // namespace
+
+// the destination of --tmpfs or --bind must be an existent directory.
+// if the mutable root option is used, the first component must not exist
+// in / (root), such that the directory can be created in the tmpfs residing in
+// / (root).
+util::expected<void, std::string>
+validate_mount_target(const std::filesystem::path& dst, bool mutable_root) {
+    namespace fs = std::filesystem;
+    if (fs::is_directory(dst)) {
+        return {};
+    }
+    //  we allow creation of directories in / since this is a tmpfs
+    if (mutable_root && !first_component_exists_under_root(dst)) {
+        return {};
+    }
+    return util::unexpected{
+        fmt::format("the directory {} does not exist", dst.string())};
+}
+
+util::expected<std::vector<tmpfs_tuple>, std::string>
+parse_tmpfs_and_validate(const std::vector<std::string>& args,
+                         bool mutable_root) {
+    auto result = parse_arg_list<tmpfs_tuple>("parse_tmpfs", args,
+                                              parse_tmpfs_description);
+    if (!result) {
+        return util::unexpected{result.error().message()};
+    }
+    for (const auto& t : *result) {
+        if (auto r = validate_mount_target(t.mount, mutable_root); !r) {
+            return util::unexpected{r.error()};
+        }
+    }
+    return *result;
+}
+
+util::expected<std::vector<bindmount_pair>, std::string>
+parse_bindmounts_and_validate(const std::vector<std::string>& args,
+                              bool mutable_root) {
+    auto result = parse_arg_list<bindmount_pair>("parse_bindmounts", args,
+                                                 parse_bindmount_description);
+    if (!result) {
+        return util::unexpected{result.error().message()};
+    }
+    for (const auto& b : *result) {
+        if (auto r = validate_mount_target(b.dst, mutable_root); !r) {
+            return util::unexpected{r.error()};
+        }
+    }
+    return *result;
 }
 
 util::expected<uenv_registry_entry, parse_error>

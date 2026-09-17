@@ -2,6 +2,7 @@
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -99,11 +100,7 @@ struct mount_entry {
     unsigned long flags{0};
 };
 
-// Parse /proc/self/mountinfo once. Reading it is the expensive, syscall-heavy
-// part of computing "everything stacked under root X" - callers that need
-// that for several roots (as `make_mutable_root()` does, once per top-level
-// directory) should parse once and pass the result to `mounts_under()`
-// repeatedly instead of re-parsing per root.
+// Parse /oldroot/proc/self/mountinfo
 util::expected<std::vector<mount_entry>, std::string> parse_mountinfo() {
     std::unique_ptr<libmnt_table, decltype(&mnt_free_table)> tb(mnt_new_table(),
                                                                 mnt_free_table);
@@ -219,15 +216,10 @@ mounts_under(const std::vector<mount_entry>& entries,
     return result;
 }
 
-// Re-apply MS_NOSUID to `dst` and every mount stacked below it, preserving
-// each mount's own other flags (ro/nodev/noexec/atime...) instead of
-// clobbering them with a single hardcoded set - the mount-table-driven
-// equivalent of bwrap's bind_mount(). A remount is skipped when it would be
-// a no-op (flags already match - this is why /proc, /sys, and a tmpfs
-// created with MS_NOSUID all "just work" without special-casing them by
-// name), and a per-mount remount failure is logged and skipped rather than
-// aborting make_mutable_root, since this is best-effort hardening rather
-// than a security boundary.
+// Re-apply MS_NOSUID to `dst` and every mount stacked below it, preserving each
+// mount's own other flags (ro/nodev/noexec/atime...). A remount is skipped when
+// it would be a no-op. Remount failure is logged and skipped rather than
+// aborting make_mutable_root. This is equivalent to what bwrap bind-mount.c is doing
 util::expected<void, std::string>
 apply_nosuid_recursive(const std::vector<mount_entry>& entries,
                        const std::filesystem::path& dst) {
@@ -255,27 +247,30 @@ apply_nosuid_recursive(const std::vector<mount_entry>& entries,
 // Rebuild "/" from bind mounts of everything currently under it, inspired by
 // bubblewrap:
 // https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L378
-//
-// This gives the caller a private, writable root directory tree (the
-// original filesystems are still bind-mounted read/write-as-before
-// underneath, only the directory tree itself -- the set of names at "/" --
-// becomes mutable) so that mount points which do not already exist on the
-// real root can be created for --sqfs before mounting onto them. Must run
-// after unshare_mount_map_root(), inside the mount namespace that owns the
-// mounts being set up: the pivot_root()s below only affect the calling
-// process's own namespace.
 util::expected<void, std::string> make_mutable_root() {
     namespace fs = std::filesystem;
     auto original_path = fs::current_path();
     spdlog::info("make mutable root");
     std::vector<fs::path> topdirs;
+    std::vector<fs::path> topfiles;
     std::vector<std::pair<fs::path, fs::path>> files_symlinks;
     for (const auto& entry : fs::directory_iterator("/")) {
-        if (entry.is_directory() && !entry.is_symlink()) {
-            topdirs.push_back(entry);
+        // Check is_symlink() first: it is lstat-based and never throws, even
+        // for a dangling target. is_directory() follows the link via
+        // status(), which throws ENOENT for exactly that case - so it must
+        // only be called once a symlink has already been ruled out.
+        if (entry.is_symlink()) {
+            files_symlinks.push_back(
+                std::make_pair(entry.path(), fs::read_symlink(entry)));
+        } else if (entry.is_directory()) {
+            topdirs.push_back(entry.path());
         } else {
-            auto dest = fs::read_symlink(entry);
-            files_symlinks.push_back(std::make_pair(entry, dest));
+            // a regular file, fifo, socket, or device node living directly
+            // under "/" - e.g. the empty /.dockerenv marker file some
+            // container runtimes create. Not a directory and not a
+            // symlink, so it needs its own bind-onto-a-file handling below
+            // rather than falling through to read_symlink().
+            topfiles.push_back(entry.path());
         }
     }
 
@@ -289,13 +284,7 @@ util::expected<void, std::string> make_mutable_root() {
 
     // Stage the new root inside a fresh tmpfs mounted over the *original*
     // /tmp. "newroot" is bind-mounted onto itself so that it is a distinct
-    // mount point from its parent tmpfs - pivot_root() requires new_root and
-    // put_old to be on different mounts. "oldroot" becomes the mount point
-    // the previous "/" is moved to. This mirrors bwrap's setup_newroot().
-    //
-    // Reusing the host's real /tmp as the staging tmpfs means /tmp shows up
-    // again later in the generic "paths" loop below as an already-mounted
-    // tmpfs (via /oldroot/tmp) - see the comment there.
+    // mount point from its parent tmpfs. This mirrors bwrap's setup_newroot().
     if (auto r = uenv::mount("tmpfs", "/tmp", "tmpfs", MS_NOSUID | MS_NODEV,
                              nullptr);
         !r) {
@@ -320,13 +309,6 @@ util::expected<void, std::string> make_mutable_root() {
     }
     fs::current_path("/");
 
-    // 1. symlinks
-    //
-    // Diverges from bwrap here: bwrap mounts onto the *resolved* target and
-    // leaves the symlink itself intact in the new root. This instead creates
-    // a directory at the symlink's own path (dst below) and binds there, so
-    // e.g. /newroot/lib64 ends up a real directory rather than a symlink to
-    // usr/lib.
     for (auto entry : files_symlinks) {
         auto src = fs::path("/oldroot") / entry.second.relative_path();
         auto dst = fs::path("/newroot") / entry.first.relative_path();
@@ -338,13 +320,9 @@ util::expected<void, std::string> make_mutable_root() {
             !r) {
             return r;
         }
-
-        // if (auto r = apply_nosuid_recursive(dst); !r) {
-        //     return r;
-        // }
     }
 
-    // 2. the rest
+    // top-level directories
     std::vector<fs::path> topdir_dsts;
     topdir_dsts.reserve(topdirs.size());
     for (auto entry : topdirs) {
@@ -359,10 +337,18 @@ util::expected<void, std::string> make_mutable_root() {
         topdir_dsts.push_back(std::move(dst));
     }
 
-    // All the bind mounts above are in place now, so /proc/self/mountinfo
-    // reflects the full new-root tree - parse it once here rather than once
-    // per top-level directory, and reuse it for every apply_nosuid_recursive
-    // call below.
+    // regular files, fifos, sockets, device nodes directly under "/"
+    for (const auto& entry : topfiles) {
+        auto src = fs::path("/oldroot") / entry.relative_path();
+        auto dst = fs::path("/newroot") / entry.relative_path();
+        std::ofstream(dst).close();
+        if (auto r = uenv::mount(src.string(), dst.string(), std::nullopt,
+                                 MS_BIND | MS_SILENT, nullptr);
+            !r) {
+            return r;
+        }
+    }
+
     auto mountinfo = parse_mountinfo();
     if (!mountinfo) {
         return util::unexpected{mountinfo.error()};

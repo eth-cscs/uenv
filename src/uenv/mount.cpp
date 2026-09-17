@@ -222,4 +222,21 @@ util::expected<void, std::string> mount(std::optional<std::string> source,
     return {};
 }
 
+util::expected<void, std::string>
+mount_tmpfs(std::filesystem::path dst, std::optional<std::uint64_t> size) {
+    std::string options = "mode=0755";
+    if (size) {
+        options = fmt::format("{},size={}", options, size.value());
+    }
+    return uenv::mount("tmpfs", dst.string(), "tmpfs", MS_NOSUID | MS_NODEV,
+                       options.c_str());
+}
+
+util::expected<void, std::string> bind_mount(std::filesystem::path src,
+                                             std::filesystem::path dst) {
+    spdlog::trace("bind_mount({}, {})", src.string(), dst.string());
+    return uenv::mount(src.string(), dst.string(), std::nullopt,
+                       MS_BIND | MS_REC | MS_SILENT, nullptr);
+}
+
 } // namespace uenv

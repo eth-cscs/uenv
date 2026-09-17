@@ -68,6 +68,8 @@ int main(int argc, char** argv, char** envp) {
     int verbosity = 1;
     std::optional<std::string> raw_mounts;
     std::optional<std::vector<std::string>> commands;
+    std::vector<std::string> tmpfs_arg;
+    std::vector<std::string> bind_mounts_arg;
 
     CLI::App cli(fmt::format("squashfs-mount {}", UENV_VERSION));
     cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
@@ -78,6 +80,8 @@ int main(int argc, char** argv, char** envp) {
                  "join namespaces of tasks on the same node");
     cli.add_option("-s,--sqfs", raw_mounts,
                    "comma separated list of squashfs files to mount");
+    cli.add_option("--tmpfs", tmpfs_arg, "tmpfs mount point[:size]");
+    cli.add_option("--bind-mount", bind_mounts_arg, "bind mount <src>:<dst>");
     cli.add_option("commands", commands,
                    "the command to run, including with arguments");
 
@@ -139,7 +143,22 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("uenv_mount_list {}", uenv_mount_list);
     spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
 
-    if (!mounts.empty() || mutable_root) {
+    //
+    // validate the tmpfs and bind mount arguments
+    //
+
+    auto tmpfs = uenv::parse_tmpfs_and_validate(tmpfs_arg, mutable_root);
+    if (!tmpfs) {
+        error_and_exit("failed to parse tmpfs: {}", tmpfs.error());
+    }
+    auto bind_mounts =
+        uenv::parse_bindmounts_and_validate(bind_mounts_arg, mutable_root);
+    if (!bind_mounts) {
+        error_and_exit("failed to parse bind mounts: {}", bind_mounts.error());
+    }
+
+    if (!mounts.empty() || !tmpfs->empty() || !bind_mounts->empty() ||
+        mutable_root) {
         auto join_ctx = uenv::local_join_context(calling_env, tasks_join);
         if (!join_ctx) {
             error_and_exit("{}", join_ctx.error());
@@ -148,13 +167,14 @@ int main(int argc, char** argv, char** envp) {
                       join_ctx->ntasks, join_ctx->tag);
 
         if (auto r = uenv::rootless::mount_and_join_ns(
-                join_ctx->tag, join_ctx->ntasks, mounts, fuse_single_threaded,
-                uid, gid, mutable_root);
+                join_ctx->tag, join_ctx->ntasks, mounts, *bind_mounts, *tmpfs,
+                fuse_single_threaded, uid, gid, mutable_root);
             !r) {
             error_and_exit("mount failed {}", r.error());
         }
     } else {
-        spdlog::warn("nothing mounted (no --sqfs flag provided)");
+        spdlog::warn("nothing mounted (no --sqfs, --tmpfs or --bind-mount flag "
+                     "provided)");
     }
 
     //

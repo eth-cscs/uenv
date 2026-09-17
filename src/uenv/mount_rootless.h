@@ -28,8 +28,11 @@ namespace rootless {
 // callers do not need their own policy for this.
 util::expected<void, std::string>
 mount_and_join_ns(const std::string& tag, int ntasks,
-                  const uenv::mount_list& mounts, bool fuse_single_threaded,
-                  uid_t uid, gid_t gid, bool mutable_root);
+                  const uenv::mount_list& mounts,
+                  const std::vector<uenv::bindmount_pair>& bind_mounts,
+                  const std::vector<uenv::tmpfs_tuple>& tmpfs,
+                  bool fuse_single_threaded, uid_t uid, gid_t gid,
+                  bool mutable_root);
 
 // Rebuild "/" from bind mounts of everything currently under it (inspired by
 // bubblewrap), giving the caller a private, writable root directory tree so

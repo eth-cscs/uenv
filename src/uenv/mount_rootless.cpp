@@ -527,16 +527,55 @@ fork_mount_supervisor(const uenv::mount_list& mounts,
 
 // Called after unshare_mount_map_root(), inside the mount namespace the
 // mounts will live in. When mutable_root is requested, rebuild "/" (see
-// make_mutable_root()) and create every mount point, since a mutable root
-// starts out without them; --sqfs otherwise requires mount points to already
-// exist (see parse_and_validate_mounts's mount_points_must_exist).
+// make_mutable_root()) first, since a mutable root starts out without any of
+// the mount points below. Then perform the bind mounts and tmpfs mounts, and
+// create the directories for the --sqfs mount points (--sqfs itself is
+// mounted separately by the caller, once for every peer's rendezvous, so it
+// is not mounted here); without a mutable root, every one of these mount
+// points must already exist (see parse_and_validate_mounts's
+// mount_points_must_exist).
 util::expected<void, std::string>
-prepare_mount_points(bool mutable_root, const uenv::mount_list& mounts) {
+prepare_mount_points(bool mutable_root, const uenv::mount_list& mounts,
+                     const std::vector<uenv::bindmount_pair>& bind_mounts,
+                     const std::vector<uenv::tmpfs_tuple>& tmpfs) {
+    if (mutable_root) {
+        if (auto r = make_mutable_root(); !r) {
+            return r;
+        }
+    }
+
+    for (auto& entry : bind_mounts) {
+        if (mutable_root) {
+            std::error_code ec;
+            std::filesystem::create_directories(entry.dst, ec);
+            if (ec) {
+                return util::unexpected(
+                    fmt::format("failed to create bind mount point {}: {}",
+                                entry.dst.string(), ec.message()));
+            }
+        }
+        if (auto r = uenv::bind_mount(entry.src, entry.dst); !r) {
+            return r;
+        }
+    }
+
+    for (auto& entry : tmpfs) {
+        if (mutable_root) {
+            std::error_code ec;
+            std::filesystem::create_directories(entry.mount, ec);
+            if (ec) {
+                return util::unexpected(
+                    fmt::format("failed to create tmpfs mount point {}: {}",
+                                entry.mount.string(), ec.message()));
+            }
+        }
+        if (auto r = uenv::mount_tmpfs(entry.mount, entry.size); !r) {
+            return r;
+        }
+    }
+
     if (!mutable_root) {
         return {};
-    }
-    if (auto r = make_mutable_root(); !r) {
-        return r;
     }
     for (auto& entry : mounts) {
         std::error_code ec;
@@ -551,12 +590,15 @@ prepare_mount_points(bool mutable_root, const uenv::mount_list& mounts) {
 }
 
 util::expected<void, std::string>
-unshare_and_mount(const uenv::mount_list& mounts, bool fuse_single_threaded,
-                  bool mutable_root) {
+unshare_and_mount(const uenv::mount_list& mounts,
+                  const std::vector<uenv::bindmount_pair>& bind_mounts,
+                  const std::vector<uenv::tmpfs_tuple>& tmpfs,
+                  bool fuse_single_threaded, bool mutable_root) {
     if (auto r = unshare_mount_map_root(); !r) {
         return r;
     }
-    if (auto r = prepare_mount_points(mutable_root, mounts); !r) {
+    if (auto r = prepare_mount_points(mutable_root, mounts, bind_mounts, tmpfs);
+        !r) {
         return r;
     }
     for (auto& entry : mounts) {
@@ -569,8 +611,11 @@ unshare_and_mount(const uenv::mount_list& mounts, bool fuse_single_threaded,
 
 util::expected<void, std::string>
 mount_and_join_ns(const std::string& tag, int ntasks,
-                  const uenv::mount_list& mounts, bool fuse_single_threaded,
-                  uid_t uid, gid_t gid, bool mutable_root) {
+                  const uenv::mount_list& mounts,
+                  const std::vector<uenv::bindmount_pair>& bind_mounts,
+                  const std::vector<uenv::tmpfs_tuple>& tmpfs,
+                  bool fuse_single_threaded, uid_t uid, gid_t gid,
+                  bool mutable_root) {
     // capture the caller's dumpable state before unshare_and_mount forces it
     // on, so that lock_down can restore it once the mounts are ready.
     // Any non-zero result (SUID_DUMP_USER or SUID_DUMP_ROOT) counts as
@@ -585,8 +630,8 @@ mount_and_join_ns(const std::string& tag, int ntasks,
 
     if (ntasks == 1) {
         // no peers to join, just mount and drop privileges
-        if (auto r =
-                unshare_and_mount(mounts, fuse_single_threaded, mutable_root);
+        if (auto r = unshare_and_mount(mounts, bind_mounts, tmpfs,
+                                       fuse_single_threaded, mutable_root);
             !r) {
             return r;
         }
@@ -605,7 +650,9 @@ mount_and_join_ns(const std::string& tag, int ntasks,
         if (auto r = unshare_mount_map_root(); !r) {
             return r;
         }
-        if (auto r = prepare_mount_points(mutable_root, mounts); !r) {
+        if (auto r =
+                prepare_mount_points(mutable_root, mounts, bind_mounts, tmpfs);
+            !r) {
             return r;
         }
 

@@ -83,6 +83,8 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
 
     if (auto r = uenv::rootless::mount_and_join_ns(
             barrier_tag, static_cast<int>(ntasks), mounts.value(),
+            {} /*bind mounts are not exposed to the slurm plugin*/,
+            {} /*tmpfs mounts are not exposed to the slurm plugin*/,
             true /*use multi threaded fuse*/, uid, gid,
             false /*mutable root is not exposed to the slurm plugin*/);
         !r) {
