@@ -425,12 +425,16 @@ TEST_CASE("parse tmpfs", "[parse]") {
         }
         {
             // a mount point nested inside an existing top-level directory
-            // (/tmp) but which does not itself exist is always rejected,
-            // mutable_root or not: /tmp is bind mounted as-is by a mutable
-            // root, so nothing will create a new path under it
+            // (/tmp) but which does not itself exist is rejected without
+            // --mutable-root (nothing will create it), and permitted with
+            // --mutable-root (which will create the whole chain)
             auto result = uenv::parse_tmpfs_and_validate(
                 {"/tmp/uenv-parse-tmpfs-test-nested/sub"}, mutable_root);
-            REQUIRE(!result);
+            if (mutable_root) {
+                REQUIRE(result);
+            } else {
+                REQUIRE(!result);
+            }
         }
     }
 
@@ -526,12 +530,17 @@ TEST_CASE("parse bind mounts", "[parse]") {
         }
         {
             // a destination nested inside an existing top-level directory
-            // (/tmp) but which does not itself exist is always rejected,
-            // mutable_root or not
+            // (/tmp) but which does not itself exist is rejected without
+            // --mutable-root (nothing will create it), and permitted with
+            // --mutable-root (which will create the whole chain)
             auto result = uenv::parse_bindmounts_and_validate(
                 {"/host/dir:/tmp/uenv-parse-bindmounts-test-nested/sub"},
                 mutable_root);
-            REQUIRE(!result);
+            if (mutable_root) {
+                REQUIRE(result);
+            } else {
+                REQUIRE(!result);
+            }
         }
     }
 
