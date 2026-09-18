@@ -25,8 +25,8 @@ namespace uenv {
 
 std::string status_footer();
 
-void status_args::add_cli(argparse::command& cli, global_settings& settings) {
-    auto& status_cli = cli.add_subcommand(
+argparse::command status_args::cli(global_settings& settings) {
+    argparse::command status_cli(
         "status", "print information about the currently loaded uenv");
     status_cli.add_flag("error-if-unset", error_if_unset,
                         "return a nonzero error code if no uenv is loaded");
@@ -39,6 +39,8 @@ void status_args::add_cli(argparse::command& cli, global_settings& settings) {
                           "one of {full (default), short, views}");
 
     status_cli.footer(status_footer);
+
+    return status_cli;
 }
 
 int status([[maybe_unused]] const status_args& args,

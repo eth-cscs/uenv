@@ -16,7 +16,7 @@ struct image_copy_args {
     std::optional<std::string> token;
     std::optional<std::string> username;
     bool force = false;
-    void add_cli(argparse::command&, global_settings& settings);
+    argparse::command cli(global_settings& settings);
 };
 
 int image_copy(const image_copy_args& args, const global_settings& settings);

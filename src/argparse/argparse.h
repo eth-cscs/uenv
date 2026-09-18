@@ -4,8 +4,17 @@
 //
 // The command line interface is described as a tree of `command`s, each with
 // its own options (flags and options that take a value), positional arguments
-// and subcommands. The tree is built by the application, typically by calling
-// `add_subcommand`, `add_flag`, `add_option`, ... recursively.
+// and subcommands. The application builds each command as a value, filling it
+// in with `add_flag`, `add_option`, ..., and adds it to its parent with
+// `add_subcommand`:
+//
+//   argparse::command ls_cli() {
+//       argparse::command ls("ls", "list images");
+//       ls.add_flag("json", json, "print JSON");
+//       return ls;
+//   }
+//   ...
+//   image.add_subcommand(ls_cli());
 //
 // Parsing is split into two steps:
 //
@@ -234,12 +243,16 @@ class command {
 
     command(const command&) = delete;
     command& operator=(const command&) = delete;
+    // moving a command keeps the parent links of its subcommands valid
+    command(command&&);
+    command& operator=(command&&);
 
     //
     // building the tree
     //
 
-    command& add_subcommand(std::string name, std::string description);
+    // add a subcommand, returning a reference to it in the tree
+    command& add_subcommand(command sub);
 
     // a boolean flag: true if given (or false if given by its negation)
     option& add_flag(names n, bool& target, std::string help);
@@ -329,6 +342,7 @@ class command {
   private:
     friend struct access;
 
+    void adopt_subcommands();
     option& add(std::unique_ptr<option> o);
     positional& add(std::unique_ptr<positional> p);
     option& add_choice_impl(names n, std::vector<std::string> keys,

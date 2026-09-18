@@ -13,7 +13,7 @@ struct image_inspect_args {
     std::string uenv;
     bool json = false;
     std::optional<std::string> format;
-    void add_cli(argparse::command&, global_settings& settings);
+    argparse::command cli(global_settings& settings);
 };
 
 int image_inspect(const image_inspect_args& args,

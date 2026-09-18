@@ -16,12 +16,12 @@ struct image_add_args {
     std::string label;
     std::string source;
     bool move = false;
-    void add_cli(argparse::command&, global_settings& settings);
+    argparse::command cli(global_settings& settings);
 };
 
 struct image_rm_args {
     std::string label;
-    void add_cli(argparse::command&, global_settings& settings);
+    argparse::command cli(global_settings& settings);
 };
 
 int image_add(const image_add_args& args, const global_settings& settings);

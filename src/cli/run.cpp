@@ -23,9 +23,9 @@ namespace uenv {
 
 std::string run_footer();
 
-void run_args::add_cli(argparse::command& cli, global_settings& settings) {
+argparse::command run_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& run_cli = cli.add_subcommand("run", "run a uenv session");
+    argparse::command run_cli("run", "run a uenv session");
     run_cli
         .add_option({'v', "view"}, view_description,
                     "comma separated list of views to load")
@@ -54,6 +54,8 @@ void run_args::add_cli(argparse::command& cli, global_settings& settings) {
 
     run_cli.on_selected([&settings]() { settings.mode = uenv::cli_mode::run; });
     run_cli.footer(run_footer);
+
+    return run_cli;
 }
 
 int run(const run_args& args, const global_settings& settings) {

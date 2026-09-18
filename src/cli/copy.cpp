@@ -30,11 +30,9 @@ namespace uenv {
 
 std::string image_copy_footer();
 
-void image_copy_args::add_cli(argparse::command& cli,
-                              global_settings& settings) {
+argparse::command image_copy_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& copy_cli =
-        cli.add_subcommand("copy", "copy a uenv inside a remote registry");
+    argparse::command copy_cli("copy", "copy a uenv inside a remote registry");
     copy_cli
         .add_positional("source-uenv", src_uenv_description,
                         "either name/version:tag, sha256 or id")
@@ -58,6 +56,8 @@ void image_copy_args::add_cli(argparse::command& cli,
         [&settings]() { settings.mode = uenv::cli_mode::image_copy; });
 
     copy_cli.footer(image_copy_footer);
+
+    return copy_cli;
 }
 
 int image_copy([[maybe_unused]] const image_copy_args& args,

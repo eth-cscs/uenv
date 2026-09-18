@@ -15,7 +15,7 @@ struct image_ls_args {
     bool no_header = false;
     bool json = false;
     bool no_partials = false;
-    void add_cli(argparse::command&, global_settings& settings);
+    argparse::command cli(global_settings& settings);
 };
 
 int image_ls(const image_ls_args& args, const global_settings& settings);

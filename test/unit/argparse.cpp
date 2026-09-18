@@ -43,13 +43,9 @@ struct cli {
 
     std::vector<std::string> selected;
 
-    cli() {
-        root.add_flag({'v', "verbose"}, verbose, "verbose output");
-        root.add_option("repo", repo, "the repo").complete(completion::path());
-        root.add_flag("color", [this] { color = true; }, "enable color");
-        root.add_flag("no-color", [this] { color = false; }, "disable color");
-
-        auto& run = root.add_subcommand("run", "run a command");
+    // each subcommand is built as a value, then added to its parent
+    argparse::command run_cli() {
+        argparse::command run("run", "run a command");
         run.add_option({'v', "view"}, view, "views")
             .complete(completion::custom("view_list"));
         run.add_positional("uenv", uenv, "the uenv")
@@ -61,15 +57,17 @@ struct cli {
         run.add_flag({'V', "no-default-view"}, no_default_view, "no views");
         run.add_flag({'j', "join"}, join, "join");
         run.on_selected([this] { selected.push_back("run"); });
+        return run;
+    }
 
-        auto& image = root.add_subcommand("image", "manage images");
-        image.on_selected([this] { selected.push_back("image"); });
-        auto& ls = image.add_subcommand("ls", "list images");
+    argparse::command image_cli() {
+        argparse::command ls("ls", "list images");
         ls.add_positional("uenv", ls_uenv, "search term")
             .complete(completion::custom("local_label"));
         ls.add_flag("json", json, "json output");
         ls.on_selected([this] { selected.push_back("ls"); });
-        auto& del = image.add_subcommand("delete", "delete an image");
+
+        argparse::command del("delete", "delete an image");
         del.add_positional("uenv", delete_uenv, "the uenv")
             .required()
             .complete(completion::custom("registry_label"));
@@ -77,20 +75,48 @@ struct cli {
             .required()
             .complete(completion::file());
 
-        auto& repo_cmd = root.add_subcommand("repo", "manage repos");
-        auto& update = repo_cmd.add_subcommand("update", "update a repo");
+        argparse::command image("image", "manage images");
+        image.on_selected([this] { selected.push_back("image"); });
+        image.add_subcommand(std::move(ls));
+        image.add_subcommand(std::move(del));
+        return image;
+    }
+
+    argparse::command repo_cli() {
+        argparse::command update("update", "update a repo");
         update.add_positional("repo", update_repo, "the repo")
             .required()
             .complete(completion::path());
         update.add_flag("lustre", lustre, "lustre").negation("no-lustre");
 
-        auto& status = root.add_subcommand("status", "status");
+        argparse::command repo_cmd("repo", "manage repos");
+        repo_cmd.add_subcommand(std::move(update));
+        return repo_cmd;
+    }
+
+    argparse::command status_cli() {
+        argparse::command status("status", "status");
         status.add_choice("format", format,
                           {{"short", fmt_choice::name},
                            {"full", fmt_choice::full},
                            {"views", fmt_choice::views}},
                           "the format");
+        return status;
     }
+
+    cli() {
+        root.add_flag({'v', "verbose"}, verbose, "verbose output");
+        root.add_option("repo", repo, "the repo").complete(completion::path());
+        root.add_flag("color", [this] { color = true; }, "enable color");
+        root.add_flag("no-color", [this] { color = false; }, "disable color");
+
+        root.add_subcommand(run_cli());
+        root.add_subcommand(image_cli());
+        root.add_subcommand(repo_cli());
+        root.add_subcommand(status_cli());
+    }
+
+    cli(const cli&) = delete;
 
     argparse::parse_result parse(std::vector<std::string_view> words) {
         return argparse::parse(root, std::span<const std::string_view>(words));
@@ -539,6 +565,69 @@ TEST_CASE("partial command lines", "[argparse]") {
     }
 }
 
+TEST_CASE("moving commands", "[argparse]") {
+    bool flag = false;
+    std::string value;
+
+    // build a three level tree bottom up, as values
+    auto make_tree = [&]() {
+        argparse::command c("c", "leaf");
+        c.add_positional("p", value, "")
+            .required()
+            .complete(completion::none());
+        argparse::command b("b", "middle");
+        b.add_subcommand(std::move(c));
+        argparse::command a("a", "top");
+        a.add_flag("x", flag, "");
+        a.add_subcommand(std::move(b));
+        return a;
+    };
+
+    auto check = [](const argparse::command& root) {
+        auto a = root.find_subcommand("a");
+        REQUIRE(a);
+        REQUIRE(a->parent() == &root);
+        auto b = a->find_subcommand("b");
+        REQUIRE(b);
+        REQUIRE(b->parent() == a);
+        auto c = b->find_subcommand("c");
+        REQUIRE(c);
+        REQUIRE(c->parent() == b);
+        REQUIRE(c->path() == std::vector<std::string>{"prog", "a", "b", "c"});
+    };
+
+    SECTION("add_subcommand re-links the moved subtree") {
+        argparse::command root("prog", "");
+        auto& added = root.add_subcommand(make_tree());
+        REQUIRE(&added == root.find_subcommand("a"));
+        REQUIRE(root.validate());
+        check(root);
+
+        // the result views the words, so they must outlive it
+        const std::vector<std::string> words{"a", "--x", "b", "c", "val"};
+        auto r = argparse::parse(root, words);
+        REQUIRE(r.ok());
+        REQUIRE(r.selected().name() == "c");
+        REQUIRE(argparse::apply(r));
+        REQUIRE(flag);
+        REQUIRE(value == "val");
+    }
+    SECTION("move construction") {
+        argparse::command root("prog", "");
+        root.add_subcommand(make_tree());
+        argparse::command moved(std::move(root));
+        check(moved);
+    }
+    SECTION("move assignment") {
+        argparse::command root("prog", "");
+        root.add_subcommand(make_tree());
+        argparse::command other("other", "");
+        other = std::move(root);
+        REQUIRE(other.name() == "prog");
+        check(other);
+    }
+}
+
 TEST_CASE("validation", "[argparse]") {
     std::string s;
     std::optional<std::string> o;
@@ -554,14 +643,14 @@ TEST_CASE("validation", "[argparse]") {
 
     {
         argparse::command c("prog", "");
-        c.add_subcommand("a", "");
+        c.add_subcommand(argparse::command("a", ""));
         c.add_positional("p", s, "").complete(completion::none());
         invalid(c, "both subcommands and positional");
     }
     {
         argparse::command c("prog", "");
-        c.add_subcommand("a", "");
-        c.add_subcommand("a", "");
+        c.add_subcommand(argparse::command("a", ""));
+        c.add_subcommand(argparse::command("a", ""));
         invalid(c, "duplicate subcommand 'a'");
     }
     {
@@ -645,7 +734,8 @@ TEST_CASE("validation", "[argparse]") {
     }
     {
         argparse::command c("prog", "");
-        c.add_subcommand("a", "").add_subcommand("-b", "");
+        c.add_subcommand(argparse::command("a", ""))
+            .add_subcommand(argparse::command("-b", ""));
         invalid(c, "prog a -b: invalid command name");
     }
 }

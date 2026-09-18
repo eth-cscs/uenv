@@ -25,7 +25,6 @@
 #include "completion.h"
 #include "config.h"
 #include "delete.h"
-#include "help.h"
 #include "image.h"
 #include "inspect.h"
 #include "repo.h"

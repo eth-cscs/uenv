@@ -35,18 +35,18 @@ cli_state::cli_state(global_settings& settings)
 
     root.footer(help_footer);
 
-    start.add_cli(root, settings);
-    run.add_cli(root, settings);
-    image.add_cli(root, settings);
+    root.add_subcommand(start.cli(settings));
+    root.add_subcommand(run.cli(settings));
+    root.add_subcommand(image.cli(settings));
     // add the inspect command so that it can be invoked two ways
     //   uenv image inspect ...
     //   uenv inspect ...
-    image.inspect_args.add_cli(root, settings);
-    repo.add_cli(root, settings);
-    stat.add_cli(root, settings);
-    build.add_cli(root, settings);
-    completion.add_cli(root, settings);
-    configure.add_cli(root, settings);
+    root.add_subcommand(image.inspect_args.cli(settings));
+    root.add_subcommand(repo.cli(settings));
+    root.add_subcommand(stat.cli(settings));
+    root.add_subcommand(build.cli(settings));
+    root.add_subcommand(completion.cli(settings));
+    root.add_subcommand(configure.cli(settings));
 }
 
 namespace {

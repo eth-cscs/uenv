@@ -30,11 +30,9 @@ namespace uenv {
 std::string image_add_footer();
 std::string image_rm_footer();
 
-void image_add_args::add_cli(argparse::command& cli,
-                             global_settings& settings) {
+argparse::command image_add_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& add_cli =
-        cli.add_subcommand("add", "add a uenv image to a repository");
+    argparse::command add_cli("add", "add a uenv image to a repository");
     add_cli
         .add_positional("label", label,
                         "the label of the uenv created in the repo, of the "
@@ -52,12 +50,13 @@ void image_add_args::add_cli(argparse::command& cli,
         [&settings]() { settings.mode = uenv::cli_mode::image_add; });
 
     add_cli.footer(image_add_footer);
+
+    return add_cli;
 }
 
-void image_rm_args::add_cli(argparse::command& cli, global_settings& settings) {
+argparse::command image_rm_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& rm_cli =
-        cli.add_subcommand("rm", "delete a uenv image from a repository");
+    argparse::command rm_cli("rm", "delete a uenv image from a repository");
     rm_cli.add_positional("uenv", label, "the uenv to remove.")
         .required()
         .complete(completion::custom("local_label"));
@@ -65,6 +64,8 @@ void image_rm_args::add_cli(argparse::command& cli, global_settings& settings) {
         [&settings]() { settings.mode = uenv::cli_mode::image_rm; });
 
     rm_cli.footer(image_rm_footer);
+
+    return rm_cli;
 }
 
 int image_add(const image_add_args& args, const global_settings& settings) {

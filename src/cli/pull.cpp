@@ -32,11 +32,9 @@ namespace uenv {
 
 std::string image_pull_footer();
 
-void image_pull_args::add_cli(argparse::command& cli,
-                              global_settings& settings) {
+argparse::command image_pull_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& pull_cli =
-        cli.add_subcommand("pull", "download a uenv from a registry");
+    argparse::command pull_cli("pull", "download a uenv from a registry");
     pull_cli
         .add_positional(
             "uenv", uenv_description,
@@ -60,6 +58,8 @@ void image_pull_args::add_cli(argparse::command& cli,
         [&settings]() { settings.mode = uenv::cli_mode::image_pull; });
 
     pull_cli.footer(image_pull_footer);
+
+    return pull_cli;
 }
 
 int image_pull(const image_pull_args& args, const global_settings& settings) {

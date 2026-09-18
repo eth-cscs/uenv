@@ -25,10 +25,9 @@ std::string build_footer();
 
 std::string format_reply(const std::string&);
 
-void build_args::add_cli(argparse::command& cli, global_settings& settings) {
+argparse::command build_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& build_cli =
-        cli.add_subcommand("build", "build a uenv from a local recipe");
+    argparse::command build_cli("build", "build a uenv from a local recipe");
     build_cli.add_flag({'d', "develop"}, spack_develop, "Assume spack@develop");
     build_cli.add_positional("recipe", uenv_recipe_path, "Path to uenv recipe")
         .required()
@@ -40,6 +39,8 @@ void build_args::add_cli(argparse::command& cli, global_settings& settings) {
         .complete(completion::none());
     build_cli.footer(build_footer);
     build_cli.on_selected([&settings] { settings.mode = settings.build; });
+
+    return build_cli;
 }
 
 std::string build_footer() {

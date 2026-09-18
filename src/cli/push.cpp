@@ -37,10 +37,9 @@ namespace uenv {
 
 std::string image_push_footer();
 
-void image_push_args::add_cli(argparse::command& cli,
-                              global_settings& settings) {
+argparse::command image_push_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& push_cli = cli.add_subcommand("push", "push a uenv to a registry");
+    argparse::command push_cli("push", "push a uenv to a registry");
     push_cli
         .add_positional(
             "source", source,
@@ -68,6 +67,8 @@ void image_push_args::add_cli(argparse::command& cli,
         [&settings]() { settings.mode = uenv::cli_mode::image_push; });
 
     push_cli.footer(image_push_footer);
+
+    return push_cli;
 }
 
 int image_push([[maybe_unused]] const image_push_args& args,

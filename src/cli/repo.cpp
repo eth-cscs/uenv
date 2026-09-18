@@ -25,14 +25,13 @@ namespace uenv {
 
 std::string repo_footer();
 
-void repo_args::add_cli(argparse::command& cli, global_settings& settings) {
+argparse::command repo_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& repo_cli =
-        cli.add_subcommand("repo", "manage and query uenv image repositories");
+    argparse::command repo_cli("repo",
+                               "manage and query uenv image repositories");
 
     // add the create command, i.e. `uenv repo create ...`
-    auto& create_cli =
-        repo_cli.add_subcommand("create", "create a new uenv repository");
+    argparse::command create_cli("create", "create a new uenv repository");
 
     // TODO: should this command really work by selecting a default location?
     create_cli
@@ -42,8 +41,8 @@ void repo_args::add_cli(argparse::command& cli, global_settings& settings) {
         [&settings]() { settings.mode = uenv::cli_mode::repo_create; });
 
     // add the status command, i.e. `uenv repo status ...`
-    auto& status_cli = repo_cli.add_subcommand(
-        "status", "status of an existing uenv repository");
+    argparse::command status_cli("status",
+                                 "status of an existing uenv repository");
     status_cli
         .add_positional("repo", status_args.repo,
                         "the repo (one of [path] or [name])")
@@ -53,8 +52,8 @@ void repo_args::add_cli(argparse::command& cli, global_settings& settings) {
         [&settings]() { settings.mode = uenv::cli_mode::repo_status; });
 
     // add the update command, i.e. `uenv repo update ...`
-    auto& update_cli =
-        repo_cli.add_subcommand("update", "update an existing uenv repository");
+    argparse::command update_cli("update",
+                                 "update an existing uenv repository");
 
     update_cli.add_positional("repo", update_args.repo, "repository to update")
         .required()
@@ -67,8 +66,8 @@ void repo_args::add_cli(argparse::command& cli, global_settings& settings) {
         [&settings]() { settings.mode = uenv::cli_mode::repo_update; });
 
     // add the update command, i.e. `uenv repo migrate ...`
-    auto& migrate_cli = repo_cli.add_subcommand(
-        "migrate", "migrate a repository to a new directory");
+    argparse::command migrate_cli("migrate",
+                                  "migrate a repository to a new directory");
 
     migrate_cli
         .add_positional("source", migrate_args.source,
@@ -87,7 +86,13 @@ void repo_args::add_cli(argparse::command& cli, global_settings& settings) {
     migrate_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::repo_migrate; });
 
+    repo_cli.add_subcommand(std::move(create_cli));
+    repo_cli.add_subcommand(std::move(status_cli));
+    repo_cli.add_subcommand(std::move(update_cli));
+    repo_cli.add_subcommand(std::move(migrate_cli));
     repo_cli.footer(repo_footer);
+
+    return repo_cli;
 }
 
 // inspect the repo path that is optionally passed as an argument.

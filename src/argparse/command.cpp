@@ -124,11 +124,43 @@ command::command(std::string name, std::string description)
                    "print this help message and exit")));
 }
 
-command& command::add_subcommand(std::string name, std::string description) {
-    auto& sub = *subcommands_.emplace_back(
-        std::make_unique<command>(std::move(name), std::move(description)));
-    sub.parent_ = this;
-    return sub;
+command::command(command&& other)
+    : name_(std::move(other.name_)),
+      description_(std::move(other.description_)), parent_(other.parent_),
+      footer_(std::move(other.footer_)),
+      on_selected_(std::move(other.on_selected_)),
+      options_(std::move(other.options_)),
+      positionals_(std::move(other.positionals_)),
+      subcommands_(std::move(other.subcommands_)) {
+    adopt_subcommands();
+}
+
+command& command::operator=(command&& other) {
+    name_ = std::move(other.name_);
+    description_ = std::move(other.description_);
+    parent_ = other.parent_;
+    footer_ = std::move(other.footer_);
+    on_selected_ = std::move(other.on_selected_);
+    options_ = std::move(other.options_);
+    positionals_ = std::move(other.positionals_);
+    subcommands_ = std::move(other.subcommands_);
+    adopt_subcommands();
+    return *this;
+}
+
+// the subcommands are held by pointer, so only their links back to this
+// command have to be updated when it moves
+void command::adopt_subcommands() {
+    for (auto& sub : subcommands_) {
+        sub->parent_ = this;
+    }
+}
+
+command& command::add_subcommand(command sub) {
+    auto& added =
+        *subcommands_.emplace_back(std::make_unique<command>(std::move(sub)));
+    added.parent_ = this;
+    return added;
 }
 
 option& command::add(std::unique_ptr<option> o) {

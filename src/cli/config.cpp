@@ -15,14 +15,14 @@ namespace uenv {
 
 std::string configure_footer();
 
-void configure_args::add_cli(argparse::command& cli,
-                             global_settings& settings) {
-    auto& configure_cli =
-        cli.add_subcommand("config", "print uenv tool configuration");
+argparse::command configure_args::cli(global_settings& settings) {
+    argparse::command configure_cli("config", "print uenv tool configuration");
     configure_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::configure; });
 
     configure_cli.footer(configure_footer);
+
+    return configure_cli;
 }
 
 int configure([[maybe_unused]] const configure_args& args,

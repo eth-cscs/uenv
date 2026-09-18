@@ -24,11 +24,9 @@ namespace uenv {
 
 std::string image_inspect_footer();
 
-void image_inspect_args::add_cli(argparse::command& cli,
-                                 global_settings& settings) {
+argparse::command image_inspect_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& inspect_cli =
-        cli.add_subcommand("inspect", "print information about a uenv.");
+    argparse::command inspect_cli("inspect", "print information about a uenv.");
     inspect_cli.add_option("format", format, "the format string.")
         .complete(completion::none());
     inspect_cli.add_flag("json", json, "format output as JSON.");
@@ -39,6 +37,8 @@ void image_inspect_args::add_cli(argparse::command& cli,
         [&settings]() { settings.mode = uenv::cli_mode::image_inspect; });
 
     inspect_cli.footer(image_inspect_footer);
+
+    return inspect_cli;
 }
 
 int image_inspect(const image_inspect_args& args,

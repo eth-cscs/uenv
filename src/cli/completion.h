@@ -13,9 +13,10 @@ void completion_help();
 
 struct completion_args {
     std::string shell_description;
-    const argparse::command* cli;
-    completion_args(const argparse::command* cli);
-    void add_cli(argparse::command&, global_settings& settings);
+    // the root of the command tree, for which the script is generated
+    const argparse::command* root;
+    completion_args(const argparse::command* root);
+    argparse::command cli(global_settings& settings);
 };
 
 int completion(const completion_args& args);

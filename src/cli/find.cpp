@@ -23,11 +23,9 @@ namespace uenv {
 
 std::string image_find_footer();
 
-void image_find_args::add_cli(argparse::command& cli,
-                              global_settings& settings) {
+argparse::command image_find_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& find_cli =
-        cli.add_subcommand("find", "search for uenv that can be pulled");
+    argparse::command find_cli("find", "search for uenv that can be pulled");
     find_cli.add_positional("uenv", uenv_description, "search term")
         .complete(completion::custom("registry_label"));
     find_cli.add_flag("no-header", no_header,
@@ -46,6 +44,8 @@ void image_find_args::add_cli(argparse::command& cli,
         [&settings]() { settings.mode = uenv::cli_mode::image_find; });
 
     find_cli.footer(image_find_footer);
+
+    return find_cli;
 }
 
 int image_find([[maybe_unused]] const image_find_args& args,

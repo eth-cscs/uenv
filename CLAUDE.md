@@ -613,9 +613,10 @@ grep -rn '#include <\(uenv\|site\|cli\)/' src/oci/
 
 `src/argparse/` is the command line parser used by `uenv` and both
 `squashfs-mount` variants (it replaced CLI11). The interface is a tree of
-`argparse::command`s built with `add_subcommand`, `add_flag`, `add_option`,
-`add_choice`, `add_positional` and `add_rest`; `src/argparse/argparse.h`
-documents the grammar.
+`argparse::command`s: each command is built as a value with `add_flag`,
+`add_option`, `add_choice`, `add_positional` and `add_rest`, and then added to
+its parent with `add_subcommand(command)`. `src/argparse/argparse.h` documents
+the grammar.
 
 Parsing is deliberately split in two, and the split must be preserved:
 
@@ -674,10 +675,11 @@ Prefer using functions from `src/util/fs.h` which provide expected-based error h
 1. Create header/source in `src/cli/` (e.g., `foo.h`, `foo.cpp`)
 2. Implement command function returning `int` (exit code)
 3. Add source to `cli_src` array in `meson.build`
-4. Add an `add_cli(argparse::command&, global_settings&)` method to the
-   command's args struct, call it from `cli_state`'s constructor
-   (`src/cli/cli_state.cpp`), and give every option and positional that takes
-   a value a `.complete(...)`
+4. Add an `argparse::command cli(global_settings&)` method to the command's
+   args struct that builds and returns the command, giving every option and
+   positional that takes a value a `.complete(...)`. Add it to its parent with
+   `add_subcommand(...)`: top-level commands in `cli_state`'s constructor
+   (`src/cli/cli_state.cpp`), `uenv image ...` commands in `image_args::cli()`
 5. Add the command to the `switch (settings.mode)` in `main()` (`src/cli/uenv.cpp`)
 6. Add integration tests in `test/integration/cli.bats`
 7. Add unit tests for any new library functions in `test/unit/`

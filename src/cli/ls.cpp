@@ -21,10 +21,9 @@ namespace uenv {
 
 std::string image_ls_footer();
 
-void image_ls_args::add_cli(argparse::command& cli, global_settings& settings) {
+argparse::command image_ls_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& ls_cli =
-        cli.add_subcommand("ls", "search for uenv that are available to run");
+    argparse::command ls_cli("ls", "search for uenv that are available to run");
     ls_cli.add_positional("uenv", uenv_description, "search term")
         .complete(completion::custom("local_label"));
     ls_cli.add_flag("no-header", no_header,
@@ -41,6 +40,8 @@ void image_ls_args::add_cli(argparse::command& cli, global_settings& settings) {
         [&settings]() { settings.mode = uenv::cli_mode::image_ls; });
 
     ls_cli.footer(image_ls_footer);
+
+    return ls_cli;
 }
 
 int image_ls(const image_ls_args& args, const global_settings& settings) {

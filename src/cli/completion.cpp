@@ -30,12 +30,11 @@ std::string bash_completion(const argparse::command* cli,
 
 std::string completion_footer();
 
-completion_args::completion_args(const argparse::command* cli) : cli(cli) {
+completion_args::completion_args(const argparse::command* root) : root(root) {
 }
 
-void completion_args::add_cli(argparse::command& cli,
-                              global_settings& settings) {
-    auto& completion_cli = cli.add_subcommand(
+argparse::command completion_args::cli(global_settings& settings) {
+    argparse::command completion_cli(
         "completion", "generate completion script for a chosen shell");
     completion_cli
         .add_positional("shell", shell_description,
@@ -44,13 +43,15 @@ void completion_args::add_cli(argparse::command& cli,
         .complete(argparse::completion::custom("shell"));
     completion_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::completion; });
+
+    return completion_cli;
 }
 
 int completion(const completion_args& args) {
     spdlog::info("completion with options {}", args);
 
     if (args.shell_description == "bash") {
-        fmt::print("{}", impl::bash_completion(args.cli, "uenv"));
+        fmt::print("{}", impl::bash_completion(args.root, "uenv"));
         return 0;
     }
 

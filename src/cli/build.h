@@ -10,8 +10,7 @@ struct build_args {
     std::string uenv_recipe_path;
     std::string uenv_label;
     std::optional<std::string> system;
-    void add_cli(argparse::command& cli,
-                 [[maybe_unused]] global_settings& settings);
+    argparse::command cli(global_settings& settings);
 };
 
 int build(const build_args& args,

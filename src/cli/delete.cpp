@@ -27,11 +27,10 @@ namespace uenv {
 
 std::string image_delete_footer();
 
-void image_delete_args::add_cli(argparse::command& cli,
-                                global_settings& settings) {
+argparse::command image_delete_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& delete_cli =
-        cli.add_subcommand("delete", "delete a uenv from a remote registry");
+    argparse::command delete_cli("delete",
+                                 "delete a uenv from a remote registry");
     delete_cli
         .add_positional("uenv", uenv_description,
                         "either name/version:tag, sha256 or id")
@@ -51,6 +50,8 @@ void image_delete_args::add_cli(argparse::command& cli,
         [&settings]() { settings.mode = uenv::cli_mode::image_delete; });
 
     delete_cli.footer(image_delete_footer);
+
+    return delete_cli;
 }
 
 int image_delete([[maybe_unused]] const image_delete_args& args,

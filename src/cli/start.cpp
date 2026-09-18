@@ -22,9 +22,9 @@ namespace uenv {
 
 std::string start_footer();
 
-void start_args::add_cli(argparse::command& cli, global_settings& settings) {
+argparse::command start_args::cli(global_settings& settings) {
     using argparse::completion;
-    auto& start_cli = cli.add_subcommand("start", "start a uenv session");
+    argparse::command start_cli("start", "start a uenv session");
     start_cli
         .add_option({'v', "view"}, view_description,
                     "comma separated list of views to load")
@@ -42,6 +42,8 @@ void start_args::add_cli(argparse::command& cli, global_settings& settings) {
     start_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::start; });
     start_cli.footer(start_footer);
+
+    return start_cli;
 }
 
 // check whether running in a tty session.
