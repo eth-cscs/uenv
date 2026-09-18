@@ -89,12 +89,13 @@ it contains a root-owned `staging/` from an earlier
 
 ## Testing
 
-Five test suites exist:
+Six test suites exist:
 1. **unit** - C++ unit tests using Catch2 (in `test/unit/`)
 2. **cli** - CLI integration tests using BATS (in `test/integration/cli.bats`)
-3. **slurm** - Slurm plugin tests using BATS (in `test/integration/slurm.bats`)
-4. **squashfs-mount** - setuid helper tests using BATS (in `test/integration/squashfs-mount.bats`)
-5. **registry** - `uenv push`/`pull` against a throwaway local zot registry (in `test/integration/registry.bats`); self-skips when no zot binary is available
+3. **completion** - tab completion (`uenv __complete` and the bash and zsh scripts) using BATS (in `test/integration/completion.bats`)
+4. **slurm** - Slurm plugin tests using BATS (in `test/integration/slurm.bats`)
+5. **squashfs-mount** - setuid helper tests using BATS (in `test/integration/squashfs-mount.bats`)
+6. **registry** - `uenv push`/`pull` against a throwaway local zot registry (in `test/integration/registry.bats`); self-skips when no zot binary is available
 
 ### Running Tests
 
@@ -104,6 +105,7 @@ To run the tests, run the tests directly instead of running them through meson.
 # Run tests directly
 ./test/unit                      # Unit tests
 ./test/bats ./test/cli.bats      # CLI tests
+./test/bats ./test/completion.bats # Tab completion tests
 ./test/bats ./test/slurm.bats    # Slurm tests
 ./test/bats ./test/registry.bats # Registry (push/pull) tests
 ```
@@ -210,7 +212,7 @@ changing that code path, check they are actually running rather than skipping.
 
 ### Source Structure
 
-- `src/cli/` - CLI command implementations (add_remove, build, completion, config, copy, delete, find, help, image, inspect, ls, pull, push, repo, run, start, status), and the tree of commands they are registered in (`cli.h/cpp`)
+- `src/cli/` - CLI command implementations (add_remove, build, completion, config, copy, delete, find, help, image, inspect, ls, pull, push, repo, run, start, status), the tree of commands they are registered in (`cli.h/cpp`), and tab completion (`complete.h/cpp`, and the shell scripts in `src/cli/completion/`). See "Tab completion" below.
 - `src/argparse/` - Command line argument parser used by the CLI and `squashfs-mount`. See "The `argparse` command line parser" below.
 - `src/uenv/` - Core library shared between CLI and Slurm plugin
   - Environment management (`env.h/cpp`, `uenv.h/cpp`)
@@ -226,6 +228,7 @@ changing that code path, check they are actually running rather than skipping.
   - Telemetry (`telemetry.h/cpp`, `elastic.h/cpp`)
   - Logging (`log.h/cpp`, `print.h/cpp`)
   - Settings management (`settings.h/cpp`)
+  - Tab completion of labels, uenv lists, views, repos and paths (`complete.h/cpp`)
 - `src/oci/` - Native OCI registry client (container registry interaction: pull, push, copy, manifests, auth); replaces the external `oras` binary. See "Self-contained `src/oci`" below.
 - `src/util/` - Utility libraries (color, curl, envvars, fs, lex, lustre, privilege, semver, shell, signal, strings, subprocess, toml, unique_fd), plus the FUSE backend's IPC/process-coordination primitives (`proc_barrier.h/cpp`, `named_semaphore.h`, `shared_mapping.h`, `robust_mutex.h`, `setns.h/cpp`, `ready_fork.h/cpp`) — see "Multi-task rendezvous and IPC error model" below
 - `src/site/` - Site-specific configuration (CSCS-specific logic)
@@ -672,6 +675,68 @@ Behaviour that differs from CLI11, on purpose:
 - `--color`/`--no-color` is one negatable flag: the last one given wins
   (CLI11 applied them in the order they were defined).
 
+### Tab completion
+
+uenv completes its own command lines, with the same parser and command tree
+as a real invocation. The shell scripts contain no knowledge of the CLI: on
+every TAB they run
+
+```
+uenv __complete --cword=N -- <the words on the command line, as typed>
+```
+
+and give the shell what it prints: one `value<TAB>description` line per
+candidate (the value replaces the whole word at the cursor), then a line of
+directives, `:` followed by any of `nospace`, `filenames` and
+`command-offset=K` (see `src/cli/complete.h`). `__complete` is not in the
+command tree: `main()` hands over to `complete_main()` before parsing. Try it
+directly when debugging, e.g.
+`uenv __complete --cword=3 -- uenv start --view= prgenv-gnu/24.11:v1`.
+
+The work is split in three layers:
+
+1. `argparse::complete()` (`src/argparse/complete.{h,cpp}`) works out what
+   the word at the cursor is: a subcommand or option name, the value of an
+   option (`--view x`, `--view=x`, `-vx`), or a positional, by applying the
+   parser's word rules to the words before it. It offers subcommand and
+   option names and choices, and returns the parse of the whole line
+   (including words after the cursor) as context.
+2. `src/uenv/complete.{h,cpp}` are pure functions that complete labels, uenv
+   lists (commas, squashfs files, `:mount`), views, systems, repos and paths
+   from data that has already been loaded. They are unit tested.
+3. `src/cli/complete.cpp` dispatches on the argument's `completion` kind, and
+   for `custom("tag")` on the tag (`uenv_list`, `view_list`, `local_label`,
+   ...). It loads the configuration and opens the repositories lazily, with
+   `--repo`/`--system` taken from the command line (`program::globals()` on
+   the context).
+
+Rules for anything on the completion path:
+
+- **Silent.** Its output lands in the middle of the user's command line.
+  `complete_main()` points stderr at `/dev/null` and turns logging off, and
+  nothing may print to stdout except the candidates. Every test in
+  `completion.bats` checks that stderr is empty.
+- **Read-only.** It must not create or modify files: the configuration is
+  loaded with `user_config_mode::read_only`, so a missing user config file is
+  not created, and repositories are opened read-only.
+- **Fast and local.** Nothing is read until a candidate needs it (a
+  subcommand name reads no configuration), and there is no network access:
+  registry labels are not completed until there is a local cache. Views are
+  read from the `meta/env.json` next to an image, never by extracting a
+  squashfs file.
+- **User text never reaches SQL.** `repository::query` formats its SQL
+  without escaping; labels are completed by filtering every record of the
+  repository in C++.
+
+The shell scripts (`src/cli/completion/uenv.bash`, `src/cli/completion/_uenv`)
+are installed with `install_data`, and compiled into the binary (meson reads
+them into `completion_scripts.h`), so that `uenv completion bash|zsh` prints
+them. The bash script does not depend on bash-completion. It has to put back
+together the words that bash splits at `COMP_WORDBREAKS` (`=`, `:` and `@`
+occur in uenv arguments), and give readline only the part of each candidate
+after the last break character; `@` is kept in the word by bash, `=` and `:`
+are not.
+
 ### Environment Variables
 
 Use `envvars::state` to access environment variables (from `src/util/envvars.h`). Available as `settings.calling_environment` in most CLI commands.
@@ -700,11 +765,14 @@ Prefer using functions from `src/util/fs.h` which provide expected-based error h
    fields (`&foo_args::field`), give every one that takes a value a
    `.complete(...)`, set the action
    (`cmd.action([&settings](const foo_args& args) { return foo(args, settings); })`)
-   and `return std::move(cmd).build();`
+   and `return std::move(cmd).build();`. A new `completion::custom("tag")`
+   needs a provider in `complete_custom()` (`src/cli/complete.cpp`); tags
+   without one complete nothing.
 5. Add it to its parent with `add_subcommand(...)`: top-level commands in
    `make_cli()` (`src/cli/cli.cpp`), `uenv image ...` commands in
    `image_command()`
-6. Add integration tests in `test/integration/cli.bats`
+6. Add integration tests in `test/integration/cli.bats`, and completion
+   tests for new kinds of argument in `test/integration/completion.bats`
 7. Add unit tests for any new library functions in `test/unit/`
 
 ### Testing New Features
