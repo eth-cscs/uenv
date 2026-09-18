@@ -29,7 +29,6 @@ struct image_find_args {
     bool no_header = false;
     bool json = false;
     bool no_partials = false;
-    bool build = false;
 };
 
 std::string image_find_footer();
@@ -56,8 +55,6 @@ argparse::command image_find_command(const global_settings& settings) {
         .complete(completion::none());
     find_cli.add_flag("no-partials", &image_find_args::no_partials,
                       "do not match partial names when searching.");
-    find_cli.add_flag("build", &image_find_args::build,
-                      "invalid: replaced with 'build::' prefix on uenv label");
     find_cli.action([&settings](const image_find_args& args) {
         return image_find(args, settings);
     });
@@ -71,15 +68,6 @@ namespace {
 
 int image_find([[maybe_unused]] const image_find_args& args,
                [[maybe_unused]] const global_settings& settings) {
-    if (args.build) {
-        std::string descr = args.uenv_description.value_or("");
-        term::error(
-            "the --build flag has been removed.\nSpecify the build namespace "
-            "as part of the uenv description, e.g.\n{}",
-            color::yellow(fmt::format("uenv image find build::{}", descr)));
-        return 1;
-    }
-
     if (!settings.config.registry) {
         term::error("registry is not configured: add a [registry] section to "
                     "your uenv configuration file");
