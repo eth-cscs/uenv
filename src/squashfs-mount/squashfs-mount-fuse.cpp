@@ -80,11 +80,24 @@ int main(int argc, char** argv, char** envp) {
                  "join namespaces of tasks on the same node");
     cli.add_option("-s,--sqfs", raw_mounts,
                    "comma separated list of squashfs files to mount");
+    // allow_extra_args(false) caps each option to exactly one value per
+    // occurrence (repeat the flag for more than one). Without it, CLI11's
+    // container-type default leaves the option's arity unlimited, and its
+    // greedy value-gathering loop swallows a lone trailing "--" meant to end
+    // *all* option parsing (see _parse_arg in CLI11's App_inl.hpp) before the
+    // positional "commands" ever sees it: the next token in the exec'd
+    // command that happens to start with '-' (e.g. `sh -c ...`) is then
+    // misparsed as an option of this program instead of an argument to hand
+    // through.
     cli.add_option(
-        "--tmpfs", tmpfs_arg,
-        "space-separated list of tmpfs mounts, each <mount>[:<size>] (size in bytes)");
+           "--tmpfs", tmpfs_arg,
+           "a tmpfs mount, <mount>[:<size>] (size in bytes); repeat the "
+           "flag for more than one")
+        ->allow_extra_args(false);
     cli.add_option("--bind-mount", bind_mounts_arg,
-                   "space-separated list of bind mounts, each <src>:<dst>");
+                   "a bind mount, <src>:<dst>; repeat the flag for more "
+                   "than one")
+        ->allow_extra_args(false);
     cli.add_option("commands", commands,
                    "the command to run, including with arguments");
 

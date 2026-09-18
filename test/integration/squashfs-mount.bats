@@ -268,3 +268,112 @@ $my_gid"
     assert_output "hello app"
     assert_success
 }
+
+#
+# -r/--mutable-root and --bind-mount
+#
+# Both flags exist only in the fuse/rootless backend: the kernel backend's
+# CLI11 parser does not define them at all, and passing them there is a plain
+# parse error rather than a meaningful skip. --help output is a reliable way
+# to tell the backends apart, whether or not the binary happens to be
+# installed setuid (that bit only distinguishes kernel builds that *are*
+# installed from ones that are not).
+#
+# Mount points/destinations below deliberately use fresh top-level names
+# (never nested under an existing top-level directory such as $TMP, which
+# lives under /home) - make_mutable_root() excludes a dst's top-level
+# component from the rebuilt "/" whenever that component already exists on
+# the host but the dst itself does not, which would also hide anything else
+# under that same top-level component (e.g. a --bind-mount source living
+# under $TMP). A brand new top-level name avoids that exclusion entirely, and
+# nothing created under it ever touches the real host filesystem: the whole
+# rebuild happens inside the process's own unshared mount namespace.
+#
+
+function require_fuse_backend() {
+    run squashfs-mount --help
+    if [[ "$output" != *"mutable-root"* ]]; then
+        skip "squashfs-mount is not built with the fuse backend (no mutable-root/bind-mount support)"
+    fi
+}
+
+@test "mutable root: --sqfs mounts on a mount point that does not exist" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+
+    run squashfs-mount -r --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-mutable-root-mount -- /uenv-bats-mutable-root-mount/env/app/bin/app
+    assert_output "hello app"
+    assert_success
+}
+
+@test "without -r, a --sqfs mount point that does not exist is refused" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+
+    run squashfs-mount --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-no-mutable-root-mount -- true
+    assert_failure
+    assert_output --partial "does not exist"
+}
+
+@test "--bind-mount to a destination that already exists" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc $TMP/binddst
+    echo "bind-mount-content" > $TMP/bindsrc/file.txt
+
+    run squashfs-mount --bind-mount=$TMP/bindsrc:$TMP/binddst -- cat $TMP/binddst/file.txt
+    assert_output "bind-mount-content"
+    assert_success
+}
+
+@test "without -r, a --bind-mount destination that does not exist is refused" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc
+
+    run squashfs-mount --bind-mount=$TMP/bindsrc:/uenv-bats-no-mutable-root-bind -- true
+    assert_failure
+    assert_output --partial "does not exist"
+}
+
+@test "mutable root: --bind-mount to a destination that does not exist" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc
+    echo "bind-mount-content" > $TMP/bindsrc/file.txt
+
+    run squashfs-mount -r --bind-mount=$TMP/bindsrc:/uenv-bats-mutable-root-bind -- cat /uenv-bats-mutable-root-bind/file.txt
+    assert_output "bind-mount-content"
+    assert_success
+}
+
+@test "--bind-mount can be repeated for more than one bind mount" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc1 $TMP/bindsrc2 $TMP/binddst1 $TMP/binddst2
+    echo "first" > $TMP/bindsrc1/file.txt
+    echo "second" > $TMP/bindsrc2/file.txt
+
+    run squashfs-mount \
+        --bind-mount=$TMP/bindsrc1:$TMP/binddst1 \
+        --bind-mount=$TMP/bindsrc2:$TMP/binddst2 \
+        -- sh -c "cat $TMP/binddst1/file.txt && cat $TMP/binddst2/file.txt"
+    assert_output "first
+second"
+    assert_success
+}
+
+@test "mutable root: --sqfs, --bind-mount and a command with its own flags together" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/bindsrc
+    echo "bind-mount-content" > $TMP/bindsrc/file.txt
+
+    # regression test: --bind-mount used to swallow the "--" that separates
+    # squashfs-mount's own options from the exec'd command, so a command
+    # using its own short option (here `sh -c`) was misparsed as an
+    # unrecognized option of squashfs-mount itself.
+    run squashfs-mount -r \
+        --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-combo-mount \
+        --bind-mount=$TMP/bindsrc:/uenv-bats-combo-bind \
+        -- sh -c "cat /uenv-bats-combo-bind/file.txt && /uenv-bats-combo-mount/env/app/bin/app"
+    assert_output "bind-mount-content
+hello app"
+    assert_success
+}
