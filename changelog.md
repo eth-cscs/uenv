@@ -2,6 +2,8 @@
 
 ## 10.2.0
 
+- #179 [feature] bash and zsh completion computed by uenv itself, with the same parser as the CLI
+- #179 [improvement] remove single letter options other than `-v` and `-h`, and the `--build` flag of `image find`/`image pull`
 - #178 [improvement] replace CLI11 with internal argument parsing library that facilitates completion
 - #176 [security] `kernel` mounting opens squashfs images with the credentials of the user, instead of as root
 - #175 [security] validate digests of manifests against what the registry prodides to protect against malicious registries
