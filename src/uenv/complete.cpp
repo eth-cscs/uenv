@@ -78,6 +78,10 @@ std::vector<candidate> complete_path(std::string_view prefix,
     }
 
     std::vector<candidate> result;
+    // the parent directory is not listed by the directory iterator
+    if (base == "." || base == "..") {
+        result.push_back({fmt::format("{}../", dir_text), {}});
+    }
     std::error_code ec;
     for (fs::directory_iterator it(dir, ec), end; !ec && it != end;
          it.increment(ec)) {

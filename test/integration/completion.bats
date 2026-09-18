@@ -328,3 +328,125 @@ app,spack
     run uenv --help
     refute_output --partial __complete
 }
+
+# Complete the command line $1 with the bash completion script printed by
+# `uenv completion bash`, as bash would when TAB is pressed at the end of the
+# line. If $2 is "with", bash-completion is loaded first. On return `lines`
+# holds COMPREPLY, followed by a line with the options passed to compopt.
+function bash_complete() {
+    run bash --norc --noprofile -c '
+        [[ $2 == with ]] && source /usr/share/bash-completion/bash_completion
+        source <(uenv completion bash)
+        compopt() { opts+=("$@"); }
+        # split the line into COMP_WORDS as readline does: at white space and
+        # at the word break characters = : and @
+        line=$1
+        COMP_LINE=$line
+        COMP_POINT=${#line}
+        COMP_WORDS=()
+        for w in $line; do
+            while [[ -n $w ]]; do
+                if [[ $w == [=:@]* ]]; then
+                    b=${w%%[^=:@]*}
+                else
+                    b=${w%%[=:@]*}
+                fi
+                COMP_WORDS+=("$b")
+                w=${w:${#b}}
+            done
+        done
+        [[ $line == *" " ]] && COMP_WORDS+=("")
+        COMP_CWORD=$((${#COMP_WORDS[@]} - 1))
+        opts=()
+        _uenv_complete uenv
+        printf "%s\n" "${COMPREPLY[@]}"
+        echo "compopt: ${opts[*]}"
+    ' bash "$@"
+    assert_success
+}
+
+@test "bash completion script" {
+    bash_complete "uenv st"
+    assert_output "start
+status
+compopt: "
+
+    # candidates are what replaces the text after the last : = or @
+    bash_complete "uenv --repo=$REPO start app/42.0:"
+    assert_output "v1
+compopt: "
+
+    bash_complete "uenv --repo=$REPO start app/42.0:v1@a"
+    assert_output "@arapiles
+compopt: "
+
+    bash_complete "uenv --repo=$REPO start tool --view=w"
+    assert_output "wombat
+compopt: "
+
+    bash_complete "uenv --repo=$REPO run app/42.0:v1,tool -v tool:w"
+    assert_output "wombat
+compopt: "
+
+    # file names: readline adds the / to directories
+    bash_complete "uenv --repo=$REPO start $SQFS_LIB/apptool/to"
+    assert_output "$SQFS_LIB/apptool/tool
+compopt: -o filenames"
+
+    bash_complete "uenv --repo=$REPO run app/42.0:v1,$SQFS_LIB/apptool/to"
+    assert_output "v1,$SQFS_LIB/apptool/tool/
+compopt: -o nospace"
+
+    # the command run by uenv run, without bash-completion
+    bash_complete "uenv --repo=$REPO run tool -- ech"
+    assert_line echo
+}
+
+@test "bash completion script with bash-completion" {
+    [[ -f /usr/share/bash-completion/bash_completion ]] || skip "bash-completion is not installed"
+
+    bash_complete "uenv --repo=$REPO start app/42.0:" with
+    assert_output "v1
+compopt: "
+
+    bash_complete "uenv --repo=$REPO run tool -- ech" with
+    assert_line echo
+}
+
+@test "zsh completion script" {
+    command -v zsh >/dev/null || skip "zsh is not installed"
+
+    # the completion system's functions are replaced by ones that print what
+    # they are given
+    function zsh_complete() {
+        run zsh -f -c '
+            compdef() { }
+            _describe() { print -rl -- "${(@P)4}"; print -r -- "opts: ${@:5}" }
+            _normal() { print -r -- "normal: $CURRENT ${words[*]}" }
+            source <(uenv completion zsh)
+            words=("$@")
+            CURRENT=${#words}
+            PREFIX=${words[-1]}
+            _uenv
+        ' zsh "$@"
+        assert_success
+    }
+
+    zsh_complete uenv st
+    assert_output "start:start a uenv session
+status:print information about the currently loaded uenv
+opts: "
+
+    # colons in values are escaped
+    zsh_complete uenv --repo=$REPO start app/42
+    assert_output "app/42.0\:v1:@arapiles%zen3
+opts: "
+
+    zsh_complete uenv --repo=$REPO start $SQFS_LIB/apptool/to
+    assert_output "$SQFS_LIB/apptool/tool/
+opts: -f -S "
+
+    # the command run by uenv run: the words from the command on
+    zsh_complete uenv --repo=$REPO run tool -- ech
+    assert_output "normal: 1 ech"
+}

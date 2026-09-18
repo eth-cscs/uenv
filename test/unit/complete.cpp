@@ -146,7 +146,7 @@ TEST_CASE("complete_uenv_list", "[complete]") {
                 strings{"./images/a.squashfs", "./images/b.squashfs",
                         "./images/old/"});
         REQUIRE(values(complete_uenv_list("./.", records, daint, env)) ==
-                strings{"./.dot.squashfs", "./.hidden/"});
+                strings{"./../", "./.dot.squashfs", "./.hidden/"});
         REQUIRE(values(complete_uenv_list("~/images/b", records, daint, env)) ==
                 strings{"~/images/b.squashfs"});
         auto abs = (t.root / "images/a").string();
@@ -193,6 +193,10 @@ TEST_CASE("complete_path", "[complete]") {
     REQUIRE(values(complete_path("~/i", {}, env)) == strings{"~/images/"});
     REQUIRE(values(complete_path("~/i", {}, envvars::state{})).empty());
     REQUIRE(values(complete_path("missing/", {}, env)).empty());
+    REQUIRE(values(complete_path("images/..", {}, env)) ==
+            strings{"images/../"});
+    REQUIRE(values(complete_path(".", {.files = false}, env)) ==
+            strings{"../", ".hidden/"});
 }
 
 TEST_CASE("complete_views", "[complete]") {

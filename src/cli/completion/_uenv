@@ -1,0 +1,65 @@
+#compdef uenv
+
+# zsh completion for uenv
+#
+# uenv completes its own command lines: this function passes the words on the
+# command line to `uenv __complete`, and adds the candidates it prints. See
+# src/cli/complete.h for the protocol.
+#
+# Install it as _uenv in a directory in $fpath, or source it after compinit:
+#   source <(uenv completion zsh)
+
+compdef _uenv uenv
+
+_uenv() {
+    # the words, with the word at the cursor cut at the cursor
+    local -a line_words=("${words[@]}")
+    line_words[CURRENT]=$PREFIX
+
+    local out
+    out=$(command ${~words[1]} __complete --cword=$((CURRENT - 1)) -- "${line_words[@]}" 2>/dev/null) || return 1
+    local -a lines=("${(@f)out}")
+    local directive=${lines[-1]}
+    [[ $directive == :* ]] || return 1
+    lines=("${(@)lines[1,-2]}")
+
+    local -a opts
+    local d
+    for d in ${(s:,:)${directive#:}}; do
+        case $d in
+        nospace)
+            opts+=(-S '')
+            ;;
+        filenames)
+            opts+=(-f)
+            ;;
+        command-offset=*)
+            # complete the words from this one on as a command line of their
+            # own; the words are counted from 0, $words from 1
+            local offset=${d#command-offset=}
+            shift $offset words
+            (( CURRENT -= offset ))
+            _normal
+            return
+            ;;
+        esac
+    done
+
+    # value:description, with the colons in the value escaped
+    local -a candidates
+    local l value description
+    for l in "${lines[@]}"; do
+        [[ -n $l ]] || continue
+        value=${l%%$'\t'*}
+        description=${l#*$'\t'}
+        candidates+=("${value//:/\\:}${description:+:$description}")
+    done
+    (( ${#candidates} )) || return 1
+    _describe -t uenv-values 'uenv' candidates "${opts[@]}"
+}
+
+# when autoloaded from $fpath, this file is the body of _uenv: complete now.
+# When it is sourced, only define the function.
+if [[ $funcstack[1] == _uenv ]]; then
+    _uenv "$@"
+fi
