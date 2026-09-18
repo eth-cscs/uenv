@@ -260,7 +260,7 @@ user_config_path(const envvars::state& calling_env) {
 // the location of the config file is determined using XDG_CONFIG_HOME or
 // HOME
 util::expected<config_base, std::string>
-load_user_config(const envvars::state& calling_env) {
+load_user_config(const envvars::state& calling_env, user_config_mode mode) {
     namespace fs = std::filesystem;
 
     auto home_env = calling_env.get("HOME");
@@ -280,6 +280,9 @@ load_user_config(const envvars::state& calling_env) {
         auto fid = std::ofstream(path);
         fid << config_file_default << std::endl;
     };
+    if (mode == user_config_mode::read_only && !fs::exists(config_file)) {
+        return config_base{};
+    }
     if (!fs::exists(config_path)) {
         spdlog::debug("load_user_config:: creating configuration path {}",
                       config_path);
@@ -359,7 +362,7 @@ load_system_config(const envvars::state& calling_env) {
 util::expected<config_base, std::string>
 load_config(const uenv::config_base& cli_config,
             const std::optional<std::vector<repo_label>>& repos,
-            const envvars::state& calling_env) {
+            const envvars::state& calling_env, user_config_mode mode) {
     auto config = uenv::default_config(calling_env);
 
     if (auto sys = uenv::load_system_config(calling_env)) {
@@ -372,7 +375,7 @@ load_config(const uenv::config_base& cli_config,
                       sys.error());
     }
 
-    if (auto usr = uenv::load_user_config(calling_env)) {
+    if (auto usr = uenv::load_user_config(calling_env, mode)) {
         config = merge(*usr, config);
     } else {
         // do not treat broken user configuration as a hard error.

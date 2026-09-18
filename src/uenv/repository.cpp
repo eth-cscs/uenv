@@ -993,7 +993,6 @@ repository_impl::query(const uenv_label& label, bool partial_name) const {
         auto date =
             parse_uenv_date(static_cast<std::string>(stmnt["date"].value()));
         if (!date) {
-            fmt::println("date: {}", date.error().message());
             return unexpected(
                 fmt::format("invalid date {}", date.error().message()));
         }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -51,6 +52,10 @@ struct config_error {
     std::uint32_t line;
 };
 
+// whether loading the configuration may create the user configuration file,
+// with default contents, if it does not exist
+enum class user_config_mode : std::uint8_t { create, read_only };
+
 // find the final configuration
 // loads system and user configurations and merges them with the cli
 // arguments and default settngs.
@@ -60,7 +65,8 @@ struct config_error {
 util::expected<config_base, std::string>
 load_config(const uenv::config_base& cli_config,
             const std::optional<std::vector<repo_label>>& repos,
-            const envvars::state& calling_env);
+            const envvars::state& calling_env,
+            user_config_mode mode = user_config_mode::create);
 
 struct configuration {
     uenv::repo_list repos;

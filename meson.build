@@ -133,6 +133,7 @@ lib_uenv_src = [
         'src/oci/tag.cpp',
         'src/oci/types.cpp',
         'src/oci/util.cpp',
+        'src/uenv/complete.cpp',
         'src/uenv/elastic.cpp',
         'src/uenv/env.cpp',
         'src/uenv/join_context.cpp',
@@ -231,7 +232,8 @@ if uenv_cli
             'src/cli/util.cpp',
             'src/cli/build.cpp',
             'src/cli/cli.cpp',
-            'src/cli/completion.cpp',
+            'src/cli/complete.cpp',
+        'src/cli/completion.cpp',
     ]
 
     xxd = find_program('xxd', required : true)
