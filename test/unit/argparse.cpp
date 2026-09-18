@@ -591,6 +591,17 @@ TEST_CASE("validation", "[argparse]") {
         invalid(c, "only a boolean flag can have a negation");
     }
     {
+        int i = 0;
+        argparse::command c("prog", "");
+        c.add_flag("x", i, "").negation("no-x");
+        invalid(c, "only a boolean flag can have a negation");
+    }
+    {
+        argparse::command c("prog", "");
+        c.add_flag("x", [] {}, "").negation("no-x");
+        invalid(c, "only a boolean flag can have a negation");
+    }
+    {
         argparse::command c("prog", "");
         c.add_option("x", o, "");
         invalid(c, "option --x has no completion");

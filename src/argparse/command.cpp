@@ -381,7 +381,7 @@ util::expected<void, std::string> validate_command(const command& cmd) {
             }
         }
         if (auto n = o->negation_name()) {
-            if (o->takes_value() || o->is_help()) {
+            if (!o->negatable()) {
                 return fail(fmt::format(
                     "only a boolean flag can have a negation ('--{}')", *n));
             }

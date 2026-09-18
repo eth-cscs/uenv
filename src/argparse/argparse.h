@@ -146,6 +146,10 @@ class option {
     bool is_help() const {
         return type_ == type::help;
     }
+    // only a boolean flag can have a negation
+    bool negatable() const {
+        return type_ == type::boolean;
+    }
     const struct completion& completer() const {
         return completion_;
     }
