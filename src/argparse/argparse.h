@@ -164,7 +164,7 @@ class option {
     enum class type : std::uint8_t {
         boolean,  // bool flag: the last occurrence wins
         counter,  // int flag: counts occurrences
-        callback, // flag: callback called once if the flag was given
+        callback, // flag: callback called each time the flag is given
         value,    // takes a value, may be given at most once
         choice,   // takes a value from a fixed set, may be given at most once
         help,     // the built-in -h,--help flag
@@ -242,7 +242,8 @@ class command {
     // a counting flag: the number of times it was given, e.g. -vvv -> 3. The
     // target is always set by apply(), to zero if the flag was not given.
     option& add_flag(names n, int& target, std::string help);
-    // a flag that calls `callback` once if it is given
+    // a flag that calls `callback` each time it is given, in the order of
+    // the command line
     option& add_flag(names n, std::function<void()> callback, std::string help);
 
     option& add_option(names n, std::string& target, std::string help);

@@ -274,12 +274,27 @@ TEST_CASE("flags", "[argparse]") {
             REQUIRE(c.lustre);
         }
     }
-    SECTION("callbacks") {
-        cli c;
-        auto r = c.parse({"--color", "--no-color"});
-        REQUIRE(r.ok());
-        REQUIRE(argparse::apply(r));
-        REQUIRE(c.color == false);
+    SECTION("callbacks are called in the order given") {
+        {
+            cli c;
+            auto r = c.parse({"--color", "--no-color"});
+            REQUIRE(r.ok());
+            REQUIRE(argparse::apply(r));
+            REQUIRE(c.color == false);
+        }
+        {
+            cli c;
+            auto r = c.parse({"--no-color", "--color", "--no-color"});
+            REQUIRE(r.ok());
+            REQUIRE(argparse::apply(r));
+            REQUIRE(c.color == false);
+        }
+        {
+            cli c;
+            auto r = c.parse({"--no-color", "--color"});
+            REQUIRE(argparse::apply(r));
+            REQUIRE(c.color == true);
+        }
     }
 }
 

@@ -26,6 +26,12 @@ struct access {
             p.apply_(values);
         }
     }
+    // a callback flag is applied once for each time it is given, in the
+    // order of the command line, so that the last of several flags that set
+    // the same thing (--color --no-color) wins
+    static bool per_occurrence(const option& o) {
+        return o.type_ == option::type::callback;
+    }
     // a counting flag is set even when it was not given (to zero)
     static bool always_applied(const option& o) {
         return o.type_ == option::type::counter;
@@ -333,6 +339,11 @@ util::expected<applied, error> apply(const parse_result& r) {
     for (auto& it : r.items) {
         switch (it.kind) {
         case item_kind::flag:
+            if (access::per_occurrence(*it.opt)) {
+                const occurrence occ{.negated = it.negated};
+                access::apply(*it.opt, std::span(&occ, 1));
+                break;
+            }
             if (!options.contains(it.opt)) {
                 option_order.push_back(it.opt);
             }
