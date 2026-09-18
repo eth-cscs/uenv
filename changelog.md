@@ -2,26 +2,11 @@
 
 ## 10.2.0
 
-- [security] the `kernel` mounting backend now opens squashfs images with the
-  credentials of the user who asked for the mount, instead of as root. Both
-  privileged paths — the setuid `squashfs-mount` helper and the Slurm plugin's
-  root SPANK hook — previously opened the user-named image with euid 0 and never
-  checked the caller's access to it, so any local user could read any squashfs
-  image on the node (`squashfs-mount --sqfs=/home/other/private.squashfs:/tmp/m`,
-  or `srun --uenv=/home/other/private.sqfs:/user-environment`), bypassing both
-  file modes and directory permissions. The image descriptor, not the path, is
-  what gets bound to the loop device, so the mount now inherits exactly the
-  caller's authority over the image.
-  Three behaviour changes come with it:
-    - an image that only root can read, or one inside a directory the user
-      cannot traverse, is now refused. **Sites should check the modes and
-      ancestor traversal bits of their deployed image stores before upgrading.**
-    - an image readable through one of the user's *supplementary* groups now
-      works under Slurm without submitting the job with `--gid=<group>`.
-    - mode-600 images on a root_squash NFS filesystem now work, since the image
-      is no longer opened as root. This supersedes the workaround added in #135.
-- #168 [fix] replace libmount with direct loop-device ioctls in the kernel backend: libmount >= 2.42 refuses to mount from a setuid process without an `/etc/fstab` entry, and the image is now validated on the same fd that is bound to the loop device.
+- #178 [improvement] replace CLI11 with internal argument parsing library that facilitates completion
+- #176 [security] `kernel` mounting opens squashfs images with the credentials of the user, instead of as root
+- #175 [security] validate digests of manifests against what the registry prodides to protect against malicious registries
 - #172 [feature] add a rootless FUSE mounting backend: an unprivileged alternative to the setuid kernel backend.
+- #168 [security] replace libmount with direct loop-device ioctls in the kernel backend
 
 ## 10.1.0
 
