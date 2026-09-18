@@ -119,6 +119,7 @@ endif
 # and the slurm plugin.
 lib_uenv_src = [
         'src/argparse/command.cpp',
+        'src/argparse/complete.cpp',
         'src/argparse/help.cpp',
         'src/argparse/parse.cpp',
         'src/oci/auth.cpp',
