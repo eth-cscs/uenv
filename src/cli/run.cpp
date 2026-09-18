@@ -23,7 +23,7 @@ namespace uenv {
 
 std::string run_footer();
 
-argparse::command run_args::cli(global_settings& settings) {
+argparse::command run_args::cli(const global_settings& settings) {
     using argparse::completion;
     argparse::command run_cli("run", "run a uenv session");
     run_cli
@@ -52,7 +52,7 @@ argparse::command run_args::cli(global_settings& settings) {
                          "join namespaces of tasks on the same node");
     }
 
-    run_cli.on_selected([&settings]() { settings.mode = uenv::cli_mode::run; });
+    run_cli.action([this, &settings] { return uenv::run(*this, settings); });
     run_cli.footer(run_footer);
 
     return run_cli;

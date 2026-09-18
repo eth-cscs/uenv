@@ -16,7 +16,7 @@ struct image_find_args {
     bool json = false;
     bool no_partials = false;
     bool build = false;
-    argparse::command cli(global_settings& settings);
+    argparse::command cli(const global_settings& settings);
 };
 
 int image_find(const image_find_args& args, const global_settings& settings);

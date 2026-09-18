@@ -626,8 +626,11 @@ Parsing is deliberately split in two, and the split must be preserved:
   and never runs callbacks, and it does not stop at the first error. This is
   what lets tab completion run the exact parser used for real invocations on
   an incomplete command line.
-- `argparse::apply()` writes the values and calls the `on_selected` callbacks,
-  and only for an error-free result.
+- `argparse::apply()` writes the values, only for an error-free result, and
+  returns the selected command. `main()` then runs that command's `action`
+  (set with `command::action(...)` when the command is built), once the
+  configuration has been loaded. There is no mode variable or dispatch
+  `switch`: the command that was selected carries what it does.
 
 `command::validate()` checks that a tree is well formed, including that every
 option or positional that takes a value declares how it is completed
@@ -675,12 +678,14 @@ Prefer using functions from `src/util/fs.h` which provide expected-based error h
 1. Create header/source in `src/cli/` (e.g., `foo.h`, `foo.cpp`)
 2. Implement command function returning `int` (exit code)
 3. Add source to `cli_src` array in `meson.build`
-4. Add an `argparse::command cli(global_settings&)` method to the command's
-   args struct that builds and returns the command, giving every option and
-   positional that takes a value a `.complete(...)`. Add it to its parent with
-   `add_subcommand(...)`: top-level commands in `cli_state`'s constructor
-   (`src/cli/cli_state.cpp`), `uenv image ...` commands in `image_args::cli()`
-5. Add the command to the `switch (settings.mode)` in `main()` (`src/cli/uenv.cpp`)
+4. Add an `argparse::command cli(const global_settings&)` method to the
+   command's args struct that builds and returns the command. Give every
+   option and positional that takes a value a `.complete(...)`, and set the
+   command's action to call the implementation:
+   `cmd.action([this, &settings] { return uenv::foo(*this, settings); });`
+5. Add it to its parent with `add_subcommand(...)`: top-level commands in
+   `cli_state`'s constructor (`src/cli/cli_state.cpp`), `uenv image ...`
+   commands in `image_args::cli()`
 6. Add integration tests in `test/integration/cli.bats`
 7. Add unit tests for any new library functions in `test/unit/`
 

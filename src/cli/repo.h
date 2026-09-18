@@ -37,7 +37,7 @@ struct repo_args {
     repo_status_args status_args;
     repo_update_args update_args;
 
-    argparse::command cli(global_settings& settings);
+    argparse::command cli(const global_settings& settings);
 };
 
 int repo_create(const repo_create_args& args, const global_settings& settings);

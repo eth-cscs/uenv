@@ -17,7 +17,7 @@ struct image_pull_args {
     bool only_meta = false;
     bool force = false;
     bool build = false;
-    argparse::command cli(global_settings& settings);
+    argparse::command cli(const global_settings& settings);
 };
 
 int image_pull(const image_pull_args& args, const global_settings& settings);

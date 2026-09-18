@@ -30,7 +30,7 @@ namespace uenv {
 
 std::string image_copy_footer();
 
-argparse::command image_copy_args::cli(global_settings& settings) {
+argparse::command image_copy_args::cli(const global_settings& settings) {
     using argparse::completion;
     argparse::command copy_cli("copy", "copy a uenv inside a remote registry");
     copy_cli
@@ -52,8 +52,8 @@ argparse::command image_copy_args::cli(global_settings& settings) {
                     "user name for accessing restricted uenv.")
         .complete(completion::none());
     copy_cli.add_flag("force", force, "overwrite the destination if it exists");
-    copy_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::image_copy; });
+    copy_cli.action(
+        [this, &settings] { return uenv::image_copy(*this, settings); });
 
     copy_cli.footer(image_copy_footer);
 

@@ -25,13 +25,13 @@ namespace uenv {
 
 std::string status_footer();
 
-argparse::command status_args::cli(global_settings& settings) {
+argparse::command status_args::cli(const global_settings& settings) {
     argparse::command status_cli(
         "status", "print information about the currently loaded uenv");
     status_cli.add_flag("error-if-unset", error_if_unset,
                         "return a nonzero error code if no uenv is loaded");
-    status_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::status; });
+    status_cli.action(
+        [this, &settings] { return uenv::status(*this, settings); });
     status_cli.add_choice("format", format,
                           {{"short", status_format::name},
                            {"full", status_format::full},

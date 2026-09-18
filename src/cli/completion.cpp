@@ -33,7 +33,8 @@ std::string completion_footer();
 completion_args::completion_args(const argparse::command* root) : root(root) {
 }
 
-argparse::command completion_args::cli(global_settings& settings) {
+argparse::command
+completion_args::cli([[maybe_unused]] const global_settings& settings) {
     argparse::command completion_cli(
         "completion", "generate completion script for a chosen shell");
     completion_cli
@@ -41,8 +42,7 @@ argparse::command completion_args::cli(global_settings& settings) {
                         "shell for which to generate completion script")
         .required()
         .complete(argparse::completion::custom("shell"));
-    completion_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::completion; });
+    completion_cli.action([this] { return uenv::completion(*this); });
 
     return completion_cli;
 }

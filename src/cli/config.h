@@ -7,7 +7,7 @@
 namespace uenv {
 
 struct configure_args {
-    argparse::command cli(global_settings& settings);
+    argparse::command cli(const global_settings& settings);
 };
 
 int configure(const configure_args& args, const global_settings& settings);

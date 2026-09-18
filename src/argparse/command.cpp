@@ -127,8 +127,7 @@ command::command(std::string name, std::string description)
 command::command(command&& other)
     : name_(std::move(other.name_)),
       description_(std::move(other.description_)), parent_(other.parent_),
-      footer_(std::move(other.footer_)),
-      on_selected_(std::move(other.on_selected_)),
+      footer_(std::move(other.footer_)), action_(std::move(other.action_)),
       options_(std::move(other.options_)),
       positionals_(std::move(other.positionals_)),
       subcommands_(std::move(other.subcommands_)) {
@@ -140,7 +139,7 @@ command& command::operator=(command&& other) {
     description_ = std::move(other.description_);
     parent_ = other.parent_;
     footer_ = std::move(other.footer_);
-    on_selected_ = std::move(other.on_selected_);
+    action_ = std::move(other.action_);
     options_ = std::move(other.options_);
     positionals_ = std::move(other.positionals_);
     subcommands_ = std::move(other.subcommands_);
@@ -280,8 +279,8 @@ command& command::footer(std::function<std::string()> f) {
     return *this;
 }
 
-command& command::on_selected(std::function<void()> f) {
-    on_selected_ = std::move(f);
+command& command::action(std::function<int()> f) {
+    action_ = std::move(f);
     return *this;
 }
 

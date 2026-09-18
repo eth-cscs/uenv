@@ -52,6 +52,8 @@ int main(int argc, char** argv) {
     // help) use color only if the terminal supports it
     color::set_color(color::default_color(settings.calling_environment));
 
+    // the command to run, once the configuration has been loaded
+    const argparse::command* selected_command = nullptr;
     {
         const auto parsed = argparse::parse(cli.root, argc, argv);
         const auto applied = argparse::apply(parsed);
@@ -66,6 +68,7 @@ int main(int argc, char** argv) {
             fmt::print("{}", argparse::render_help(*applied->help));
             return 0;
         }
+        selected_command = applied->selected;
     }
 
     // By default there is no logging to the console
@@ -141,55 +144,17 @@ int main(int argc, char** argv) {
 
     spdlog::info("{}", settings);
 
-    switch (settings.mode) {
-    case settings.start:
-        return uenv::start(cli.start, settings);
-    case settings.run:
-        return uenv::run(cli.run, settings);
-    case settings.image_ls:
-        return uenv::image_ls(cli.image.ls_args, settings);
-    case settings.image_add:
-        return uenv::image_add(cli.image.add_args, settings);
-    case settings.image_copy:
-        return uenv::image_copy(cli.image.copy_args, settings);
-    case settings.image_delete:
-        return uenv::image_delete(cli.image.delete_args, settings);
-    case settings.image_inspect:
-        return uenv::image_inspect(cli.image.inspect_args, settings);
-    case settings.image_rm:
-        return uenv::image_rm(cli.image.remove_args, settings);
-    case settings.image_find:
-        return uenv::image_find(cli.image.find_args, settings);
-    case settings.image_pull:
-        return uenv::image_pull(cli.image.pull_args, settings);
-    case settings.image_push:
-        return uenv::image_push(cli.image.push_args, settings);
-    case settings.repo_create:
-        return uenv::repo_create(cli.repo.create_args, settings);
-    case settings.repo_migrate:
-        return uenv::repo_migrate(cli.repo.migrate_args, settings);
-    case settings.repo_status:
-        return uenv::repo_status(cli.repo.status_args, settings);
-    case settings.repo_update:
-        return uenv::repo_update(cli.repo.update_args, settings);
-    case settings.status:
-        return uenv::status(cli.stat, settings);
-    case settings.build:
-        return uenv::build(cli.build, settings);
-    case settings.completion:
-        return uenv::completion(cli.completion);
-    case settings.configure:
-        return uenv::configure(cli.configure, settings);
-    case settings.unset:
+    const auto& selected = *selected_command;
+    if (selected.has_action()) {
+        return selected.run();
+    }
+    // a command that only groups subcommands: `uenv` prints the version,
+    // `uenv image` etc. print their help
+    if (selected.parent() == nullptr) {
         term::msg("uenv version {}", UENV_VERSION);
         term::msg("call '{} --help' for help", argv[0]);
-        return 0;
-    default:
-        spdlog::warn("{}", (int)settings.mode);
-        term::error("internal error, missing implementation for mode {}",
-                    settings.mode);
-        return 1;
+    } else {
+        fmt::print("{}", argparse::render_help(selected));
     }
-
     return 0;
 }

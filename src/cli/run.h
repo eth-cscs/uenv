@@ -19,7 +19,7 @@ struct run_args {
     bool join = false;
     std::vector<std::string> commands;
     bool disable_default_view = false;
-    argparse::command cli(global_settings& settings);
+    argparse::command cli(const global_settings& settings);
 };
 
 int run(const run_args& args, const global_settings& settings);

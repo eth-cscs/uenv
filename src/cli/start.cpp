@@ -22,7 +22,7 @@ namespace uenv {
 
 std::string start_footer();
 
-argparse::command start_args::cli(global_settings& settings) {
+argparse::command start_args::cli(const global_settings& settings) {
     using argparse::completion;
     argparse::command start_cli("start", "start a uenv session");
     start_cli
@@ -39,8 +39,8 @@ argparse::command start_args::cli(global_settings& settings) {
     start_cli.add_flag(
         {'V', "no-default-view"}, disable_default_view,
         "disable loading default views when no view is specified");
-    start_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::start; });
+    start_cli.action(
+        [this, &settings] { return uenv::start(*this, settings); });
     start_cli.footer(start_footer);
 
     return start_cli;

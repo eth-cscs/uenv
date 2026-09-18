@@ -23,7 +23,7 @@ namespace uenv {
 
 std::string image_find_footer();
 
-argparse::command image_find_args::cli(global_settings& settings) {
+argparse::command image_find_args::cli(const global_settings& settings) {
     using argparse::completion;
     argparse::command find_cli("find", "search for uenv that can be pulled");
     find_cli.add_positional("uenv", uenv_description, "search term")
@@ -40,8 +40,8 @@ argparse::command image_find_args::cli(global_settings& settings) {
                       "do not match partial names when searching.");
     find_cli.add_flag("build", build,
                       "invalid: replaced with 'build::' prefix on uenv label");
-    find_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::image_find; });
+    find_cli.action(
+        [this, &settings] { return uenv::image_find(*this, settings); });
 
     find_cli.footer(image_find_footer);
 

@@ -24,7 +24,7 @@ namespace uenv {
 
 std::string image_footer();
 
-argparse::command image_args::cli(global_settings& settings) {
+argparse::command image_args::cli(const global_settings& settings) {
     argparse::command image_cli("image", "manage and query uenv images");
 
     // add the `uenv image ls` command

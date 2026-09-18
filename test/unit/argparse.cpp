@@ -41,7 +41,8 @@ struct cli {
 
     fmt_choice format = fmt_choice::full;
 
-    std::vector<std::string> selected;
+    // the actions that have been run
+    std::vector<std::string> ran;
 
     // each subcommand is built as a value, then added to its parent
     argparse::command run_cli() {
@@ -56,7 +57,10 @@ struct cli {
             .complete(completion::command());
         run.add_flag({'V', "no-default-view"}, no_default_view, "no views");
         run.add_flag({'j', "join"}, join, "join");
-        run.on_selected([this] { selected.push_back("run"); });
+        run.action([this] {
+            ran.push_back("run");
+            return 3;
+        });
         return run;
     }
 
@@ -65,7 +69,10 @@ struct cli {
         ls.add_positional("uenv", ls_uenv, "search term")
             .complete(completion::custom("local_label"));
         ls.add_flag("json", json, "json output");
-        ls.on_selected([this] { selected.push_back("ls"); });
+        ls.action([this] {
+            ran.push_back("ls");
+            return 0;
+        });
 
         argparse::command del("delete", "delete an image");
         del.add_positional("uenv", delete_uenv, "the uenv")
@@ -76,7 +83,6 @@ struct cli {
             .complete(completion::file());
 
         argparse::command image("image", "manage images");
-        image.on_selected([this] { selected.push_back("image"); });
         image.add_subcommand(std::move(ls));
         image.add_subcommand(std::move(del));
         return image;
@@ -159,12 +165,22 @@ TEST_CASE("subcommands", "[argparse]") {
     REQUIRE(r.items.size() == 2u);
     REQUIRE(r.items[0].kind == item_kind::subcommand);
     REQUIRE(r.items[1].kind == item_kind::subcommand);
-    REQUIRE(argparse::apply(r));
-    // callbacks are called from the root to the selected command
-    REQUIRE(c.selected == std::vector<std::string>{"image", "ls"});
+    auto a = argparse::apply(r);
+    REQUIRE(a);
+    REQUIRE(a->selected == &r.selected());
+    REQUIRE(!a->help);
+    // apply() does not run the action
+    REQUIRE(c.ran.empty());
+    REQUIRE(a->selected->has_action());
+    REQUIRE(a->selected->run() == 0);
+    REQUIRE(c.ran == std::vector<std::string>{"ls"});
 
-    // a command with subcommands does not require one to be given
-    REQUIRE(c.parse({"image"}).ok());
+    // a command with subcommands does not require one to be given, and
+    // need not have an action
+    auto image = c.parse({"image"});
+    REQUIRE(image.ok());
+    REQUIRE(argparse::apply(image)->selected->name() == "image");
+    REQUIRE(!image.selected().has_action());
 
     auto bad = c.parse({"image", "lx"});
     REQUIRE(kinds(bad) == std::vector{error_kind::unknown_command});
@@ -183,9 +199,9 @@ TEST_CASE("parse has no side effects", "[argparse]") {
     REQUIRE(c.uenv.empty());
     REQUIRE(c.commands.empty());
     REQUIRE(!c.no_default_view);
-    REQUIRE(c.selected.empty());
 
-    REQUIRE(argparse::apply(r));
+    auto a = argparse::apply(r);
+    REQUIRE(a);
     REQUIRE(c.verbose == 2);
     REQUIRE(c.repo == "/r");
     REQUIRE(c.color == true);
@@ -193,7 +209,9 @@ TEST_CASE("parse has no side effects", "[argparse]") {
     REQUIRE(c.uenv == "img");
     REQUIRE(c.commands == std::vector<std::string>{"cmd"});
     REQUIRE(c.no_default_view);
-    REQUIRE(c.selected == std::vector<std::string>{"run"});
+    REQUIRE(c.ran.empty());
+    REQUIRE(a->selected->run() == 3);
+    REQUIRE(c.ran == std::vector<std::string>{"run"});
 }
 
 TEST_CASE("long options", "[argparse]") {
@@ -505,7 +523,6 @@ TEST_CASE("help", "[argparse]") {
     auto r = c.parse({"-v", "run", "-h"});
     REQUIRE(argparse::apply(r));
     REQUIRE(c.verbose == 0);
-    REQUIRE(c.selected.empty());
 
     auto text = argparse::render_help(*c.root.find_subcommand("run"));
     REQUIRE(text.find("Usage: prog run [OPTIONS] uenv commands...") !=

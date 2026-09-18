@@ -32,7 +32,7 @@ namespace uenv {
 
 std::string image_pull_footer();
 
-argparse::command image_pull_args::cli(global_settings& settings) {
+argparse::command image_pull_args::cli(const global_settings& settings) {
     using argparse::completion;
     argparse::command pull_cli("pull", "download a uenv from a registry");
     pull_cli
@@ -54,8 +54,8 @@ argparse::command image_pull_args::cli(global_settings& settings) {
     pull_cli.add_flag("force", force, "download and overwrite existing images");
     pull_cli.add_flag("build", build,
                       "invalid: replaced with 'build::' prefix on uenv label");
-    pull_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::image_pull; });
+    pull_cli.action(
+        [this, &settings] { return uenv::image_pull(*this, settings); });
 
     pull_cli.footer(image_pull_footer);
 

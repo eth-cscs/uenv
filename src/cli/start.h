@@ -17,7 +17,7 @@ struct start_args {
     bool ignore_tty = false;
     std::optional<std::string> view_description;
     bool disable_default_view = false;
-    argparse::command cli(global_settings& settings);
+    argparse::command cli(const global_settings& settings);
 };
 
 int start(const start_args& args, const global_settings& settings);

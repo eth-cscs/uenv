@@ -24,7 +24,7 @@ namespace uenv {
 
 std::string image_inspect_footer();
 
-argparse::command image_inspect_args::cli(global_settings& settings) {
+argparse::command image_inspect_args::cli(const global_settings& settings) {
     using argparse::completion;
     argparse::command inspect_cli("inspect", "print information about a uenv.");
     inspect_cli.add_option("format", format, "the format string.")
@@ -33,8 +33,8 @@ argparse::command image_inspect_args::cli(global_settings& settings) {
     inspect_cli.add_positional("uenv", uenv, "the uenv to inspect.")
         .required()
         .complete(completion::custom("uenv"));
-    inspect_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::image_inspect; });
+    inspect_cli.action(
+        [this, &settings] { return uenv::image_inspect(*this, settings); });
 
     inspect_cli.footer(image_inspect_footer);
 

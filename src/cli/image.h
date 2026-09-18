@@ -25,7 +25,7 @@ struct image_args {
     image_pull_args pull_args;
     image_push_args push_args;
     image_rm_args remove_args;
-    argparse::command cli(global_settings& settings);
+    argparse::command cli(const global_settings& settings);
 };
 
 } // namespace uenv

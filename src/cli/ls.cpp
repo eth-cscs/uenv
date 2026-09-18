@@ -21,7 +21,7 @@ namespace uenv {
 
 std::string image_ls_footer();
 
-argparse::command image_ls_args::cli(global_settings& settings) {
+argparse::command image_ls_args::cli(const global_settings& settings) {
     using argparse::completion;
     argparse::command ls_cli("ls", "search for uenv that are available to run");
     ls_cli.add_positional("uenv", uenv_description, "search term")
@@ -36,8 +36,8 @@ argparse::command image_ls_args::cli(global_settings& settings) {
         .complete(completion::none());
     ls_cli.add_flag("no-partials", no_partials,
                     "do not match partial names when searching.");
-    ls_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::image_ls; });
+    ls_cli.action(
+        [this, &settings] { return uenv::image_ls(*this, settings); });
 
     ls_cli.footer(image_ls_footer);
 

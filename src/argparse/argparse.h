@@ -27,8 +27,8 @@
 //    command line (e.g. for tab completion) as well as on a complete one.
 //
 // 2. `apply()` takes an error-free `parse_result`, writes the values to the
-//    bound variables and calls the `on_selected` callback of each command on
-//    the path from the root to the selected subcommand.
+//    bound variables, and returns the selected command. The application then
+//    runs that command's `action`.
 //
 // Grammar of a single word, applied in this order:
 //
@@ -304,8 +304,9 @@ class command {
 
     // text printed after the generated help, generated when help is printed
     command& footer(std::function<std::string()> f);
-    // called by apply() if this command is on the path of selected commands
-    command& on_selected(std::function<void()> f);
+    // what the command does when it is selected: returns the exit code. A
+    // command with subcommands usually has no action of its own.
+    command& action(std::function<int()> f);
 
     //
     // inspecting the tree
@@ -321,6 +322,13 @@ class command {
         return parent_;
     }
     std::string footer_text() const;
+    bool has_action() const {
+        return bool(action_);
+    }
+    // run the command's action: has_action() must be true
+    int run() const {
+        return action_();
+    }
     // the names of the commands from the root to this command
     std::vector<std::string> path() const;
 
@@ -353,7 +361,7 @@ class command {
     std::string description_;
     command* parent_ = nullptr;
     std::function<std::string()> footer_;
-    std::function<void()> on_selected_;
+    std::function<int()> action_;
     std::vector<std::unique_ptr<option>> options_;
     std::vector<std::unique_ptr<positional>> positionals_;
     std::vector<std::unique_ptr<command>> subcommands_;
@@ -454,11 +462,13 @@ parse_result parse(const command& root, int argc, const char* const* argv);
 struct applied {
     // help was requested for this command: nothing was applied.
     const command* help = nullptr;
+    // the selected command, whose action should be run (when help is null)
+    const command* selected = nullptr;
 };
 
-// Write the parsed values to the bound variables and call the on_selected
-// callbacks. The result must be ok(): if it has errors (and help was not
-// requested) nothing is applied and the first error is returned.
+// Write the parsed values to the bound variables. The result must be ok(): if
+// it has errors (and help was not requested) nothing is applied and the first
+// error is returned.
 util::expected<applied, error> apply(const parse_result& result);
 
 // The help text for a command: usage, positionals, options, subcommands and

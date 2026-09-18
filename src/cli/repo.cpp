@@ -25,7 +25,7 @@ namespace uenv {
 
 std::string repo_footer();
 
-argparse::command repo_args::cli(global_settings& settings) {
+argparse::command repo_args::cli(const global_settings& settings) {
     using argparse::completion;
     argparse::command repo_cli("repo",
                                "manage and query uenv image repositories");
@@ -37,8 +37,8 @@ argparse::command repo_args::cli(global_settings& settings) {
     create_cli
         .add_positional("path", create_args.path, "path of the repo to create")
         .complete(completion::directory());
-    create_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::repo_create; });
+    create_cli.action(
+        [this, &settings] { return uenv::repo_create(create_args, settings); });
 
     // add the status command, i.e. `uenv repo status ...`
     argparse::command status_cli("status",
@@ -48,8 +48,8 @@ argparse::command repo_args::cli(global_settings& settings) {
                         "the repo (one of [path] or [name])")
         .complete(completion::custom("repo"));
     status_cli.add_flag("json", status_args.json, "output in json format");
-    status_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::repo_status; });
+    status_cli.action(
+        [this, &settings] { return uenv::repo_status(status_args, settings); });
 
     // add the update command, i.e. `uenv repo update ...`
     argparse::command update_cli("update",
@@ -62,8 +62,8 @@ argparse::command repo_args::cli(global_settings& settings) {
         .add_flag("lustre", update_args.lustre,
                   "apply lustre striping fix if applicable")
         .negation("no-lustre");
-    update_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::repo_update; });
+    update_cli.action(
+        [this, &settings] { return uenv::repo_update(update_args, settings); });
 
     // add the update command, i.e. `uenv repo migrate ...`
     argparse::command migrate_cli("migrate",
@@ -83,8 +83,9 @@ argparse::command repo_args::cli(global_settings& settings) {
         .add_flag("sync", migrate_args.sync,
                   "merge source uenv into an existing target repo.")
         .negation("no-sync");
-    migrate_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::repo_migrate; });
+    migrate_cli.action([this, &settings] {
+        return uenv::repo_migrate(migrate_args, settings);
+    });
 
     repo_cli.add_subcommand(std::move(create_cli));
     repo_cli.add_subcommand(std::move(status_cli));

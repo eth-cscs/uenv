@@ -16,7 +16,7 @@ struct image_push_args {
     std::optional<std::string> token;
     std::optional<std::string> username;
     bool force = false;
-    argparse::command cli(global_settings& settings);
+    argparse::command cli(const global_settings& settings);
 };
 
 int image_push(const image_push_args& args, const global_settings& settings);

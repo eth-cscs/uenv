@@ -37,7 +37,7 @@ namespace uenv {
 
 std::string image_push_footer();
 
-argparse::command image_push_args::cli(global_settings& settings) {
+argparse::command image_push_args::cli(const global_settings& settings) {
     using argparse::completion;
     argparse::command push_cli("push", "push a uenv to a registry");
     push_cli
@@ -63,8 +63,8 @@ argparse::command image_push_args::cli(global_settings& settings) {
                     "user name for the registry (by default $USER is used).")
         .complete(completion::none());
     push_cli.add_flag("force", force, "overwrite the destination if it exists");
-    push_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::image_push; });
+    push_cli.action(
+        [this, &settings] { return uenv::image_push(*this, settings); });
 
     push_cli.footer(image_push_footer);
 

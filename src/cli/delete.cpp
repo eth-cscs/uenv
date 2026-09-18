@@ -27,7 +27,7 @@ namespace uenv {
 
 std::string image_delete_footer();
 
-argparse::command image_delete_args::cli(global_settings& settings) {
+argparse::command image_delete_args::cli(const global_settings& settings) {
     using argparse::completion;
     argparse::command delete_cli("delete",
                                  "delete a uenv from a remote registry");
@@ -46,8 +46,8 @@ argparse::command image_delete_args::cli(global_settings& settings) {
         .add_option("username", username,
                     "user name for accessing restricted uenv.")
         .complete(completion::none());
-    delete_cli.on_selected(
-        [&settings]() { settings.mode = uenv::cli_mode::image_delete; });
+    delete_cli.action(
+        [this, &settings] { return uenv::image_delete(*this, settings); });
 
     delete_cli.footer(image_delete_footer);
 

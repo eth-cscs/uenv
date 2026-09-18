@@ -16,7 +16,7 @@ struct completion_args {
     // the root of the command tree, for which the script is generated
     const argparse::command* root;
     completion_args(const argparse::command* root);
-    argparse::command cli(global_settings& settings);
+    argparse::command cli(const global_settings& settings);
 };
 
 int completion(const completion_args& args);
