@@ -210,7 +210,8 @@ changing that code path, check they are actually running rather than skipping.
 
 ### Source Structure
 
-- `src/cli/` - CLI command implementations (add_remove, build, completion, config, copy, delete, find, help, image, inspect, ls, pull, push, repo, run, start, status)
+- `src/cli/` - CLI command implementations (add_remove, build, completion, config, copy, delete, find, help, image, inspect, ls, pull, push, repo, run, start, status), and the tree of commands they are registered in (`cli.h/cpp`)
+- `src/argparse/` - Command line argument parser used by the CLI and `squashfs-mount`. See "The `argparse` command line parser" below.
 - `src/uenv/` - Core library shared between CLI and Slurm plugin
   - Environment management (`env.h/cpp`, `uenv.h/cpp`)
   - Repository/database operations (`repository.h/cpp`)
@@ -484,7 +485,6 @@ the Slurm prologue clears `/dev/shm` before every job, bounding it further.
 ### Dependencies
 
 All dependencies are built as static libraries via meson wrap:
-- CLI11 - command line parsing
 - fmt - formatting library
 - spdlog - logging
 - nlohmann_json - JSON parsing
@@ -609,6 +609,69 @@ Enforcement: this command must return nothing.
 grep -rn '#include <\(uenv\|site\|cli\)/' src/oci/
 ```
 
+### The `argparse` command line parser
+
+`src/argparse/` is the command line parser used by `uenv` and both
+`squashfs-mount` variants (it replaced CLI11). `src/argparse/argparse.h`
+documents the grammar.
+
+Each command has an **arguments type**: a plain struct whose fields hold what
+was given on the command line. A `command_builder<T>` binds each option and
+positional to a field of `T` by pointer-to-member (`&run_args::view`), and
+sets the command's action, which receives a filled-in `const T&`. The builder
+produces an untyped `argparse::command`, added to its parent with
+`add_subcommand(...)`. The root is wrapped in an `argparse::program<Globals>`,
+where `Globals` is the root's arguments type (uenv's `global_args`).
+
+Nothing is bound by reference and nothing is mutated as a side effect of
+parsing:
+
+- `argparse::parse()` only reads the tree: it classifies every word and
+  returns a `parse_result` (a trace of which word went where, the parser state
+  after the last word, and every error), and does not stop at the first
+  error. This is what lets tab completion run the exact parser used for real
+  invocations on an incomplete command line.
+- `program::parse()` turns an error-free result into an `invocation`: new
+  values of the root's arguments type (the global options) and of the
+  selected command's, copied from their defaults and filled in, the latter
+  bound to the command's action. `main()` reads `globals()`, loads the
+  configuration, and then calls `run()`, which runs the action.
+
+Each command's `detail::model<T>` holds its typed setters and action behind a
+small virtual interface; the action, bound to the filled-in values, is
+returned as a `std::function<int()>`. `program<Globals>` keeps a typed pointer
+to the root's model, which is how `globals()` is typed without a cast.
+Because only the builder and the action ever see `T`, each command's
+arguments struct, implementation and footer are private to its `.cpp` file,
+and its header declares a single function, e.g.
+`argparse::command run_command(const global_settings&)`.
+
+`command::validate()` checks that a tree is well formed, including that every
+option or positional that takes a value declares how it is completed
+(`.complete(...)`); `uenv` runs it at start-up, so a malformed tree fails every
+test.
+
+Like `src/oci`, it depends only on `src/util/` and fmt. Enforcement: this
+command must return nothing.
+
+```bash
+grep -rn '#include <\(uenv\|site\|cli\|oci\)/' src/argparse/
+```
+
+Behaviour that differs from CLI11, on purpose:
+
+- once a `rest` positional (the command in `uenv run <uenv> <command...>`) has
+  its first word, every later word belongs to it, options included;
+- flags never take a value (`--json=false` is an error), and `--opt=` gives
+  an empty value instead of consuming the next word;
+- `-h/--help` takes precedence over every other error;
+- a word is only matched against the subcommands of the current command:
+  CLI11 would also jump to a parent's or sibling's subcommand
+  (`uenv image find ls` ran `uenv image ls`);
+- `-5` is an unknown option, not a positional;
+- `--color`/`--no-color` is one negatable flag: the last one given wins
+  (CLI11 applied them in the order they were defined).
+
 ### Environment Variables
 
 Use `envvars::state` to access environment variables (from `src/util/envvars.h`). Available as `settings.calling_environment` in most CLI commands.
@@ -629,9 +692,20 @@ Prefer using functions from `src/util/fs.h` which provide expected-based error h
 1. Create header/source in `src/cli/` (e.g., `foo.h`, `foo.cpp`)
 2. Implement command function returning `int` (exit code)
 3. Add source to `cli_src` array in `meson.build`
-4. Register subcommand in `src/cli/uenv.cpp` main function using CLI11
-5. Add integration tests in `test/integration/cli.bats`
-6. Add unit tests for any new library functions in `test/unit/`
+4. In `foo.cpp`, put the command's arguments struct and its implementation in
+   an anonymous namespace, and add
+   `argparse::command foo_command(const global_settings& settings)`, the only
+   declaration in `foo.h`. It builds the command with a
+   `argparse::command_builder<foo_args>`: bind options and positionals to
+   fields (`&foo_args::field`), give every one that takes a value a
+   `.complete(...)`, set the action
+   (`cmd.action([&settings](const foo_args& args) { return foo(args, settings); })`)
+   and `return std::move(cmd).build();`
+5. Add it to its parent with `add_subcommand(...)`: top-level commands in
+   `make_cli()` (`src/cli/cli.cpp`), `uenv image ...` commands in
+   `image_command()`
+6. Add integration tests in `test/integration/cli.bats`
+7. Add unit tests for any new library functions in `test/unit/`
 
 ### Testing New Features
 

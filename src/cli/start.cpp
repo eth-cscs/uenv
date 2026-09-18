@@ -20,26 +20,51 @@
 
 namespace uenv {
 
+namespace {
+
+struct start_args {
+    std::string uenv_description;
+    bool ignore_tty = false;
+    std::optional<std::string> view_description;
+    bool disable_default_view = false;
+};
+
+std::string format_as(const start_args& args) {
+    return fmt::format("{{uenv: '{}', view: '{}'}}", args.uenv_description,
+                       args.view_description.value_or(""));
+}
 std::string start_footer();
 
-void start_args::add_cli(CLI::App& cli,
-                         [[maybe_unused]] global_settings& settings) {
-    auto* start_cli = cli.add_subcommand("start", "start a uenv session");
-    start_cli->add_option("-v,--view", view_description,
-                          "comma separated list of views to load");
+int start(const start_args& args, const global_settings& settings);
+
+} // namespace
+
+argparse::command start_command(const global_settings& settings) {
+    using argparse::completion;
+    argparse::command_builder<start_args> start_cli("start",
+                                                    "start a uenv session");
     start_cli
-        ->add_option("uenv", uenv_description,
-                     "comma separated list of uenv to mount")
-        ->required();
-    start_cli->add_flag("--ignore-tty", ignore_tty,
-                        "don't check for non-interactive shells");
-    start_cli->add_flag(
-        "-V,--no-default-view", disable_default_view,
+        .add_option({'v', "view"}, &start_args::view_description,
+                    "comma separated list of views to load")
+        .complete(completion::custom("view_list"));
+    start_cli
+        .add_positional("uenv", &start_args::uenv_description,
+                        "comma separated list of uenv to mount")
+        .required()
+        .complete(completion::custom("uenv_list"));
+    start_cli.add_flag("ignore-tty", &start_args::ignore_tty,
+                       "don't check for non-interactive shells");
+    start_cli.add_flag(
+        {'V', "no-default-view"}, &start_args::disable_default_view,
         "disable loading default views when no view is specified");
-    start_cli->callback(
-        [&settings]() { settings.mode = uenv::cli_mode::start; });
-    start_cli->footer(start_footer);
+    start_cli.action(
+        [&settings](const start_args& args) { return start(args, settings); });
+    start_cli.footer(start_footer);
+
+    return std::move(start_cli).build();
 }
+
+namespace {
 
 // check whether running in a tty session.
 // uenv start doesn't make sense when not tty - it is designed for running
@@ -202,4 +227,6 @@ std::string start_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+} // namespace
+
 } // namespace uenv

@@ -5,12 +5,12 @@
 
 #include <unistd.h>
 
-#include <CLI/CLI.hpp>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
+#include <argparse/argparse.h>
 #include <uenv/config.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
@@ -22,6 +22,18 @@
 #include <util/shell.h>
 
 namespace {
+
+namespace {
+
+// the command line arguments
+struct squashfs_mount_args {
+    bool print_version = false;
+    int verbosity = 0;
+    std::optional<std::string> raw_mounts;
+    std::optional<std::vector<std::string>> commands;
+};
+
+} // namespace
 
 // The calling user's real ids, recorded before any privilege change so that
 // an exit can give up root.
@@ -103,20 +115,35 @@ int main(int argc, char** argv, char** envp) {
     // Command line argument parsing
     //
 
-    bool print_version = false;
-    int verbosity = 1;
-    std::optional<std::string> raw_mounts;
-    std::optional<std::vector<std::string>> commands;
+    argparse::command_builder<squashfs_mount_args> builder(
+        "squashfs-mount", fmt::format("squashfs-mount {}", UENV_VERSION));
+    builder.add_flag({'v', "verbose"}, &squashfs_mount_args::verbosity,
+                     "enable verbose output");
+    builder.add_flag("version", &squashfs_mount_args::print_version,
+                     "print version");
+    builder
+        .add_option({'s', "sqfs"}, &squashfs_mount_args::raw_mounts,
+                    "comma separated list of squashfs files to mount")
+        .complete(argparse::completion::custom("mount_list"));
+    builder
+        .add_rest("commands", &squashfs_mount_args::commands,
+                  "the command to run, including with arguments")
+        .complete(argparse::completion::command());
+    const argparse::program<squashfs_mount_args> cli(std::move(builder));
 
-    CLI::App cli(fmt::format("squashfs-mount {}", UENV_VERSION));
-    cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
-    cli.add_flag("--version", print_version, "print version");
-    cli.add_option("-s,--sqfs", raw_mounts,
-                   "comma separated list of squashfs files to mount");
-    cli.add_option("commands", commands,
-                   "the command to run, including with arguments");
-
-    CLI11_PARSE(cli, argc, argv);
+    const auto command_line = cli.parse(argc, argv);
+    if (!command_line) {
+        error_and_exit("{}", command_line.error().message);
+    }
+    if (command_line->help_requested()) {
+        fmt::print("{}", command_line->help());
+        exit_as_caller(0);
+    }
+    const auto& args = command_line->globals();
+    const bool print_version = args.print_version;
+    const int verbosity = args.verbosity;
+    const auto& raw_mounts = args.raw_mounts;
+    const auto& commands = args.commands;
 
     //
     // print version and quit if --version flag was used

@@ -7,7 +7,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <CLI/Validators.hpp>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
@@ -24,26 +23,42 @@
 
 namespace uenv {
 
+namespace {
+
+enum class status_format { name, full, views };
+
+struct status_args {
+    status_format format = status_format::full;
+    // return nonzero value when no uenv is loaded
+    bool error_if_unset = false;
+};
+
 std::string status_footer();
 
-void status_args::add_cli(CLI::App& cli,
-                          [[maybe_unused]] global_settings& settings) {
-    auto* status_cli = cli.add_subcommand(
-        "status", "print information about the currently loaded uenv");
-    status_cli->add_flag("--error-if-unset", error_if_unset,
-                         "return a nonzero error code if no uenv is loaded");
-    status_cli->callback(
-        [&settings]() { settings.mode = uenv::cli_mode::status; });
-    status_cli
-        ->add_option("--format", format, "one of {full (default), name, views}")
-        ->transform(CLI::CheckedTransformer(
-            std::unordered_map<std::string, status_format>{
-                {"short", status_format::name},
-                {"full", status_format::full},
-                {"views", status_format::views}}));
+int status(const status_args& args, const global_settings& settings);
 
-    status_cli->footer(status_footer);
+} // namespace
+
+argparse::command status_command(const global_settings& settings) {
+    argparse::command_builder<status_args> status_cli(
+        "status", "print information about the currently loaded uenv");
+    status_cli.add_flag("error-if-unset", &status_args::error_if_unset,
+                        "return a nonzero error code if no uenv is loaded");
+    status_cli.action([&settings](const status_args& args) {
+        return status(args, settings);
+    });
+    status_cli.add_choice("format", &status_args::format,
+                          {{"short", status_format::name},
+                           {"full", status_format::full},
+                           {"views", status_format::views}},
+                          "one of {full (default), short, views}");
+
+    status_cli.footer(status_footer);
+
+    return std::move(status_cli).build();
 }
+
+namespace {
 
 int status([[maybe_unused]] const status_args& args,
            [[maybe_unused]] const global_settings& settings) {
@@ -124,5 +139,7 @@ std::string status_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

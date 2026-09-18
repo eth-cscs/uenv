@@ -1,10 +1,12 @@
 // vim: ts=4 sts=4 sw=4 et
 #include <unistd.h>
 
-#include <CLI/CLI.hpp>
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
+
+#include <argparse/argparse.h>
 
 #include <uenv/config.h>
 #include <uenv/log.h>
@@ -18,70 +20,42 @@
 #include <util/fs.h>
 #include <util/lustre.h>
 
-#include "add_remove.h"
-#include "build.h"
-#include "completion.h"
-#include "config.h"
-#include "delete.h"
-#include "help.h"
-#include "image.h"
-#include "inspect.h"
-#include "repo.h"
-#include "run.h"
-#include "start.h"
-#include "status.h"
+#include "cli.h"
 #include "terminal.h"
 #include "uenv.h"
-
-std::string help_footer();
 
 uenv::global_settings::global_settings() : calling_environment(environ) {
 }
 
 int main(int argc, char** argv) {
-    uenv::config_base cli_config;
     uenv::global_settings settings;
-    bool print_version = false;
-    std::optional<std::string> cli_repo{};
-    std::optional<std::vector<uenv::repo_label>> cli_repo_labels{};
+    const auto cli = uenv::make_cli(settings);
 
-    CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
-    cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
-    cli.add_flag_callback(
-        "--no-color", [&cli_config]() -> void { cli_config.color = false; },
-        "disable color output");
-    cli.add_flag_callback(
-        "--color", [&cli_config]() -> void { cli_config.color = true; },
-        "enable color output");
-    cli.add_flag("--version", print_version, "print version");
-    cli.add_option("--repo", cli_repo, "the uenv repository description");
-    cli.add_option("--system", cli_config.system_name, "the system name");
+    if (auto valid = cli.validate(); !valid) {
+        term::error("internal error in the command line interface: {}",
+                    valid.error());
+        return 1;
+    }
 
-    cli.footer(help_footer);
+    // messages printed before the configuration is loaded (parse errors and
+    // help) use color only if the terminal supports it
+    color::set_color(color::default_color(settings.calling_environment));
 
-    uenv::start_args start;
-    uenv::run_args run;
-    uenv::image_args image;
-    uenv::repo_args repo;
-    uenv::status_args stat;
-    uenv::build_args build;
-    uenv::completion_args completion(&cli);
-    uenv::configure_args configure;
+    const auto command_line = cli.parse(argc, argv);
+    if (!command_line) {
+        const auto& e = command_line.error();
+        term::error("{}", e.message);
+        term::hint("run '{} --help' for more information",
+                   fmt::join(e.cmd->path(), " "));
+        return 1;
+    }
+    if (command_line->help_requested()) {
+        fmt::print("{}", command_line->help());
+        return 0;
+    }
 
-    start.add_cli(cli, settings);
-    run.add_cli(cli, settings);
-    image.add_cli(cli, settings);
-    // add the inspect command so that it can be invoked two ways
-    //   uenv image inspect ...
-    //   uenv inspect ...
-    image.inspect_args.add_cli(cli, settings);
-    repo.add_cli(cli, settings);
-    stat.add_cli(cli, settings);
-    build.add_cli(cli, settings);
-    completion.add_cli(cli, settings);
-    configure.add_cli(cli, settings);
-
-    CLI11_PARSE(cli, argc, argv);
+    const uenv::global_args& globals = command_line->globals();
+    settings.verbose = globals.verbose;
 
     // By default there is no logging to the console
     //   user-friendly logging of errors and warnings is handled using
@@ -102,14 +76,15 @@ int main(int argc, char** argv) {
     }
 
     // print the version and exit if the --version flag was passed
-    if (print_version) {
+    if (globals.version) {
         term::msg("{}", UENV_VERSION);
         return 0;
     }
 
     // parse the repo flag if it was passed
-    if (cli_repo) {
-        if (const auto result = uenv::parse_repo_list(cli_repo.value())) {
+    std::optional<std::vector<uenv::repo_label>> cli_repo_labels{};
+    if (globals.repo) {
+        if (const auto result = uenv::parse_repo_list(*globals.repo)) {
             spdlog::info("selected repositories: {}",
                          fmt::join(result.value(), ", "));
             cli_repo_labels = result.value();
@@ -122,6 +97,8 @@ int main(int argc, char** argv) {
 
     // set the configuration according to defaults, cli options and config
     // files.
+    const uenv::config_base cli_config{.color = globals.color,
+                                       .system_name = globals.system};
     if (auto full_config = uenv::load_config(cli_config, cli_repo_labels,
                                              settings.calling_environment)) {
         // print any warnings that were generated while loading configuration
@@ -156,78 +133,11 @@ int main(int argc, char** argv) {
 
     spdlog::info("{}", settings);
 
-    switch (settings.mode) {
-    case settings.start:
-        return uenv::start(start, settings);
-    case settings.run:
-        return uenv::run(run, settings);
-    case settings.image_ls:
-        return uenv::image_ls(image.ls_args, settings);
-    case settings.image_add:
-        return uenv::image_add(image.add_args, settings);
-    case settings.image_copy:
-        return uenv::image_copy(image.copy_args, settings);
-    case settings.image_delete:
-        return uenv::image_delete(image.delete_args, settings);
-    case settings.image_inspect:
-        return uenv::image_inspect(image.inspect_args, settings);
-    case settings.image_rm:
-        return uenv::image_rm(image.remove_args, settings);
-    case settings.image_find:
-        return uenv::image_find(image.find_args, settings);
-    case settings.image_pull:
-        return uenv::image_pull(image.pull_args, settings);
-    case settings.image_push:
-        return uenv::image_push(image.push_args, settings);
-    case settings.repo_create:
-        return uenv::repo_create(repo.create_args, settings);
-    case settings.repo_migrate:
-        return uenv::repo_migrate(repo.migrate_args, settings);
-    case settings.repo_status:
-        return uenv::repo_status(repo.status_args, settings);
-    case settings.repo_update:
-        return uenv::repo_update(repo.update_args, settings);
-    case settings.status:
-        return uenv::status(stat, settings);
-    case settings.build:
-        return uenv::build(build, settings);
-    case settings.completion:
-        return uenv::completion(completion);
-    case settings.configure:
-        return uenv::configure(configure, settings);
-    case settings.unset:
-        term::msg("uenv version {}", UENV_VERSION);
-        term::msg("call '{} --help' for help", argv[0]);
+    // a command that only groups subcommands, e.g. `uenv image`, prints its
+    // help
+    if (!command_line->has_action()) {
+        fmt::print("{}", command_line->help());
         return 0;
-    default:
-        spdlog::warn("{}", (int)settings.mode);
-        term::error("internal error, missing implementation for mode {}",
-                    settings.mode);
-        return 1;
     }
-
-    return 0;
-}
-
-std::string help_footer() {
-    using enum help::block::admonition;
-    using help::lst;
-
-    // clang-format off
-    std::vector<help::item> items{
-        help::block{none, "Use the --help flag in with sub-commands for more information."},
-        help::linebreak{},
-        help::block{xmpl, fmt::format("use the {} flag to generate more verbose output", lst{"-v"})},
-        help::block{code,   "uenv -v  image ls    # info level logging"},
-        help::block{code,   "uenv -vv image ls    # debug level logging"},
-        help::linebreak{},
-        help::block{xmpl, "get help with the run command"},
-        help::block{code,   "uenv run --help"},
-        help::linebreak{},
-        help::block{xmpl, fmt::format("get help with the {} command", lst("image ls"))},
-        help::block{code,   "uenv image ls --help"},
-    };
-    // clang-format on
-
-    return fmt::format("{}", fmt::join(items, "\n"));
+    return command_line->run();
 }

@@ -25,28 +25,50 @@
 
 namespace uenv {
 
+namespace {
+
+struct image_delete_args {
+    std::string uenv_description;
+    std::optional<std::string> token;
+    std::optional<std::string> username;
+};
+
 std::string image_delete_footer();
 
-void image_delete_args::add_cli(CLI::App& cli,
-                                [[maybe_unused]] global_settings& settings) {
-    auto* delete_cli =
-        cli.add_subcommand("delete", "delete a uenv from a remote registry");
-    delete_cli
-        ->add_option("uenv", uenv_description,
-                     "either name/version:tag, sha256 or id")
-        ->required();
-    delete_cli
-        ->add_option(
-            "--token", token,
-            "a path that contains a TOKEN file for accessing restricted uenv")
-        ->required();
-    delete_cli->add_option("--username", username,
-                           "user name for accessing restricted uenv.");
-    delete_cli->callback(
-        [&settings]() { settings.mode = uenv::cli_mode::image_delete; });
+int image_delete(const image_delete_args& args,
+                 const global_settings& settings);
 
-    delete_cli->footer(image_delete_footer);
+} // namespace
+
+argparse::command image_delete_command(const global_settings& settings) {
+    using argparse::completion;
+    argparse::command_builder<image_delete_args> delete_cli(
+        "delete", "delete a uenv from a remote registry");
+    delete_cli
+        .add_positional("uenv", &image_delete_args::uenv_description,
+                        "either name/version:tag, sha256 or id")
+        .required()
+        .complete(completion::custom("registry_label"));
+    delete_cli
+        .add_option(
+            "token", &image_delete_args::token,
+            "a path that contains a TOKEN file for accessing restricted uenv")
+        .required()
+        .complete(completion::path());
+    delete_cli
+        .add_option("username", &image_delete_args::username,
+                    "user name for accessing restricted uenv.")
+        .complete(completion::none());
+    delete_cli.action([&settings](const image_delete_args& args) {
+        return image_delete(args, settings);
+    });
+
+    delete_cli.footer(image_delete_footer);
+
+    return std::move(delete_cli).build();
 }
+
+namespace {
 
 int image_delete([[maybe_unused]] const image_delete_args& args,
                  [[maybe_unused]] const global_settings& settings) {
@@ -168,5 +190,7 @@ std::string image_delete_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

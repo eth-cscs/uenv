@@ -28,30 +28,57 @@
 
 namespace uenv {
 
+namespace {
+
+struct image_copy_args {
+    std::string src_uenv_description;
+    std::string dst_uenv_description;
+    std::optional<std::string> token;
+    std::optional<std::string> username;
+    bool force = false;
+};
+
 std::string image_copy_footer();
 
-void image_copy_args::add_cli(CLI::App& cli,
-                              [[maybe_unused]] global_settings& settings) {
-    auto* copy_cli =
-        cli.add_subcommand("copy", "copy a uenv inside a remote registry");
-    copy_cli
-        ->add_option("source-uenv", src_uenv_description,
-                     "either name/version:tag, sha256 or id")
-        ->required();
-    copy_cli->add_option("dest-uenv", dst_uenv_description, "label to copy to")
-        ->required();
-    copy_cli->add_option(
-        "--token", token,
-        "a path that contains a TOKEN file for accessing restricted uenv");
-    copy_cli->add_option("--username", username,
-                         "user name for accessing restricted uenv.");
-    copy_cli->add_flag("--force", force,
-                       "overwrite the destination if it exists");
-    copy_cli->callback(
-        [&settings]() { settings.mode = uenv::cli_mode::image_copy; });
+int image_copy(const image_copy_args& args, const global_settings& settings);
 
-    copy_cli->footer(image_copy_footer);
+} // namespace
+
+argparse::command image_copy_command(const global_settings& settings) {
+    using argparse::completion;
+    argparse::command_builder<image_copy_args> copy_cli(
+        "copy", "copy a uenv inside a remote registry");
+    copy_cli
+        .add_positional("source-uenv", &image_copy_args::src_uenv_description,
+                        "either name/version:tag, sha256 or id")
+        .required()
+        .complete(completion::custom("registry_label"));
+    copy_cli
+        .add_positional("dest-uenv", &image_copy_args::dst_uenv_description,
+                        "label to copy to")
+        .required()
+        .complete(completion::custom("registry_label"));
+    copy_cli
+        .add_option(
+            "token", &image_copy_args::token,
+            "a path that contains a TOKEN file for accessing restricted uenv")
+        .complete(completion::path());
+    copy_cli
+        .add_option("username", &image_copy_args::username,
+                    "user name for accessing restricted uenv.")
+        .complete(completion::none());
+    copy_cli.add_flag("force", &image_copy_args::force,
+                      "overwrite the destination if it exists");
+    copy_cli.action([&settings](const image_copy_args& args) {
+        return image_copy(args, settings);
+    });
+
+    copy_cli.footer(image_copy_footer);
+
+    return std::move(copy_cli).build();
 }
+
+namespace {
 
 int image_copy([[maybe_unused]] const image_copy_args& args,
                [[maybe_unused]] const global_settings& settings) {
@@ -226,5 +253,7 @@ std::string image_copy_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

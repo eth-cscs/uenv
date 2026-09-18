@@ -30,31 +30,58 @@
 
 namespace uenv {
 
+namespace {
+
+struct image_pull_args {
+    std::string uenv_description;
+    std::optional<std::string> token;
+    std::optional<std::string> username;
+    bool only_meta = false;
+    bool force = false;
+    bool build = false;
+};
+
 std::string image_pull_footer();
 
-void image_pull_args::add_cli(CLI::App& cli,
-                              [[maybe_unused]] global_settings& settings) {
-    auto* pull_cli =
-        cli.add_subcommand("pull", "download a uenv from a registry");
-    pull_cli
-        ->add_option("uenv", uenv_description,
-                     "the uenv to pull, either name/version:tag, sha256 or id")
-        ->required();
-    pull_cli->add_option(
-        "--token", token,
-        "a path that contains a TOKEN file for accessing restricted uenv");
-    pull_cli->add_option("--username", username,
-                         "user name for accessing restricted uenv.");
-    pull_cli->add_flag("--only-meta", only_meta, "only download meta data");
-    pull_cli->add_flag("--force", force,
-                       "download and overwrite existing images");
-    pull_cli->add_flag("--build", build,
-                       "invalid: replaced with 'build::' prefix on uenv label");
-    pull_cli->callback(
-        [&settings]() { settings.mode = uenv::cli_mode::image_pull; });
+int image_pull(const image_pull_args& args, const global_settings& settings);
 
-    pull_cli->footer(image_pull_footer);
+} // namespace
+
+argparse::command image_pull_command(const global_settings& settings) {
+    using argparse::completion;
+    argparse::command_builder<image_pull_args> pull_cli(
+        "pull", "download a uenv from a registry");
+    pull_cli
+        .add_positional(
+            "uenv", &image_pull_args::uenv_description,
+            "the uenv to pull, either name/version:tag, sha256 or id")
+        .required()
+        .complete(completion::custom("registry_label"));
+    pull_cli
+        .add_option(
+            "token", &image_pull_args::token,
+            "a path that contains a TOKEN file for accessing restricted uenv")
+        .complete(completion::path());
+    pull_cli
+        .add_option("username", &image_pull_args::username,
+                    "user name for accessing restricted uenv.")
+        .complete(completion::none());
+    pull_cli.add_flag("only-meta", &image_pull_args::only_meta,
+                      "only download meta data");
+    pull_cli.add_flag("force", &image_pull_args::force,
+                      "download and overwrite existing images");
+    pull_cli.add_flag("build", &image_pull_args::build,
+                      "invalid: replaced with 'build::' prefix on uenv label");
+    pull_cli.action([&settings](const image_pull_args& args) {
+        return image_pull(args, settings);
+    });
+
+    pull_cli.footer(image_pull_footer);
+
+    return std::move(pull_cli).build();
 }
+
+namespace {
 
 int image_pull(const image_pull_args& args, const global_settings& settings) {
     namespace fs = std::filesystem;
@@ -342,5 +369,7 @@ std::string image_pull_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

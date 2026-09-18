@@ -27,40 +27,74 @@
 
 namespace uenv {
 
+namespace {
+
+struct image_add_args {
+    std::string label;
+    std::string source;
+    bool move = false;
+};
+
+std::string format_as(const image_add_args& args) {
+    return fmt::format("{{source: '{}', label: '{}'}}", args.source,
+                       args.label);
+}
+
+struct image_rm_args {
+    std::string label;
+};
+
 std::string image_add_footer();
 std::string image_rm_footer();
 
-void image_add_args::add_cli(CLI::App& cli,
-                             [[maybe_unused]] global_settings& settings) {
-    auto* add_cli =
-        cli.add_subcommand("add", "add a uenv image to a repository");
-    add_cli
-        ->add_option("label", label,
-                     "the label of the uenv created in the repo, of the form "
-                     "name/version:tag@system%uarch")
-        ->required();
-    add_cli->add_flag("--move", move,
-                      "move the squahfs image instead of copying it.");
-    add_cli
-        ->add_option("uenv", source,
-                     "the label or squashfs file to add to the repo.")
-        ->required();
-    add_cli->callback(
-        [&settings]() { settings.mode = uenv::cli_mode::image_add; });
+int image_add(const image_add_args& args, const global_settings& settings);
+int image_rm(const image_rm_args& args, const global_settings& settings);
 
-    add_cli->footer(image_add_footer);
+} // namespace
+
+argparse::command image_add_command(const global_settings& settings) {
+    using argparse::completion;
+    argparse::command_builder<image_add_args> add_cli(
+        "add", "add a uenv image to a repository");
+    add_cli
+        .add_positional("label", &image_add_args::label,
+                        "the label of the uenv created in the repo, of the "
+                        "form name/version:tag@system%uarch")
+        .required()
+        .complete(completion::none());
+    add_cli.add_flag("move", &image_add_args::move,
+                     "move the squahfs image instead of copying it.");
+    add_cli
+        .add_positional("uenv", &image_add_args::source,
+                        "the label or squashfs file to add to the repo.")
+        .required()
+        .complete(completion::custom("uenv"));
+    add_cli.action([&settings](const image_add_args& args) {
+        return image_add(args, settings);
+    });
+
+    add_cli.footer(image_add_footer);
+
+    return std::move(add_cli).build();
 }
 
-void image_rm_args::add_cli([[maybe_unused]] CLI::App& cli,
-                            [[maybe_unused]] global_settings& settings) {
-    auto* rm_cli =
-        cli.add_subcommand("rm", "delete a uenv image from a repository");
-    rm_cli->add_option("uenv", label, "the uenv to remove.")->required();
-    rm_cli->callback(
-        [&settings]() { settings.mode = uenv::cli_mode::image_rm; });
+argparse::command image_rm_command(const global_settings& settings) {
+    using argparse::completion;
+    argparse::command_builder<image_rm_args> rm_cli(
+        "rm", "delete a uenv image from a repository");
+    rm_cli.add_positional("uenv", &image_rm_args::label, "the uenv to remove.")
+        .required()
+        .complete(completion::custom("local_label"));
+    rm_cli.action([&settings](const image_rm_args& args) {
+        return image_rm(args, settings);
+    });
 
-    rm_cli->footer(image_rm_footer);
+    rm_cli.footer(image_rm_footer);
+
+    return std::move(rm_cli).build();
 }
+
+namespace {
 
 int image_add(const image_add_args& args, const global_settings& settings) {
     namespace fs = std::filesystem;
@@ -529,5 +563,7 @@ std::string image_rm_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

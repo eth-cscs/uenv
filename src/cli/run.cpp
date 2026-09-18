@@ -21,36 +21,64 @@
 
 namespace uenv {
 
+namespace {
+
+struct run_args {
+    std::string uenv_description;
+    std::optional<std::string> view_description;
+    bool join = false;
+    std::vector<std::string> commands;
+    bool disable_default_view = false;
+};
+
+std::string format_as(const run_args& args) {
+    return fmt::format(
+        "{{uenv: '{}', view: '{}', commands: {}}}", args.uenv_description,
+        args.view_description.value_or(""), fmt::join(args.commands, " "));
+}
 std::string run_footer();
 
-void run_args::add_cli(CLI::App& cli, global_settings& settings) {
-    auto* run_cli = cli.add_subcommand("run", "run a uenv session");
-    run_cli->add_option("-v,--view", view_description,
-                        "comma separated list of views to load");
-    run_cli
-        ->add_option("uenv", uenv_description,
-                     "comma separated list of uenv to mount")
-        ->required();
-    run_cli
-        ->add_option("commands", commands,
-                     "the command to run, including with arguments")
-        ->required();
+int run(const run_args& args, const global_settings& settings);
 
-    run_cli->add_flag(
-        "-V,--no-default-view", disable_default_view,
-        "disable loading default views when no view is specified");
+} // namespace
+
+argparse::command run_command(const global_settings& settings) {
+    using argparse::completion;
+    argparse::command_builder<run_args> run_cli("run", "run a uenv session");
+    run_cli
+        .add_option({'v', "view"}, &run_args::view_description,
+                    "comma separated list of views to load")
+        .complete(completion::custom("view_list"));
+    run_cli
+        .add_positional("uenv", &run_args::uenv_description,
+                        "comma separated list of uenv to mount")
+        .required()
+        .complete(completion::custom("uenv_list"));
+    run_cli
+        .add_rest("commands", &run_args::commands,
+                  "the command to run, including with arguments")
+        .required()
+        .complete(completion::command());
+
+    run_cli.add_flag({'V', "no-default-view"}, &run_args::disable_default_view,
+                     "disable loading default views when no view is specified");
 
     // the --join flag is only meaningful for the FUSE backend, where a
     // single task mounts and the others join its namespaces. The
     // setuid/kernel backend mounts independently in every task.
     if constexpr (uenv::backend_fuse) {
-        run_cli->add_flag("-j,--join", join,
-                          "join namespaces of tasks on the same node");
+        run_cli.add_flag({'j', "join"}, &run_args::join,
+                         "join namespaces of tasks on the same node");
     }
 
-    run_cli->callback([&settings]() { settings.mode = uenv::cli_mode::run; });
-    run_cli->footer(run_footer);
+    run_cli.action(
+        [&settings](const run_args& args) { return run(args, settings); });
+    run_cli.footer(run_footer);
+
+    return std::move(run_cli).build();
 }
+
+namespace {
 
 int run(const run_args& args, const global_settings& settings) {
     spdlog::info("run with options {}", args);
@@ -160,5 +188,7 @@ std::string run_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

@@ -27,7 +27,6 @@ add_global_arguments('-Wno-discarded-qualifiers', language : 'c')
 
 # use meson wrap to provide the dependencies, because the 'default_library=static' option
 # will be propogated to each dependency, for a statically linked executable.
-cli11_dep = subproject('cli11', default_options: ['werror=false', 'warning_level=0']).get_variable('CLI11_dep')
 fmt_dep   = subproject('fmt', default_options: ['werror=false', 'warning_level=0']).get_variable('fmt_dep')
 json_dep  = subproject('nlohmann_json', default_options: ['werror=false', 'warning_level=0']).get_variable('nlohmann_json_dep')
 spdlog_dep  = subproject('spdlog', default_options: ['werror=false', 'warning_level=0','std_format=disabled','external_fmt=enabled']).get_variable('spdlog_dep')
@@ -119,6 +118,9 @@ endif
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
 lib_uenv_src = [
+        'src/argparse/command.cpp',
+        'src/argparse/help.cpp',
+        'src/argparse/parse.cpp',
         'src/oci/auth.cpp',
         'src/oci/client.cpp',
         'src/oci/digest.cpp',
@@ -227,6 +229,7 @@ if uenv_cli
             'src/cli/uenv.cpp',
             'src/cli/util.cpp',
             'src/cli/build.cpp',
+            'src/cli/cli.cpp',
             'src/cli/completion.cpp',
     ]
 
@@ -239,7 +242,7 @@ if uenv_cli
 
     cli = executable('uenv',
             sources: cli_src + completion_bash_dep,
-            dependencies: [uenv_dep, sqlite3_dep, fmt_dep, spdlog_dep, cli11_dep, barkeep_dep],
+            dependencies: [uenv_dep, sqlite3_dep, fmt_dep, spdlog_dep, barkeep_dep],
             c_args: [
               '-DVERSION="@0@"'.format(version),
             ],
@@ -263,7 +266,7 @@ if uenv_squashfs_mount
     endif
     squashfs_mount = executable('squashfs-mount',
                                 sources: squashfs_mount_src,
-                                dependencies: [uenv_dep, cli11_dep],
+                                dependencies: [uenv_dep],
                                 cpp_args: ['-DVERSION="@0@"'.format(version)],
                                 install_mode: squashfs_mount_install_mode,
                                 install: true)
