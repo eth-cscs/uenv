@@ -1,0 +1,469 @@
+#include <set>
+#include <string>
+#include <string_view>
+
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+
+#include <argparse/argparse.h>
+
+namespace argparse {
+
+//
+// completion
+//
+
+completion completion::none() {
+    return {kind::none, {}};
+}
+completion completion::file(std::string glob) {
+    return {kind::file, std::move(glob)};
+}
+completion completion::directory() {
+    return {kind::directory, {}};
+}
+completion completion::path() {
+    return {kind::path, {}};
+}
+completion completion::command() {
+    return {kind::command, {}};
+}
+completion completion::custom(std::string tag) {
+    return {kind::custom, std::move(tag)};
+}
+
+//
+// names
+//
+
+names::names(char s, std::string l) : short_name(s), long_name(std::move(l)) {
+}
+names::names(std::string l) : long_name(std::move(l)) {
+}
+names::names(const char* l) : long_name(l) {
+}
+names::names(char s) : short_name(s) {
+}
+
+//
+// option
+//
+
+option::option(names n, type t, std::string help)
+    : names_(std::move(n)), type_(t), help_(std::move(help)) {
+}
+
+option& option::required(bool r) {
+    required_ = r;
+    return *this;
+}
+
+option& option::negation(std::string long_name) {
+    negation_ = std::move(long_name);
+    return *this;
+}
+
+option& option::complete(struct completion c) {
+    completion_ = std::move(c);
+    return *this;
+}
+
+option& option::metavar(std::string m) {
+    metavar_ = std::move(m);
+    return *this;
+}
+
+std::string option::metavar() const {
+    if (!metavar_.empty()) {
+        return metavar_;
+    }
+    if (type_ == type::choice) {
+        return fmt::format("{{{}}}", fmt::join(choices_, ","));
+    }
+    std::string m;
+    for (char c : names_.long_name) {
+        m +=
+            (c >= 'a' && c <= 'z') ? char(c - 'a' + 'A') : (c == '-' ? '_' : c);
+    }
+    return m.empty() ? "VALUE" : m;
+}
+
+std::string option::display_name() const {
+    if (!names_.long_name.empty()) {
+        return "--" + names_.long_name;
+    }
+    return std::string{'-', *names_.short_name};
+}
+
+//
+// positional
+//
+
+positional::positional(std::string name, bool rest, std::string help)
+    : name_(std::move(name)), help_(std::move(help)), rest_(rest) {
+}
+
+positional& positional::required(bool r) {
+    required_ = r;
+    return *this;
+}
+
+positional& positional::complete(struct completion c) {
+    completion_ = std::move(c);
+    return *this;
+}
+
+//
+// command
+//
+
+command::command(std::string name, std::string description)
+    : name_(std::move(name)), description_(std::move(description)) {
+    add(std::unique_ptr<option>(
+        new option({'h', "help"}, option::type::help,
+                   "print this help message and exit")));
+}
+
+command& command::add_subcommand(std::string name, std::string description) {
+    auto& sub = *subcommands_.emplace_back(
+        std::make_unique<command>(std::move(name), std::move(description)));
+    sub.parent_ = this;
+    return sub;
+}
+
+option& command::add(std::unique_ptr<option> o) {
+    return *options_.emplace_back(std::move(o));
+}
+
+positional& command::add(std::unique_ptr<positional> p) {
+    return *positionals_.emplace_back(std::move(p));
+}
+
+option& command::add_flag(names n, bool& target, std::string help) {
+    auto& o = add(std::unique_ptr<option>(
+        new option(std::move(n), option::type::boolean, std::move(help))));
+    // the last occurrence wins
+    o.apply_ = [&target](std::span<const occurrence> occ) {
+        target = !occ.back().negated;
+    };
+    return o;
+}
+
+option& command::add_flag(names n, int& target, std::string help) {
+    auto& o = add(std::unique_ptr<option>(
+        new option(std::move(n), option::type::counter, std::move(help))));
+    o.apply_ = [&target](std::span<const occurrence> occ) {
+        target = static_cast<int>(occ.size());
+    };
+    return o;
+}
+
+option& command::add_flag(names n, std::function<void()> callback,
+                          std::string help) {
+    auto& o = add(std::unique_ptr<option>(
+        new option(std::move(n), option::type::callback, std::move(help))));
+    o.apply_ = [callback = std::move(callback)](std::span<const occurrence>) {
+        callback();
+    };
+    return o;
+}
+
+option& command::add_option(names n, std::string& target, std::string help) {
+    auto& o = add(std::unique_ptr<option>(
+        new option(std::move(n), option::type::value, std::move(help))));
+    o.apply_ = [&target](std::span<const occurrence> occ) {
+        target = std::string(occ.back().value);
+    };
+    return o;
+}
+
+option& command::add_option(names n, std::optional<std::string>& target,
+                            std::string help) {
+    auto& o = add(std::unique_ptr<option>(
+        new option(std::move(n), option::type::value, std::move(help))));
+    o.apply_ = [&target](std::span<const occurrence> occ) {
+        target = std::string(occ.back().value);
+    };
+    return o;
+}
+
+option& command::add_choice_impl(names n, std::vector<std::string> keys,
+                                 std::function<void(std::string_view)> setter,
+                                 std::string help) {
+    auto& o = add(std::unique_ptr<option>(
+        new option(std::move(n), option::type::choice, std::move(help))));
+    o.choices_ = std::move(keys);
+    o.completion_ = {completion::kind::choice, {}};
+    o.apply_ = [setter = std::move(setter)](std::span<const occurrence> occ) {
+        setter(occ.back().value);
+    };
+    return o;
+}
+
+positional& command::add_positional(std::string name, std::string& target,
+                                    std::string help) {
+    auto& p = add(std::unique_ptr<positional>(
+        new positional(std::move(name), false, std::move(help))));
+    p.apply_ = [&target](std::span<const std::string_view> v) {
+        target = std::string(v.front());
+    };
+    return p;
+}
+
+positional& command::add_positional(std::string name,
+                                    std::optional<std::string>& target,
+                                    std::string help) {
+    auto& p = add(std::unique_ptr<positional>(
+        new positional(std::move(name), false, std::move(help))));
+    p.apply_ = [&target](std::span<const std::string_view> v) {
+        target = std::string(v.front());
+    };
+    return p;
+}
+
+positional& command::add_rest(std::string name,
+                              std::vector<std::string>& target,
+                              std::string help) {
+    auto& p = add(std::unique_ptr<positional>(
+        new positional(std::move(name), true, std::move(help))));
+    p.apply_ = [&target](std::span<const std::string_view> v) {
+        target.assign(v.begin(), v.end());
+    };
+    return p;
+}
+
+positional& command::add_rest(std::string name,
+                              std::optional<std::vector<std::string>>& target,
+                              std::string help) {
+    auto& p = add(std::unique_ptr<positional>(
+        new positional(std::move(name), true, std::move(help))));
+    p.apply_ = [&target](std::span<const std::string_view> v) {
+        target = std::vector<std::string>(v.begin(), v.end());
+    };
+    return p;
+}
+
+command& command::footer(std::function<std::string()> f) {
+    footer_ = std::move(f);
+    return *this;
+}
+
+command& command::on_selected(std::function<void()> f) {
+    on_selected_ = std::move(f);
+    return *this;
+}
+
+std::string command::footer_text() const {
+    return footer_ ? footer_() : std::string{};
+}
+
+std::vector<std::string> command::path() const {
+    std::vector<std::string> p;
+    for (auto c = this; c != nullptr; c = c->parent_) {
+        p.insert(p.begin(), c->name_);
+    }
+    return p;
+}
+
+std::vector<const option*> command::options() const {
+    std::vector<const option*> v;
+    for (auto& o : options_) {
+        v.push_back(o.get());
+    }
+    return v;
+}
+
+std::vector<const positional*> command::positionals() const {
+    std::vector<const positional*> v;
+    for (auto& p : positionals_) {
+        v.push_back(p.get());
+    }
+    return v;
+}
+
+std::vector<const command*> command::subcommands() const {
+    std::vector<const command*> v;
+    for (auto& c : subcommands_) {
+        v.push_back(c.get());
+    }
+    return v;
+}
+
+const option* command::find_long(std::string_view name) const {
+    for (auto& o : options_) {
+        if (!o->long_name().empty() && o->long_name() == name) {
+            return o.get();
+        }
+        if (o->negation_name() && *o->negation_name() == name) {
+            return o.get();
+        }
+    }
+    return nullptr;
+}
+
+const option* command::find_short(char name) const {
+    for (auto& o : options_) {
+        if (o->short_name() && *o->short_name() == name) {
+            return o.get();
+        }
+    }
+    return nullptr;
+}
+
+const command* command::find_subcommand(std::string_view name) const {
+    for (auto& c : subcommands_) {
+        if (c->name_ == name) {
+            return c.get();
+        }
+    }
+    return nullptr;
+}
+
+//
+// validation of the tree
+//
+
+namespace {
+
+bool is_alnum(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9');
+}
+
+// long option names: an alphanumeric character followed by alphanumeric
+// characters, '-' or '_'.
+bool valid_long_name(std::string_view n) {
+    if (n.empty() || !is_alnum(n.front())) {
+        return false;
+    }
+    for (char c : n) {
+        if (!is_alnum(c) && c != '-' && c != '_') {
+            return false;
+        }
+    }
+    return true;
+}
+
+// command and positional names follow the same rules as long option names.
+bool valid_name(std::string_view n) {
+    return valid_long_name(n);
+}
+
+util::expected<void, std::string> validate_command(const command& cmd) {
+    const auto where = fmt::format("{}", fmt::join(cmd.path(), " "));
+    auto fail = [&where](std::string msg) {
+        return util::unexpected(fmt::format("{}: {}", where, msg));
+    };
+
+    if (!valid_name(cmd.name())) {
+        return fail(fmt::format("invalid command name '{}'", cmd.name()));
+    }
+    if (!cmd.subcommands().empty() && !cmd.positionals().empty()) {
+        return fail("a command can't have both subcommands and positional "
+                    "arguments");
+    }
+
+    // option names: unique within the command
+    std::set<std::string> long_names;
+    std::set<char> short_names;
+    for (auto o : cmd.options()) {
+        if (o->long_name().empty() && !o->short_name()) {
+            return fail("an option has no name");
+        }
+        if (!o->long_name().empty()) {
+            if (!valid_long_name(o->long_name())) {
+                return fail(
+                    fmt::format("invalid option name '--{}'", o->long_name()));
+            }
+            if (!long_names.insert(o->long_name()).second) {
+                return fail(
+                    fmt::format("duplicate option '--{}'", o->long_name()));
+            }
+        }
+        if (auto n = o->negation_name()) {
+            if (o->takes_value() || o->is_help()) {
+                return fail(fmt::format(
+                    "only a boolean flag can have a negation ('--{}')", *n));
+            }
+            if (!valid_long_name(*n)) {
+                return fail(fmt::format("invalid option name '--{}'", *n));
+            }
+            if (!long_names.insert(*n).second) {
+                return fail(fmt::format("duplicate option '--{}'", *n));
+            }
+        }
+        if (auto s = o->short_name()) {
+            if (!is_alnum(*s)) {
+                return fail(fmt::format("invalid short option name '-{}'", *s));
+            }
+            if (!short_names.insert(*s).second) {
+                return fail(fmt::format("duplicate option '-{}'", *s));
+            }
+        }
+        if (o->takes_value()) {
+            if (o->completer().type == completion::kind::unset) {
+                return fail(fmt::format("option {} has no completion",
+                                        o->display_name()));
+            }
+            if (o->choices().empty() &&
+                o->completer().type == completion::kind::choice) {
+                return fail(
+                    fmt::format("option {} has no choices", o->display_name()));
+            }
+        } else if (o->is_required()) {
+            return fail(
+                fmt::format("flag {} can't be required", o->display_name()));
+        }
+    }
+
+    // positionals: a rest positional is last, and required positionals come
+    // before optional ones
+    std::set<std::string> positional_names;
+    bool seen_optional = false;
+    const auto positionals = cmd.positionals();
+    for (std::size_t i = 0; i < positionals.size(); ++i) {
+        auto p = positionals[i];
+        if (!valid_name(p->name())) {
+            return fail(fmt::format("invalid positional name '{}'", p->name()));
+        }
+        if (!positional_names.insert(p->name()).second) {
+            return fail(fmt::format("duplicate positional '{}'", p->name()));
+        }
+        if (p->is_rest() && i + 1 != positionals.size()) {
+            return fail(fmt::format("positional '{}' takes the remaining "
+                                    "arguments, so it must be last",
+                                    p->name()));
+        }
+        if (p->is_required() && seen_optional) {
+            return fail(fmt::format("required positional '{}' follows an "
+                                    "optional one",
+                                    p->name()));
+        }
+        seen_optional = seen_optional || !p->is_required();
+        if (p->completer().type == completion::kind::unset) {
+            return fail(
+                fmt::format("positional '{}' has no completion", p->name()));
+        }
+    }
+
+    // subcommands: unique names, and recursively valid
+    std::set<std::string> command_names;
+    for (auto c : cmd.subcommands()) {
+        if (!command_names.insert(c->name()).second) {
+            return fail(fmt::format("duplicate subcommand '{}'", c->name()));
+        }
+        if (auto r = validate_command(*c); !r) {
+            return r;
+        }
+    }
+
+    return {};
+}
+
+} // namespace
+
+util::expected<void, std::string> command::validate() const {
+    return validate_command(*this);
+}
+
+} // namespace argparse

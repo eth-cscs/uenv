@@ -119,6 +119,9 @@ endif
 # the lib dependency is all of the common funtionality shared between the CLI
 # and the slurm plugin.
 lib_uenv_src = [
+        'src/argparse/command.cpp',
+        'src/argparse/help.cpp',
+        'src/argparse/parse.cpp',
         'src/oci/auth.cpp',
         'src/oci/client.cpp',
         'src/oci/digest.cpp',
