@@ -210,7 +210,8 @@ changing that code path, check they are actually running rather than skipping.
 
 ### Source Structure
 
-- `src/cli/` - CLI command implementations (add_remove, build, completion, config, copy, delete, find, help, image, inspect, ls, pull, push, repo, run, start, status)
+- `src/cli/` - CLI command implementations (add_remove, build, completion, config, copy, delete, find, help, image, inspect, ls, pull, push, repo, run, start, status), and the tree of commands they are registered in (`cli_state.h/cpp`)
+- `src/argparse/` - Command line argument parser used by the CLI and `squashfs-mount`. See "The `argparse` command line parser" below.
 - `src/uenv/` - Core library shared between CLI and Slurm plugin
   - Environment management (`env.h/cpp`, `uenv.h/cpp`)
   - Repository/database operations (`repository.h/cpp`)
@@ -484,7 +485,6 @@ the Slurm prologue clears `/dev/shm` before every job, bounding it further.
 ### Dependencies
 
 All dependencies are built as static libraries via meson wrap:
-- CLI11 - command line parsing
 - fmt - formatting library
 - spdlog - logging
 - nlohmann_json - JSON parsing
@@ -609,6 +609,51 @@ Enforcement: this command must return nothing.
 grep -rn '#include <\(uenv\|site\|cli\)/' src/oci/
 ```
 
+### The `argparse` command line parser
+
+`src/argparse/` is the command line parser used by `uenv` and both
+`squashfs-mount` variants (it replaced CLI11). The interface is a tree of
+`argparse::command`s built with `add_subcommand`, `add_flag`, `add_option`,
+`add_choice`, `add_positional` and `add_rest`; `src/argparse/argparse.h`
+documents the grammar.
+
+Parsing is deliberately split in two, and the split must be preserved:
+
+- `argparse::parse()` classifies every word and returns a `parse_result` (a
+  trace of which word went where, the parser state after the last word, and
+  every error). It has **no side effects**: it never writes to bound variables
+  and never runs callbacks, and it does not stop at the first error. This is
+  what lets tab completion run the exact parser used for real invocations on
+  an incomplete command line.
+- `argparse::apply()` writes the values and calls the `on_selected` callbacks,
+  and only for an error-free result.
+
+`command::validate()` checks that a tree is well formed, including that every
+option or positional that takes a value declares how it is completed
+(`.complete(...)`); `uenv` runs it at start-up, so a malformed tree fails every
+test.
+
+Like `src/oci`, it depends only on `src/util/` and fmt. Enforcement: this
+command must return nothing.
+
+```bash
+grep -rn '#include <\(uenv\|site\|cli\|oci\)/' src/argparse/
+```
+
+Behaviour that differs from CLI11, on purpose:
+
+- once a `rest` positional (the command in `uenv run <uenv> <command...>`) has
+  its first word, every later word belongs to it, options included;
+- flags never take a value (`--json=false` is an error), and `--opt=` gives
+  an empty value instead of consuming the next word;
+- `-h/--help` takes precedence over every other error;
+- a word is only matched against the subcommands of the current command:
+  CLI11 would also jump to a parent's or sibling's subcommand
+  (`uenv image find ls` ran `uenv image ls`);
+- `-5` is an unknown option, not a positional;
+- callback flags run in command line order (`--color --no-color` disables
+  color).
+
 ### Environment Variables
 
 Use `envvars::state` to access environment variables (from `src/util/envvars.h`). Available as `settings.calling_environment` in most CLI commands.
@@ -629,9 +674,13 @@ Prefer using functions from `src/util/fs.h` which provide expected-based error h
 1. Create header/source in `src/cli/` (e.g., `foo.h`, `foo.cpp`)
 2. Implement command function returning `int` (exit code)
 3. Add source to `cli_src` array in `meson.build`
-4. Register subcommand in `src/cli/uenv.cpp` main function using CLI11
-5. Add integration tests in `test/integration/cli.bats`
-6. Add unit tests for any new library functions in `test/unit/`
+4. Add an `add_cli(argparse::command&, global_settings&)` method to the
+   command's args struct, call it from `cli_state`'s constructor
+   (`src/cli/cli_state.cpp`), and give every option and positional that takes
+   a value a `.complete(...)`
+5. Add the command to the `switch (settings.mode)` in `main()` (`src/cli/uenv.cpp`)
+6. Add integration tests in `test/integration/cli.bats`
+7. Add unit tests for any new library functions in `test/unit/`
 
 ### Testing New Features
 
