@@ -229,6 +229,7 @@ if uenv_cli
             'src/cli/uenv.cpp',
             'src/cli/util.cpp',
             'src/cli/build.cpp',
+            'src/cli/cli_state.cpp',
             'src/cli/completion.cpp',
     ]
 

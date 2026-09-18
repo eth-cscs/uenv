@@ -21,6 +21,7 @@
 
 #include "add_remove.h"
 #include "build.h"
+#include "cli_state.h"
 #include "completion.h"
 #include "config.h"
 #include "delete.h"
@@ -34,71 +35,8 @@
 #include "terminal.h"
 #include "uenv.h"
 
-std::string help_footer();
-
 uenv::global_settings::global_settings() : calling_environment(environ) {
 }
-
-namespace uenv {
-
-// The command line interface: the tree of commands, and the variables that
-// its options and positional arguments are bound to.
-//
-// The same tree is used to parse the command line of every invocation, and to
-// complete a partial command line.
-struct cli_state {
-    config_base cli_config;
-    bool print_version = false;
-    std::optional<std::string> cli_repo;
-
-    start_args start;
-    run_args run;
-    image_args image;
-    repo_args repo;
-    status_args stat;
-    build_args build;
-    completion_args completion;
-    configure_args configure;
-
-    argparse::command root;
-
-    cli_state(global_settings& settings);
-    cli_state(const cli_state&) = delete;
-};
-
-cli_state::cli_state(global_settings& settings)
-    : completion(&root), root("uenv", fmt::format("uenv {}", UENV_VERSION)) {
-
-    root.add_flag({'v', "verbose"}, settings.verbose, "enable verbose output");
-    root.add_flag(
-        "no-color", [this]() -> void { cli_config.color = false; },
-        "disable color output");
-    root.add_flag(
-        "color", [this]() -> void { cli_config.color = true; },
-        "enable color output");
-    root.add_flag("version", print_version, "print version");
-    root.add_option("repo", cli_repo, "the uenv repository description")
-        .complete(argparse::completion::custom("repo"));
-    root.add_option("system", cli_config.system_name, "the system name")
-        .complete(argparse::completion::custom("system"));
-
-    root.footer(help_footer);
-
-    start.add_cli(root, settings);
-    run.add_cli(root, settings);
-    image.add_cli(root, settings);
-    // add the inspect command so that it can be invoked two ways
-    //   uenv image inspect ...
-    //   uenv inspect ...
-    image.inspect_args.add_cli(root, settings);
-    repo.add_cli(root, settings);
-    stat.add_cli(root, settings);
-    build.add_cli(root, settings);
-    completion.add_cli(root, settings);
-    configure.add_cli(root, settings);
-}
-
-} // namespace uenv
 
 int main(int argc, char** argv) {
     uenv::global_settings settings;
@@ -255,27 +193,4 @@ int main(int argc, char** argv) {
     }
 
     return 0;
-}
-
-std::string help_footer() {
-    using enum help::block::admonition;
-    using help::lst;
-
-    // clang-format off
-    std::vector<help::item> items{
-        help::block{none, "Use the --help flag in with sub-commands for more information."},
-        help::linebreak{},
-        help::block{xmpl, fmt::format("use the {} flag to generate more verbose output", lst{"-v"})},
-        help::block{code,   "uenv -v  image ls    # info level logging"},
-        help::block{code,   "uenv -vv image ls    # debug level logging"},
-        help::linebreak{},
-        help::block{xmpl, "get help with the run command"},
-        help::block{code,   "uenv run --help"},
-        help::linebreak{},
-        help::block{xmpl, fmt::format("get help with the {} command", lst("image ls"))},
-        help::block{code,   "uenv image ls --help"},
-    };
-    // clang-format on
-
-    return fmt::format("{}", fmt::join(items, "\n"));
 }
