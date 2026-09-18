@@ -21,28 +21,47 @@
 
 namespace uenv {
 
+namespace {
+
+struct build_args {
+    bool spack_develop = false;
+    std::string uenv_recipe_path;
+    std::string uenv_label;
+    std::optional<std::string> system;
+};
+
 std::string build_footer();
+std::string format_reply(const std::string&);
+int build(const build_args& args, const global_settings& settings);
+
+} // namespace
 
 std::string format_reply(const std::string&);
 
-argparse::command build_args::cli(const global_settings& settings) {
+argparse::command build_command(const global_settings& settings) {
     using argparse::completion;
-    argparse::command build_cli("build", "build a uenv from a local recipe");
-    build_cli.add_flag({'d', "develop"}, spack_develop, "Assume spack@develop");
-    build_cli.add_positional("recipe", uenv_recipe_path, "Path to uenv recipe")
+    argparse::command_builder<build_args> build_cli(
+        "build", "build a uenv from a local recipe");
+    build_cli.add_flag({'d', "develop"}, &build_args::spack_develop,
+                       "Assume spack@develop");
+    build_cli
+        .add_positional("recipe", &build_args::uenv_recipe_path,
+                        "Path to uenv recipe")
         .required()
         .complete(completion::directory());
     build_cli
-        .add_positional("label", uenv_label,
+        .add_positional("label", &build_args::uenv_label,
                         "UENV description: <name>/<version>@<system>%<uarch>")
         .required()
         .complete(completion::none());
     build_cli.footer(build_footer);
     build_cli.action(
-        [this, &settings] { return uenv::build(*this, settings); });
+        [&settings](const build_args& args) { return build(args, settings); });
 
-    return build_cli;
+    return std::move(build_cli).build();
 }
+
+namespace {
 
 std::string build_footer() {
     using enum help::block::admonition;
@@ -174,5 +193,7 @@ Label       : {label}
         fmt::arg("label",
                  data.at("destination").at("label").get<std::string>()));
 }
+
+} // namespace
 
 } // namespace uenv

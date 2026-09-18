@@ -12,32 +12,6 @@
 
 namespace argparse {
 
-// grants the implementation of apply() access to the callbacks stored in the
-// tree
-struct access {
-    static void apply(const option& o, std::span<const occurrence> occ) {
-        if (o.apply_) {
-            o.apply_(occ);
-        }
-    }
-    static void apply(const positional& p,
-                      std::span<const std::string_view> values) {
-        if (p.apply_) {
-            p.apply_(values);
-        }
-    }
-    // a callback flag is applied once for each time it is given, in the
-    // order of the command line, so that the last of several flags that set
-    // the same thing (--color --no-color) wins
-    static bool per_occurrence(const option& o) {
-        return o.type_ == option::type::callback;
-    }
-    // a counting flag is set even when it was not given (to zero)
-    static bool always_applied(const option& o) {
-        return o.type_ == option::type::counter;
-    }
-};
-
 namespace {
 
 // the words on the command line are arbitrary user input: quote them in
@@ -309,78 +283,60 @@ parse_result parse(const command& root, std::span<const std::string> words) {
     return parse(root, std::span<const std::string_view>(views));
 }
 
-parse_result parse(const command& root, int argc, const char* const* argv) {
-    std::vector<std::string_view> views;
-    for (int i = 1; i < argc; ++i) {
-        views.emplace_back(argv[i]);
-    }
-    return parse(root, std::span<const std::string_view>(views));
-}
+namespace detail {
 
-util::expected<applied, error> apply(const parse_result& r) {
-    if (r.help) {
-        return applied{.help = r.help};
-    }
-    if (!r.errors.empty()) {
-        return util::unexpected(r.errors.front());
-    }
-
-    // gather the occurrences of each option and the values of each
-    // positional, in the order they were given
-    std::map<const option*, std::vector<occurrence>> options;
-    std::map<const positional*, std::vector<std::string_view>> positionals;
-    std::vector<const option*> option_order;
-    std::vector<const positional*> positional_order;
-    for (auto& it : r.items) {
-        switch (it.kind) {
-        case item_kind::flag:
-            if (access::per_occurrence(*it.opt)) {
-                const occurrence occ{.negated = it.negated};
-                access::apply(*it.opt, std::span(&occ, 1));
-                break;
-            }
-            if (!options.contains(it.opt)) {
-                option_order.push_back(it.opt);
-            }
-            options[it.opt].push_back({.negated = it.negated});
-            break;
-        case item_kind::option:
-        case item_kind::option_value:
-            // an option name whose value is in the next word is counted
-            // when the value is seen
-            if (!it.value) {
-                break;
-            }
-            if (!options.contains(it.opt)) {
-                option_order.push_back(it.opt);
-            }
-            options[it.opt].push_back({.value = *it.value});
-            break;
-        case item_kind::positional:
-            if (!positionals.contains(it.pos)) {
-                positional_order.push_back(it.pos);
-            }
-            positionals[it.pos].push_back(*it.value);
-            break;
-        default:
-            break;
-        }
-    }
-
+std::vector<instance> instantiate(const parse_result& r) {
+    std::vector<instance> path;
     for (auto c : r.path) {
-        for (auto o : c->options()) {
-            if (access::always_applied(*o) && !options.contains(o)) {
-                access::apply(*o, {});
+        // gather this command's occurrences, in the order they were given
+        gathered g;
+        auto options = [&g](const option* o) -> std::vector<occurrence>& {
+            for (auto& [opt, occ] : g.options) {
+                if (opt == o) {
+                    return occ;
+                }
+            }
+            return g.options.emplace_back(o, std::vector<occurrence>{}).second;
+        };
+        auto positionals =
+            [&g](const positional* p) -> std::vector<std::string_view>& {
+            for (auto& [pos, words] : g.positionals) {
+                if (pos == p) {
+                    return words;
+                }
+            }
+            return g.positionals
+                .emplace_back(p, std::vector<std::string_view>{})
+                .second;
+        };
+        for (auto& it : r.items) {
+            if (it.cmd != c) {
+                continue;
+            }
+            switch (it.kind) {
+            case item_kind::flag:
+                options(it.opt).push_back({.negated = it.negated});
+                break;
+            case item_kind::option:
+            case item_kind::option_value:
+                // an option name whose value is in the next word is counted
+                // when the value is seen
+                if (it.value) {
+                    options(it.opt).push_back({.value = *it.value});
+                }
+                break;
+            case item_kind::positional:
+                positionals(it.pos).push_back(*it.value);
+                break;
+            default:
+                break;
             }
         }
+        path.push_back(c->model_->make(g, *c));
     }
-    for (auto o : option_order) {
-        access::apply(*o, options[o]);
-    }
-    for (auto p : positional_order) {
-        access::apply(*p, positionals[p]);
-    }
-    return applied{.selected = &r.selected()};
+    return path;
 }
+
+} // namespace detail
 
 } // namespace argparse

@@ -15,49 +15,40 @@
 #include "add_remove.h"
 #include "copy.h"
 #include "delete.h"
+#include "find.h"
 #include "help.h"
 #include "image.h"
 #include "inspect.h"
 #include "ls.h"
+#include "pull.h"
+#include "push.h"
 
 namespace uenv {
 
+namespace {
 std::string image_footer();
+}
 
-argparse::command image_args::cli(const global_settings& settings) {
-    argparse::command image_cli("image", "manage and query uenv images");
+argparse::command image_command(const global_settings& settings) {
+    argparse::command_builder<> image_cli("image",
+                                          "manage and query uenv images");
 
-    // add the `uenv image ls` command
-    image_cli.add_subcommand(ls_args.cli(settings));
-
-    // add the `uenv image add` command
-    image_cli.add_subcommand(add_args.cli(settings));
-
-    // add the `uenv image remove` command
-    image_cli.add_subcommand(remove_args.cli(settings));
-
-    // add the `uenv image inspect` command
-    image_cli.add_subcommand(inspect_args.cli(settings));
-
-    // add the `uenv image find` command
-    image_cli.add_subcommand(find_args.cli(settings));
-
-    // add the `uenv image pull` command
-    image_cli.add_subcommand(pull_args.cli(settings));
-
-    // add the `uenv image copy` command
-    image_cli.add_subcommand(copy_args.cli(settings));
-
-    // add the `uenv image delete` command
-    image_cli.add_subcommand(delete_args.cli(settings));
-
-    // add the `uenv image push` command
-    image_cli.add_subcommand(push_args.cli(settings));
+    image_cli.add_subcommand(image_ls_command(settings));
+    image_cli.add_subcommand(image_add_command(settings));
+    image_cli.add_subcommand(image_rm_command(settings));
+    image_cli.add_subcommand(image_inspect_command(settings));
+    image_cli.add_subcommand(image_find_command(settings));
+    image_cli.add_subcommand(image_pull_command(settings));
+    image_cli.add_subcommand(image_copy_command(settings));
+    image_cli.add_subcommand(image_delete_command(settings));
+    image_cli.add_subcommand(image_push_command(settings));
 
     image_cli.footer(image_footer);
 
-    return image_cli;
+    return std::move(image_cli).build();
 }
+
+namespace {
 
 std::string image_footer() {
     using enum help::block::admonition;
@@ -75,5 +66,7 @@ std::string image_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

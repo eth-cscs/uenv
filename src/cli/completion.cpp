@@ -22,42 +22,58 @@
 
 namespace uenv {
 
+namespace {
+
+struct completion_args {
+    std::string shell_description;
+};
+
+std::string format_as(const completion_args& args) {
+    return fmt::format("{{shell: '{}'}}", args.shell_description);
+}
+
 // forward declare the implementation
 namespace impl {
 std::string bash_completion(const argparse::command* cli,
                             const std::string& name);
 }
 
-std::string completion_footer();
-
-completion_args::completion_args(const argparse::command* root) : root(root) {
-}
-
-argparse::command
-completion_args::cli([[maybe_unused]] const global_settings& settings) {
-    argparse::command completion_cli(
-        "completion", "generate completion script for a chosen shell");
-    completion_cli
-        .add_positional("shell", shell_description,
-                        "shell for which to generate completion script")
-        .required()
-        .complete(argparse::completion::custom("shell"));
-    completion_cli.action([this] { return uenv::completion(*this); });
-
-    return completion_cli;
-}
-
-int completion(const completion_args& args) {
+// generate the completion script for the tree that `cmd` belongs to
+int completion(const completion_args& args, const argparse::command& cmd) {
     spdlog::info("completion with options {}", args);
 
+    const argparse::command* root = &cmd;
+    while (root->parent() != nullptr) {
+        root = root->parent();
+    }
+
     if (args.shell_description == "bash") {
-        fmt::print("{}", impl::bash_completion(args.root, "uenv"));
+        fmt::print("{}", impl::bash_completion(root, "uenv"));
         return 0;
     }
 
     term::error("unknown shell {}", args.shell_description);
     return 1;
 }
+
+} // namespace
+
+argparse::command
+completion_command([[maybe_unused]] const global_settings& settings) {
+    argparse::command_builder<completion_args> completion_cli(
+        "completion", "generate completion script for a chosen shell");
+    completion_cli
+        .add_positional("shell", &completion_args::shell_description,
+                        "shell for which to generate completion script")
+        .required()
+        .complete(argparse::completion::custom("shell"));
+    // the action is given its own command, to find the tree it is part of
+    completion_cli.action(completion);
+
+    return std::move(completion_cli).build();
+}
+
+namespace {
 
 // implementation
 namespace impl {
@@ -96,6 +112,9 @@ void traverse_subcommand_tree(completion_list& cl, const argparse::command* cli,
     }
     for (const auto* opt : cli->options()) {
         comp_item.nonpositionals.push_back(opt->display_name());
+        if (auto negation = opt->negation_name()) {
+            comp_item.nonpositionals.push_back("--" + *negation);
+        }
     }
     cl.push_back(std::move(comp_item));
 
@@ -145,5 +164,7 @@ std::string bash_completion(const argparse::command* cli,
                          completion_bash_main_len));
 }
 } // namespace impl
+
+} // namespace
 
 } // namespace uenv

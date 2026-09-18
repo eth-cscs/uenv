@@ -35,41 +35,60 @@
 
 namespace uenv {
 
+namespace {
+
+struct image_push_args {
+    std::string source;
+    std::string dest;
+    std::optional<std::string> token;
+    std::optional<std::string> username;
+    bool force = false;
+};
+
 std::string image_push_footer();
 
-argparse::command image_push_args::cli(const global_settings& settings) {
+int image_push(const image_push_args& args, const global_settings& settings);
+
+} // namespace
+
+argparse::command image_push_command(const global_settings& settings) {
     using argparse::completion;
-    argparse::command push_cli("push", "push a uenv to a registry");
+    argparse::command_builder<image_push_args> push_cli(
+        "push", "push a uenv to a registry");
     push_cli
         .add_positional(
-            "source", source,
+            "source", &image_push_args::source,
             "the local uenv to push, either name/version:tag, sha256, "
             "id, or the path of a SquashFS file")
         .required()
         .complete(completion::custom("uenv"));
     push_cli
-        .add_positional("dest", dest,
+        .add_positional("dest", &image_push_args::dest,
                         "the destination in the full "
                         "namespace::name/version:tag@system%uarch form")
         .required()
         .complete(completion::custom("registry_label"));
     push_cli
         .add_option(
-            "token", token,
+            "token", &image_push_args::token,
             "a path that contains a TOKEN file for accessing the registry")
         .complete(completion::path());
     push_cli
-        .add_option("username", username,
+        .add_option("username", &image_push_args::username,
                     "user name for the registry (by default $USER is used).")
         .complete(completion::none());
-    push_cli.add_flag("force", force, "overwrite the destination if it exists");
-    push_cli.action(
-        [this, &settings] { return uenv::image_push(*this, settings); });
+    push_cli.add_flag("force", &image_push_args::force,
+                      "overwrite the destination if it exists");
+    push_cli.action([&settings](const image_push_args& args) {
+        return image_push(args, settings);
+    });
 
     push_cli.footer(image_push_footer);
 
-    return push_cli;
+    return std::move(push_cli).build();
 }
+
+namespace {
 
 int image_push([[maybe_unused]] const image_push_args& args,
                [[maybe_unused]] const global_settings& settings) {
@@ -302,7 +321,7 @@ int image_push([[maybe_unused]] const image_push_args& args,
     term::msg("to {}", args.dest);
 
     return 0;
-} // namespace uenv
+}
 
 std::string image_push_footer() {
     using enum help::block::admonition;
@@ -331,5 +350,7 @@ std::string image_push_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

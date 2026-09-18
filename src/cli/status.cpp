@@ -23,16 +23,31 @@
 
 namespace uenv {
 
+namespace {
+
+enum class status_format { name, full, views };
+
+struct status_args {
+    status_format format = status_format::full;
+    // return nonzero value when no uenv is loaded
+    bool error_if_unset = false;
+};
+
 std::string status_footer();
 
-argparse::command status_args::cli(const global_settings& settings) {
-    argparse::command status_cli(
+int status(const status_args& args, const global_settings& settings);
+
+} // namespace
+
+argparse::command status_command(const global_settings& settings) {
+    argparse::command_builder<status_args> status_cli(
         "status", "print information about the currently loaded uenv");
-    status_cli.add_flag("error-if-unset", error_if_unset,
+    status_cli.add_flag("error-if-unset", &status_args::error_if_unset,
                         "return a nonzero error code if no uenv is loaded");
-    status_cli.action(
-        [this, &settings] { return uenv::status(*this, settings); });
-    status_cli.add_choice("format", format,
+    status_cli.action([&settings](const status_args& args) {
+        return status(args, settings);
+    });
+    status_cli.add_choice("format", &status_args::format,
                           {{"short", status_format::name},
                            {"full", status_format::full},
                            {"views", status_format::views}},
@@ -40,8 +55,10 @@ argparse::command status_args::cli(const global_settings& settings) {
 
     status_cli.footer(status_footer);
 
-    return status_cli;
+    return std::move(status_cli).build();
 }
+
+namespace {
 
 int status([[maybe_unused]] const status_args& args,
            [[maybe_unused]] const global_settings& settings) {
@@ -122,5 +139,7 @@ std::string status_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

@@ -2,6 +2,7 @@
 #include <unistd.h>
 
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
@@ -19,18 +20,7 @@
 #include <util/fs.h>
 #include <util/lustre.h>
 
-#include "add_remove.h"
-#include "build.h"
-#include "cli_state.h"
-#include "completion.h"
-#include "config.h"
-#include "delete.h"
-#include "image.h"
-#include "inspect.h"
-#include "repo.h"
-#include "run.h"
-#include "start.h"
-#include "status.h"
+#include "cli.h"
 #include "terminal.h"
 #include "uenv.h"
 
@@ -39,10 +29,9 @@ uenv::global_settings::global_settings() : calling_environment(environ) {
 
 int main(int argc, char** argv) {
     uenv::global_settings settings;
-    uenv::cli_state cli(settings);
-    std::optional<std::vector<uenv::repo_label>> cli_repo_labels{};
+    const auto cli = uenv::make_cli(settings);
 
-    if (auto valid = cli.root.validate(); !valid) {
+    if (auto valid = cli.validate(); !valid) {
         term::error("internal error in the command line interface: {}",
                     valid.error());
         return 1;
@@ -52,24 +41,21 @@ int main(int argc, char** argv) {
     // help) use color only if the terminal supports it
     color::set_color(color::default_color(settings.calling_environment));
 
-    // the command to run, once the configuration has been loaded
-    const argparse::command* selected_command = nullptr;
-    {
-        const auto parsed = argparse::parse(cli.root, argc, argv);
-        const auto applied = argparse::apply(parsed);
-        if (!applied) {
-            const auto& e = applied.error();
-            term::error("{}", e.message);
-            term::hint("run '{} --help' for more information",
-                       fmt::join(e.cmd->path(), " "));
-            return 1;
-        }
-        if (applied->help) {
-            fmt::print("{}", argparse::render_help(*applied->help));
-            return 0;
-        }
-        selected_command = applied->selected;
+    const auto command_line = cli.parse(argc, argv);
+    if (!command_line) {
+        const auto& e = command_line.error();
+        term::error("{}", e.message);
+        term::hint("run '{} --help' for more information",
+                   fmt::join(e.cmd->path(), " "));
+        return 1;
     }
+    if (command_line->help_requested()) {
+        fmt::print("{}", command_line->help());
+        return 0;
+    }
+
+    const uenv::global_args& globals = command_line->globals();
+    settings.verbose = globals.verbose;
 
     // By default there is no logging to the console
     //   user-friendly logging of errors and warnings is handled using
@@ -90,14 +76,15 @@ int main(int argc, char** argv) {
     }
 
     // print the version and exit if the --version flag was passed
-    if (cli.print_version) {
+    if (globals.version) {
         term::msg("{}", UENV_VERSION);
         return 0;
     }
 
     // parse the repo flag if it was passed
-    if (cli.cli_repo) {
-        if (const auto result = uenv::parse_repo_list(*cli.cli_repo)) {
+    std::optional<std::vector<uenv::repo_label>> cli_repo_labels{};
+    if (globals.repo) {
+        if (const auto result = uenv::parse_repo_list(*globals.repo)) {
             spdlog::info("selected repositories: {}",
                          fmt::join(result.value(), ", "));
             cli_repo_labels = result.value();
@@ -110,7 +97,9 @@ int main(int argc, char** argv) {
 
     // set the configuration according to defaults, cli options and config
     // files.
-    if (auto full_config = uenv::load_config(cli.cli_config, cli_repo_labels,
+    const uenv::config_base cli_config{.color = globals.color,
+                                       .system_name = globals.system};
+    if (auto full_config = uenv::load_config(cli_config, cli_repo_labels,
                                              settings.calling_environment)) {
         // print any warnings that were generated while loading configuration
         for (const auto& warning : full_config->warnings) {
@@ -144,17 +133,11 @@ int main(int argc, char** argv) {
 
     spdlog::info("{}", settings);
 
-    const auto& selected = *selected_command;
-    if (selected.has_action()) {
-        return selected.run();
+    // a command that only groups subcommands, e.g. `uenv image`, prints its
+    // help
+    if (!command_line->has_action()) {
+        fmt::print("{}", command_line->help());
+        return 0;
     }
-    // a command that only groups subcommands: `uenv` prints the version,
-    // `uenv image` etc. print their help
-    if (selected.parent() == nullptr) {
-        term::msg("uenv version {}", UENV_VERSION);
-        term::msg("call '{} --help' for help", argv[0]);
-    } else {
-        fmt::print("{}", argparse::render_help(selected));
-    }
-    return 0;
+    return command_line->run();
 }

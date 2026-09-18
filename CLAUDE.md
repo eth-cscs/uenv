@@ -210,7 +210,7 @@ changing that code path, check they are actually running rather than skipping.
 
 ### Source Structure
 
-- `src/cli/` - CLI command implementations (add_remove, build, completion, config, copy, delete, find, help, image, inspect, ls, pull, push, repo, run, start, status), and the tree of commands they are registered in (`cli_state.h/cpp`)
+- `src/cli/` - CLI command implementations (add_remove, build, completion, config, copy, delete, find, help, image, inspect, ls, pull, push, repo, run, start, status), and the tree of commands they are registered in (`cli.h/cpp`)
 - `src/argparse/` - Command line argument parser used by the CLI and `squashfs-mount`. See "The `argparse` command line parser" below.
 - `src/uenv/` - Core library shared between CLI and Slurm plugin
   - Environment management (`env.h/cpp`, `uenv.h/cpp`)
@@ -612,25 +612,37 @@ grep -rn '#include <\(uenv\|site\|cli\)/' src/oci/
 ### The `argparse` command line parser
 
 `src/argparse/` is the command line parser used by `uenv` and both
-`squashfs-mount` variants (it replaced CLI11). The interface is a tree of
-`argparse::command`s: each command is built as a value with `add_flag`,
-`add_option`, `add_choice`, `add_positional` and `add_rest`, and then added to
-its parent with `add_subcommand(command)`. `src/argparse/argparse.h` documents
-the grammar.
+`squashfs-mount` variants (it replaced CLI11). `src/argparse/argparse.h`
+documents the grammar.
 
-Parsing is deliberately split in two, and the split must be preserved:
+Each command has an **arguments type**: a plain struct whose fields hold what
+was given on the command line. A `command_builder<T>` binds each option and
+positional to a field of `T` by pointer-to-member (`&run_args::view`), and
+sets the command's action, which receives a filled-in `const T&`. The builder
+produces an untyped `argparse::command`, added to its parent with
+`add_subcommand(...)`. The root is wrapped in an `argparse::program<Globals>`,
+where `Globals` is the root's arguments type (uenv's `global_args`).
 
-- `argparse::parse()` classifies every word and returns a `parse_result` (a
-  trace of which word went where, the parser state after the last word, and
-  every error). It has **no side effects**: it never writes to bound variables
-  and never runs callbacks, and it does not stop at the first error. This is
-  what lets tab completion run the exact parser used for real invocations on
-  an incomplete command line.
-- `argparse::apply()` writes the values, only for an error-free result, and
-  returns the selected command. `main()` then runs that command's `action`
-  (set with `command::action(...)` when the command is built), once the
-  configuration has been loaded. There is no mode variable or dispatch
-  `switch`: the command that was selected carries what it does.
+Nothing is bound by reference and nothing is mutated as a side effect of
+parsing:
+
+- `argparse::parse()` only reads the tree: it classifies every word and
+  returns a `parse_result` (a trace of which word went where, the parser state
+  after the last word, and every error), and does not stop at the first
+  error. This is what lets tab completion run the exact parser used for real
+  invocations on an incomplete command line.
+- `program::parse()` turns an error-free result into an `invocation`: a new
+  value of each command's arguments type, copied from its defaults and filled
+  in. `main()` reads `globals()`, loads the configuration, and then calls
+  `run()`, which runs the selected command's action.
+
+The arguments types are type-erased with the concept/model pattern of
+`help::item` (`src/cli/help.h`): `detail::model<T>` holds the typed setters
+and action of a command, and `detail::instance` holds a command's values.
+Because only the builder and the action ever see `T`, each command's
+arguments struct, implementation and footer are private to its `.cpp` file,
+and its header declares a single function, e.g.
+`argparse::command run_command(const global_settings&)`.
 
 `command::validate()` checks that a tree is well formed, including that every
 option or positional that takes a value declares how it is completed
@@ -655,8 +667,8 @@ Behaviour that differs from CLI11, on purpose:
   CLI11 would also jump to a parent's or sibling's subcommand
   (`uenv image find ls` ran `uenv image ls`);
 - `-5` is an unknown option, not a positional;
-- callback flags run in command line order (`--color --no-color` disables
-  color).
+- `--color`/`--no-color` is one negatable flag: the last one given wins
+  (CLI11 applied them in the order they were defined).
 
 ### Environment Variables
 
@@ -678,14 +690,18 @@ Prefer using functions from `src/util/fs.h` which provide expected-based error h
 1. Create header/source in `src/cli/` (e.g., `foo.h`, `foo.cpp`)
 2. Implement command function returning `int` (exit code)
 3. Add source to `cli_src` array in `meson.build`
-4. Add an `argparse::command cli(const global_settings&)` method to the
-   command's args struct that builds and returns the command. Give every
-   option and positional that takes a value a `.complete(...)`, and set the
-   command's action to call the implementation:
-   `cmd.action([this, &settings] { return uenv::foo(*this, settings); });`
+4. In `foo.cpp`, put the command's arguments struct and its implementation in
+   an anonymous namespace, and add
+   `argparse::command foo_command(const global_settings& settings)`, the only
+   declaration in `foo.h`. It builds the command with a
+   `argparse::command_builder<foo_args>`: bind options and positionals to
+   fields (`&foo_args::field`), give every one that takes a value a
+   `.complete(...)`, set the action
+   (`cmd.action([&settings](const foo_args& args) { return foo(args, settings); })`)
+   and `return std::move(cmd).build();`
 5. Add it to its parent with `add_subcommand(...)`: top-level commands in
-   `cli_state`'s constructor (`src/cli/cli_state.cpp`), `uenv image ...`
-   commands in `image_args::cli()`
+   `make_cli()` (`src/cli/cli.cpp`), `uenv image ...` commands in
+   `image_command()`
 6. Add integration tests in `test/integration/cli.bats`
 7. Add unit tests for any new library functions in `test/unit/`
 

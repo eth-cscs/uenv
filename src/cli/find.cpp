@@ -21,32 +21,53 @@
 
 namespace uenv {
 
+namespace {
+
+struct image_find_args {
+    std::optional<std::string> uenv_description;
+    std::optional<std::string> format;
+    bool no_header = false;
+    bool json = false;
+    bool no_partials = false;
+    bool build = false;
+};
+
 std::string image_find_footer();
 
-argparse::command image_find_args::cli(const global_settings& settings) {
+int image_find(const image_find_args& args, const global_settings& settings);
+
+} // namespace
+
+argparse::command image_find_command(const global_settings& settings) {
     using argparse::completion;
-    argparse::command find_cli("find", "search for uenv that can be pulled");
-    find_cli.add_positional("uenv", uenv_description, "search term")
+    argparse::command_builder<image_find_args> find_cli(
+        "find", "search for uenv that can be pulled");
+    find_cli
+        .add_positional("uenv", &image_find_args::uenv_description,
+                        "search term")
         .complete(completion::custom("registry_label"));
-    find_cli.add_flag("no-header", no_header,
+    find_cli.add_flag("no-header", &image_find_args::no_header,
                       "print only the matching records, with no header.");
-    find_cli.add_flag("json", json,
+    find_cli.add_flag("json", &image_find_args::json,
                       "format output as JSON (incompatible with --format).");
     find_cli
-        .add_option("format", format,
+        .add_option("format", &image_find_args::format,
                     "optional format specification (incompatible with --json).")
         .complete(completion::none());
-    find_cli.add_flag("no-partials", no_partials,
+    find_cli.add_flag("no-partials", &image_find_args::no_partials,
                       "do not match partial names when searching.");
-    find_cli.add_flag("build", build,
+    find_cli.add_flag("build", &image_find_args::build,
                       "invalid: replaced with 'build::' prefix on uenv label");
-    find_cli.action(
-        [this, &settings] { return uenv::image_find(*this, settings); });
+    find_cli.action([&settings](const image_find_args& args) {
+        return image_find(args, settings);
+    });
 
     find_cli.footer(image_find_footer);
 
-    return find_cli;
+    return std::move(find_cli).build();
 }
+
+namespace {
 
 int image_find([[maybe_unused]] const image_find_args& args,
                [[maybe_unused]] const global_settings& settings) {
@@ -155,5 +176,7 @@ std::string image_find_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

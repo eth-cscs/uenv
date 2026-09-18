@@ -23,6 +23,18 @@
 
 namespace {
 
+namespace {
+
+// the command line arguments
+struct squashfs_mount_args {
+    bool print_version = false;
+    int verbosity = 0;
+    std::optional<std::string> raw_mounts;
+    std::optional<std::vector<std::string>> commands;
+};
+
+} // namespace
+
 // The calling user's real ids, recorded before any privilege change so that
 // an exit can give up root.
 std::optional<util::ids> caller_ids;
@@ -103,28 +115,35 @@ int main(int argc, char** argv, char** envp) {
     // Command line argument parsing
     //
 
-    bool print_version = false;
-    int verbosity = 1;
-    std::optional<std::string> raw_mounts;
-    std::optional<std::vector<std::string>> commands;
-
-    argparse::command cli("squashfs-mount",
-                          fmt::format("squashfs-mount {}", UENV_VERSION));
-    cli.add_flag({'v', "verbose"}, verbosity, "enable verbose output");
-    cli.add_flag("version", print_version, "print version");
-    cli.add_option({'s', "sqfs"}, raw_mounts,
-                   "comma separated list of squashfs files to mount")
+    argparse::command_builder<squashfs_mount_args> builder(
+        "squashfs-mount", fmt::format("squashfs-mount {}", UENV_VERSION));
+    builder.add_flag({'v', "verbose"}, &squashfs_mount_args::verbosity,
+                     "enable verbose output");
+    builder.add_flag("version", &squashfs_mount_args::print_version,
+                     "print version");
+    builder
+        .add_option({'s', "sqfs"}, &squashfs_mount_args::raw_mounts,
+                    "comma separated list of squashfs files to mount")
         .complete(argparse::completion::custom("mount_list"));
-    cli.add_rest("commands", commands,
-                 "the command to run, including with arguments")
+    builder
+        .add_rest("commands", &squashfs_mount_args::commands,
+                  "the command to run, including with arguments")
         .complete(argparse::completion::command());
+    const argparse::program<squashfs_mount_args> cli(std::move(builder));
 
-    if (const auto r = argparse::apply(argparse::parse(cli, argc, argv)); !r) {
-        error_and_exit("{}", r.error().message);
-    } else if (r->help) {
-        fmt::print("{}", argparse::render_help(*r->help));
+    const auto command_line = cli.parse(argc, argv);
+    if (!command_line) {
+        error_and_exit("{}", command_line.error().message);
+    }
+    if (command_line->help_requested()) {
+        fmt::print("{}", command_line->help());
         exit_as_caller(0);
     }
+    const auto& args = command_line->globals();
+    const bool print_version = args.print_version;
+    const int verbosity = args.verbosity;
+    const auto& raw_mounts = args.raw_mounts;
+    const auto& commands = args.commands;
 
     //
     // print version and quit if --version flag was used

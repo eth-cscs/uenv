@@ -13,17 +13,29 @@
 
 namespace uenv {
 
+namespace {
+
+struct configure_args {};
+
 std::string configure_footer();
 
-argparse::command configure_args::cli(const global_settings& settings) {
-    argparse::command configure_cli("config", "print uenv tool configuration");
-    configure_cli.action(
-        [this, &settings] { return uenv::configure(*this, settings); });
+int configure(const configure_args& args, const global_settings& settings);
+
+} // namespace
+
+argparse::command config_command(const global_settings& settings) {
+    argparse::command_builder<configure_args> configure_cli(
+        "config", "print uenv tool configuration");
+    configure_cli.action([&settings](const configure_args& args) {
+        return configure(args, settings);
+    });
 
     configure_cli.footer(configure_footer);
 
-    return configure_cli;
+    return std::move(configure_cli).build();
 }
+
+namespace {
 
 int configure([[maybe_unused]] const configure_args& args,
               const global_settings& settings) {
@@ -105,5 +117,7 @@ std::string configure_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

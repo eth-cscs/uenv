@@ -4,31 +4,49 @@
 //
 // The command line interface is described as a tree of `command`s, each with
 // its own options (flags and options that take a value), positional arguments
-// and subcommands. The application builds each command as a value, filling it
-// in with `add_flag`, `add_option`, ..., and adds it to its parent with
-// `add_subcommand`:
+// and subcommands.
 //
-//   argparse::command ls_cli() {
-//       argparse::command ls("ls", "list images");
-//       ls.add_flag("json", json, "print JSON");
-//       return ls;
+// Each command has an arguments type: a plain struct whose fields hold the
+// values given on the command line. A command is built with a
+// `command_builder<T>`, which binds each option and positional argument to a
+// field of `T` by pointer-to-member, and sets the command's action: what the
+// command does with those values. Subcommands are built as values and added to
+// their parent with `add_subcommand`:
+//
+//   struct ls_args {
+//       bool json = false;
+//   };
+//
+//   argparse::command ls_command() {
+//       argparse::command_builder<ls_args> ls("ls", "list images");
+//       ls.add_flag("json", &ls_args::json, "print JSON");
+//       ls.action([](const ls_args& args) { return list(args); });
+//       return std::move(ls).build();
 //   }
 //   ...
-//   image.add_subcommand(ls_cli());
+//   image.add_subcommand(ls_command());
+//
+// The root of the tree is wrapped in a `program<Globals>`, where `Globals` is
+// the arguments type of the root: the program's global options.
+//
+//   argparse::program<global_args> cli(std::move(root));
+//   auto invocation = cli.parse(argc, argv);   // or an error
+//   invocation->globals();                     // the global options
+//   invocation->run();                         // the selected command's action
 //
 // Parsing is split into two steps:
 //
 // 1. `parse()` classifies every word on the command line against the tree, and
 //    returns a `parse_result`: a trace recording which word went to which
 //    subcommand, option or positional argument, the state of the parser after
-//    the last word, and a list of errors. `parse()` has no side effects: it
-//    never writes to the variables bound to options and never calls callbacks.
-//    It does not stop at the first error, so it can be used on an incomplete
-//    command line (e.g. for tab completion) as well as on a complete one.
+//    the last word, and a list of errors. It does not stop at the first error,
+//    so it can be used on an incomplete command line (e.g. for tab completion)
+//    as well as on a complete one. It only reads the tree.
 //
-// 2. `apply()` takes an error-free `parse_result`, writes the values to the
-//    bound variables, and returns the selected command. The application then
-//    runs that command's `action`.
+// 2. `program::parse()` also turns an error-free result into an `invocation`:
+//    for each command on the path from the root to the selected command, a new
+//    value of its arguments type is created from the defaults and filled in
+//    from the command line.
 //
 // Grammar of a single word, applied in this order:
 //
@@ -52,12 +70,13 @@
 //
 // Each command automatically gets a `-h,--help` flag. When it is given, the
 // errors that would otherwise be reported (e.g. a missing required argument)
-// are ignored, and `apply()` reports that help was requested instead of
-// applying the values.
+// are ignored, and the invocation reports that help was requested.
 //
 // This library depends only on src/util and fmt: it must not include anything
 // from src/uenv, src/cli or src/site.
 
+#include <algorithm>
+#include <concepts>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -65,6 +84,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
@@ -73,8 +93,17 @@
 namespace argparse {
 
 class command;
-// grants apply() access to the callbacks stored in the tree
-struct access;
+template <typename T> class command_builder;
+struct parse_result;
+
+// The requirements on the arguments type of a command: a fresh value is made
+// for every parse by copying the defaults.
+template <typename T>
+concept Arguments = std::default_initializable<T> && std::copy_constructible<T>;
+
+// The arguments type of a command that has no options of its own, e.g. one
+// that only groups subcommands.
+struct no_args {};
 
 // A description of how the value of an option or positional argument can be
 // completed interactively. Every argument that takes a value must set one
@@ -122,7 +151,9 @@ struct occurrence {
     std::string_view value;
 };
 
-// A flag (takes no value) or an option (takes exactly one value).
+// A flag (takes no value) or an option (takes exactly one value). This is the
+// syntax of the option: the field of the arguments type that it sets is known
+// only to the command's builder.
 class option {
   public:
     // the option must be given (only options that take a value).
@@ -172,15 +203,14 @@ class option {
 
   private:
     friend class command;
+    template <typename T> friend class command_builder;
 
-    // the kind of option, which determines how occurrences are applied
     enum class type : std::uint8_t {
-        boolean,  // bool flag: the last occurrence wins
-        counter,  // int flag: counts occurrences
-        callback, // flag: callback called each time the flag is given
-        value,    // takes a value, may be given at most once
-        choice,   // takes a value from a fixed set, may be given at most once
-        help,     // the built-in -h,--help flag
+        boolean, // flag: true, or false if given by its negation; last wins
+        counter, // flag: the number of times it was given
+        value,   // takes a value, may be given at most once
+        choice,  // takes a value from a fixed set, may be given at most once
+        help,    // the built-in -h,--help flag
     };
 
     option(names n, type t, std::string help);
@@ -193,10 +223,6 @@ class option {
     struct completion completion_;
     std::string metavar_;
     std::vector<std::string> choices_;
-    // called by apply() with every occurrence of the option, if it was given
-    std::function<void(std::span<const occurrence>)> apply_;
-
-    friend struct access;
 };
 
 // A positional argument: either a single word, or (`rest`) all remaining
@@ -224,6 +250,7 @@ class positional {
 
   private:
     friend class command;
+    template <typename T> friend class command_builder;
 
     positional(std::string name, bool rest, std::string help);
 
@@ -232,85 +259,113 @@ class positional {
     bool rest_;
     bool required_ = false;
     struct completion completion_;
-    std::function<void(std::span<const std::string_view>)> apply_;
-
-    friend struct access;
 };
+
+namespace detail {
+
+// A command's parsed values, and the action that consumes them, with the
+// arguments type erased (the same pattern as help::item in src/cli/help.h).
+class instance {
+  public:
+    template <Arguments T>
+    instance(T values, std::function<int(const T&, const command&)> action,
+             const command& cmd)
+        : impl_(std::make_unique<wrap<T>>(std::move(values), std::move(action),
+                                          cmd)) {
+    }
+
+    instance(instance&&) = default;
+    instance(const instance& other) : impl_(other.impl_->clone()) {
+    }
+    instance& operator=(instance&&) = default;
+    instance& operator=(const instance& other) {
+        return *this = instance(other);
+    }
+
+    bool has_action() const {
+        return impl_->has_action();
+    }
+    // run the action: has_action() must be true
+    int run() const {
+        return impl_->run();
+    }
+    // the command whose values these are
+    const command& cmd() const {
+        return impl_->cmd();
+    }
+    // the values, or nullptr if T is not the command's arguments type
+    template <typename T> const T* get() const {
+        return static_cast<const T*>(impl_->get(typeid(T)));
+    }
+
+  private:
+    struct interface {
+        virtual ~interface() = default;
+        virtual std::unique_ptr<interface> clone() const = 0;
+        virtual bool has_action() const = 0;
+        virtual int run() const = 0;
+        virtual const command& cmd() const = 0;
+        virtual const void* get(const std::type_info&) const = 0;
+    };
+
+    template <Arguments T> struct wrap final : interface {
+        wrap(T v, std::function<int(const T&, const command&)> a,
+             const command& c)
+            : values(std::move(v)), action(std::move(a)), command_(&c) {
+        }
+        std::unique_ptr<interface> clone() const override {
+            return std::make_unique<wrap>(values, action, *command_);
+        }
+        bool has_action() const override {
+            return bool(action);
+        }
+        int run() const override {
+            return action(values, *command_);
+        }
+        const command& cmd() const override {
+            return *command_;
+        }
+        const void* get(const std::type_info& t) const override {
+            return t == typeid(T) ? &values : nullptr;
+        }
+
+        T values;
+        std::function<int(const T&, const command&)> action;
+        const command* command_;
+    };
+
+    std::unique_ptr<interface> impl_;
+};
+
+// The occurrences of the options and positional arguments of one command on
+// the command line, in the order they were given.
+struct gathered {
+    std::vector<std::pair<const option*, std::vector<occurrence>>> options;
+    std::vector<std::pair<const positional*, std::vector<std::string_view>>>
+        positionals;
+};
+
+// What a command does with its occurrences: make its arguments value. The
+// typed implementation, model<T>, is made by command_builder<T>.
+struct model_interface {
+    virtual ~model_interface() = default;
+    virtual instance make(const gathered& occurrences,
+                          const command& cmd) const = 0;
+};
+
+// Make an instance for every command on the path of an error-free result.
+std::vector<instance> instantiate(const parse_result& result);
+
+} // namespace detail
 
 class command {
   public:
-    command(std::string name, std::string description);
-
     command(const command&) = delete;
     command& operator=(const command&) = delete;
     // moving a command keeps the parent links of its subcommands valid
     command(command&&);
     command& operator=(command&&);
-
-    //
-    // building the tree
-    //
-
-    // add a subcommand, returning a reference to it in the tree
-    command& add_subcommand(command sub);
-
-    // a boolean flag: true if given (or false if given by its negation)
-    option& add_flag(names n, bool& target, std::string help);
-    // a counting flag: the number of times it was given, e.g. -vvv -> 3. The
-    // target is always set by apply(), to zero if the flag was not given.
-    option& add_flag(names n, int& target, std::string help);
-    // a flag that calls `callback` each time it is given, in the order of
-    // the command line
-    option& add_flag(names n, std::function<void()> callback, std::string help);
-
-    option& add_option(names n, std::string& target, std::string help);
-    option& add_option(names n, std::optional<std::string>& target,
-                       std::string help);
-
-    // an option whose value must be one of the keys of `values`
-    template <typename T>
-    option& add_choice(names n, T& target,
-                       std::vector<std::pair<std::string, T>> values,
-                       std::string help) {
-        std::vector<std::string> keys;
-        for (auto& v : values) {
-            keys.push_back(v.first);
-        }
-        auto setter = [&target,
-                       values = std::move(values)](std::string_view value) {
-            for (auto& v : values) {
-                if (v.first == value) {
-                    target = v.second;
-                    return;
-                }
-            }
-        };
-        return add_choice_impl(std::move(n), std::move(keys), std::move(setter),
-                               std::move(help));
-    }
-
-    positional& add_positional(std::string name, std::string& target,
-                               std::string help);
-    positional& add_positional(std::string name,
-                               std::optional<std::string>& target,
-                               std::string help);
-    // a positional that takes every remaining word on the command line. It
-    // must be the last positional.
-    positional& add_rest(std::string name, std::vector<std::string>& target,
-                         std::string help);
-    positional& add_rest(std::string name,
-                         std::optional<std::vector<std::string>>& target,
-                         std::string help);
-
-    // text printed after the generated help, generated when help is printed
-    command& footer(std::function<std::string()> f);
-    // what the command does when it is selected: returns the exit code. A
-    // command with subcommands usually has no action of its own.
-    command& action(std::function<int()> f);
-
-    //
-    // inspecting the tree
-    //
+    ~command();
 
     const std::string& name() const {
         return name_;
@@ -322,13 +377,6 @@ class command {
         return parent_;
     }
     std::string footer_text() const;
-    bool has_action() const {
-        return bool(action_);
-    }
-    // run the command's action: has_action() must be true
-    int run() const {
-        return action_();
-    }
     // the names of the commands from the root to this command
     std::vector<std::string> path() const;
 
@@ -348,20 +396,23 @@ class command {
     util::expected<void, std::string> validate() const;
 
   private:
-    friend struct access;
+    template <typename T> friend class command_builder;
+    friend std::vector<detail::instance>
+    detail::instantiate(const parse_result&);
+
+    command(std::string name, std::string description,
+            std::unique_ptr<detail::model_interface> model);
 
     void adopt_subcommands();
     option& add(std::unique_ptr<option> o);
     positional& add(std::unique_ptr<positional> p);
-    option& add_choice_impl(names n, std::vector<std::string> keys,
-                            std::function<void(std::string_view)> setter,
-                            std::string help);
+    command& add_subcommand(command sub);
 
     std::string name_;
     std::string description_;
     command* parent_ = nullptr;
     std::function<std::string()> footer_;
-    std::function<int()> action_;
+    std::unique_ptr<detail::model_interface> model_;
     std::vector<std::unique_ptr<option>> options_;
     std::vector<std::unique_ptr<positional>> positionals_;
     std::vector<std::unique_ptr<command>> subcommands_;
@@ -451,28 +502,325 @@ struct parse_result {
 };
 
 // classify every word in `words` (which should not include the program name)
-// against the tree rooted at `root`.
+// against the tree rooted at `root`. The result views the words, so they must
+// outlive it.
 parse_result parse(const command& root,
                    std::span<const std::string_view> words);
 parse_result parse(const command& root, std::span<const std::string> words);
-// parse argv[1..argc)
-parse_result parse(const command& root, int argc, const char* const* argv);
-
-// What apply() did.
-struct applied {
-    // help was requested for this command: nothing was applied.
-    const command* help = nullptr;
-    // the selected command, whose action should be run (when help is null)
-    const command* selected = nullptr;
-};
-
-// Write the parsed values to the bound variables. The result must be ok(): if
-// it has errors (and help was not requested) nothing is applied and the first
-// error is returned.
-util::expected<applied, error> apply(const parse_result& result);
 
 // The help text for a command: usage, positionals, options, subcommands and
 // the footer.
 std::string render_help(const command& cmd);
+
+//
+// building commands
+//
+
+namespace detail {
+
+template <Arguments T> struct model final : model_interface {
+    using option_setter = std::function<void(T&, std::span<const occurrence>)>;
+    using positional_setter =
+        std::function<void(T&, std::span<const std::string_view>)>;
+
+    T defaults;
+    std::vector<std::pair<const option*, option_setter>> option_setters;
+    std::vector<std::pair<const positional*, positional_setter>>
+        positional_setters;
+    std::function<int(const T&, const command&)> action;
+
+    instance make(const gathered& g, const command& cmd) const override {
+        T values = defaults;
+        for (auto& [opt, occ] : g.options) {
+            for (auto& [o, set] : option_setters) {
+                if (o == opt) {
+                    set(values, occ);
+                }
+            }
+        }
+        for (auto& [pos, words] : g.positionals) {
+            for (auto& [p, set] : positional_setters) {
+                if (p == pos) {
+                    set(values, words);
+                }
+            }
+        }
+        return instance(std::move(values), action, cmd);
+    }
+};
+
+} // namespace detail
+
+// Builds a command whose arguments type is T: every option and positional
+// argument sets a field of T, and the action receives the filled-in value.
+template <typename T = no_args> class command_builder {
+    static_assert(Arguments<T>);
+
+  public:
+    // `defaults` is the value of the arguments before the command line is
+    // applied: the value of every field whose option is not given.
+    command_builder(std::string name, std::string description, T defaults = T{})
+        : cmd_(std::move(name), std::move(description),
+               std::make_unique<detail::model<T>>()),
+          model_(static_cast<detail::model<T>*>(cmd_.model_.get())) {
+        model_->defaults = std::move(defaults);
+    }
+
+    command_builder(command_builder&&) = default;
+    command_builder& operator=(command_builder&&) = default;
+
+    // a boolean flag: true if given, false if given by its negation (see
+    // option::negation), the last one given wins
+    option& add_flag(names n, bool T::* field, std::string help) {
+        return add_option_impl(std::move(n), option::type::boolean,
+                               std::move(help),
+                               [field](T& v, std::span<const occurrence> occ) {
+                                   v.*field = !occ.back().negated;
+                               });
+    }
+    // a boolean flag that is unset if it is not given
+    option& add_flag(names n, std::optional<bool> T::* field,
+                     std::string help) {
+        return add_option_impl(std::move(n), option::type::boolean,
+                               std::move(help),
+                               [field](T& v, std::span<const occurrence> occ) {
+                                   v.*field = !occ.back().negated;
+                               });
+    }
+    // a counting flag: the number of times it was given, e.g. -vvv -> 3
+    option& add_flag(names n, int T::* field, std::string help) {
+        return add_option_impl(std::move(n), option::type::counter,
+                               std::move(help),
+                               [field](T& v, std::span<const occurrence> occ) {
+                                   v.*field = static_cast<int>(occ.size());
+                               });
+    }
+
+    option& add_option(names n, std::string T::* field, std::string help) {
+        return add_option_impl(std::move(n), option::type::value,
+                               std::move(help),
+                               [field](T& v, std::span<const occurrence> occ) {
+                                   v.*field = std::string(occ.back().value);
+                               });
+    }
+    option& add_option(names n, std::optional<std::string> T::* field,
+                       std::string help) {
+        return add_option_impl(std::move(n), option::type::value,
+                               std::move(help),
+                               [field](T& v, std::span<const occurrence> occ) {
+                                   v.*field = std::string(occ.back().value);
+                               });
+    }
+
+    // an option whose value must be one of the keys of `values`
+    template <typename V>
+    option& add_choice(names n, V T::* field,
+                       std::vector<std::pair<std::string, V>> values,
+                       std::string help) {
+        std::vector<std::string> keys;
+        for (auto& kv : values) {
+            keys.push_back(kv.first);
+        }
+        auto& o =
+            add_option_impl(std::move(n), option::type::choice, std::move(help),
+                            [field, values = std::move(values)](
+                                T& v, std::span<const occurrence> occ) {
+                                for (auto& kv : values) {
+                                    if (kv.first == occ.back().value) {
+                                        v.*field = kv.second;
+                                    }
+                                }
+                            });
+        o.choices_ = std::move(keys);
+        o.completion_ = {completion::kind::choice, {}};
+        return o;
+    }
+
+    positional& add_positional(std::string name, std::string T::* field,
+                               std::string help) {
+        return add_positional_impl(
+            std::move(name), false, std::move(help),
+            [field](T& v, std::span<const std::string_view> w) {
+                v.*field = std::string(w.front());
+            });
+    }
+    positional& add_positional(std::string name,
+                               std::optional<std::string> T::* field,
+                               std::string help) {
+        return add_positional_impl(
+            std::move(name), false, std::move(help),
+            [field](T& v, std::span<const std::string_view> w) {
+                v.*field = std::string(w.front());
+            });
+    }
+    // a positional that takes every remaining word on the command line. It
+    // must be the last positional.
+    positional& add_rest(std::string name, std::vector<std::string> T::* field,
+                         std::string help) {
+        return add_positional_impl(
+            std::move(name), true, std::move(help),
+            [field](T& v, std::span<const std::string_view> w) {
+                (v.*field).assign(w.begin(), w.end());
+            });
+    }
+    positional& add_rest(std::string name,
+                         std::optional<std::vector<std::string>> T::* field,
+                         std::string help) {
+        return add_positional_impl(
+            std::move(name), true, std::move(help),
+            [field](T& v, std::span<const std::string_view> w) {
+                v.*field = std::vector<std::string>(w.begin(), w.end());
+            });
+    }
+
+    // add a subcommand, returning a reference to it in the tree
+    command& add_subcommand(command sub) {
+        return cmd_.add_subcommand(std::move(sub));
+    }
+
+    // text printed after the generated help, generated when help is printed
+    command_builder& footer(std::function<std::string()> f) {
+        cmd_.footer_ = std::move(f);
+        return *this;
+    }
+
+    // what the command does when it is selected: called with the parsed
+    // values, it returns the exit code. A command that only groups
+    // subcommands usually has no action.
+    command_builder& action(std::function<int(const T&)> f) {
+        model_->action = [f = std::move(f)](const T& v, const command&) {
+            return f(v);
+        };
+        return *this;
+    }
+    // an action that is also given the command it belongs to, e.g. to walk
+    // the tree it is part of
+    command_builder& action(std::function<int(const T&, const command&)> f) {
+        model_->action = std::move(f);
+        return *this;
+    }
+
+    command build() && {
+        return std::move(cmd_);
+    }
+
+  private:
+    template <typename F>
+    option& add_option_impl(names n, option::type t, std::string help,
+                            F setter) {
+        auto& o = cmd_.add(std::unique_ptr<option>(
+            new option(std::move(n), t, std::move(help))));
+        model_->option_setters.emplace_back(&o, std::move(setter));
+        return o;
+    }
+
+    template <typename F>
+    positional& add_positional_impl(std::string name, bool rest,
+                                    std::string help, F setter) {
+        auto& p = cmd_.add(std::unique_ptr<positional>(
+            new positional(std::move(name), rest, std::move(help))));
+        model_->positional_setters.emplace_back(&p, std::move(setter));
+        return p;
+    }
+
+    command cmd_;
+    // cmd_'s model: it is on the heap, so the pointer stays valid when the
+    // builder, or the command it builds, is moved
+    detail::model<T>* model_;
+};
+
+//
+// programs
+//
+
+template <Arguments Globals> class program;
+
+// A valid command line, parsed: the values of every command from the root to
+// the selected command. It refers to the program's tree, so it must not
+// outlive the program.
+template <Arguments Globals> class invocation {
+  public:
+    // -h/--help was given
+    bool help_requested() const {
+        return help_ != nullptr;
+    }
+    // the help of the command that -h/--help was given to, otherwise of the
+    // selected command
+    std::string help() const {
+        return render_help(help_ ? *help_ : selected());
+    }
+
+    // the values of the root command's options: the global options
+    const Globals& globals() const {
+        return *path_.front().template get<Globals>();
+    }
+
+    // the command selected on the command line
+    const command& selected() const {
+        return path_.back().cmd();
+    }
+    bool has_action() const {
+        return path_.back().has_action();
+    }
+    // run the selected command's action: has_action() must be true
+    int run() const {
+        return path_.back().run();
+    }
+    // the values of the selected command, or nullptr if T is not its
+    // arguments type
+    template <typename T> const T* selected_values() const {
+        return path_.back().template get<T>();
+    }
+
+  private:
+    friend class program<Globals>;
+    invocation(std::vector<detail::instance> path, const command* help)
+        : path_(std::move(path)), help_(help) {
+    }
+
+    std::vector<detail::instance> path_;
+    const command* help_;
+};
+
+// A command line interface: the tree of commands, whose root has the
+// arguments type Globals.
+template <Arguments Globals> class program {
+  public:
+    explicit program(command_builder<Globals> root)
+        : root_(std::make_unique<command>(std::move(root).build())) {
+    }
+
+    const command& root() const {
+        return *root_;
+    }
+    util::expected<void, std::string> validate() const {
+        return root_->validate();
+    }
+
+    // parse a command line (without the program name): the first error if it
+    // is not valid
+    util::expected<invocation<Globals>, error>
+    parse(std::span<const std::string_view> words) const {
+        auto result = argparse::parse(*root_, words);
+        if (!result.ok()) {
+            return util::unexpected(std::move(result.errors.front()));
+        }
+        return invocation<Globals>(detail::instantiate(result), result.help);
+    }
+    // parse argv[1..argc)
+    util::expected<invocation<Globals>, error>
+    parse(int argc, const char* const* argv) const {
+        std::vector<std::string_view> words;
+        for (int i = 1; i < argc; ++i) {
+            words.emplace_back(argv[i]);
+        }
+        return parse(std::span<const std::string_view>(words));
+    }
+
+  private:
+    // on the heap, so that invocations can refer to the tree when the
+    // program is moved
+    std::unique_ptr<command> root_;
+};
 
 } // namespace argparse

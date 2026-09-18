@@ -1,3 +1,4 @@
+// vim: ts=4 sts=4 sw=4 et
 #pragma once
 
 #include <argparse/argparse.h>
@@ -5,15 +6,8 @@
 #include "uenv.h"
 
 namespace uenv {
-struct build_args {
-    bool spack_develop = false;
-    std::string uenv_recipe_path;
-    std::string uenv_label;
-    std::optional<std::string> system;
-    argparse::command cli(const global_settings& settings);
-};
 
-int build(const build_args& args,
-          [[maybe_unused]] const global_settings& settings);
+// the `uenv build` command
+argparse::command build_command(const global_settings& settings);
 
 } // namespace uenv

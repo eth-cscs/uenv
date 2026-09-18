@@ -22,24 +22,45 @@
 
 namespace uenv {
 
+namespace {
+
+struct image_inspect_args {
+    std::string uenv;
+    bool json = false;
+    std::optional<std::string> format;
+};
+
 std::string image_inspect_footer();
 
-argparse::command image_inspect_args::cli(const global_settings& settings) {
+int image_inspect(const image_inspect_args& args,
+                  const global_settings& settings);
+
+} // namespace
+
+argparse::command image_inspect_command(const global_settings& settings) {
     using argparse::completion;
-    argparse::command inspect_cli("inspect", "print information about a uenv.");
-    inspect_cli.add_option("format", format, "the format string.")
+    argparse::command_builder<image_inspect_args> inspect_cli(
+        "inspect", "print information about a uenv.");
+    inspect_cli
+        .add_option("format", &image_inspect_args::format, "the format string.")
         .complete(completion::none());
-    inspect_cli.add_flag("json", json, "format output as JSON.");
-    inspect_cli.add_positional("uenv", uenv, "the uenv to inspect.")
+    inspect_cli.add_flag("json", &image_inspect_args::json,
+                         "format output as JSON.");
+    inspect_cli
+        .add_positional("uenv", &image_inspect_args::uenv,
+                        "the uenv to inspect.")
         .required()
         .complete(completion::custom("uenv"));
-    inspect_cli.action(
-        [this, &settings] { return uenv::image_inspect(*this, settings); });
+    inspect_cli.action([&settings](const image_inspect_args& args) {
+        return image_inspect(args, settings);
+    });
 
     inspect_cli.footer(image_inspect_footer);
 
-    return inspect_cli;
+    return std::move(inspect_cli).build();
 }
+
+namespace {
 
 int image_inspect(const image_inspect_args& args,
                   const global_settings& settings) {
@@ -306,5 +327,7 @@ std::string image_inspect_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

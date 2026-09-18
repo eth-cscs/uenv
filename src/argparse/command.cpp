@@ -117,8 +117,10 @@ positional& positional::complete(struct completion c) {
 // command
 //
 
-command::command(std::string name, std::string description)
-    : name_(std::move(name)), description_(std::move(description)) {
+command::command(std::string name, std::string description,
+                 std::unique_ptr<detail::model_interface> model)
+    : name_(std::move(name)), description_(std::move(description)),
+      model_(std::move(model)) {
     add(std::unique_ptr<option>(
         new option({'h', "help"}, option::type::help,
                    "print this help message and exit")));
@@ -127,7 +129,7 @@ command::command(std::string name, std::string description)
 command::command(command&& other)
     : name_(std::move(other.name_)),
       description_(std::move(other.description_)), parent_(other.parent_),
-      footer_(std::move(other.footer_)), action_(std::move(other.action_)),
+      footer_(std::move(other.footer_)), model_(std::move(other.model_)),
       options_(std::move(other.options_)),
       positionals_(std::move(other.positionals_)),
       subcommands_(std::move(other.subcommands_)) {
@@ -139,13 +141,15 @@ command& command::operator=(command&& other) {
     description_ = std::move(other.description_);
     parent_ = other.parent_;
     footer_ = std::move(other.footer_);
-    action_ = std::move(other.action_);
+    model_ = std::move(other.model_);
     options_ = std::move(other.options_);
     positionals_ = std::move(other.positionals_);
     subcommands_ = std::move(other.subcommands_);
     adopt_subcommands();
     return *this;
 }
+
+command::~command() = default;
 
 // the subcommands are held by pointer, so only their links back to this
 // command have to be updated when it moves
@@ -168,120 +172,6 @@ option& command::add(std::unique_ptr<option> o) {
 
 positional& command::add(std::unique_ptr<positional> p) {
     return *positionals_.emplace_back(std::move(p));
-}
-
-option& command::add_flag(names n, bool& target, std::string help) {
-    auto& o = add(std::unique_ptr<option>(
-        new option(std::move(n), option::type::boolean, std::move(help))));
-    // the last occurrence wins
-    o.apply_ = [&target](std::span<const occurrence> occ) {
-        target = !occ.back().negated;
-    };
-    return o;
-}
-
-option& command::add_flag(names n, int& target, std::string help) {
-    auto& o = add(std::unique_ptr<option>(
-        new option(std::move(n), option::type::counter, std::move(help))));
-    o.apply_ = [&target](std::span<const occurrence> occ) {
-        target = static_cast<int>(occ.size());
-    };
-    return o;
-}
-
-option& command::add_flag(names n, std::function<void()> callback,
-                          std::string help) {
-    auto& o = add(std::unique_ptr<option>(
-        new option(std::move(n), option::type::callback, std::move(help))));
-    o.apply_ = [callback = std::move(callback)](std::span<const occurrence>) {
-        callback();
-    };
-    return o;
-}
-
-option& command::add_option(names n, std::string& target, std::string help) {
-    auto& o = add(std::unique_ptr<option>(
-        new option(std::move(n), option::type::value, std::move(help))));
-    o.apply_ = [&target](std::span<const occurrence> occ) {
-        target = std::string(occ.back().value);
-    };
-    return o;
-}
-
-option& command::add_option(names n, std::optional<std::string>& target,
-                            std::string help) {
-    auto& o = add(std::unique_ptr<option>(
-        new option(std::move(n), option::type::value, std::move(help))));
-    o.apply_ = [&target](std::span<const occurrence> occ) {
-        target = std::string(occ.back().value);
-    };
-    return o;
-}
-
-option& command::add_choice_impl(names n, std::vector<std::string> keys,
-                                 std::function<void(std::string_view)> setter,
-                                 std::string help) {
-    auto& o = add(std::unique_ptr<option>(
-        new option(std::move(n), option::type::choice, std::move(help))));
-    o.choices_ = std::move(keys);
-    o.completion_ = {completion::kind::choice, {}};
-    o.apply_ = [setter = std::move(setter)](std::span<const occurrence> occ) {
-        setter(occ.back().value);
-    };
-    return o;
-}
-
-positional& command::add_positional(std::string name, std::string& target,
-                                    std::string help) {
-    auto& p = add(std::unique_ptr<positional>(
-        new positional(std::move(name), false, std::move(help))));
-    p.apply_ = [&target](std::span<const std::string_view> v) {
-        target = std::string(v.front());
-    };
-    return p;
-}
-
-positional& command::add_positional(std::string name,
-                                    std::optional<std::string>& target,
-                                    std::string help) {
-    auto& p = add(std::unique_ptr<positional>(
-        new positional(std::move(name), false, std::move(help))));
-    p.apply_ = [&target](std::span<const std::string_view> v) {
-        target = std::string(v.front());
-    };
-    return p;
-}
-
-positional& command::add_rest(std::string name,
-                              std::vector<std::string>& target,
-                              std::string help) {
-    auto& p = add(std::unique_ptr<positional>(
-        new positional(std::move(name), true, std::move(help))));
-    p.apply_ = [&target](std::span<const std::string_view> v) {
-        target.assign(v.begin(), v.end());
-    };
-    return p;
-}
-
-positional& command::add_rest(std::string name,
-                              std::optional<std::vector<std::string>>& target,
-                              std::string help) {
-    auto& p = add(std::unique_ptr<positional>(
-        new positional(std::move(name), true, std::move(help))));
-    p.apply_ = [&target](std::span<const std::string_view> v) {
-        target = std::vector<std::string>(v.begin(), v.end());
-    };
-    return p;
-}
-
-command& command::footer(std::function<std::string()> f) {
-    footer_ = std::move(f);
-    return *this;
-}
-
-command& command::action(std::function<int()> f) {
-    action_ = std::move(f);
-    return *this;
 }
 
 std::string command::footer_text() const {

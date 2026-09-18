@@ -19,30 +19,49 @@
 
 namespace uenv {
 
+namespace {
+
+struct image_ls_args {
+    std::optional<std::string> uenv_description;
+    std::optional<std::string> format;
+    bool no_header = false;
+    bool json = false;
+    bool no_partials = false;
+};
+
 std::string image_ls_footer();
 
-argparse::command image_ls_args::cli(const global_settings& settings) {
+int image_ls(const image_ls_args& args, const global_settings& settings);
+
+} // namespace
+
+argparse::command image_ls_command(const global_settings& settings) {
     using argparse::completion;
-    argparse::command ls_cli("ls", "search for uenv that are available to run");
-    ls_cli.add_positional("uenv", uenv_description, "search term")
+    argparse::command_builder<image_ls_args> ls_cli(
+        "ls", "search for uenv that are available to run");
+    ls_cli
+        .add_positional("uenv", &image_ls_args::uenv_description, "search term")
         .complete(completion::custom("local_label"));
-    ls_cli.add_flag("no-header", no_header,
+    ls_cli.add_flag("no-header", &image_ls_args::no_header,
                     "print only the matching records, with no header.");
-    ls_cli.add_flag("json", json,
+    ls_cli.add_flag("json", &image_ls_args::json,
                     "format output as JSON (incompatible with --format).");
     ls_cli
-        .add_option("format", format,
+        .add_option("format", &image_ls_args::format,
                     "optional format specification (incompatible with --json).")
         .complete(completion::none());
-    ls_cli.add_flag("no-partials", no_partials,
+    ls_cli.add_flag("no-partials", &image_ls_args::no_partials,
                     "do not match partial names when searching.");
-    ls_cli.action(
-        [this, &settings] { return uenv::image_ls(*this, settings); });
+    ls_cli.action([&settings](const image_ls_args& args) {
+        return image_ls(args, settings);
+    });
 
     ls_cli.footer(image_ls_footer);
 
-    return ls_cli;
+    return std::move(ls_cli).build();
 }
+
+namespace {
 
 int image_ls(const image_ls_args& args, const global_settings& settings) {
     auto format =
@@ -142,5 +161,7 @@ std::string image_ls_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv

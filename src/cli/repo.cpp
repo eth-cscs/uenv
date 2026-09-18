@@ -23,78 +23,119 @@
 
 namespace uenv {
 
+namespace {
+
+struct repo_create_args {
+    std::optional<std::string> path;
+};
+
+struct repo_status_args {
+    std::optional<std::string> repo;
+    // print output in json format
+    bool json = false;
+};
+
+struct repo_update_args {
+    std::string repo;
+    // whether to apply lustre checks
+    bool lustre = true;
+};
+
+struct repo_migrate_args {
+    std::string source;
+    std::string destination;
+    bool sync = true;
+};
+
 std::string repo_footer();
 
-argparse::command repo_args::cli(const global_settings& settings) {
+int repo_create(const repo_create_args& args, const global_settings& settings);
+int repo_status(const repo_status_args& args, const global_settings& settings);
+int repo_update(const repo_update_args& args, const global_settings& settings);
+int repo_migrate(const repo_migrate_args& args,
+                 const global_settings& settings);
+
+} // namespace
+
+argparse::command repo_command(const global_settings& settings) {
     using argparse::completion;
-    argparse::command repo_cli("repo",
-                               "manage and query uenv image repositories");
+    argparse::command_builder<> repo_cli(
+        "repo", "manage and query uenv image repositories");
 
     // add the create command, i.e. `uenv repo create ...`
-    argparse::command create_cli("create", "create a new uenv repository");
+    argparse::command_builder<repo_create_args> create_cli(
+        "create", "create a new uenv repository");
 
     // TODO: should this command really work by selecting a default location?
     create_cli
-        .add_positional("path", create_args.path, "path of the repo to create")
+        .add_positional("path", &repo_create_args::path,
+                        "path of the repo to create")
         .complete(completion::directory());
-    create_cli.action(
-        [this, &settings] { return uenv::repo_create(create_args, settings); });
+    create_cli.action([&settings](const repo_create_args& args) {
+        return repo_create(args, settings);
+    });
 
     // add the status command, i.e. `uenv repo status ...`
-    argparse::command status_cli("status",
-                                 "status of an existing uenv repository");
+    argparse::command_builder<repo_status_args> status_cli(
+        "status", "status of an existing uenv repository");
     status_cli
-        .add_positional("repo", status_args.repo,
+        .add_positional("repo", &repo_status_args::repo,
                         "the repo (one of [path] or [name])")
         .complete(completion::custom("repo"));
-    status_cli.add_flag("json", status_args.json, "output in json format");
-    status_cli.action(
-        [this, &settings] { return uenv::repo_status(status_args, settings); });
+    status_cli.add_flag("json", &repo_status_args::json,
+                        "output in json format");
+    status_cli.action([&settings](const repo_status_args& args) {
+        return repo_status(args, settings);
+    });
 
     // add the update command, i.e. `uenv repo update ...`
-    argparse::command update_cli("update",
-                                 "update an existing uenv repository");
+    argparse::command_builder<repo_update_args> update_cli(
+        "update", "update an existing uenv repository");
 
-    update_cli.add_positional("repo", update_args.repo, "repository to update")
+    update_cli
+        .add_positional("repo", &repo_update_args::repo, "repository to update")
         .required()
         .complete(completion::custom("repo"));
     update_cli
-        .add_flag("lustre", update_args.lustre,
+        .add_flag("lustre", &repo_update_args::lustre,
                   "apply lustre striping fix if applicable")
         .negation("no-lustre");
-    update_cli.action(
-        [this, &settings] { return uenv::repo_update(update_args, settings); });
+    update_cli.action([&settings](const repo_update_args& args) {
+        return repo_update(args, settings);
+    });
 
     // add the update command, i.e. `uenv repo migrate ...`
-    argparse::command migrate_cli("migrate",
-                                  "migrate a repository to a new directory");
+    argparse::command_builder<repo_migrate_args> migrate_cli(
+        "migrate", "migrate a repository to a new directory");
 
     migrate_cli
-        .add_positional("source", migrate_args.source,
+        .add_positional("source", &repo_migrate_args::source,
                         "the source repository (one of [path] or [name])")
         .required()
         .complete(completion::custom("repo"));
     migrate_cli
-        .add_positional("destination", migrate_args.destination,
+        .add_positional("destination", &repo_migrate_args::destination,
                         "path of the new repository")
         .required()
         .complete(completion::custom("repo"));
     migrate_cli
-        .add_flag("sync", migrate_args.sync,
+        .add_flag("sync", &repo_migrate_args::sync,
                   "merge source uenv into an existing target repo.")
         .negation("no-sync");
-    migrate_cli.action([this, &settings] {
-        return uenv::repo_migrate(migrate_args, settings);
+    migrate_cli.action([&settings](const repo_migrate_args& args) {
+        return repo_migrate(args, settings);
     });
 
-    repo_cli.add_subcommand(std::move(create_cli));
-    repo_cli.add_subcommand(std::move(status_cli));
-    repo_cli.add_subcommand(std::move(update_cli));
-    repo_cli.add_subcommand(std::move(migrate_cli));
+    repo_cli.add_subcommand(std::move(create_cli).build());
+    repo_cli.add_subcommand(std::move(status_cli).build());
+    repo_cli.add_subcommand(std::move(update_cli).build());
+    repo_cli.add_subcommand(std::move(migrate_cli).build());
     repo_cli.footer(repo_footer);
 
-    return repo_cli;
+    return std::move(repo_cli).build();
 }
+
+namespace {
 
 // inspect the repo path that is optionally passed as an argument.
 // if no argument is provided, fall back to the value passed using
@@ -683,5 +724,7 @@ std::string repo_footer() {
 
     return fmt::format("{}", fmt::join(items, "\n"));
 }
+
+} // namespace
 
 } // namespace uenv
