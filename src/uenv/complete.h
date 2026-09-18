@@ -35,8 +35,8 @@ struct path_filter {
 
 // Paths that start with `prefix`, relative to the current working directory
 // unless absolute. A leading `~/` and variables ($HOME/) in the directory are
-// expanded using `env` to list it, and kept in the values. Hidden files are offered only if the last component of `prefix`
-// starts with '.'.
+// expanded using `env` to list it, and kept in the values. Hidden files are
+// offered only if the last component of `prefix` starts with '.'.
 std::vector<candidate> complete_path(std::string_view prefix,
                                      const path_filter& filter,
                                      const envvars::state& env);
