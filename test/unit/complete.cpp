@@ -192,6 +192,11 @@ TEST_CASE("complete_path", "[complete]") {
     REQUIRE(values(complete_path("~", {}, env)) == strings{"~/"});
     REQUIRE(values(complete_path("~/i", {}, env)) == strings{"~/images/"});
     REQUIRE(values(complete_path("~/i", {}, envvars::state{})).empty());
+    // variables are expanded to list the directory, and kept in the values
+    REQUIRE(values(complete_path("$HOME/i", {}, env)) ==
+            strings{"$HOME/images/"});
+    REQUIRE(values(complete_path("${HOME}/images/o", {}, env)) ==
+            strings{"${HOME}/images/old/"});
     REQUIRE(values(complete_path("missing/", {}, env)).empty());
     REQUIRE(values(complete_path("images/..", {}, env)) ==
             strings{"images/../"});
@@ -251,6 +256,35 @@ TEST_CASE("complete_repo", "[complete]") {
             strings{"mine=./images/"});
     REQUIRE(values(uenv::complete_repo("user,d", repos, env)) ==
             strings{"user,default", "user,deploy"});
+}
+
+TEST_CASE("shell_expand", "[complete]") {
+    using uenv::shell_expand;
+    envvars::state env;
+    env.set("HOME", "/home/user");
+    REQUIRE(shell_expand("~", env) == "/home/user");
+    REQUIRE(shell_expand("~/repo", env) == "/home/user/repo");
+    REQUIRE(shell_expand("~/'a b'", env) == "/home/user/a b");
+    // only an unquoted ~ at the start of the word is expanded
+    REQUIRE(shell_expand("'~/repo'", env) == "~/repo");
+    REQUIRE(shell_expand("\\~/repo", env) == "~/repo");
+    REQUIRE(shell_expand("a~/repo", env) == "a~/repo");
+    REQUIRE(shell_expand("--repo=~/repo", env) == "--repo=~/repo");
+    // ~user is not expanded
+    REQUIRE(shell_expand("~user/repo", env) == "~user/repo");
+    // variables, outside single quotes
+    env.set("SCRATCH", "/scratch/user");
+    REQUIRE(shell_expand("$SCRATCH/repo", env) == "/scratch/user/repo");
+    REQUIRE(shell_expand("--repo=${SCRATCH}/repo", env) ==
+            "--repo=/scratch/user/repo");
+    REQUIRE(shell_expand("\"$SCRATCH\"/a", env) == "/scratch/user/a");
+    REQUIRE(shell_expand("'$SCRATCH'", env) == "$SCRATCH");
+    REQUIRE(shell_expand("\\$SCRATCH", env) == "$SCRATCH");
+    REQUIRE(shell_expand("$UNSET/a", env) == "/a");
+    REQUIRE(shell_expand("$", env) == "$");
+    REQUIRE(shell_expand("$1x", env) == "$1x");
+    REQUIRE(shell_expand("${SCRATCH", env) == "${SCRATCH");
+    REQUIRE(shell_expand("~/repo", envvars::state{}) == "~/repo");
 }
 
 TEST_CASE("shell_unquote", "[complete]") {

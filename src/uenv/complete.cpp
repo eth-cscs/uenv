@@ -1,6 +1,7 @@
 #include <fnmatch.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -48,7 +49,122 @@ std::pair<std::string_view, std::string_view> split_last(std::string_view s,
 // a uenv description that starts like this is a path, not a label (see
 // parse_uenv_description)
 bool is_path_like(std::string_view s) {
-    return s.starts_with('/') || s.starts_with('.') || s.starts_with('~');
+    return s.starts_with('/') || s.starts_with('.') || s.starts_with('~') ||
+           s.starts_with('$');
+}
+
+bool is_name_start(char c) {
+    return std::isalpha(static_cast<unsigned char>(c)) || c == '_';
+}
+bool is_name_char(char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+}
+
+// If word[i] starts a variable reference, $NAME or ${NAME}, append its value
+// (empty if it is not set) to `out` and return the number of characters it
+// takes; otherwise return 0.
+std::size_t variable(std::string_view word, std::size_t i,
+                     const envvars::state& env, std::string& out) {
+    std::string_view name;
+    std::size_t length = 0;
+    if (word.substr(i).starts_with("${")) {
+        auto close = word.find('}', i + 2);
+        if (close == std::string_view::npos) {
+            return 0;
+        }
+        name = word.substr(i + 2, close - i - 2);
+        length = close - i + 1;
+        if (!std::all_of(name.begin(), name.end(), is_name_char)) {
+            return 0;
+        }
+    } else {
+        auto j = i + 1;
+        while (j < word.size() && is_name_char(word[j])) {
+            ++j;
+        }
+        name = word.substr(i + 1, j - i - 1);
+        length = j - i;
+    }
+    if (name.empty() || !is_name_start(name.front())) {
+        return 0;
+    }
+    out += env.get(name).value_or("");
+    return length;
+}
+
+// the path named by text typed by the user: a leading ~ and variables are
+// expanded, as the shell will when the command is run
+std::string expand_path(std::string_view text, const envvars::state& env) {
+    std::string result;
+    std::size_t i = 0;
+    if (text == "~" || text.starts_with("~/")) {
+        result = env.get("HOME").value_or("~");
+        i = 1;
+    }
+    while (i < text.size()) {
+        if (text[i] == '$') {
+            if (auto n = variable(text, i, env, result)) {
+                i += n;
+                continue;
+            }
+        }
+        result += text[i++];
+    }
+    return result;
+}
+
+// shell_unquote, and if env is set, shell_expand
+std::string unquote(std::string_view word, const envvars::state* env) {
+    std::string result;
+    std::size_t i = 0;
+    if (env && (word == "~" || word.starts_with("~/"))) {
+        if (auto home = env->get("HOME")) {
+            result = *home;
+            i = 1;
+        }
+    }
+    enum { none, single, dbl } quote = none;
+    for (; i < word.size(); ++i) {
+        const char c = word[i];
+        if (c == '$' && env && quote != single) {
+            if (auto n = variable(word, i, *env, result)) {
+                i += n - 1;
+                continue;
+            }
+        }
+        switch (quote) {
+        case single:
+            if (c == '\'') {
+                quote = none;
+            } else {
+                result += c;
+            }
+            break;
+        case dbl:
+            if (c == '"') {
+                quote = none;
+            } else if (c == '\\' && i + 1 < word.size() &&
+                       std::string_view("\"\\$`").find(word[i + 1]) !=
+                           std::string_view::npos) {
+                result += word[++i];
+            } else {
+                result += c;
+            }
+            break;
+        case none:
+            if (c == '\'') {
+                quote = single;
+            } else if (c == '"') {
+                quote = dbl;
+            } else if (c == '\\' && i + 1 < word.size()) {
+                result += word[++i];
+            } else if (c != '\\') {
+                result += c;
+            }
+            break;
+        }
+    }
+    return result;
 }
 
 const path_filter squashfs_files{.files = true, .glob = "*.squashfs"};
@@ -64,17 +180,16 @@ std::vector<candidate> complete_path(std::string_view prefix,
     if (prefix == "~") {
         return {{"~/", {}}};
     }
+    // the directory is listed with ~ and variables expanded, and the values
+    // keep them as they were typed
     auto [dir_text, base] = split_last(prefix, '/');
-    std::string dir(dir_text);
-    if (dir.starts_with("~/")) {
-        auto home = env.get("HOME");
-        if (!home) {
-            return {};
-        }
-        dir = *home + dir.substr(1);
+    std::string dir = expand_path(dir_text, env);
+    if (dir.starts_with('~')) {
+        // HOME is not set
+        return {};
     }
     if (dir.empty()) {
-        dir = ".";
+        dir = dir_text.empty() ? "." : "/";
     }
 
     std::vector<candidate> result;
@@ -234,44 +349,12 @@ std::vector<candidate> complete_repo(std::string_view prefix,
     return prefixed(head, std::move(result));
 }
 
+std::string shell_expand(std::string_view word, const envvars::state& env) {
+    return unquote(word, &env);
+}
+
 std::string shell_unquote(std::string_view word) {
-    std::string result;
-    enum { none, single, dbl } quote = none;
-    for (std::size_t i = 0; i < word.size(); ++i) {
-        const char c = word[i];
-        switch (quote) {
-        case single:
-            if (c == '\'') {
-                quote = none;
-            } else {
-                result += c;
-            }
-            break;
-        case dbl:
-            if (c == '"') {
-                quote = none;
-            } else if (c == '\\' && i + 1 < word.size() &&
-                       std::string_view("\"\\$`").find(word[i + 1]) !=
-                           std::string_view::npos) {
-                result += word[++i];
-            } else {
-                result += c;
-            }
-            break;
-        case none:
-            if (c == '\'') {
-                quote = single;
-            } else if (c == '"') {
-                quote = dbl;
-            } else if (c == '\\' && i + 1 < word.size()) {
-                result += word[++i];
-            } else if (c != '\\') {
-                result += c;
-            }
-            break;
-        }
-    }
-    return result;
+    return unquote(word, nullptr);
 }
 
 } // namespace uenv

@@ -231,6 +231,42 @@ app/43.0:v1
 :filenames,nospace"
 }
 
+@test "~ in the words before the cursor is expanded" {
+    # the shell passes the words to completion as they were typed: uenv must
+    # expand ~ as the shell will when the command is run
+    mkdir -p $TMP/home
+    cp -r $REPO $TMP/home/repo
+    export HOME=$TMP/home
+
+    complete_line uenv --repo '~/repo' image ls ""
+    assert_line app/42.0:v1
+
+    complete_word 4 uenv --repo '~/repo/' start --view= tool
+    assert_line --view=wombat
+
+    # the word at the cursor keeps its ~
+    complete_line uenv --repo '~/re'
+    assert_output "~/repo/
+:filenames,nospace"
+}
+
+@test "variables in the words are expanded" {
+    export MYREPOS=$TMP/repos
+    mkdir -p $MYREPOS
+    cp -r $REPO $MYREPOS/apptool
+
+    complete_line uenv '--repo=$MYREPOS/apptool' image ls ""
+    assert_line app/42.0:v1
+
+    complete_line uenv --repo '"${MYREPOS}"/apptool' start ""
+    assert_line app/42.0:v1
+
+    # the word at the cursor keeps the variable: bash must not quote its $
+    complete_line uenv --repo '$MYREPOS/a'
+    assert_output '$MYREPOS/apptool/
+:nospace'
+}
+
 @test "views of the uenvs on the command line" {
     # the uenv comes after the cursor
     complete_word 3 uenv --repo=$REPO start --view= tool

@@ -34,8 +34,8 @@ struct path_filter {
 };
 
 // Paths that start with `prefix`, relative to the current working directory
-// unless absolute. A leading `~/` is expanded using HOME in `env`, and kept in
-// the values. Hidden files are offered only if the last component of `prefix`
+// unless absolute. A leading `~/` and variables ($HOME/) in the directory are
+// expanded using `env` to list it, and kept in the values. Hidden files are offered only if the last component of `prefix`
 // starts with '.'.
 std::vector<candidate> complete_path(std::string_view prefix,
                                      const path_filter& filter,
@@ -86,5 +86,11 @@ std::vector<candidate> complete_repo(std::string_view prefix,
 // escapes are removed. The word can be incomplete (e.g. an open quote), and
 // no expansion is performed.
 std::string shell_unquote(std::string_view word);
+
+// A complete word as the shell would pass it to a command: unquoted, with a
+// leading ~ (on its own, or followed by /) replaced by HOME, and variables
+// ($NAME, ${NAME}) outside single quotes replaced by their values in `env`.
+// Completion is given the words as they were typed, before expansion.
+std::string shell_expand(std::string_view word, const envvars::state& env);
 
 } // namespace uenv

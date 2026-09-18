@@ -213,9 +213,11 @@ std::vector<candidate> complete_custom(const std::string& tag,
     return {};
 }
 
+// a path that the shell can quote as a file name: bash would also quote the
+// $ of a variable, so paths that contain one are not
 bool is_plain_path(const std::string& s) {
     return (s.starts_with('/') || s.starts_with('.') || s.starts_with('~')) &&
-           s.find_first_of(",:=") == std::string::npos;
+           s.find_first_of(",:=$") == std::string::npos;
 }
 
 void print(const std::vector<candidate>& candidates,
@@ -273,10 +275,15 @@ int complete_main(const argparse::program<global_args>& cli,
         return 0;
     }
 
-    // the words as the program would receive them, without the program name
+    // the words as the program would receive them, without the program
+    // name. The word at the cursor is not expanded: the candidates for it
+    // start with the text that was typed, e.g. ~/ or $HOME/
     std::vector<std::string> words;
-    for (auto& w : std::span(a.words).subspan(1)) {
-        words.push_back(shell_unquote(w));
+    for (std::size_t i = 1; i < a.words.size(); ++i) {
+        words.push_back(
+            i == cword
+                ? shell_unquote(a.words[i])
+                : shell_expand(a.words[i], settings.calling_environment));
     }
     std::vector<std::string_view> views(words.begin(), words.end());
 
@@ -328,7 +335,12 @@ int complete_main(const argparse::program<global_args>& cli,
             v.value.insert(0, req.keep);
         }
         candidates.insert(candidates.end(), values.begin(), values.end());
-        if (paths && req.keep.empty() && !candidates.empty()) {
+        // bash would quote the $ of a variable in a file name
+        const bool variables = std::any_of(
+            candidates.begin(), candidates.end(), [](const candidate& v) {
+                return v.value.find('$') != std::string::npos;
+            });
+        if (paths && req.keep.empty() && !candidates.empty() && !variables) {
             directives.push_back("filenames");
         }
     }
