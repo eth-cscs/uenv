@@ -561,8 +561,10 @@ parse_mount_list(const std::string& arg) {
 }
 
 // shared by parse_tmpfs and parse_bindmounts: both parse a vector of
-// independent CLI argument strings, each into a single item, requiring the
-// whole (stripped) string to be consumed.
+// independent CLI argument strings (one per occurrence of the flag, e.g.
+// repeated --bind-mount flags), each of which may itself be a
+// comma-separated list of items, mirroring parse_mount_list's grammar for
+// --sqfs so that all three CLI options accept the same list syntax.
 template <typename T, typename ParseItem>
 util::expected<std::vector<T>, parse_error>
 parse_arg_list(std::string_view what, const std::vector<std::string>& args,
@@ -572,11 +574,24 @@ parse_arg_list(std::string_view what, const std::vector<std::string>& args,
         const std::string sanitised = util::strip(arg);
         spdlog::trace("{} sanitized `{}`", what, sanitised);
         auto L = lex::lexer(sanitised);
-        auto item = parse_item(L);
-        if (!item) {
-            return util::unexpected(std::move(item.error()));
+        while (true) {
+            auto item = parse_item(L);
+            if (!item) {
+                return util::unexpected(std::move(item.error()));
+            }
+            result.push_back(std::move(*item));
+
+            if (L.peek() != lex::tok::comma) {
+                break;
+            }
+            // eat the comma
+            L.next();
+
+            // handle trailing comma elegantly
+            if (L.peek() == lex::tok::end) {
+                break;
+            }
         }
-        result.push_back(std::move(*item));
         // if parsing finished and the string has not been consumed,
         // and invalid token was encountered
         if (const auto t = L.peek(); t.kind != lex::tok::end) {

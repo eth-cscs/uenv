@@ -359,6 +359,20 @@ second"
     assert_success
 }
 
+@test "--bind-mount accepts a comma separated list, like --sqfs" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc1 $TMP/bindsrc2 $TMP/binddst1 $TMP/binddst2
+    echo "first" > $TMP/bindsrc1/file.txt
+    echo "second" > $TMP/bindsrc2/file.txt
+
+    run squashfs-mount \
+        --bind-mount=$TMP/bindsrc1:$TMP/binddst1,$TMP/bindsrc2:$TMP/binddst2 \
+        -- sh -c "cat $TMP/binddst1/file.txt && cat $TMP/binddst2/file.txt"
+    assert_output "first
+second"
+    assert_success
+}
+
 @test "mutable root: --sqfs, --bind-mount and a command with its own flags together" {
     require_fuse_backend
     SQFS_PATH=$SQFS_LIB/apptool/standalone

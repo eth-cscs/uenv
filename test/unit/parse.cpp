@@ -449,8 +449,7 @@ TEST_CASE("parse tmpfs", "[parse]") {
         REQUIRE(!result);
     }
     {
-        // one --tmpfs flag per argument, unlike --sqfs there is no
-        // comma-separated list syntax
+        // a --tmpfs flag can be repeated, one item per occurrence
         auto result = uenv::parse_tmpfs_and_validate(
             {tmpdir.string() + ":1024", "/tmp"}, false);
         REQUIRE(result);
@@ -459,6 +458,26 @@ TEST_CASE("parse tmpfs", "[parse]") {
         REQUIRE((*result)[0].size == 1024u);
         REQUIRE((*result)[1].mount == "/tmp");
         REQUIRE(!(*result)[1].size);
+    }
+    {
+        // a single --tmpfs occurrence can also be a comma-separated list,
+        // the same list syntax --sqfs uses
+        auto result = uenv::parse_tmpfs_and_validate(
+            {tmpdir.string() + ":1024,/tmp"}, false);
+        REQUIRE(result);
+        REQUIRE(result->size() == 2);
+        REQUIRE((*result)[0].mount == tmpdir);
+        REQUIRE((*result)[0].size == 1024u);
+        REQUIRE((*result)[1].mount == "/tmp");
+        REQUIRE(!(*result)[1].size);
+    }
+    {
+        // a trailing comma is tolerated, as with --sqfs
+        auto result =
+            uenv::parse_tmpfs_and_validate({tmpdir.string() + ","}, false);
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        REQUIRE((*result)[0].mount == tmpdir);
     }
     {
         // with --mutable-root, a top-level directory that does not exist
@@ -579,6 +598,27 @@ TEST_CASE("parse bind mounts", "[parse]") {
         REQUIRE((*result)[0].dst == "/container-a");
         REQUIRE((*result)[1].src == "/host/b");
         REQUIRE((*result)[1].dst == "/container-b");
+    }
+    {
+        // a single --bind-mount occurrence can also be a comma-separated
+        // list, the same list syntax --sqfs uses
+        auto result = uenv::parse_bindmounts_and_validate(
+            {"/host/a:/container-a,/host/b:/container-b"}, true);
+        REQUIRE(result);
+        REQUIRE(result->size() == 2);
+        REQUIRE((*result)[0].src == "/host/a");
+        REQUIRE((*result)[0].dst == "/container-a");
+        REQUIRE((*result)[1].src == "/host/b");
+        REQUIRE((*result)[1].dst == "/container-b");
+    }
+    {
+        // a trailing comma is tolerated, as with --sqfs
+        auto result = uenv::parse_bindmounts_and_validate(
+            {"/host/a:/container-a,"}, true);
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        REQUIRE((*result)[0].src == "/host/a");
+        REQUIRE((*result)[0].dst == "/container-a");
     }
     {
         // with --mutable-root, a deeply nested destination is accepted as

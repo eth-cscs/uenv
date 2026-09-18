@@ -34,17 +34,21 @@ util::expected<std::vector<mount_description>, parse_error>
 parse_mount_list(const std::string& arg);
 
 // parse a list of --tmpfs CLI arguments and validate that each mount point
-// exists. With mutable_root=true (--mutable-root), a mount point that does
-// not exist is also accepted provided its top-level ancestor (e.g. "/foo"
-// for "/foo/bar/tmp") does not exist either.
+// exists. Each argument (one per occurrence of --tmpfs) may itself be a
+// comma-separated list of <mount>[:<size>] items, the same list syntax
+// --sqfs uses. With mutable_root=true (--mutable-root), a mount point that
+// does not exist is also accepted provided its top-level ancestor (e.g.
+// "/foo" for "/foo/bar/tmp") does not exist either.
 util::expected<std::vector<tmpfs_tuple>, std::string>
 parse_tmpfs_and_validate(const std::vector<std::string>& args,
                          bool mutable_root);
 
 // parse a list of --bind-mount CLI arguments and validate that each
-// destination exists. With mutable_root=true (--mutable-root), a
-// destination that does not exist is also accepted provided its top-level
-// ancestor (e.g. "/foo" for "/foo/bar/tmp") does not exist either.
+// destination exists. Each argument (one per occurrence of --bind-mount) may
+// itself be a comma-separated list of <src>:<dst> items, the same list
+// syntax --sqfs uses. With mutable_root=true (--mutable-root), a destination
+// that does not exist is also accepted provided its top-level ancestor (e.g.
+// "/foo" for "/foo/bar/tmp") does not exist either.
 util::expected<std::vector<bindmount_pair>, std::string>
 parse_bindmounts_and_validate(const std::vector<std::string>& args,
                               bool mutable_root);
