@@ -55,7 +55,7 @@ argparse::command start_command(const global_settings& settings) {
     start_cli.add_flag("ignore-tty", &start_args::ignore_tty,
                        "don't check for non-interactive shells");
     start_cli.add_flag(
-        {'V', "no-default-view"}, &start_args::disable_default_view,
+        "no-default-view", &start_args::disable_default_view,
         "disable loading default views when no view is specified");
     start_cli.action(
         [&settings](const start_args& args) { return start(args, settings); });
