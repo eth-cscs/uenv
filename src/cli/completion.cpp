@@ -24,22 +24,25 @@ namespace uenv {
 
 // forward declare the implementation
 namespace impl {
-std::string bash_completion(CLI::App* cli, const std::string& name);
+std::string bash_completion(const argparse::command* cli,
+                            const std::string& name);
 }
 
 std::string completion_footer();
 
-completion_args::completion_args(CLI::App* cli) : cli(cli) {
+completion_args::completion_args(const argparse::command* cli) : cli(cli) {
 }
 
-void completion_args::add_cli(CLI::App& cli, global_settings& settings) {
-    auto* completion_cli = cli.add_subcommand(
+void completion_args::add_cli(argparse::command& cli,
+                              global_settings& settings) {
+    auto& completion_cli = cli.add_subcommand(
         "completion", "generate completion script for a chosen shell");
     completion_cli
-        ->add_option("shell", shell_description,
-                     "shell for which to generate completion script")
-        ->required();
-    completion_cli->callback(
+        .add_positional("shell", shell_description,
+                        "shell for which to generate completion script")
+        .required()
+        .complete(argparse::completion::custom("shell"));
+    completion_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::completion; });
 }
 
@@ -70,52 +73,41 @@ struct completion_item {
 };
 typedef std::list<completion_item> completion_list;
 
-// Recursively traverse tree of subcommands created by CLI11
+// Recursively traverse the tree of subcommands
 // Creates list of completions for every subcommand
-void traverse_subcommand_tree(completion_list& cl, CLI::App* cli,
+void traverse_subcommand_tree(completion_list& cl, const argparse::command* cli,
                               const std::list<std::string>& stack) {
     if (cli == nullptr) {
         return;
     }
 
-    auto get_posarg = [&cli]() -> std::vector<CLI::Option*> {
-        return cli->get_options([](const CLI::Option* opt) -> bool {
-            return opt->get_positional();
-        });
-    };
-
-    auto get_nonpos = [&cli]() -> std::vector<CLI::Option*> {
-        return cli->get_options([](const CLI::Option* opt) -> bool {
-            return opt->nonpositional();
-        });
-    };
-
     completion_item comp_item;
     comp_item.call_stack = stack;
-    const auto subcommands = cli->get_subcommands({});
+    const auto subcommands = cli->subcommands();
     for (const auto* subcmd : subcommands) {
-        comp_item.subcommands.push_back(subcmd->get_name());
+        comp_item.subcommands.push_back(subcmd->name());
     }
-    for (const auto* posarg : get_posarg()) {
-        if (posarg->get_name() == "uenv") {
+    for (const auto* posarg : cli->positionals()) {
+        if (posarg->name() == "uenv") {
             comp_item.uenv_label = true;
             break;
         };
     }
-    for (const auto* nonpos : get_nonpos()) {
-        comp_item.nonpositionals.push_back(nonpos->get_name());
+    for (const auto* opt : cli->options()) {
+        comp_item.nonpositionals.push_back(opt->display_name());
     }
     cl.push_back(std::move(comp_item));
 
     // recurse into subcommands
-    for (auto& cmd : subcommands) {
+    for (auto* cmd : subcommands) {
         auto cmd_stack = stack;
-        cmd_stack.push_back(cmd->get_name());
+        cmd_stack.push_back(cmd->name());
         traverse_subcommand_tree(cl, cmd, cmd_stack);
     }
 }
 
-completion_list create_completion_list(CLI::App* cli, const std::string& name) {
+completion_list create_completion_list(const argparse::command* cli,
+                                       const std::string& name) {
     completion_list cl;
     traverse_subcommand_tree(cl, cli, {name});
     return cl;
@@ -124,7 +116,8 @@ completion_list create_completion_list(CLI::App* cli, const std::string& name) {
 // Starting point function that generates bash completion script
 // First creates a list of subcommands and corresponding completions
 // Then generates bash completion script from this list
-std::string bash_completion(CLI::App* cli, const std::string& name) {
+std::string bash_completion(const argparse::command* cli,
+                            const std::string& name) {
     completion_list cl = create_completion_list(cli, name);
 
     // generates bash function for each possible command/subcommand branch

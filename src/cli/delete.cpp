@@ -27,25 +27,30 @@ namespace uenv {
 
 std::string image_delete_footer();
 
-void image_delete_args::add_cli(CLI::App& cli,
-                                [[maybe_unused]] global_settings& settings) {
-    auto* delete_cli =
+void image_delete_args::add_cli(argparse::command& cli,
+                                global_settings& settings) {
+    using argparse::completion;
+    auto& delete_cli =
         cli.add_subcommand("delete", "delete a uenv from a remote registry");
     delete_cli
-        ->add_option("uenv", uenv_description,
-                     "either name/version:tag, sha256 or id")
-        ->required();
+        .add_positional("uenv", uenv_description,
+                        "either name/version:tag, sha256 or id")
+        .required()
+        .complete(completion::custom("registry_label"));
     delete_cli
-        ->add_option(
-            "--token", token,
+        .add_option(
+            "token", token,
             "a path that contains a TOKEN file for accessing restricted uenv")
-        ->required();
-    delete_cli->add_option("--username", username,
-                           "user name for accessing restricted uenv.");
-    delete_cli->callback(
+        .required()
+        .complete(completion::path());
+    delete_cli
+        .add_option("username", username,
+                    "user name for accessing restricted uenv.")
+        .complete(completion::none());
+    delete_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::image_delete; });
 
-    delete_cli->footer(image_delete_footer);
+    delete_cli.footer(image_delete_footer);
 }
 
 int image_delete([[maybe_unused]] const image_delete_args& args,

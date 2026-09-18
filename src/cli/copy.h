@@ -4,7 +4,7 @@
 #include <optional>
 #include <string>
 
-#include <CLI/CLI.hpp>
+#include <argparse/argparse.h>
 
 #include "uenv.h"
 
@@ -16,7 +16,7 @@ struct image_copy_args {
     std::optional<std::string> token;
     std::optional<std::string> username;
     bool force = false;
-    void add_cli(CLI::App&, global_settings& settings);
+    void add_cli(argparse::command&, global_settings& settings);
 };
 
 int image_copy(const image_copy_args& args, const global_settings& settings);
@@ -35,7 +35,7 @@ template <> class fmt::formatter<uenv::image_copy_args> {
     template <typename FmtContext>
     constexpr auto format(uenv::image_copy_args const& opts,
                           FmtContext& ctx) const {
-        return fmt::format_to(ctx.out(), "(image pull {} {} .token={})",
+        return fmt::format_to(ctx.out(), "(image copy {} {} .token={})",
                               opts.src_uenv_description,
                               opts.dst_uenv_description, opts.token);
     }

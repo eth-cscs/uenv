@@ -25,19 +25,21 @@ std::string build_footer();
 
 std::string format_reply(const std::string&);
 
-void build_args::add_cli(CLI::App& cli,
-                         [[maybe_unused]] global_settings& settings) {
-    auto* build_cli =
+void build_args::add_cli(argparse::command& cli, global_settings& settings) {
+    using argparse::completion;
+    auto& build_cli =
         cli.add_subcommand("build", "build a uenv from a local recipe");
-    build_cli->add_flag("-d,--develop", spack_develop, "Assume spack@develop");
-    build_cli->add_option("recipe", uenv_recipe_path, "Path to uenv recipe")
-        ->required(true);
+    build_cli.add_flag({'d', "develop"}, spack_develop, "Assume spack@develop");
+    build_cli.add_positional("recipe", uenv_recipe_path, "Path to uenv recipe")
+        .required()
+        .complete(completion::directory());
     build_cli
-        ->add_option("label", uenv_label,
-                     "UENV description: <name>/<version>@<system>%<uarch>")
-        ->required(true);
-    build_cli->footer(build_footer);
-    build_cli->callback([&settings] { settings.mode = settings.build; });
+        .add_positional("label", uenv_label,
+                        "UENV description: <name>/<version>@<system>%<uarch>")
+        .required()
+        .complete(completion::none());
+    build_cli.footer(build_footer);
+    build_cli.on_selected([&settings] { settings.mode = settings.build; });
 }
 
 std::string build_footer() {

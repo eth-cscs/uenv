@@ -23,33 +23,37 @@ namespace uenv {
 
 std::string run_footer();
 
-void run_args::add_cli(CLI::App& cli, global_settings& settings) {
-    auto* run_cli = cli.add_subcommand("run", "run a uenv session");
-    run_cli->add_option("-v,--view", view_description,
-                        "comma separated list of views to load");
+void run_args::add_cli(argparse::command& cli, global_settings& settings) {
+    using argparse::completion;
+    auto& run_cli = cli.add_subcommand("run", "run a uenv session");
     run_cli
-        ->add_option("uenv", uenv_description,
-                     "comma separated list of uenv to mount")
-        ->required();
+        .add_option({'v', "view"}, view_description,
+                    "comma separated list of views to load")
+        .complete(completion::custom("view_list"));
     run_cli
-        ->add_option("commands", commands,
-                     "the command to run, including with arguments")
-        ->required();
+        .add_positional("uenv", uenv_description,
+                        "comma separated list of uenv to mount")
+        .required()
+        .complete(completion::custom("uenv_list"));
+    run_cli
+        .add_rest("commands", commands,
+                  "the command to run, including with arguments")
+        .required()
+        .complete(completion::command());
 
-    run_cli->add_flag(
-        "-V,--no-default-view", disable_default_view,
-        "disable loading default views when no view is specified");
+    run_cli.add_flag({'V', "no-default-view"}, disable_default_view,
+                     "disable loading default views when no view is specified");
 
     // the --join flag is only meaningful for the FUSE backend, where a
     // single task mounts and the others join its namespaces. The
     // setuid/kernel backend mounts independently in every task.
     if constexpr (uenv::backend_fuse) {
-        run_cli->add_flag("-j,--join", join,
-                          "join namespaces of tasks on the same node");
+        run_cli.add_flag({'j', "join"}, join,
+                         "join namespaces of tasks on the same node");
     }
 
-    run_cli->callback([&settings]() { settings.mode = uenv::cli_mode::run; });
-    run_cli->footer(run_footer);
+    run_cli.on_selected([&settings]() { settings.mode = uenv::cli_mode::run; });
+    run_cli.footer(run_footer);
 }
 
 int run(const run_args& args, const global_settings& settings) {

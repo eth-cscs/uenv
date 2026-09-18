@@ -242,6 +242,13 @@ TEST_CASE("flags", "[argparse]") {
         REQUIRE(argparse::apply(r));
         REQUIRE(c.verbose == 4);
     }
+    SECTION("a counter is set to zero when it is not given") {
+        cli c;
+        c.verbose = 7;
+        auto r = c.parse({});
+        REQUIRE(argparse::apply(r));
+        REQUIRE(c.verbose == 0);
+    }
     SECTION("repeated boolean flags are allowed") {
         cli c;
         auto r = c.parse({"image", "ls", "--json", "--json"});

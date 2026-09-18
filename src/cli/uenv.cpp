@@ -1,10 +1,11 @@
 // vim: ts=4 sts=4 sw=4 et
 #include <unistd.h>
 
-#include <CLI/CLI.hpp>
 #include <fmt/core.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
+
+#include <argparse/argparse.h>
 
 #include <uenv/config.h>
 #include <uenv/log.h>
@@ -38,50 +39,97 @@ std::string help_footer();
 uenv::global_settings::global_settings() : calling_environment(environ) {
 }
 
-int main(int argc, char** argv) {
-    uenv::config_base cli_config;
-    uenv::global_settings settings;
+namespace uenv {
+
+// The command line interface: the tree of commands, and the variables that
+// its options and positional arguments are bound to.
+//
+// The same tree is used to parse the command line of every invocation, and to
+// complete a partial command line.
+struct cli_state {
+    config_base cli_config;
     bool print_version = false;
-    std::optional<std::string> cli_repo{};
-    std::optional<std::vector<uenv::repo_label>> cli_repo_labels{};
+    std::optional<std::string> cli_repo;
 
-    CLI::App cli(fmt::format("uenv {}", UENV_VERSION));
-    cli.add_flag("-v,--verbose", settings.verbose, "enable verbose output");
-    cli.add_flag_callback(
-        "--no-color", [&cli_config]() -> void { cli_config.color = false; },
+    start_args start;
+    run_args run;
+    image_args image;
+    repo_args repo;
+    status_args stat;
+    build_args build;
+    completion_args completion;
+    configure_args configure;
+
+    argparse::command root;
+
+    cli_state(global_settings& settings);
+    cli_state(const cli_state&) = delete;
+};
+
+cli_state::cli_state(global_settings& settings)
+    : completion(&root), root("uenv", fmt::format("uenv {}", UENV_VERSION)) {
+
+    root.add_flag({'v', "verbose"}, settings.verbose, "enable verbose output");
+    root.add_flag(
+        "no-color", [this]() -> void { cli_config.color = false; },
         "disable color output");
-    cli.add_flag_callback(
-        "--color", [&cli_config]() -> void { cli_config.color = true; },
+    root.add_flag(
+        "color", [this]() -> void { cli_config.color = true; },
         "enable color output");
-    cli.add_flag("--version", print_version, "print version");
-    cli.add_option("--repo", cli_repo, "the uenv repository description");
-    cli.add_option("--system", cli_config.system_name, "the system name");
+    root.add_flag("version", print_version, "print version");
+    root.add_option("repo", cli_repo, "the uenv repository description")
+        .complete(argparse::completion::custom("repo"));
+    root.add_option("system", cli_config.system_name, "the system name")
+        .complete(argparse::completion::custom("system"));
 
-    cli.footer(help_footer);
+    root.footer(help_footer);
 
-    uenv::start_args start;
-    uenv::run_args run;
-    uenv::image_args image;
-    uenv::repo_args repo;
-    uenv::status_args stat;
-    uenv::build_args build;
-    uenv::completion_args completion(&cli);
-    uenv::configure_args configure;
-
-    start.add_cli(cli, settings);
-    run.add_cli(cli, settings);
-    image.add_cli(cli, settings);
+    start.add_cli(root, settings);
+    run.add_cli(root, settings);
+    image.add_cli(root, settings);
     // add the inspect command so that it can be invoked two ways
     //   uenv image inspect ...
     //   uenv inspect ...
-    image.inspect_args.add_cli(cli, settings);
-    repo.add_cli(cli, settings);
-    stat.add_cli(cli, settings);
-    build.add_cli(cli, settings);
-    completion.add_cli(cli, settings);
-    configure.add_cli(cli, settings);
+    image.inspect_args.add_cli(root, settings);
+    repo.add_cli(root, settings);
+    stat.add_cli(root, settings);
+    build.add_cli(root, settings);
+    completion.add_cli(root, settings);
+    configure.add_cli(root, settings);
+}
 
-    CLI11_PARSE(cli, argc, argv);
+} // namespace uenv
+
+int main(int argc, char** argv) {
+    uenv::global_settings settings;
+    uenv::cli_state cli(settings);
+    std::optional<std::vector<uenv::repo_label>> cli_repo_labels{};
+
+    if (auto valid = cli.root.validate(); !valid) {
+        term::error("internal error in the command line interface: {}",
+                    valid.error());
+        return 1;
+    }
+
+    // messages printed before the configuration is loaded (parse errors and
+    // help) use color only if the terminal supports it
+    color::set_color(color::default_color(settings.calling_environment));
+
+    {
+        const auto parsed = argparse::parse(cli.root, argc, argv);
+        const auto applied = argparse::apply(parsed);
+        if (!applied) {
+            const auto& e = applied.error();
+            term::error("{}", e.message);
+            term::hint("run '{} --help' for more information",
+                       fmt::join(e.cmd->path(), " "));
+            return 1;
+        }
+        if (applied->help) {
+            fmt::print("{}", argparse::render_help(*applied->help));
+            return 0;
+        }
+    }
 
     // By default there is no logging to the console
     //   user-friendly logging of errors and warnings is handled using
@@ -102,14 +150,14 @@ int main(int argc, char** argv) {
     }
 
     // print the version and exit if the --version flag was passed
-    if (print_version) {
+    if (cli.print_version) {
         term::msg("{}", UENV_VERSION);
         return 0;
     }
 
     // parse the repo flag if it was passed
-    if (cli_repo) {
-        if (const auto result = uenv::parse_repo_list(cli_repo.value())) {
+    if (cli.cli_repo) {
+        if (const auto result = uenv::parse_repo_list(*cli.cli_repo)) {
             spdlog::info("selected repositories: {}",
                          fmt::join(result.value(), ", "));
             cli_repo_labels = result.value();
@@ -122,7 +170,7 @@ int main(int argc, char** argv) {
 
     // set the configuration according to defaults, cli options and config
     // files.
-    if (auto full_config = uenv::load_config(cli_config, cli_repo_labels,
+    if (auto full_config = uenv::load_config(cli.cli_config, cli_repo_labels,
                                              settings.calling_environment)) {
         // print any warnings that were generated while loading configuration
         for (const auto& warning : full_config->warnings) {
@@ -158,43 +206,43 @@ int main(int argc, char** argv) {
 
     switch (settings.mode) {
     case settings.start:
-        return uenv::start(start, settings);
+        return uenv::start(cli.start, settings);
     case settings.run:
-        return uenv::run(run, settings);
+        return uenv::run(cli.run, settings);
     case settings.image_ls:
-        return uenv::image_ls(image.ls_args, settings);
+        return uenv::image_ls(cli.image.ls_args, settings);
     case settings.image_add:
-        return uenv::image_add(image.add_args, settings);
+        return uenv::image_add(cli.image.add_args, settings);
     case settings.image_copy:
-        return uenv::image_copy(image.copy_args, settings);
+        return uenv::image_copy(cli.image.copy_args, settings);
     case settings.image_delete:
-        return uenv::image_delete(image.delete_args, settings);
+        return uenv::image_delete(cli.image.delete_args, settings);
     case settings.image_inspect:
-        return uenv::image_inspect(image.inspect_args, settings);
+        return uenv::image_inspect(cli.image.inspect_args, settings);
     case settings.image_rm:
-        return uenv::image_rm(image.remove_args, settings);
+        return uenv::image_rm(cli.image.remove_args, settings);
     case settings.image_find:
-        return uenv::image_find(image.find_args, settings);
+        return uenv::image_find(cli.image.find_args, settings);
     case settings.image_pull:
-        return uenv::image_pull(image.pull_args, settings);
+        return uenv::image_pull(cli.image.pull_args, settings);
     case settings.image_push:
-        return uenv::image_push(image.push_args, settings);
+        return uenv::image_push(cli.image.push_args, settings);
     case settings.repo_create:
-        return uenv::repo_create(repo.create_args, settings);
+        return uenv::repo_create(cli.repo.create_args, settings);
     case settings.repo_migrate:
-        return uenv::repo_migrate(repo.migrate_args, settings);
+        return uenv::repo_migrate(cli.repo.migrate_args, settings);
     case settings.repo_status:
-        return uenv::repo_status(repo.status_args, settings);
+        return uenv::repo_status(cli.repo.status_args, settings);
     case settings.repo_update:
-        return uenv::repo_update(repo.update_args, settings);
+        return uenv::repo_update(cli.repo.update_args, settings);
     case settings.status:
-        return uenv::status(stat, settings);
+        return uenv::status(cli.stat, settings);
     case settings.build:
-        return uenv::build(build, settings);
+        return uenv::build(cli.build, settings);
     case settings.completion:
-        return uenv::completion(completion);
+        return uenv::completion(cli.completion);
     case settings.configure:
-        return uenv::configure(configure, settings);
+        return uenv::configure(cli.configure, settings);
     case settings.unset:
         term::msg("uenv version {}", UENV_VERSION);
         term::msg("call '{} --help' for help", argv[0]);

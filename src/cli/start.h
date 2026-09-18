@@ -1,9 +1,10 @@
 // vim: ts=4 sts=4 sw=4 et
+#pragma once
 
 #include <optional>
 #include <string>
 
-#include <CLI/CLI.hpp>
+#include <argparse/argparse.h>
 
 #include "uenv.h"
 
@@ -16,7 +17,7 @@ struct start_args {
     bool ignore_tty = false;
     std::optional<std::string> view_description;
     bool disable_default_view = false;
-    void add_cli(CLI::App&, global_settings& settings);
+    void add_cli(argparse::command&, global_settings& settings);
 };
 
 int start(const start_args& args, const global_settings& settings);

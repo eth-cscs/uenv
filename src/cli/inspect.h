@@ -3,7 +3,7 @@
 
 #include <string>
 
-#include <CLI/CLI.hpp>
+#include <argparse/argparse.h>
 
 #include "uenv.h"
 
@@ -13,7 +13,7 @@ struct image_inspect_args {
     std::string uenv;
     bool json = false;
     std::optional<std::string> format;
-    void add_cli(CLI::App&, global_settings& settings);
+    void add_cli(argparse::command&, global_settings& settings);
 };
 
 int image_inspect(const image_inspect_args& args,

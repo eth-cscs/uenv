@@ -32,28 +32,34 @@ namespace uenv {
 
 std::string image_pull_footer();
 
-void image_pull_args::add_cli(CLI::App& cli,
-                              [[maybe_unused]] global_settings& settings) {
-    auto* pull_cli =
+void image_pull_args::add_cli(argparse::command& cli,
+                              global_settings& settings) {
+    using argparse::completion;
+    auto& pull_cli =
         cli.add_subcommand("pull", "download a uenv from a registry");
     pull_cli
-        ->add_option("uenv", uenv_description,
-                     "the uenv to pull, either name/version:tag, sha256 or id")
-        ->required();
-    pull_cli->add_option(
-        "--token", token,
-        "a path that contains a TOKEN file for accessing restricted uenv");
-    pull_cli->add_option("--username", username,
-                         "user name for accessing restricted uenv.");
-    pull_cli->add_flag("--only-meta", only_meta, "only download meta data");
-    pull_cli->add_flag("--force", force,
-                       "download and overwrite existing images");
-    pull_cli->add_flag("--build", build,
-                       "invalid: replaced with 'build::' prefix on uenv label");
-    pull_cli->callback(
+        .add_positional(
+            "uenv", uenv_description,
+            "the uenv to pull, either name/version:tag, sha256 or id")
+        .required()
+        .complete(completion::custom("registry_label"));
+    pull_cli
+        .add_option(
+            "token", token,
+            "a path that contains a TOKEN file for accessing restricted uenv")
+        .complete(completion::path());
+    pull_cli
+        .add_option("username", username,
+                    "user name for accessing restricted uenv.")
+        .complete(completion::none());
+    pull_cli.add_flag("only-meta", only_meta, "only download meta data");
+    pull_cli.add_flag("force", force, "download and overwrite existing images");
+    pull_cli.add_flag("build", build,
+                      "invalid: replaced with 'build::' prefix on uenv label");
+    pull_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::image_pull; });
 
-    pull_cli->footer(image_pull_footer);
+    pull_cli.footer(image_pull_footer);
 }
 
 int image_pull(const image_pull_args& args, const global_settings& settings) {

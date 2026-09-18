@@ -37,31 +37,37 @@ namespace uenv {
 
 std::string image_push_footer();
 
-void image_push_args::add_cli(CLI::App& cli,
-                              [[maybe_unused]] global_settings& settings) {
-    auto* push_cli = cli.add_subcommand("push", "push a uenv to a registry");
+void image_push_args::add_cli(argparse::command& cli,
+                              global_settings& settings) {
+    using argparse::completion;
+    auto& push_cli = cli.add_subcommand("push", "push a uenv to a registry");
     push_cli
-        ->add_option("source", source,
-                     "the local uenv to push, either name/version:tag, sha256, "
-                     "id, or the path of a SquashFS file")
-        ->required();
+        .add_positional(
+            "source", source,
+            "the local uenv to push, either name/version:tag, sha256, "
+            "id, or the path of a SquashFS file")
+        .required()
+        .complete(completion::custom("uenv"));
     push_cli
-        ->add_option("dest", dest,
-                     "the destination in the full "
-                     "namespace::name/version:tag@system%uarch form")
-        ->required();
-    push_cli->add_option(
-        "--token", token,
-        "a path that contains a TOKEN file for accessing the registry");
-    push_cli->add_option(
-        "--username", username,
-        "user name for the registry (by default $USER is used).");
-    push_cli->add_flag("--force", force,
-                       "overwrite the destination if it exists");
-    push_cli->callback(
+        .add_positional("dest", dest,
+                        "the destination in the full "
+                        "namespace::name/version:tag@system%uarch form")
+        .required()
+        .complete(completion::custom("registry_label"));
+    push_cli
+        .add_option(
+            "token", token,
+            "a path that contains a TOKEN file for accessing the registry")
+        .complete(completion::path());
+    push_cli
+        .add_option("username", username,
+                    "user name for the registry (by default $USER is used).")
+        .complete(completion::none());
+    push_cli.add_flag("force", force, "overwrite the destination if it exists");
+    push_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::image_push; });
 
-    push_cli->footer(image_push_footer);
+    push_cli.footer(image_push_footer);
 }
 
 int image_push([[maybe_unused]] const image_push_args& args,

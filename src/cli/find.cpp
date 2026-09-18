@@ -23,24 +23,29 @@ namespace uenv {
 
 std::string image_find_footer();
 
-void image_find_args::add_cli(CLI::App& cli,
-                              [[maybe_unused]] global_settings& settings) {
-    auto* find_cli =
+void image_find_args::add_cli(argparse::command& cli,
+                              global_settings& settings) {
+    using argparse::completion;
+    auto& find_cli =
         cli.add_subcommand("find", "search for uenv that can be pulled");
-    find_cli->add_option("uenv", uenv_description, "search term");
-    find_cli->add_flag("--no-header", no_header,
-                       "print only the matching records, with no header.");
-    find_cli->add_flag("--json", json,
-                       "format output as JSON (incompatible with --format).");
-    find_cli->add_option(
-        "--format", format,
-        "optional format specification (incompatible with --json).");
-    find_cli->add_flag("--no-partials", no_partials,
-                       "do not match partial names when searching.");
-    find_cli->callback(
+    find_cli.add_positional("uenv", uenv_description, "search term")
+        .complete(completion::custom("registry_label"));
+    find_cli.add_flag("no-header", no_header,
+                      "print only the matching records, with no header.");
+    find_cli.add_flag("json", json,
+                      "format output as JSON (incompatible with --format).");
+    find_cli
+        .add_option("format", format,
+                    "optional format specification (incompatible with --json).")
+        .complete(completion::none());
+    find_cli.add_flag("no-partials", no_partials,
+                      "do not match partial names when searching.");
+    find_cli.add_flag("build", build,
+                      "invalid: replaced with 'build::' prefix on uenv label");
+    find_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::image_find; });
 
-    find_cli->footer(image_find_footer);
+    find_cli.footer(image_find_footer);
 }
 
 int image_find([[maybe_unused]] const image_find_args& args,

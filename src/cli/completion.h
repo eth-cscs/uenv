@@ -1,8 +1,9 @@
 // vim: ts=4 sts=4 sw=4 et
+#pragma once
 
 #include <string>
 
-#include <CLI/CLI.hpp>
+#include <argparse/argparse.h>
 
 #include "uenv.h"
 
@@ -12,9 +13,9 @@ void completion_help();
 
 struct completion_args {
     std::string shell_description;
-    CLI::App* cli;
-    completion_args(CLI::App* cli);
-    void add_cli(CLI::App&, global_settings& settings);
+    const argparse::command* cli;
+    completion_args(const argparse::command* cli);
+    void add_cli(argparse::command&, global_settings& settings);
 };
 
 int completion(const completion_args& args);

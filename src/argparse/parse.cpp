@@ -26,6 +26,10 @@ struct access {
             p.apply_(values);
         }
     }
+    // a counting flag is set even when it was not given (to zero)
+    static bool always_applied(const option& o) {
+        return o.type_ == option::type::counter;
+    }
     static void selected(const command& c) {
         if (c.on_selected_) {
             c.on_selected_();
@@ -357,6 +361,13 @@ util::expected<applied, error> apply(const parse_result& r) {
         }
     }
 
+    for (auto c : r.path) {
+        for (auto o : c->options()) {
+            if (access::always_applied(*o) && !options.contains(o)) {
+                access::apply(*o, {});
+            }
+        }
+    }
     for (auto o : option_order) {
         access::apply(*o, options[o]);
     }

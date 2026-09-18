@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include <CLI/CLI.hpp>
+#include <argparse/argparse.h>
 #include <fmt/core.h>
 
 #include "uenv.h"
@@ -16,12 +16,12 @@ struct image_add_args {
     std::string label;
     std::string source;
     bool move = false;
-    void add_cli(CLI::App&, global_settings& settings);
+    void add_cli(argparse::command&, global_settings& settings);
 };
 
 struct image_rm_args {
     std::string label;
-    void add_cli(CLI::App&, global_settings& settings);
+    void add_cli(argparse::command&, global_settings& settings);
 };
 
 int image_add(const image_add_args& args, const global_settings& settings);

@@ -1,6 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
-#include <CLI/CLI.hpp>
+#include <argparse/argparse.h>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
@@ -15,13 +15,14 @@ namespace uenv {
 
 std::string configure_footer();
 
-void configure_args::add_cli(CLI::App& cli, global_settings& settings) {
-    auto* configure_cli =
+void configure_args::add_cli(argparse::command& cli,
+                             global_settings& settings) {
+    auto& configure_cli =
         cli.add_subcommand("config", "print uenv tool configuration");
-    configure_cli->callback(
+    configure_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::configure; });
 
-    configure_cli->footer(configure_footer);
+    configure_cli.footer(configure_footer);
 }
 
 int configure([[maybe_unused]] const configure_args& args,

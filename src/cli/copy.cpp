@@ -30,27 +30,34 @@ namespace uenv {
 
 std::string image_copy_footer();
 
-void image_copy_args::add_cli(CLI::App& cli,
-                              [[maybe_unused]] global_settings& settings) {
-    auto* copy_cli =
+void image_copy_args::add_cli(argparse::command& cli,
+                              global_settings& settings) {
+    using argparse::completion;
+    auto& copy_cli =
         cli.add_subcommand("copy", "copy a uenv inside a remote registry");
     copy_cli
-        ->add_option("source-uenv", src_uenv_description,
-                     "either name/version:tag, sha256 or id")
-        ->required();
-    copy_cli->add_option("dest-uenv", dst_uenv_description, "label to copy to")
-        ->required();
-    copy_cli->add_option(
-        "--token", token,
-        "a path that contains a TOKEN file for accessing restricted uenv");
-    copy_cli->add_option("--username", username,
-                         "user name for accessing restricted uenv.");
-    copy_cli->add_flag("--force", force,
-                       "overwrite the destination if it exists");
-    copy_cli->callback(
+        .add_positional("source-uenv", src_uenv_description,
+                        "either name/version:tag, sha256 or id")
+        .required()
+        .complete(completion::custom("registry_label"));
+    copy_cli
+        .add_positional("dest-uenv", dst_uenv_description, "label to copy to")
+        .required()
+        .complete(completion::custom("registry_label"));
+    copy_cli
+        .add_option(
+            "token", token,
+            "a path that contains a TOKEN file for accessing restricted uenv")
+        .complete(completion::path());
+    copy_cli
+        .add_option("username", username,
+                    "user name for accessing restricted uenv.")
+        .complete(completion::none());
+    copy_cli.add_flag("force", force, "overwrite the destination if it exists");
+    copy_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::image_copy; });
 
-    copy_cli->footer(image_copy_footer);
+    copy_cli.footer(image_copy_footer);
 }
 
 int image_copy([[maybe_unused]] const image_copy_args& args,

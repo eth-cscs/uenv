@@ -1,4 +1,5 @@
 // vim: ts=4 sts=4 sw=4 et
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -24,60 +25,69 @@ namespace uenv {
 
 std::string repo_footer();
 
-void repo_args::add_cli(CLI::App& cli,
-                        [[maybe_unused]] global_settings& settings) {
-    auto* repo_cli =
+void repo_args::add_cli(argparse::command& cli, global_settings& settings) {
+    using argparse::completion;
+    auto& repo_cli =
         cli.add_subcommand("repo", "manage and query uenv image repositories");
 
     // add the create command, i.e. `uenv repo create ...`
-    auto* create_cli =
-        repo_cli->add_subcommand("create", "create a new uenv repository");
+    auto& create_cli =
+        repo_cli.add_subcommand("create", "create a new uenv repository");
 
     // TODO: should this command really work by selecting a default location?
-    create_cli->add_option("path", create_args.path,
-                           "path of the repo to create");
-    create_cli->callback(
+    create_cli
+        .add_positional("path", create_args.path, "path of the repo to create")
+        .complete(completion::directory());
+    create_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::repo_create; });
 
     // add the status command, i.e. `uenv repo status ...`
-    auto* status_cli = repo_cli->add_subcommand(
+    auto& status_cli = repo_cli.add_subcommand(
         "status", "status of an existing uenv repository");
-    status_cli->add_option("repo", status_args.repo,
-                           "the repo (one of [path] or [name])");
-    status_cli->add_flag("--json", status_args.json, "output in json format");
-    status_cli->callback(
+    status_cli
+        .add_positional("repo", status_args.repo,
+                        "the repo (one of [path] or [name])")
+        .complete(completion::custom("repo"));
+    status_cli.add_flag("json", status_args.json, "output in json format");
+    status_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::repo_status; });
 
     // add the update command, i.e. `uenv repo update ...`
-    auto* update_cli = repo_cli->add_subcommand(
-        "update", "update an existing uenv repository");
+    auto& update_cli =
+        repo_cli.add_subcommand("update", "update an existing uenv repository");
 
-    update_cli->add_option("repo", update_args.repo, "repository to update")
-        ->required();
-    update_cli->add_flag("--lustre,!--no-lustre", update_args.lustre,
-                         "apply lustre striping fix if applicable");
-    update_cli->callback(
+    update_cli.add_positional("repo", update_args.repo, "repository to update")
+        .required()
+        .complete(completion::custom("repo"));
+    update_cli
+        .add_flag("lustre", update_args.lustre,
+                  "apply lustre striping fix if applicable")
+        .negation("no-lustre");
+    update_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::repo_update; });
 
     // add the update command, i.e. `uenv repo migrate ...`
-    auto* migrate_cli = repo_cli->add_subcommand(
+    auto& migrate_cli = repo_cli.add_subcommand(
         "migrate", "migrate a repository to a new directory");
 
     migrate_cli
-        ->add_option("source", migrate_args.source,
-                     "path of the source repository (if not provided use the "
-                     "default repo)")
-        ->required();
+        .add_positional("source", migrate_args.source,
+                        "the source repository (one of [path] or [name])")
+        .required()
+        .complete(completion::custom("repo"));
     migrate_cli
-        ->add_option("destination", migrate_args.destination,
-                     "path of the new repository")
-        ->required();
-    migrate_cli->add_flag("--sync,!--no-sync", migrate_args.sync,
-                          "merge source uenv into an existing target repo.");
-    migrate_cli->callback(
+        .add_positional("destination", migrate_args.destination,
+                        "path of the new repository")
+        .required()
+        .complete(completion::custom("repo"));
+    migrate_cli
+        .add_flag("sync", migrate_args.sync,
+                  "merge source uenv into an existing target repo.")
+        .negation("no-sync");
+    migrate_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::repo_migrate; });
 
-    repo_cli->footer(repo_footer);
+    repo_cli.footer(repo_footer);
 }
 
 // inspect the repo path that is optionally passed as an argument.

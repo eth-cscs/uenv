@@ -7,7 +7,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <CLI/Validators.hpp>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
@@ -26,23 +25,20 @@ namespace uenv {
 
 std::string status_footer();
 
-void status_args::add_cli(CLI::App& cli,
-                          [[maybe_unused]] global_settings& settings) {
-    auto* status_cli = cli.add_subcommand(
+void status_args::add_cli(argparse::command& cli, global_settings& settings) {
+    auto& status_cli = cli.add_subcommand(
         "status", "print information about the currently loaded uenv");
-    status_cli->add_flag("--error-if-unset", error_if_unset,
-                         "return a nonzero error code if no uenv is loaded");
-    status_cli->callback(
+    status_cli.add_flag("error-if-unset", error_if_unset,
+                        "return a nonzero error code if no uenv is loaded");
+    status_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::status; });
-    status_cli
-        ->add_option("--format", format, "one of {full (default), name, views}")
-        ->transform(CLI::CheckedTransformer(
-            std::unordered_map<std::string, status_format>{
-                {"short", status_format::name},
-                {"full", status_format::full},
-                {"views", status_format::views}}));
+    status_cli.add_choice("format", format,
+                          {{"short", status_format::name},
+                           {"full", status_format::full},
+                           {"views", status_format::views}},
+                          "one of {full (default), short, views}");
 
-    status_cli->footer(status_footer);
+    status_cli.footer(status_footer);
 }
 
 int status([[maybe_unused]] const status_args& args,

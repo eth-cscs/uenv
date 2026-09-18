@@ -4,7 +4,7 @@
 #include <optional>
 #include <string>
 
-#include <CLI/CLI.hpp>
+#include <argparse/argparse.h>
 
 #include "uenv.h"
 
@@ -17,7 +17,7 @@ struct image_pull_args {
     bool only_meta = false;
     bool force = false;
     bool build = false;
-    void add_cli(CLI::App&, global_settings& settings);
+    void add_cli(argparse::command&, global_settings& settings);
 };
 
 int image_pull(const image_pull_args& args, const global_settings& settings);

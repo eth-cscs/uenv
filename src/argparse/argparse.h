@@ -239,7 +239,8 @@ class command {
 
     // a boolean flag: true if given (or false if given by its negation)
     option& add_flag(names n, bool& target, std::string help);
-    // a counting flag: the number of times it was given, e.g. -vvv -> 3
+    // a counting flag: the number of times it was given, e.g. -vvv -> 3. The
+    // target is always set by apply(), to zero if the flag was not given.
     option& add_flag(names n, int& target, std::string help);
     // a flag that calls `callback` once if it is given
     option& add_flag(names n, std::function<void()> callback, std::string help);

@@ -30,36 +30,41 @@ namespace uenv {
 std::string image_add_footer();
 std::string image_rm_footer();
 
-void image_add_args::add_cli(CLI::App& cli,
-                             [[maybe_unused]] global_settings& settings) {
-    auto* add_cli =
+void image_add_args::add_cli(argparse::command& cli,
+                             global_settings& settings) {
+    using argparse::completion;
+    auto& add_cli =
         cli.add_subcommand("add", "add a uenv image to a repository");
     add_cli
-        ->add_option("label", label,
-                     "the label of the uenv created in the repo, of the form "
-                     "name/version:tag@system%uarch")
-        ->required();
-    add_cli->add_flag("--move", move,
-                      "move the squahfs image instead of copying it.");
+        .add_positional("label", label,
+                        "the label of the uenv created in the repo, of the "
+                        "form name/version:tag@system%uarch")
+        .required()
+        .complete(completion::none());
+    add_cli.add_flag("move", move,
+                     "move the squahfs image instead of copying it.");
     add_cli
-        ->add_option("uenv", source,
-                     "the label or squashfs file to add to the repo.")
-        ->required();
-    add_cli->callback(
+        .add_positional("uenv", source,
+                        "the label or squashfs file to add to the repo.")
+        .required()
+        .complete(completion::custom("uenv"));
+    add_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::image_add; });
 
-    add_cli->footer(image_add_footer);
+    add_cli.footer(image_add_footer);
 }
 
-void image_rm_args::add_cli([[maybe_unused]] CLI::App& cli,
-                            [[maybe_unused]] global_settings& settings) {
-    auto* rm_cli =
+void image_rm_args::add_cli(argparse::command& cli, global_settings& settings) {
+    using argparse::completion;
+    auto& rm_cli =
         cli.add_subcommand("rm", "delete a uenv image from a repository");
-    rm_cli->add_option("uenv", label, "the uenv to remove.")->required();
-    rm_cli->callback(
+    rm_cli.add_positional("uenv", label, "the uenv to remove.")
+        .required()
+        .complete(completion::custom("local_label"));
+    rm_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::image_rm; });
 
-    rm_cli->footer(image_rm_footer);
+    rm_cli.footer(image_rm_footer);
 }
 
 int image_add(const image_add_args& args, const global_settings& settings) {

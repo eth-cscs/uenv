@@ -3,8 +3,6 @@
 
 #include <cstdint>
 
-#include <CLI/CLI.hpp>
-
 #include <uenv/settings.h>
 #include <util/color.h>
 #include <util/envvars.h>

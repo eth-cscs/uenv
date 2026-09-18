@@ -21,24 +21,26 @@ namespace uenv {
 
 std::string image_ls_footer();
 
-void image_ls_args::add_cli(CLI::App& cli,
-                            [[maybe_unused]] global_settings& settings) {
-    auto* ls_cli =
+void image_ls_args::add_cli(argparse::command& cli, global_settings& settings) {
+    using argparse::completion;
+    auto& ls_cli =
         cli.add_subcommand("ls", "search for uenv that are available to run");
-    ls_cli->add_option("uenv", uenv_description, "search term");
-    ls_cli->add_flag("--no-header", no_header,
-                     "print only the matching records, with no header.");
-    ls_cli->add_flag("--json", json,
-                     "format output as JSON (incompatible with --list).");
-    ls_cli->add_option(
-        "--format", format,
-        "optional format specification (incompatible with --json).");
-    ls_cli->add_flag("--no-partials", no_partials,
-                     "do not match partial names when searching.");
-    ls_cli->callback(
+    ls_cli.add_positional("uenv", uenv_description, "search term")
+        .complete(completion::custom("local_label"));
+    ls_cli.add_flag("no-header", no_header,
+                    "print only the matching records, with no header.");
+    ls_cli.add_flag("json", json,
+                    "format output as JSON (incompatible with --format).");
+    ls_cli
+        .add_option("format", format,
+                    "optional format specification (incompatible with --json).")
+        .complete(completion::none());
+    ls_cli.add_flag("no-partials", no_partials,
+                    "do not match partial names when searching.");
+    ls_cli.on_selected(
         [&settings]() { settings.mode = uenv::cli_mode::image_ls; });
 
-    ls_cli->footer(image_ls_footer);
+    ls_cli.footer(image_ls_footer);
 }
 
 int image_ls(const image_ls_args& args, const global_settings& settings) {

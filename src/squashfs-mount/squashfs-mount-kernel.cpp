@@ -5,12 +5,12 @@
 
 #include <unistd.h>
 
-#include <CLI/CLI.hpp>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <spdlog/spdlog.h>
 
+#include <argparse/argparse.h>
 #include <uenv/config.h>
 #include <uenv/log.h>
 #include <uenv/mount.h>
@@ -108,15 +108,23 @@ int main(int argc, char** argv, char** envp) {
     std::optional<std::string> raw_mounts;
     std::optional<std::vector<std::string>> commands;
 
-    CLI::App cli(fmt::format("squashfs-mount {}", UENV_VERSION));
-    cli.add_flag("-v,--verbose", verbosity, "enable verbose output");
-    cli.add_flag("--version", print_version, "print version");
-    cli.add_option("-s,--sqfs", raw_mounts,
-                   "comma separated list of squashfs files to mount");
-    cli.add_option("commands", commands,
-                   "the command to run, including with arguments");
+    argparse::command cli("squashfs-mount",
+                          fmt::format("squashfs-mount {}", UENV_VERSION));
+    cli.add_flag({'v', "verbose"}, verbosity, "enable verbose output");
+    cli.add_flag("version", print_version, "print version");
+    cli.add_option({'s', "sqfs"}, raw_mounts,
+                   "comma separated list of squashfs files to mount")
+        .complete(argparse::completion::custom("mount_list"));
+    cli.add_rest("commands", commands,
+                 "the command to run, including with arguments")
+        .complete(argparse::completion::command());
 
-    CLI11_PARSE(cli, argc, argv);
+    if (const auto r = argparse::apply(argparse::parse(cli, argc, argv)); !r) {
+        error_and_exit("{}", r.error().message);
+    } else if (r->help) {
+        fmt::print("{}", argparse::render_help(*r->help));
+        exit_as_caller(0);
+    }
 
     //
     // print version and quit if --version flag was used

@@ -1,13 +1,13 @@
 #pragma once
 
-#include <CLI/CLI.hpp>
+#include <argparse/argparse.h>
 
 #include "uenv.h"
 
 namespace uenv {
 
 struct configure_args {
-    void add_cli(CLI::App&, global_settings& settings);
+    void add_cli(argparse::command&, global_settings& settings);
 };
 
 int configure(const configure_args& args, const global_settings& settings);

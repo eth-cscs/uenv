@@ -24,39 +24,38 @@ namespace uenv {
 
 std::string image_footer();
 
-void image_args::add_cli(CLI::App& cli,
-                         [[maybe_unused]] global_settings& settings) {
-    auto* image_cli =
+void image_args::add_cli(argparse::command& cli, global_settings& settings) {
+    auto& image_cli =
         cli.add_subcommand("image", "manage and query uenv images");
 
     // add the `uenv image ls` command
-    ls_args.add_cli(*image_cli, settings);
+    ls_args.add_cli(image_cli, settings);
 
     // add the `uenv image add` command
-    add_args.add_cli(*image_cli, settings);
+    add_args.add_cli(image_cli, settings);
 
     // add the `uenv image remove` command
-    remove_args.add_cli(*image_cli, settings);
+    remove_args.add_cli(image_cli, settings);
 
     // add the `uenv image inspect` command
-    inspect_args.add_cli(*image_cli, settings);
+    inspect_args.add_cli(image_cli, settings);
 
     // add the `uenv image find` command
-    find_args.add_cli(*image_cli, settings);
+    find_args.add_cli(image_cli, settings);
 
     // add the `uenv image pull` command
-    pull_args.add_cli(*image_cli, settings);
+    pull_args.add_cli(image_cli, settings);
 
     // add the `uenv image copy` command
-    copy_args.add_cli(*image_cli, settings);
+    copy_args.add_cli(image_cli, settings);
 
     // add the `uenv image delete` command
-    delete_args.add_cli(*image_cli, settings);
+    delete_args.add_cli(image_cli, settings);
 
     // add the `uenv image push` command
-    push_args.add_cli(*image_cli, settings);
+    push_args.add_cli(image_cli, settings);
 
-    image_cli->footer(image_footer);
+    image_cli.footer(image_footer);
 }
 
 std::string image_footer() {

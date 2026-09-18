@@ -3,7 +3,7 @@
 
 #include <string>
 
-#include <CLI/CLI.hpp>
+#include <argparse/argparse.h>
 
 #include "uenv.h"
 
@@ -15,7 +15,7 @@ struct image_ls_args {
     bool no_header = false;
     bool json = false;
     bool no_partials = false;
-    void add_cli(CLI::App&, global_settings& settings);
+    void add_cli(argparse::command&, global_settings& settings);
 };
 
 int image_ls(const image_ls_args& args, const global_settings& settings);

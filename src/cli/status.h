@@ -1,7 +1,7 @@
 #pragma once
 // vim: ts=4 sts=4 sw=4 et
 
-#include <CLI/CLI.hpp>
+#include <argparse/argparse.h>
 
 #include "uenv.h"
 
@@ -13,7 +13,7 @@ struct status_args {
     status_format format = status_format::full;
     // return nonzero value when no uenv is loaded
     bool error_if_unset = false;
-    void add_cli(CLI::App&, global_settings& settings);
+    void add_cli(argparse::command&, global_settings& settings);
 };
 
 int status(const status_args& args, const global_settings& settings);
