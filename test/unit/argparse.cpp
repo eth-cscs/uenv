@@ -1,6 +1,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include <catch2/catch_all.hpp>
@@ -56,6 +57,27 @@ struct status_args {
 struct cli {
     // the actions that have been run
     std::vector<std::string> ran;
+    // the values that each action was given
+    std::optional<run_args> run_values;
+    std::optional<ls_args> ls_values;
+    std::optional<delete_args> delete_values;
+    std::optional<update_args> update_values;
+    std::optional<status_args> status_values;
+
+    // the values given to the action of type T
+    template <typename T> const std::optional<T>& values() const {
+        if constexpr (std::is_same_v<T, run_args>) {
+            return run_values;
+        } else if constexpr (std::is_same_v<T, ls_args>) {
+            return ls_values;
+        } else if constexpr (std::is_same_v<T, delete_args>) {
+            return delete_values;
+        } else if constexpr (std::is_same_v<T, update_args>) {
+            return update_values;
+        } else {
+            return status_values;
+        }
+    }
 
     // each subcommand is built as a value, then added to its parent
     argparse::command run_command() {
@@ -71,8 +93,9 @@ struct cli {
         run.add_flag({'V', "no-default-view"}, &run_args::no_default_view,
                      "no views");
         run.add_flag({'j', "join"}, &run_args::join, "join");
-        run.action([this](const run_args&) {
+        run.action([this](const run_args& v) {
             ran.push_back("run");
+            run_values = v;
             return 3;
         });
         return std::move(run).build();
@@ -83,8 +106,9 @@ struct cli {
         ls.add_positional("uenv", &ls_args::uenv, "search term")
             .complete(completion::custom("local_label"));
         ls.add_flag("json", &ls_args::json, "json output");
-        ls.action([this](const ls_args&) {
+        ls.action([this](const ls_args& v) {
             ran.push_back("ls");
+            ls_values = v;
             return 0;
         });
 
@@ -95,6 +119,10 @@ struct cli {
         del.add_option("token", &delete_args::token, "a token")
             .required()
             .complete(completion::file());
+        del.action([this](const delete_args& v) {
+            delete_values = v;
+            return 0;
+        });
 
         command_builder<> image("image", "manage images");
         image.add_subcommand(std::move(ls).build());
@@ -109,6 +137,10 @@ struct cli {
             .complete(completion::path());
         update.add_flag("lustre", &update_args::lustre, "lustre")
             .negation("no-lustre");
+        update.action([this](const update_args& v) {
+            update_values = v;
+            return 0;
+        });
 
         command_builder<> repo("repo", "manage repos");
         repo.add_subcommand(std::move(update).build());
@@ -122,6 +154,10 @@ struct cli {
                            {"full", fmt_choice::full},
                            {"views", fmt_choice::views}},
                           "the format");
+        status.action([this](const status_args& v) {
+            status_values = v;
+            return 0;
+        });
         return std::move(status).build();
     }
 
@@ -171,12 +207,15 @@ std::vector<error_kind> kinds(const argparse::parse_result& r) {
     return k;
 }
 
-// the values of the selected command after parsing words, which must be valid
+// the values given to the selected command's action after parsing words,
+// which must be valid
 template <typename T> T values_of(cli& c, std::vector<std::string_view> words) {
     auto inv = c.invoke(std::move(words));
     REQUIRE(inv);
     REQUIRE(!inv->help_requested());
-    auto v = inv->template selected_values<T>();
+    REQUIRE(inv->has_action());
+    inv->run();
+    auto& v = c.template values<T>();
     REQUIRE(v);
     return *v;
 }
@@ -240,7 +279,6 @@ TEST_CASE("subcommands", "[argparse]") {
     REQUIRE(image);
     REQUIRE(image->selected().name() == "image");
     REQUIRE(!image->has_action());
-    REQUIRE(image->selected_values<argparse::no_args>());
 
     auto bad = c.parse({"image", "lx"});
     REQUIRE(kinds(bad) == std::vector{error_kind::unknown_command});
@@ -260,20 +298,19 @@ TEST_CASE("values", "[argparse]") {
     REQUIRE(g.repo == "/r");
     REQUIRE(g.color == true);
 
-    auto v = inv->selected_values<run_args>();
+    // parsing does not run the action: it is given the values when it runs
+    REQUIRE(c.ran.empty());
+    REQUIRE(!c.run_values);
+    REQUIRE(inv->run() == 3);
+    REQUIRE(c.ran == std::vector<std::string>{"run"});
+
+    auto& v = c.run_values;
     REQUIRE(v);
     REQUIRE(v->view == "x");
     REQUIRE(v->uenv == "img");
     REQUIRE(v->commands == std::vector<std::string>{"cmd"});
     REQUIRE(v->no_default_view);
     REQUIRE(!v->join);
-
-    // the values of another type are not available
-    REQUIRE(!inv->selected_values<ls_args>());
-
-    REQUIRE(c.ran.empty());
-    REQUIRE(inv->run() == 3);
-    REQUIRE(c.ran == std::vector<std::string>{"run"});
 }
 
 TEST_CASE("every parse makes new values", "[argparse]") {
@@ -282,16 +319,20 @@ TEST_CASE("every parse makes new values", "[argparse]") {
     auto second = c.invoke({"run", "b", "cmd"});
     REQUIRE(first);
     REQUIRE(second);
-    REQUIRE(first->selected_values<run_args>()->uenv == "a");
-    REQUIRE(first->selected_values<run_args>()->no_default_view);
-    REQUIRE(second->selected_values<run_args>()->uenv == "b");
-    REQUIRE(!second->selected_values<run_args>()->no_default_view);
+
+    // the invocations are independent: running the second after the first
+    // gives the second's values
+    first->run();
+    REQUIRE(c.run_values->uenv == "a");
+    REQUIRE(c.run_values->no_default_view);
+    second->run();
+    REQUIRE(c.run_values->uenv == "b");
+    REQUIRE(!c.run_values->no_default_view);
 
     // an invocation is a value
     auto copy = *first;
-    REQUIRE(copy.selected_values<run_args>()->uenv == "a");
-    REQUIRE(copy.selected_values<run_args>() !=
-            first->selected_values<run_args>());
+    copy.run();
+    REQUIRE(c.run_values->uenv == "a");
 }
 
 TEST_CASE("defaults", "[argparse]") {
@@ -419,7 +460,8 @@ TEST_CASE("short options", "[argparse]") {
         auto inv = c.invoke({"-v", "run", "-v", "x", "img", "cmd"});
         REQUIRE(inv);
         REQUIRE(inv->globals().verbose == 1);
-        REQUIRE(inv->selected_values<run_args>()->view == "x");
+        inv->run();
+        REQUIRE(c.run_values->view == "x");
 
         REQUIRE(kinds(c.parse({"image", "ls", "--verbose"})) ==
                 std::vector{error_kind::unknown_option});
@@ -639,12 +681,18 @@ TEST_CASE("moving commands", "[argparse]") {
         std::string p;
     };
 
+    std::string leaf_value;
+
     // build a three level tree bottom up, as values
-    auto make_tree = []() {
+    auto make_tree = [&leaf_value]() {
         command_builder<leaf_args> c("c", "leaf");
         c.add_positional("p", &leaf_args::p, "")
             .required()
             .complete(completion::none());
+        c.action([&leaf_value](const leaf_args& v) {
+            leaf_value = v.p;
+            return 0;
+        });
         command_builder<> b("b", "middle");
         b.add_subcommand(std::move(c).build());
         command_builder<top_args> a("a", "top");
@@ -678,7 +726,8 @@ TEST_CASE("moving commands", "[argparse]") {
         auto inv = p.parse(words);
         REQUIRE(inv);
         REQUIRE(inv->selected().name() == "c");
-        REQUIRE(inv->selected_values<leaf_args>()->p == "val");
+        inv->run();
+        REQUIRE(leaf_value == "val");
     }
     SECTION("move construction") {
         command_builder<> root("prog", "");

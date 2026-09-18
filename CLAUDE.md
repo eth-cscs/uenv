@@ -631,14 +631,16 @@ parsing:
   after the last word, and every error), and does not stop at the first
   error. This is what lets tab completion run the exact parser used for real
   invocations on an incomplete command line.
-- `program::parse()` turns an error-free result into an `invocation`: a new
-  value of each command's arguments type, copied from its defaults and filled
-  in. `main()` reads `globals()`, loads the configuration, and then calls
-  `run()`, which runs the selected command's action.
+- `program::parse()` turns an error-free result into an `invocation`: new
+  values of the root's arguments type (the global options) and of the
+  selected command's, copied from their defaults and filled in, the latter
+  bound to the command's action. `main()` reads `globals()`, loads the
+  configuration, and then calls `run()`, which runs the action.
 
-The arguments types are type-erased with the concept/model pattern of
-`help::item` (`src/cli/help.h`): `detail::model<T>` holds the typed setters
-and action of a command, and `detail::instance` holds a command's values.
+Each command's `detail::model<T>` holds its typed setters and action behind a
+small virtual interface; the action, bound to the filled-in values, is
+returned as a `std::function<int()>`. `program<Globals>` keeps a typed pointer
+to the root's model, which is how `globals()` is typed without a cast.
 Because only the builder and the action ever see `T`, each command's
 arguments struct, implementation and footer are private to its `.cpp` file,
 and its header declares a single function, e.g.

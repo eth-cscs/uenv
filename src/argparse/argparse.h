@@ -44,9 +44,10 @@
 //    as well as on a complete one. It only reads the tree.
 //
 // 2. `program::parse()` also turns an error-free result into an `invocation`:
-//    for each command on the path from the root to the selected command, a new
-//    value of its arguments type is created from the defaults and filled in
-//    from the command line.
+//    new values of the root's and the selected command's arguments types,
+//    copied from their defaults and filled in from the command line. The
+//    selected command's values are bound to its action, and the root's are
+//    the global options.
 //
 // Grammar of a single word, applied in this order:
 //
@@ -75,7 +76,6 @@
 // This library depends only on src/util and fmt: it must not include anything
 // from src/uenv, src/cli or src/site.
 
-#include <algorithm>
 #include <concepts>
 #include <cstdint>
 #include <functional>
@@ -84,7 +84,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <typeinfo>
 #include <utility>
 #include <vector>
 
@@ -263,80 +262,6 @@ class positional {
 
 namespace detail {
 
-// A command's parsed values, and the action that consumes them, with the
-// arguments type erased (the same pattern as help::item in src/cli/help.h).
-class instance {
-  public:
-    template <Arguments T>
-    instance(T values, std::function<int(const T&, const command&)> action,
-             const command& cmd)
-        : impl_(std::make_unique<wrap<T>>(std::move(values), std::move(action),
-                                          cmd)) {
-    }
-
-    instance(instance&&) = default;
-    instance(const instance& other) : impl_(other.impl_->clone()) {
-    }
-    instance& operator=(instance&&) = default;
-    instance& operator=(const instance& other) {
-        return *this = instance(other);
-    }
-
-    bool has_action() const {
-        return impl_->has_action();
-    }
-    // run the action: has_action() must be true
-    int run() const {
-        return impl_->run();
-    }
-    // the command whose values these are
-    const command& cmd() const {
-        return impl_->cmd();
-    }
-    // the values, or nullptr if T is not the command's arguments type
-    template <typename T> const T* get() const {
-        return static_cast<const T*>(impl_->get(typeid(T)));
-    }
-
-  private:
-    struct interface {
-        virtual ~interface() = default;
-        virtual std::unique_ptr<interface> clone() const = 0;
-        virtual bool has_action() const = 0;
-        virtual int run() const = 0;
-        virtual const command& cmd() const = 0;
-        virtual const void* get(const std::type_info&) const = 0;
-    };
-
-    template <Arguments T> struct wrap final : interface {
-        wrap(T v, std::function<int(const T&, const command&)> a,
-             const command& c)
-            : values(std::move(v)), action(std::move(a)), command_(&c) {
-        }
-        std::unique_ptr<interface> clone() const override {
-            return std::make_unique<wrap>(values, action, *command_);
-        }
-        bool has_action() const override {
-            return bool(action);
-        }
-        int run() const override {
-            return action(values, *command_);
-        }
-        const command& cmd() const override {
-            return *command_;
-        }
-        const void* get(const std::type_info& t) const override {
-            return t == typeid(T) ? &values : nullptr;
-        }
-
-        T values;
-        std::function<int(const T&, const command&)> action;
-        const command* command_;
-    };
-
-    std::unique_ptr<interface> impl_;
-};
-
 // The occurrences of the options and positional arguments of one command on
 // the command line, in the order they were given.
 struct gathered {
@@ -345,16 +270,19 @@ struct gathered {
         positionals;
 };
 
-// What a command does with its occurrences: make its arguments value. The
-// typed implementation, model<T>, is made by command_builder<T>.
+// What a command does with its occurrences: make the command's action, bound
+// to a value of its arguments type filled in from the occurrences. The typed
+// implementation, model<T>, is made by command_builder<T>.
 struct model_interface {
     virtual ~model_interface() = default;
-    virtual instance make(const gathered& occurrences,
-                          const command& cmd) const = 0;
+    // an empty function if the command has no action
+    virtual std::function<int()> make(const gathered& occurrences,
+                                      const command& cmd) const = 0;
 };
 
-// Make an instance for every command on the path of an error-free result.
-std::vector<instance> instantiate(const parse_result& result);
+// The occurrences of the options and positional arguments of `cmd` in an
+// error-free result.
+gathered gather(const parse_result& result, const command& cmd);
 
 } // namespace detail
 
@@ -397,8 +325,7 @@ class command {
 
   private:
     template <typename T> friend class command_builder;
-    friend std::vector<detail::instance>
-    detail::instantiate(const parse_result&);
+    template <Arguments G> friend class program;
 
     command(std::string name, std::string description,
             std::unique_ptr<detail::model_interface> model);
@@ -529,7 +456,8 @@ template <Arguments T> struct model final : model_interface {
         positional_setters;
     std::function<int(const T&, const command&)> action;
 
-    instance make(const gathered& g, const command& cmd) const override {
+    // the defaults, with the occurrences applied
+    T fill(const gathered& g) const {
         T values = defaults;
         for (auto& [opt, occ] : g.options) {
             for (auto& [o, set] : option_setters) {
@@ -545,7 +473,18 @@ template <Arguments T> struct model final : model_interface {
                 }
             }
         }
-        return instance(std::move(values), action, cmd);
+        return values;
+    }
+
+    std::function<int()> make(const gathered& g,
+                              const command& cmd) const override {
+        if (!action) {
+            return {};
+        }
+        // the action owns a copy of the values
+        return [values = fill(g), action = action, &cmd] {
+            return action(values, cmd);
+        };
     }
 };
 
@@ -705,6 +644,8 @@ template <typename T = no_args> class command_builder {
     }
 
   private:
+    template <Arguments G> friend class program;
+
     template <typename F>
     option& add_option_impl(names n, option::type t, std::string help,
                             F setter) {
@@ -735,9 +676,9 @@ template <typename T = no_args> class command_builder {
 
 template <Arguments Globals> class program;
 
-// A valid command line, parsed: the values of every command from the root to
-// the selected command. It refers to the program's tree, so it must not
-// outlive the program.
+// A valid command line, parsed: the values of the global options, and the
+// selected command's action bound to its values. It refers to the program's
+// tree, so it must not outlive the program.
 template <Arguments Globals> class invocation {
   public:
     // -h/--help was given
@@ -747,38 +688,37 @@ template <Arguments Globals> class invocation {
     // the help of the command that -h/--help was given to, otherwise of the
     // selected command
     std::string help() const {
-        return render_help(help_ ? *help_ : selected());
+        return render_help(help_ ? *help_ : *selected_);
     }
 
     // the values of the root command's options: the global options
     const Globals& globals() const {
-        return *path_.front().template get<Globals>();
+        return globals_;
     }
 
     // the command selected on the command line
     const command& selected() const {
-        return path_.back().cmd();
+        return *selected_;
     }
     bool has_action() const {
-        return path_.back().has_action();
+        return bool(action_);
     }
     // run the selected command's action: has_action() must be true
     int run() const {
-        return path_.back().run();
-    }
-    // the values of the selected command, or nullptr if T is not its
-    // arguments type
-    template <typename T> const T* selected_values() const {
-        return path_.back().template get<T>();
+        return action_();
     }
 
   private:
     friend class program<Globals>;
-    invocation(std::vector<detail::instance> path, const command* help)
-        : path_(std::move(path)), help_(help) {
+    invocation(Globals globals, std::function<int()> action,
+               const command* selected, const command* help)
+        : globals_(std::move(globals)), action_(std::move(action)),
+          selected_(selected), help_(help) {
     }
 
-    std::vector<detail::instance> path_;
+    Globals globals_;
+    std::function<int()> action_;
+    const command* selected_;
     const command* help_;
 };
 
@@ -787,7 +727,8 @@ template <Arguments Globals> class invocation {
 template <Arguments Globals> class program {
   public:
     explicit program(command_builder<Globals> root)
-        : root_(std::make_unique<command>(std::move(root).build())) {
+        : globals_model_(root.model_),
+          root_(std::make_unique<command>(std::move(root).build())) {
     }
 
     const command& root() const {
@@ -805,7 +746,11 @@ template <Arguments Globals> class program {
         if (!result.ok()) {
             return util::unexpected(std::move(result.errors.front()));
         }
-        return invocation<Globals>(detail::instantiate(result), result.help);
+        const command& selected = result.selected();
+        return invocation<Globals>(
+            globals_model_->fill(detail::gather(result, *root_)),
+            selected.model_->make(detail::gather(result, selected), selected),
+            &selected, result.help);
     }
     // parse argv[1..argc)
     util::expected<invocation<Globals>, error>
@@ -818,6 +763,9 @@ template <Arguments Globals> class program {
     }
 
   private:
+    // the root's model, owned by the root: the typed values of the root's
+    // options are the global options
+    const detail::model<Globals>* globals_model_;
     // on the heap, so that invocations can refer to the tree when the
     // program is moved
     std::unique_ptr<command> root_;

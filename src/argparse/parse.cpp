@@ -285,56 +285,51 @@ parse_result parse(const command& root, std::span<const std::string> words) {
 
 namespace detail {
 
-std::vector<instance> instantiate(const parse_result& r) {
-    std::vector<instance> path;
-    for (auto c : r.path) {
-        // gather this command's occurrences, in the order they were given
-        gathered g;
-        auto options = [&g](const option* o) -> std::vector<occurrence>& {
-            for (auto& [opt, occ] : g.options) {
-                if (opt == o) {
-                    return occ;
-                }
-            }
-            return g.options.emplace_back(o, std::vector<occurrence>{}).second;
-        };
-        auto positionals =
-            [&g](const positional* p) -> std::vector<std::string_view>& {
-            for (auto& [pos, words] : g.positionals) {
-                if (pos == p) {
-                    return words;
-                }
-            }
-            return g.positionals
-                .emplace_back(p, std::vector<std::string_view>{})
-                .second;
-        };
-        for (auto& it : r.items) {
-            if (it.cmd != c) {
-                continue;
-            }
-            switch (it.kind) {
-            case item_kind::flag:
-                options(it.opt).push_back({.negated = it.negated});
-                break;
-            case item_kind::option:
-            case item_kind::option_value:
-                // an option name whose value is in the next word is counted
-                // when the value is seen
-                if (it.value) {
-                    options(it.opt).push_back({.value = *it.value});
-                }
-                break;
-            case item_kind::positional:
-                positionals(it.pos).push_back(*it.value);
-                break;
-            default:
-                break;
+gathered gather(const parse_result& r, const command& c) {
+    gathered g;
+    auto options = [&g](const option* o) -> std::vector<occurrence>& {
+        for (auto& [opt, occ] : g.options) {
+            if (opt == o) {
+                return occ;
             }
         }
-        path.push_back(c->model_->make(g, *c));
+        return g.options.emplace_back(o, std::vector<occurrence>{}).second;
+    };
+    auto positionals =
+        [&g](const positional* p) -> std::vector<std::string_view>& {
+        for (auto& [pos, words] : g.positionals) {
+            if (pos == p) {
+                return words;
+            }
+        }
+        return g.positionals.emplace_back(p, std::vector<std::string_view>{})
+            .second;
+    };
+    // the occurrences, in the order they were given
+    for (auto& it : r.items) {
+        if (it.cmd != &c) {
+            continue;
+        }
+        switch (it.kind) {
+        case item_kind::flag:
+            options(it.opt).push_back({.negated = it.negated});
+            break;
+        case item_kind::option:
+        case item_kind::option_value:
+            // an option name whose value is in the next word is counted
+            // when the value is seen
+            if (it.value) {
+                options(it.opt).push_back({.value = *it.value});
+            }
+            break;
+        case item_kind::positional:
+            positionals(it.pos).push_back(*it.value);
+            break;
+        default:
+            break;
+        }
     }
-    return path;
+    return g;
 }
 
 } // namespace detail
