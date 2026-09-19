@@ -344,6 +344,50 @@ function stop_listing() {
     listing_mock kill $LISTING 2>/dev/null || true
 }
 
+function teardown() {
+    if [[ -n "${LISTING:-}" ]]; then
+        stop_listing
+    fi
+}
+
+# The number of requests for a namespace that the listing service has served.
+function requests() {
+    listing_mock requests $LISTING --namespace $1
+}
+
+# Complete the last word of the command line given by the arguments until
+# `value`, the first argument, is offered, for at most 5 seconds: a cached
+# listing is refreshed by a process that completion does not wait for.
+function wait_for_candidate() {
+    local value=$1
+    shift
+    local i
+    for i in $(seq 50); do
+        complete_line "$@"
+        if printf '%s\n' "${lines[@]}" | grep -qxF -- "$value"; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    fail "'$value' was not offered for: $*"
+}
+
+# complete_line, which must take less than a second
+function quick_complete_line() {
+    local start=$(date +%s%N)
+    complete_line "$@"
+    local ms=$(( ($(date +%s%N) - start) / 1000000 ))
+    (( ms < 1000 )) || fail "completion took ${ms} ms: $*"
+}
+
+# The cached listing of a namespace, and the stamp of its last refresh.
+function cached_listing() {
+    echo $(find $XDG_CACHE_HOME/uenv/listing -name $1.json)
+}
+function refresh_stamp() {
+    echo $(find $XDG_CACHE_HOME/uenv/listing -name .$1.refresh)
+}
+
 @test "registry labels are completed from the cached listings" {
     serve_listing \
         deploy/arapiles/zen3/prgenv-gnu/24.11/v1 \
@@ -355,17 +399,17 @@ function stop_listing() {
         mine/arapiles/zen3/tool/2.0/v1
 
     # nothing is cached: only the namespaces are known
-    complete_line uenv image pull ""
-    assert_output ":"
     complete_line uenv image delete ""
     assert_output "build::
 deploy::
 service::
 :nospace"
+    complete_line uenv image pull ""
+    assert_output ":"
+    # which started a refresh of the default namespace
+    wait_for_candidate prgenv-gnu/24.11:v1 uenv image pull ""
 
     # every command that fetches a listing caches it
-    run uenv image find
-    assert_success
     run uenv image find build::
     assert_success
     run uenv image find mine::
@@ -434,9 +478,137 @@ service::
 :$"
 
     # an old listing is not used
-    touch -d "40 days ago" $(find $XDG_CACHE_HOME -name deploy.json)
+    touch -d "40 days ago" $(cached_listing deploy)
     complete_line uenv image pull ""
     assert_output ":"
+}
+
+@test "cached registry listings are refreshed in the background" {
+    serve_listing deploy/arapiles/zen3/prgenv-gnu/24.11/v1
+
+    # the first completion starts a refresh, and a later one uses it
+    complete_line uenv image pull ""
+    assert_output ":"
+    wait_for_candidate prgenv-gnu/24.11:v1 uenv image pull ""
+    assert_equal "$(requests deploy)" 1
+
+    # a fresh listing is not refreshed
+    complete_line uenv image pull ""
+    complete_line uenv image find ""
+    assert_equal "$(requests deploy)" 1
+
+    # a stale listing is used while it is refreshed
+    listing_mock add $LISTING --path deploy/arapiles/zen3/prgenv-gnu/24.11/v2 \
+        --sha $(printf v2 | sha256sum | cut -c1-64)
+    touch -d "2 minutes ago" $(cached_listing deploy) $(refresh_stamp deploy)
+    complete_line uenv image pull ""
+    assert_output "prgenv-gnu/24.11:v1
+:"
+    wait_for_candidate prgenv-gnu/24.11:v2 uenv image pull ""
+    assert_equal "$(requests deploy)" 2
+
+    # at most one refresh per minute, even if the listing is stale
+    touch -d "2 minutes ago" $(cached_listing deploy)
+    complete_line uenv image pull ""
+    complete_line uenv image pull ""
+    sleep 0.5
+    assert_equal "$(requests deploy)" 2
+
+    # a namespace that is only typed is not fetched
+    complete_line uenv image pull typo::
+    complete_line uenv image delete typo::
+    sleep 0.5
+    assert_equal "$(requests typo)" 0
+
+    # the site's namespaces are
+    complete_line uenv image delete service::
+    for i in $(seq 50); do
+        (( $(requests service) == 1 )) && break
+        sleep 0.1
+    done
+    assert_equal "$(requests service)" 1
+}
+
+@test "a broken listing cache never holds up completion" {
+    serve_listing deploy/arapiles/zen3/prgenv-gnu/24.11/v1
+    run uenv image find
+    assert_success
+    local listing=$(cached_listing deploy)
+    local dir=$(dirname $listing)
+    local stamp=$dir/.deploy.refresh
+
+    # every state of the listing is either used or replaced
+    local state
+    for state in garbage truncated large fifo directory; do
+        rm -rf $listing
+        case $state in
+        garbage) echo "garbage" > $listing ;;
+        truncated) head -c 20 $TMP/listing.jsonl > $listing ;;
+        large) truncate -s 20M $listing ;;
+        fifo) mkfifo $listing ;;
+        directory) mkdir -p $listing/sub ;;
+        esac
+        # a refresh has not been claimed for the last minute
+        rm -rf $stamp
+        quick_complete_line uenv image pull ""
+        assert_output ":"
+        wait_for_candidate prgenv-gnu/24.11:v1 uenv image pull ""
+        [[ -f $listing ]]
+    done
+
+    # a temporary file left by a writer that was killed is removed by the next
+    # refresh
+    echo garbage > $dir/.deploy.json.12345
+    touch -d "2 hours ago" $dir/.deploy.json.12345
+    touch -d "2 minutes ago" $listing $stamp
+    complete_line uenv image pull ""
+    assert_line prgenv-gnu/24.11:v1
+    for i in $(seq 50); do
+        [[ ! -e $dir/.deploy.json.12345 ]] && break
+        sleep 0.1
+    done
+    [[ ! -e $dir/.deploy.json.12345 ]]
+
+    # a cache that can't be written: the listing is used, and not refreshed
+    touch -d "2 minutes ago" $listing $stamp
+    local before=$(requests deploy)
+    chmod a-w $dir
+    if [[ -w $dir ]]; then
+        chmod u+w $dir
+        skip "root can write to a read-only directory"
+    fi
+    quick_complete_line uenv image pull ""
+    chmod u+w $dir
+    assert_line prgenv-gnu/24.11:v1
+    sleep 0.5
+    assert_equal "$(requests deploy)" "$before"
+}
+
+@test "a listing service that does not answer never holds up completion" {
+    LISTING=$TMP/listing.jsonl
+    local port=$(listing_mock free-port)
+    listing_mock serve --hang $LISTING $port &
+    listing_mock wait-server $port --timeout 5
+    cat >> $XDG_CONFIG_HOME/uenv/config.toml <<EOF
+[registry]
+url = "http://127.0.0.1:1/uenv"
+default_namespace = "deploy"
+listing_url = "http://127.0.0.1:$port/list"
+EOF
+
+    quick_complete_line uenv image pull ""
+    assert_output ":"
+    # the refresh is waiting for an answer
+    for i in $(seq 50); do
+        (( $(requests deploy) == 1 )) && break
+        sleep 0.1
+    done
+    assert_equal "$(requests deploy)" 1
+    quick_complete_line uenv image pull ""
+    assert_output ":"
+    quick_complete_line uenv image delete deploy::
+    assert_output ":"
+    stop_listing
 }
 
 @test "completion is silent and does not create files" {

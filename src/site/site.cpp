@@ -1,3 +1,5 @@
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -18,6 +20,7 @@
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/sha.h>
+#include <util/unique_fd.h>
 #include <util/url.h>
 
 #include "site.h"
@@ -31,6 +34,55 @@ namespace {
 bool is_namespace(const std::string& nspace) {
     auto parse = uenv::parse_uenv_nslabel(nspace + "::");
     return parse && parse->nspace == nspace;
+}
+
+// Whether `path` was modified within `age` of now. A time further than `age`
+// in the future, from a clock that was wrong, is not within it, so that it
+// can't keep a file recent for ever.
+bool modified_within(const std::filesystem::path& path,
+                     std::filesystem::file_time_type::duration age) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const auto modified = fs::last_write_time(path, ec);
+    if (ec) {
+        return false;
+    }
+    const auto elapsed = fs::file_time_type::clock::now() - modified;
+    return elapsed < age && elapsed > -age;
+}
+
+// The contents of a regular file of at most `max_size` bytes. Nothing else is
+// read: a FIFO put in place of the file would otherwise block the reader.
+std::optional<std::string> read_cache_file(const std::filesystem::path& path,
+                                           std::uintmax_t max_size) {
+    util::unique_fd fd(::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC));
+    struct stat st{};
+    if (!fd || ::fstat(fd.get(), &st) != 0 || !S_ISREG(st.st_mode) ||
+        static_cast<std::uintmax_t>(st.st_size) > max_size) {
+        return std::nullopt;
+    }
+    std::string contents(static_cast<std::size_t>(st.st_size), '\0');
+    std::size_t done = 0;
+    while (done < contents.size()) {
+        auto n =
+            ::read(fd.get(), contents.data() + done, contents.size() - done);
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            return std::nullopt;
+        }
+        done += static_cast<std::size_t>(n);
+    }
+    return contents;
+}
+
+// create `path` if it does not exist, and set its modification time to now
+bool touch(const std::filesystem::path& path) {
+    util::unique_fd fd(
+        ::open(path.c_str(),
+               O_WRONLY | O_CREAT | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC, 0644));
+    return fd && ::futimens(fd.get(), nullptr) == 0;
 }
 
 } // namespace
@@ -163,6 +215,12 @@ void save_registry_listing(const std::filesystem::path& dir,
     std::error_code ec;
     if (written) {
         fs::rename(tmp, file, ec);
+        // only a directory in the way stops the rename: replace it, so that no
+        // state of the cache needs to be repaired by hand
+        if (ec && fs::is_directory(fs::symlink_status(file))) {
+            fs::remove_all(file, ec);
+            fs::rename(tmp, file, ec);
+        }
     }
     if (!written || ec) {
         spdlog::debug("unable to cache the listing in {}", file);
@@ -175,19 +233,14 @@ void save_registry_listing(const std::filesystem::path& dir,
 std::optional<std::vector<uenv::uenv_record>>
 cached_registry_listing(const std::filesystem::path& dir,
                         const std::string& nspace) {
-    namespace fs = std::filesystem;
-
     if (!is_namespace(nspace)) {
         return std::nullopt;
     }
     const auto file = dir / fmt::format("{}.json", nspace);
-    std::error_code ec;
-    const auto modified = fs::last_write_time(file, ec);
-    if (ec ||
-        fs::file_time_type::clock::now() - modified > listing_cache_max_age) {
+    if (!modified_within(file, listing_cache_max_age)) {
         return std::nullopt;
     }
-    auto body = util::read_file(file);
+    auto body = read_cache_file(file, listing_cache_max_size);
     if (!body) {
         return std::nullopt;
     }
@@ -216,6 +269,59 @@ std::vector<std::string> cached_namespaces(const std::filesystem::path& dir) {
     }
     std::sort(result.begin(), result.end());
     return result;
+}
+
+bool claim_listing_refresh(const std::filesystem::path& dir,
+                           const std::string& nspace, bool usable) {
+    namespace fs = std::filesystem;
+
+    if (!is_namespace(nspace)) {
+        return false;
+    }
+    if (usable && modified_within(dir / fmt::format("{}.json", nspace),
+                                  listing_refresh_interval)) {
+        return false;
+    }
+    const auto stamp = dir / fmt::format(".{}.refresh", nspace);
+    if (modified_within(stamp, listing_refresh_interval)) {
+        return false;
+    }
+    if (!util::ensure_directory(dir)) {
+        return false;
+    }
+    if (touch(stamp)) {
+        return true;
+    }
+    // something other than a file is in the way (a directory, a FIFO or a
+    // symbolic link): replace it, so that no state of the cache needs to be
+    // repaired by hand
+    std::error_code ec;
+    if (fs::exists(fs::symlink_status(stamp, ec)) &&
+        !fs::is_regular_file(fs::symlink_status(stamp, ec))) {
+        fs::remove_all(stamp, ec);
+        return touch(stamp);
+    }
+    return false;
+}
+
+void refresh_registry_listing(const std::optional<util::url>& listing_url,
+                              const std::string& nspace,
+                              const std::filesystem::path& cache_root) {
+    namespace fs = std::filesystem;
+
+    // the temporary files of save_registry_listing, .<nspace>.json.<pid>
+    const auto dir = listing_cache_dir(cache_root, listing_url);
+    std::error_code ec;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end;
+         it.increment(ec)) {
+        const auto name = it->path().filename().string();
+        if (name.starts_with('.') && name.find(".json.") != std::string::npos &&
+            !modified_within(it->path(), std::chrono::hours(1))) {
+            std::error_code remove_ec;
+            fs::remove(it->path(), remove_ec);
+        }
+    }
+    (void)registry_listing(listing_url, nspace, cache_root);
 }
 
 std::optional<std::string> get_system_name(const envvars::state& calling_env) {

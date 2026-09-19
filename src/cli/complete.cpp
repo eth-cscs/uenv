@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <filesystem>
 #include <initializer_list>
 #include <map>
@@ -28,6 +29,8 @@
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <uenv/settings.h>
+#include <util/curl.h>
+#include <util/detach.h>
 
 #include "cli.h"
 #include "complete.h"
@@ -36,6 +39,10 @@
 namespace uenv {
 
 namespace {
+
+// the time a detached refresh of a registry listing may take before it is
+// killed: util::curl::get gives up after 5s
+constexpr auto listing_refresh_limit = std::chrono::seconds(15);
 
 struct complete_args {
     std::string cword;
@@ -120,17 +127,20 @@ class sources {
         return result;
     }
 
-    // the records of a namespace in the cached listing of the registry: the
-    // registry itself is never queried
+    // The records of a namespace in the cached listing of the registry. The
+    // registry is never queried here: if the listing is due a refresh, it is
+    // fetched by a detached process, for the next completion to use.
     const std::vector<uenv_record>& listing(const std::string& nspace) {
         auto it = listings_.find(nspace);
         if (it == listings_.end()) {
             it = listings_.emplace(nspace, std::vector<uenv_record>{}).first;
             if (auto dir = listing_cache()) {
-                if (auto records =
-                        site::cached_registry_listing(*dir, nspace)) {
+                auto records = site::cached_registry_listing(*dir, nspace);
+                const bool usable = records.has_value();
+                if (usable) {
                     it->second = std::move(*records);
                 }
+                refresh(*dir, nspace, usable);
             }
         }
         return it->second;
@@ -159,6 +169,35 @@ class sources {
             return std::nullopt;
         }
         return site::listing_cache_dir(*root, c->registry->listing_url);
+    }
+
+    // Start a detached refresh of the cached listing of `nspace`, if it is
+    // due. A namespace that has no usable listing is only fetched if it is
+    // one of namespaces(), so that a namespace that was only typed is not.
+    void refresh(const std::filesystem::path& dir, const std::string& nspace,
+                 bool usable) {
+        auto root = user_cache_path(env_);
+        auto c = config();
+        if (!root || !c || !c->registry) {
+            return;
+        }
+        if (!usable) {
+            auto known = namespaces();
+            if (std::find(known.begin(), known.end(), nspace) == known.end()) {
+                return;
+            }
+        }
+        if (!site::claim_listing_refresh(dir, nspace, usable)) {
+            return;
+        }
+        util::spawn_detached(
+            [&env = env_, url = c->registry->listing_url, nspace,
+             root = *root]() {
+                // complete_main runs before main() has configured TLS
+                util::curl::configure_tls(env);
+                site::refresh_registry_listing(url, nspace, root);
+            },
+            listing_refresh_limit);
     }
 
     std::optional<configuration> load() const {

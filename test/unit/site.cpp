@@ -1,3 +1,6 @@
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -150,6 +153,125 @@ TEST_CASE("registry listing cache", "[site]") {
         fs::create_directories(dir);
         std::ofstream(dir / ".hidden.json") << body;
         REQUIRE(site::cached_namespaces(dir).empty());
+    }
+    SECTION("a listing from the future is not used") {
+        site::save_registry_listing(dir, "deploy", body);
+        fs::last_write_time(dir / "deploy.json",
+                            fs::file_time_type::clock::now() +
+                                site::listing_cache_max_age +
+                                std::chrono::hours(1));
+        REQUIRE(!site::cached_registry_listing(dir, "deploy"));
+    }
+    SECTION("a listing that is too large is not used") {
+        site::save_registry_listing(dir, "deploy", body);
+        fs::resize_file(dir / "deploy.json", site::listing_cache_max_size + 1);
+        REQUIRE(!site::cached_registry_listing(dir, "deploy"));
+    }
+    SECTION("a directory in place of the listing is replaced") {
+        fs::create_directories(dir / "deploy.json/sub");
+        site::save_registry_listing(dir, "deploy", body);
+        REQUIRE(site::cached_registry_listing(dir, "deploy"));
+    }
+    SECTION("only a regular file is read") {
+        fs::create_directories(dir);
+        REQUIRE(mkfifo((dir / "deploy.json").c_str(), 0600) == 0);
+        REQUIRE(!site::cached_registry_listing(dir, "deploy"));
+        fs::remove(dir / "deploy.json");
+        fs::create_directories(dir / "deploy.json");
+        REQUIRE(!site::cached_registry_listing(dir, "deploy"));
+    }
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("claim_listing_refresh", "[site]") {
+    namespace fs = std::filesystem;
+    using namespace std::chrono_literals;
+    const auto root = *util::make_temp_dir();
+    const auto dir = site::listing_cache_dir(root, std::nullopt);
+    const auto listing = dir / "deploy.json";
+    const auto stamp = dir / ".deploy.refresh";
+    const auto now = fs::file_time_type::clock::now();
+    const auto interval = site::listing_refresh_interval;
+    auto claim = [&](bool usable) {
+        return site::claim_listing_refresh(dir, "deploy", usable);
+    };
+    auto save = [&](fs::file_time_type::duration age) {
+        site::save_registry_listing(dir, "deploy", R"({"results": []})");
+        fs::last_write_time(listing, now - age);
+    };
+
+    SECTION("nothing is cached: the directory is created") {
+        REQUIRE(claim(false));
+        REQUIRE(fs::exists(stamp));
+        // the refresh is claimed once per interval
+        REQUIRE(!claim(false));
+    }
+    SECTION("a fresh listing") {
+        save(1s);
+        REQUIRE(!claim(true));
+        REQUIRE(!fs::exists(stamp));
+        // a fresh listing that is unusable is refreshed
+        REQUIRE(claim(false));
+    }
+    SECTION("a stale listing") {
+        save(interval + 1s);
+        REQUIRE(claim(true));
+        REQUIRE(!claim(true));
+    }
+    SECTION("a listing from the future") {
+        save(-(interval + 1s));
+        REQUIRE(claim(true));
+        // within the interval: the clocks of a network file system can differ
+        save(-1s);
+        fs::remove(stamp);
+        REQUIRE(!claim(true));
+    }
+    SECTION("an old stamp") {
+        save(interval + 1s);
+        REQUIRE(claim(true));
+        fs::last_write_time(stamp, now - interval - 1s);
+        REQUIRE(claim(true));
+    }
+    SECTION("a stamp from the future") {
+        save(interval + 1s);
+        REQUIRE(claim(true));
+        fs::last_write_time(stamp, now + interval + 1s);
+        REQUIRE(claim(true));
+    }
+    SECTION("the stamp can't be written") {
+        save(interval + 1s);
+        fs::permissions(dir, fs::perms::owner_read | fs::perms::owner_exec);
+        if (::access(dir.c_str(), W_OK) == 0) {
+            // root can write anyway
+            fs::permissions(dir, fs::perms::owner_all);
+            SKIP("the directory is writable by root");
+        }
+        REQUIRE(!claim(true));
+        REQUIRE(!claim(false));
+        fs::permissions(dir, fs::perms::owner_all);
+    }
+    SECTION("something other than a file in place of the stamp") {
+        save(interval + 1s);
+        // it is replaced once it is as old as a stamp would be
+        fs::create_directories(stamp / "sub");
+        REQUIRE(!claim(true));
+        fs::last_write_time(stamp, now - interval - 1s);
+        REQUIRE(claim(true));
+        REQUIRE(fs::is_regular_file(stamp));
+        fs::remove(stamp);
+        REQUIRE(mkfifo(stamp.c_str(), 0600) == 0);
+        fs::last_write_time(stamp, now - interval - 1s);
+        REQUIRE(claim(true));
+        REQUIRE(fs::is_regular_file(stamp));
+        fs::remove(stamp);
+        fs::create_symlink(root / "elsewhere", stamp);
+        REQUIRE(claim(true));
+        REQUIRE(fs::is_regular_file(fs::symlink_status(stamp)));
+        REQUIRE(!fs::exists(root / "elsewhere"));
+    }
+    SECTION("an invalid namespace") {
+        REQUIRE(!site::claim_listing_refresh(dir, "../x", false));
     }
 
     fs::remove_all(root);

@@ -718,7 +718,9 @@ Rules for anything on the completion path:
   `completion.bats` checks that stderr is empty.
 - **Read-only.** It must not create or modify files: the configuration is
   loaded with `user_config_mode::read_only`, so a missing user config file is
-  not created, and repositories are opened read-only.
+  not created, and repositories are opened read-only. The one exception is
+  the registry listing cache, see below: completion touches a refresh stamp
+  and starts a detached process that rewrites a listing.
 - **Fast and local.** Nothing is read until a candidate needs it (a
   subcommand name reads no configuration), and there is no network access.
   Views are read from the `meta/env.json` next to an image, never by
@@ -734,7 +736,8 @@ fetches, so any `uenv image find/pull/copy/push/delete` fills it, to
 `$XDG_CACHE_HOME/uenv/listing/<hash of listing URL>/<namespace>.json`
 (`site::listing_cache_dir()`); a listing older than
 `site::listing_cache_max_age` is ignored. With nothing cached, only namespace
-names are offered. The tag of the argument decides how namespaces are handled:
+names are offered, and the first TAB starts the fetch (see below). The tag of
+the argument decides how namespaces are handled:
 
 - `registry_label` (`image pull`, `image find`): labels in the configured
   default namespace, and `ns::` once something has been typed;
@@ -748,6 +751,53 @@ The namespaces offered are `site::registry_namespaces`, the default namespace
 and any namespace in the cache. Tests that run `image` commands against a
 listing service set `XDG_CACHE_HOME` so that they never write to the user's
 cache.
+
+#### Refreshing the listing cache (stale-while-revalidate)
+
+When completion reads a listing that is missing, invalid, or older than
+`site::listing_refresh_interval` (60 s), it answers from what is cached and
+starts a refresh for the next TAB: `site::claim_listing_refresh()` decides,
+and `util::spawn_detached()` (`src/util/detach.h`) runs
+`site::refresh_registry_listing()` in a detached grandchild. A namespace with
+no usable listing is only fetched if it is one of the offered namespaces, so
+that typing `typo::` sends no request.
+
+The requirement that shapes this: **a TAB must never hang, and no state of the
+cache may ever need to be deleted by hand** (the failure mode of the Tcl
+modules cache). The rules that guarantee it, which must not be "simplified"
+away:
+
+- **Completion never waits.** It reads at most one listing per namespace,
+  through `read_cache_file()`: a regular file only (a FIFO would block the
+  reader) of at most `site::listing_cache_max_size` bytes. It never waits on
+  the network, a lock, or the refresh.
+- **No locks.** A refresh is claimed by touching `.<namespace>.refresh`, and
+  not again until the stamp is an interval old, whether or not it succeeded:
+  at most one request per namespace per minute, also while the service is
+  down. A race only costs a second request. Never replace this with `flock`
+  or a pid file: a lock left by a killed process is exactly what makes a
+  cache need repairing by hand.
+- **Every state of the cache is used or replaced.** Listings are written to a
+  temporary file and renamed into place, and only after they parse; a listing
+  that is invalid, too large or not a regular file is treated as missing and
+  refreshed, and a directory in its place is removed. A stamp that is not a
+  regular file is replaced. A time further than the interval in the future
+  (a wrong clock) is not recent (`modified_within()`), so that it can't
+  suppress refreshes. Temporary files older than an hour are removed by the
+  next refresh. If the stamp can't be written (a read-only cache), no refresh
+  is started, so a broken cache can't cause a fork per TAB.
+- **The refresh holds nothing of the caller's.** `spawn_detached` forks twice
+  and calls `setsid`, points stdin/stdout/stderr at `/dev/null` and closes
+  every other descriptor. The shell scripts read `uenv __complete` with
+  `$(...)`, which waits for EOF on stdout: a refresh that kept stdout would
+  make every TAB wait for the network. `util::curl::get` gives up after 5 s,
+  and `alarm()` kills the refresh after `listing_refresh_limit` (15 s)
+  whatever it is doing. It runs in-process after `fork`, which is safe because
+  the completion process is single-threaded: keep it so.
+
+`completion.bats` checks each of these: a broken cache in every state, a
+listing service that accepts connections and never answers, and a read-only
+cache directory, each with a time limit on the TAB.
 
 The shell scripts (`src/cli/completion/uenv.bash`, `src/cli/completion/_uenv`)
 are installed with `install_data`, and compiled into the binary (meson reads

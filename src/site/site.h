@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -51,6 +52,12 @@ listing_cache_dir(const std::filesystem::path& cache_root,
 // a cached listing older than this is not used
 inline constexpr auto listing_cache_max_age = std::chrono::days(30);
 
+// a cached listing larger than this is not used
+inline constexpr std::uintmax_t listing_cache_max_size = 16 * 1024 * 1024;
+
+// tab completion refreshes a cached listing that is older than this
+inline constexpr auto listing_refresh_interval = std::chrono::seconds(60);
+
 // save the document `body` returned by the listing service for `nspace` in the
 // cache directory `dir`. The file is replaced atomically, so a reader never
 // sees it half written. Failure is not an error: the cache is only used for
@@ -66,6 +73,24 @@ cached_registry_listing(const std::filesystem::path& dir,
 
 // the namespaces that have a listing in the cache directory `dir`
 std::vector<std::string> cached_namespaces(const std::filesystem::path& dir);
+
+// Whether the caller should refresh the listing of `nspace` in the cache
+// directory `dir`: it is due if it is older than listing_refresh_interval, or
+// if `usable` is false (it is missing or invalid). A refresh is claimed by
+// touching a stamp file, .<nspace>.refresh, and is not claimed again until the
+// stamp is listing_refresh_interval old, whether or not the refresh succeeded:
+// that limits the requests to the listing service to one per namespace per
+// interval, including while it is unreachable. Returns false if the stamp
+// can't be written. There is no lock: two callers can both claim a refresh.
+bool claim_listing_refresh(const std::filesystem::path& dir,
+                           const std::string& nspace, bool usable);
+
+// fetch the listing of `nspace` into the cache (see registry_listing), and
+// remove the temporary files left in the cache directory by writers that were
+// killed.
+void refresh_registry_listing(const std::optional<util::url>& listing_url,
+                              const std::string& nspace,
+                              const std::filesystem::path& cache_root);
 
 // return the name of the current system from the calling environment.
 // on CSCS systems this is derived from the CLUSTER_NAME environment variable.

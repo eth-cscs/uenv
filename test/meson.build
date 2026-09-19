@@ -102,6 +102,7 @@ unit_src = [
         'unit/complete.cpp',
         'unit/curl.cpp',
         'unit/dates.cpp',
+        'unit/detach.cpp',
         'unit/env.cpp',
         'unit/envvars.cpp',
         'unit/fs.cpp',

@@ -150,6 +150,7 @@ lib_uenv_src = [
         'src/util/cgroup.cpp',
         'src/util/color.cpp',
         'src/util/curl.cpp',
+        'src/util/detach.cpp',
         'src/util/envvars.cpp',
         'src/util/fs.cpp',
         'src/util/lex.cpp',
