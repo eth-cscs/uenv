@@ -125,11 +125,13 @@ class sources {
     const std::vector<uenv_record>& listing(const std::string& nspace) {
         auto it = listings_.find(nspace);
         if (it == listings_.end()) {
-            std::optional<std::vector<uenv_record>> records;
+            it = listings_.emplace(nspace, std::vector<uenv_record>{}).first;
             if (auto dir = listing_cache()) {
-                records = site::cached_registry_listing(*dir, nspace);
+                if (auto records =
+                        site::cached_registry_listing(*dir, nspace)) {
+                    it->second = std::move(*records);
+                }
             }
-            it = listings_.emplace(nspace, records.value_or({})).first;
         }
         return it->second;
     }
