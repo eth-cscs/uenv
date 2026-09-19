@@ -30,6 +30,9 @@ function setup() {
     cat > $XDG_CONFIG_HOME/uenv/config.toml <<EOF
 system_name = 'arapiles'
 EOF
+    # the registry listings fetched by the tests are cached here, not in the
+    # user's home
+    export XDG_CACHE_HOME=$TMP/cache
 
     # remove the bash function uenv, if an older version of uenv is installed on
     # the system

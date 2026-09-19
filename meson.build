@@ -119,6 +119,7 @@ endif
 # and the slurm plugin.
 lib_uenv_src = [
         'src/argparse/command.cpp',
+        'src/argparse/complete.cpp',
         'src/argparse/help.cpp',
         'src/argparse/parse.cpp',
         'src/oci/auth.cpp',
@@ -132,6 +133,7 @@ lib_uenv_src = [
         'src/oci/tag.cpp',
         'src/oci/types.cpp',
         'src/oci/util.cpp',
+        'src/uenv/complete.cpp',
         'src/uenv/elastic.cpp',
         'src/uenv/env.cpp',
         'src/uenv/join_context.cpp',
@@ -148,6 +150,7 @@ lib_uenv_src = [
         'src/util/cgroup.cpp',
         'src/util/color.cpp',
         'src/util/curl.cpp',
+        'src/util/detach.cpp',
         'src/util/envvars.cpp',
         'src/util/fs.cpp',
         'src/util/lex.cpp',
@@ -230,25 +233,34 @@ if uenv_cli
             'src/cli/util.cpp',
             'src/cli/build.cpp',
             'src/cli/cli.cpp',
+            'src/cli/complete.cpp',
             'src/cli/completion.cpp',
     ]
 
-    xxd = find_program('xxd', required : true)
-    completion_bash_dep = custom_target(
-        'completion-bash-dep',
-        input: 'src/cli/completion.bash',
-        output: 'completion.bash.h',
-        command: [xxd, '-i', '-n', 'completion_bash_main', '@INPUT@', '@OUTPUT@'])
+    # the shell completion scripts are installed, and are also compiled into
+    # uenv so that `uenv completion <shell>` can print them
+    fs = import('fs')
+    completion_scripts = configure_file(
+        input: 'src/cli/completion/scripts.h.in',
+        output: 'completion_scripts.h',
+        configuration: {
+            'BASH': fs.read('src/cli/completion/uenv.bash'),
+            'ZSH': fs.read('src/cli/completion/_uenv'),
+        })
 
     cli = executable('uenv',
-            sources: cli_src + completion_bash_dep,
+            sources: cli_src + completion_scripts,
             dependencies: [uenv_dep, sqlite3_dep, fmt_dep, spdlog_dep, barkeep_dep],
             c_args: [
               '-DVERSION="@0@"'.format(version),
             ],
             install: true)
 
-    meson.add_install_script('./meson-scripts/install-bash-completion.sh')
+    install_data('src/cli/completion/uenv.bash',
+                 rename: 'uenv',
+                 install_dir: get_option('datadir') / 'bash-completion' / 'completions')
+    install_data('src/cli/completion/_uenv',
+                 install_dir: get_option('datadir') / 'zsh' / 'site-functions')
 endif
 
 if uenv_slurm_plugin

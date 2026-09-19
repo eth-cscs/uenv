@@ -189,6 +189,10 @@ class option {
     bool negatable() const {
         return type_ == type::boolean;
     }
+    // a counting flag, which is meant to be given more than once
+    bool repeatable() const {
+        return type_ == type::counter;
+    }
     const struct completion& completer() const {
         return completion_;
     }
@@ -280,8 +284,8 @@ struct model_interface {
                                       const command& cmd) const = 0;
 };
 
-// The occurrences of the options and positional arguments of `cmd` in an
-// error-free result.
+// The occurrences of the options and positional arguments of `cmd` in a
+// result. Words that could not be placed (see the errors) are left out.
 gathered gather(const parse_result& result, const command& cmd);
 
 } // namespace detail
@@ -751,6 +755,12 @@ template <Arguments Globals> class program {
             globals_model_->fill(detail::gather(result, *root_)),
             selected.model_->make(detail::gather(result, selected), selected),
             &selected, result.help);
+    }
+    // the values of the global options in a result, which can have errors
+    // (e.g. the parse of an incomplete command line): the options that were
+    // given are applied to the defaults.
+    Globals globals(const parse_result& result) const {
+        return globals_model_->fill(detail::gather(result, *root_));
     }
     // parse argv[1..argc)
     util::expected<invocation<Globals>, error>

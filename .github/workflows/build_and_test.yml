@@ -53,7 +53,6 @@ jobs:
                curl \
                ninja-build \
                locales \
-               xxd \
                jq \
                make \
                perl \

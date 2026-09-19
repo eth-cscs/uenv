@@ -21,6 +21,7 @@
 #include <util/lustre.h>
 
 #include "cli.h"
+#include "complete.h"
 #include "terminal.h"
 #include "uenv.h"
 
@@ -30,6 +31,13 @@ uenv::global_settings::global_settings() : calling_environment(environ) {
 int main(int argc, char** argv) {
     uenv::global_settings settings;
     const auto cli = uenv::make_cli(settings);
+
+    // the shell completion scripts call `uenv __complete ...`, which must not
+    // print anything but the completions
+    if (argc > 1 && std::string_view(argv[1]) == "__complete") {
+        return uenv::complete_main(
+            cli, settings, std::span<const char* const>(argv + 2, argc - 2));
+    }
 
     if (auto valid = cli.validate(); !valid) {
         term::error("internal error in the command line interface: {}",

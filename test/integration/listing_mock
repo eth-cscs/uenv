@@ -18,9 +18,14 @@ manifest digest, register a record, and then pull.
 Subcommands
 -----------
 free-port                            print a free TCP port and exit
-serve LISTING_FILE PORT              run HTTP server on 127.0.0.1:PORT serving
+serve LISTING_FILE PORT [--hang]     run HTTP server on 127.0.0.1:PORT serving
                                      /list?namespace=; writes PID to
-                                     LISTING_FILE.pid on startup
+                                     LISTING_FILE.pid on startup, and the
+                                     namespace of each request to
+                                     LISTING_FILE.requests. With --hang, accept
+                                     requests and never answer them.
+requests LISTING_FILE [--namespace NS]
+                                     print the number of requests served
 wait-server PORT [--timeout N]       wait until server accepts connections
 add   LISTING_FILE --path P --sha S  append a record (size/created optional;
       [--size N] [--created TS]      created defaults to a fixed timestamp)
@@ -42,6 +47,10 @@ DEFAULT_CREATED = "2024-01-01T00:00:00.000Z"
 
 def _pid_path(listing_file: str) -> Path:
     return Path(listing_file).with_suffix(".pid")
+
+
+def _requests_path(listing_file: str) -> Path:
+    return Path(listing_file).with_suffix(".requests")
 
 
 def _records(listing_file: str) -> list:
@@ -75,6 +84,11 @@ def cmd_serve(args):
                 self.end_headers()
                 return
             nspace = parse_qs(parsed.query).get("namespace", [None])[0]
+            with open(_requests_path(listing_file), "a") as f:
+                f.write(f"{nspace}\n")
+            if args.hang:
+                time.sleep(3600)
+                return
             results = []
             for r in _records(listing_file):
                 path = r.get("path", "")
@@ -101,6 +115,14 @@ def cmd_serve(args):
         HTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
     finally:
         pid_path.unlink(missing_ok=True)
+
+
+def cmd_requests(args):
+    p = _requests_path(args.listing_file)
+    lines = p.read_text().splitlines() if p.exists() else []
+    if args.namespace is not None:
+        lines = [l for l in lines if l == args.namespace]
+    print(len(lines))
 
 
 def cmd_wait_server(args):
@@ -162,6 +184,12 @@ def main():
     sp = sub.add_parser("serve", help="run the mock listing HTTP server")
     sp.add_argument("listing_file", help="JSON-lines file of records to serve")
     sp.add_argument("port", type=int)
+    sp.add_argument("--hang", action="store_true",
+                    help="accept requests and never answer them")
+
+    sp = sub.add_parser("requests", help="print the number of requests served")
+    sp.add_argument("listing_file")
+    sp.add_argument("--namespace", default=None)
 
     sp = sub.add_parser("wait-server", help="wait until server accepts connections")
     sp.add_argument("port", type=int)
@@ -183,6 +211,7 @@ def main():
         "free-port":   cmd_free_port,
         "serve":       cmd_serve,
         "wait-server": cmd_wait_server,
+        "requests":    cmd_requests,
         "add":         cmd_add,
         "kill":        cmd_kill,
     }

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -7,6 +8,7 @@
 #include <catch2/catch_all.hpp>
 
 #include <argparse/argparse.h>
+#include <argparse/complete.h>
 
 namespace {
 
@@ -195,6 +197,18 @@ struct cli {
         return program.parse(std::span<const std::string_view>(words));
     }
 
+    argparse::completion_request complete(std::vector<std::string_view> words,
+                                          std::size_t cword) {
+        auto& w = lines.emplace_back(std::move(words));
+        return argparse::complete(root(), std::span<const std::string_view>(w),
+                                  cword);
+    }
+    // complete the last word
+    argparse::completion_request complete(std::vector<std::string_view> words) {
+        auto n = words.size() - 1;
+        return complete(std::move(words), n);
+    }
+
     cli() = default;
     cli(const cli&) = delete;
 };
@@ -218,6 +232,15 @@ template <typename T> T values_of(cli& c, std::vector<std::string_view> words) {
     auto& v = c.template values<T>();
     REQUIRE(v);
     return *v;
+}
+
+// the values of the candidates offered
+std::vector<std::string> values(const argparse::completion_request& r) {
+    std::vector<std::string> v;
+    for (auto& c : r.candidates) {
+        v.push_back(c.value);
+    }
+    return v;
 }
 
 global_args globals_of(cli& c, std::vector<std::string_view> words) {
@@ -859,5 +882,179 @@ TEST_CASE("validation", "[argparse]") {
         a.add_subcommand(builder("-b", "").build());
         c.add_subcommand(std::move(a).build());
         invalid(std::move(c), "prog a -b: invalid command name");
+    }
+}
+
+TEST_CASE("completion", "[argparse]") {
+    using strings = std::vector<std::string>;
+    cli c;
+
+    SECTION("subcommands") {
+        auto r = c.complete({""});
+        REQUIRE(values(r) == strings{"run", "image", "repo", "status"});
+        REQUIRE(r.candidates[0].description == "run a command");
+        REQUIRE(!r.opt);
+        REQUIRE(!r.pos);
+        REQUIRE(values(c.complete({"r"})) == strings{"run", "repo"});
+        REQUIRE(values(c.complete({"image", ""})) == strings{"ls", "delete"});
+        REQUIRE(values(c.complete({"-v", "--repo", "x", "image", "l"})) ==
+                strings{"ls"});
+        REQUIRE(c.complete({"image", "l"}).cmd->name() == "image");
+        // a word that is not a subcommand selects nothing
+        REQUIRE(values(c.complete({"bogus", ""})) ==
+                strings{"run", "image", "repo", "status"});
+        REQUIRE(values(c.complete({"x"})).empty());
+    }
+    SECTION("long option names") {
+        REQUIRE(values(c.complete({"--"})) == strings{"--help", "--verbose",
+                                                      "--repo", "--color",
+                                                      "--no-color"});
+        REQUIRE(values(c.complete({"--c"})) == strings{"--color"});
+        REQUIRE(values(c.complete({"--no"})) == strings{"--no-color"});
+        REQUIRE(c.complete({"--c"}).candidates[0].description ==
+                "color output");
+        // options are those of the command at the cursor
+        REQUIRE(values(c.complete({"run", "--"})) ==
+                strings{"--help", "--view", "--no-default-view", "--join"});
+    }
+    SECTION("short and long names") {
+        REQUIRE(values(c.complete({"-"})) == strings{"--help", "--verbose",
+                                                     "--repo", "--color",
+                                                     "--no-color", "-h", "-v"});
+        REQUIRE(values(c.complete({"run", "-"})) ==
+                strings{"--help", "--view", "--no-default-view", "--join", "-h",
+                        "-v", "-V", "-j"});
+    }
+    SECTION("options given once are not offered again") {
+        REQUIRE(values(c.complete({"--repo", "x", "--"})) ==
+                strings{"--help", "--verbose", "--color", "--no-color"});
+        // including when they come after the cursor
+        REQUIRE(values(c.complete({"--", "--repo=x"}, 0)) ==
+                strings{"--help", "--verbose", "--color", "--no-color"});
+        // a boolean flag, given by its negation
+        REQUIRE(values(c.complete({"--no-color", "--"})) ==
+                strings{"--help", "--verbose", "--repo"});
+        // a counter can be repeated
+        REQUIRE(values(c.complete({"-v", "--v"})) == strings{"--verbose"});
+        // only options of the same command count
+        REQUIRE(values(c.complete({"run", "-j", "img", "--j"})).empty());
+        REQUIRE(values(c.complete({"-v", "run", "--v"})) == strings{"--view"});
+    }
+    SECTION("the value of an option in the next word") {
+        auto r = c.complete({"--repo", ""});
+        REQUIRE(r.opt == c.root().find_long("repo"));
+        REQUIRE(!r.pos);
+        REQUIRE(r.keep.empty());
+        REQUIRE(r.prefix.empty());
+        REQUIRE(r.candidates.empty());
+        // the value can look like an option
+        r = c.complete({"run", "--view", "-x"});
+        REQUIRE(r.opt->long_name() == "view");
+        REQUIRE(r.prefix == "-x");
+        REQUIRE(r.cmd->name() == "run");
+    }
+    SECTION("the value of an option in the same word") {
+        auto r = c.complete({"--repo=/pa"});
+        REQUIRE(r.opt == c.root().find_long("repo"));
+        REQUIRE(r.keep == "--repo=");
+        REQUIRE(r.prefix == "/pa");
+        r = c.complete({"--repo="});
+        REQUIRE(r.keep == "--repo=");
+        REQUIRE(r.prefix.empty());
+        // a flag does not take a value; an unknown option is not completed
+        REQUIRE(!c.complete({"--color="}).opt);
+        REQUIRE(!c.complete({"--bogus=x"}).opt);
+    }
+    SECTION("short options with an attached value") {
+        auto r = c.complete({"run", "-vde"});
+        REQUIRE(r.opt->long_name() == "view");
+        REQUIRE(r.keep == "-v");
+        REQUIRE(r.prefix == "de");
+        r = c.complete({"run", "-Vjv"});
+        REQUIRE(r.opt->long_name() == "view");
+        REQUIRE(r.keep == "-Vjv");
+        REQUIRE(r.prefix.empty());
+        // a cluster of flags is complete as it is
+        r = c.complete({"run", "-Vj"});
+        REQUIRE(values(r) == strings{"-Vj"});
+        REQUIRE(!r.opt);
+        // an unknown short option
+        REQUIRE(c.complete({"run", "-Vx"}).candidates.empty());
+    }
+    SECTION("choices") {
+        auto r = c.complete({"status", "--format", ""});
+        REQUIRE(values(r) == strings{"short", "full", "views"});
+        REQUIRE(values(c.complete({"status", "--format", "f"})) ==
+                strings{"full"});
+        REQUIRE(values(c.complete({"status", "--format=s"})) ==
+                strings{"--format=short"});
+    }
+    SECTION("positionals, by position") {
+        auto r = c.complete({"run", ""});
+        REQUIRE(r.pos);
+        REQUIRE(r.pos->name() == "uenv");
+        REQUIRE(r.prefix.empty());
+        r = c.complete({"run", "-V", "--view", "x", "im"});
+        REQUIRE(r.pos->name() == "uenv");
+        REQUIRE(r.prefix == "im");
+        r = c.complete({"image", "ls", ""});
+        REQUIRE(r.pos->name() == "uenv");
+        // every positional has been given: offer the options
+        r = c.complete({"image", "ls", "x", ""});
+        REQUIRE(!r.pos);
+        REQUIRE(values(r) == strings{"--help", "--json"});
+        REQUIRE(c.complete({"image", "ls", "x", "y"}).candidates.empty());
+    }
+    SECTION("the rest positional") {
+        auto r = c.complete({"run", "img", ""});
+        REQUIRE(r.pos->name() == "commands");
+        REQUIRE(r.pos->is_rest());
+        REQUIRE(r.rest_start == 2u);
+        r = c.complete({"run", "img", "ls", "-"});
+        REQUIRE(r.pos->name() == "commands");
+        REQUIRE(r.rest_start == 2u);
+        REQUIRE(r.candidates.empty());
+        r = c.complete({"run", "img", "--", "ls", "--col"});
+        REQUIRE(r.pos->name() == "commands");
+        REQUIRE(r.rest_start == 3u);
+        r = c.complete({"run", "img", "--", ""});
+        REQUIRE(r.rest_start == 3u);
+    }
+    SECTION("end of options") {
+        auto r = c.complete({"run", "--", "-"});
+        REQUIRE(r.pos->name() == "uenv");
+        REQUIRE(r.prefix == "-");
+        REQUIRE(c.complete({"image", "ls", "--", "x", ""}).pos == nullptr);
+    }
+    SECTION("the cursor in the middle of the line") {
+        auto r = c.complete({"run", "-v", "", "img", "cmd"}, 2);
+        REQUIRE(r.opt->long_name() == "view");
+        // the context is the whole line, without the word at the cursor
+        auto& ctx = r.context;
+        REQUIRE(ctx.selected().name() == "run");
+        REQUIRE(std::none_of(ctx.items.begin(), ctx.items.end(),
+                             [](auto& it) { return it.word == 2; }));
+        auto uenv =
+            std::find_if(ctx.items.begin(), ctx.items.end(), [](auto& it) {
+                return it.pos && it.pos->name() == "uenv";
+            });
+        REQUIRE(uenv != ctx.items.end());
+        REQUIRE(*uenv->value == "img");
+    }
+    SECTION("the cursor after the last word") {
+        auto r = c.complete({"run"}, 1);
+        REQUIRE(r.pos->name() == "uenv");
+        REQUIRE(r.prefix.empty());
+        // a cursor beyond the end is at the end
+        REQUIRE(c.complete({"run"}, 7).pos->name() == "uenv");
+    }
+    SECTION("global options in the context") {
+        auto r = c.complete({"--repo=/r", "-vv", "image", "ls", ""});
+        auto g = c.program.globals(r.context);
+        REQUIRE(g.repo == "/r");
+        REQUIRE(g.verbose == 2);
+        // the word at the cursor is not part of the context
+        r = c.complete({"--repo=/r"});
+        REQUIRE(!c.program.globals(r.context).repo);
     }
 }
