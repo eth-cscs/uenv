@@ -256,6 +256,19 @@ user_config_path(const envvars::state& calling_env) {
     return {};
 }
 
+std::optional<std::filesystem::path>
+user_cache_path(const envvars::state& calling_env) {
+    namespace fs = std::filesystem;
+
+    if (auto xdg = calling_env.get("XDG_CACHE_HOME"); xdg && !xdg->empty()) {
+        return fs::path(*xdg) / "uenv";
+    }
+    if (auto home = calling_env.get("HOME"); home && !home->empty()) {
+        return fs::path(*home) / ".cache/uenv";
+    }
+    return std::nullopt;
+}
+
 // read configuration from the user configuration file
 // the location of the config file is determined using XDG_CONFIG_HOME or
 // HOME

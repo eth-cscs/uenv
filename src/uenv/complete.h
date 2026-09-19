@@ -1,13 +1,16 @@
 #pragma once
 
 // Candidates for the tab completion of the values of uenv arguments: labels,
-// uenv descriptions, views, systems, repositories and paths.
+// labels in a remote registry, uenv descriptions, views, systems, repositories
+// and paths.
 //
 // These are pure functions of the text typed so far and of data that the
-// caller has already loaded (repository records, image meta data), apart from
+// caller has already loaded (repository records, cached registry listings,
+// image meta data), apart from
 // the paths, which are listed from the file system. The value of each
 // candidate replaces the whole of `prefix`.
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -71,6 +74,35 @@ std::vector<candidate> complete_uenv_list(
 std::vector<candidate>
 complete_views(std::string_view prefix,
                const std::vector<std::pair<std::string, meta>>& uenvs);
+
+// The records of a namespace in a remote registry, by name: empty if none are
+// known.
+using namespace_records =
+    std::function<std::vector<uenv_record>(const std::string&)>;
+
+// The namespaces of a remote registry, as namespace::
+std::vector<candidate>
+complete_namespace(std::string_view prefix,
+                   const std::vector<std::string>& names);
+
+// A label in a remote registry, namespace::name/version:tag, with the labels
+// of each namespace given by `records` (see complete_label). If
+// `default_namespace` is set, the labels in it are offered without a
+// namespace, and the namespaces are offered once something has been typed
+// (uenv image pull). Otherwise the namespaces are offered first (uenv image
+// delete).
+std::vector<candidate> complete_registry_label(
+    std::string_view prefix, const std::vector<std::string>& namespaces,
+    const std::optional<std::string>& default_namespace,
+    const namespace_records& records, const std::optional<std::string>& system);
+
+// The destination of a uenv that is copied or pushed to a registry: a
+// namespace, then namespace::name/version: of the source, leaving the tag to
+// the user. Once '@' follows the tag, the source's @system%uarch is offered.
+std::vector<candidate>
+complete_registry_destination(std::string_view prefix,
+                              const std::vector<std::string>& namespaces,
+                              const std::vector<uenv_record>& sources);
 
 // The systems that the records are for.
 std::vector<candidate> complete_system(std::string_view prefix,

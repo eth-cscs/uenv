@@ -2,13 +2,12 @@
 
 ## 10.2.0
 
-- #179 [feature] bash and zsh completion computed by uenv itself, with the same parser as the CLI
-- #179 [improvement] remove single letter options other than `-v` and `-h`, and the `--build` flag of `image find`/`image pull`
-- #178 [improvement] replace CLI11 with internal argument parsing library that facilitates completion
+- #179 [improvement] bash and zsh completion computed by uenv itself, with the same parser as the CLI
+- #178 [feature] replace CLI11 with internal argument parsing library that facilitates completion
 - #176 [security] `kernel` mounting opens squashfs images with the credentials of the user, instead of as root
 - #175 [security] validate digests of manifests against what the registry prodides to protect against malicious registries
-- #172 [feature] add a rootless FUSE mounting backend: an unprivileged alternative to the setuid kernel backend.
 - #168 [security] replace libmount with direct loop-device ioctls in the kernel backend
+- #172 [feature] add a rootless FUSE mounting backend: an unprivileged alternative to the setuid kernel backend.
 
 ## 10.1.0
 

@@ -720,13 +720,34 @@ Rules for anything on the completion path:
   loaded with `user_config_mode::read_only`, so a missing user config file is
   not created, and repositories are opened read-only.
 - **Fast and local.** Nothing is read until a candidate needs it (a
-  subcommand name reads no configuration), and there is no network access:
-  registry labels are not completed until there is a local cache. Views are
-  read from the `meta/env.json` next to an image, never by extracting a
-  squashfs file.
+  subcommand name reads no configuration), and there is no network access.
+  Views are read from the `meta/env.json` next to an image, never by
+  extracting a squashfs file. Registry labels come from a cache, see below.
 - **User text never reaches SQL.** `repository::query` formats its SQL
   without escaping; labels are completed by filtering every record of the
   repository in C++.
+
+Registry labels are completed from a cache of the listing service, never
+from the network (a request per TAB would be slow, can hang, and would load a
+site-specific service). `site::registry_listing()` saves every listing it
+fetches, so any `uenv image find/pull/copy/push/delete` fills it, to
+`$XDG_CACHE_HOME/uenv/listing/<hash of listing URL>/<namespace>.json`
+(`site::listing_cache_dir()`); a listing older than
+`site::listing_cache_max_age` is ignored. With nothing cached, only namespace
+names are offered. The tag of the argument decides how namespaces are handled:
+
+- `registry_label` (`image pull`, `image find`): labels in the configured
+  default namespace, and `ns::` once something has been typed;
+- `registry_nslabel` (`image delete`, the source of `image copy`): `ns::`
+  first, then the labels in that namespace;
+- `registry_dest` (the destination of `image copy` and `image push`): `ns::`,
+  then `ns::name/version:` of the source, leaving the tag to the user, then
+  the source's `@system%uarch` after an `@`.
+
+The namespaces offered are `site::registry_namespaces`, the default namespace
+and any namespace in the cache. Tests that run `image` commands against a
+listing service set `XDG_CACHE_HOME` so that they never write to the user's
+cache.
 
 The shell scripts (`src/cli/completion/uenv.bash`, `src/cli/completion/_uenv`)
 are installed with `install_data`, and compiled into the binary (meson reads

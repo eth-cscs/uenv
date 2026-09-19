@@ -123,6 +123,129 @@ TEST_CASE("complete_label", "[complete]") {
     }
 }
 
+TEST_CASE("complete_registry_label", "[complete]") {
+    using uenv::complete_registry_label;
+    const std::optional<std::string> daint = "daint";
+    const strings namespaces{"build", "deploy", "service"};
+    const std::vector<uenv::uenv_record> build{
+        record("prgenv-gnu", "24.11", "1551223269", "daint", "gh200"),
+    };
+    // the namespaces whose records have been asked for
+    strings asked;
+    const uenv::namespace_records listing =
+        [&](const std::string& nspace) -> std::vector<uenv::uenv_record> {
+        asked.push_back(nspace);
+        if (nspace == "deploy") {
+            return records;
+        }
+        if (nspace == "build") {
+            return build;
+        }
+        return {};
+    };
+
+    SECTION("in the default namespace") {
+        const std::optional<std::string> deploy = "deploy";
+        // nothing typed: the labels in the default namespace only
+        REQUIRE(values(complete_registry_label("", namespaces, deploy, listing,
+                                               daint)) ==
+                strings{"prgenv-gnu/24.11:v1", "prgenv-gnu/24.11:v2",
+                        "prgenv-nvfortran/24.11:v1"});
+        REQUIRE(asked == strings{"deploy"});
+        // the namespaces are offered once something has been typed
+        REQUIRE(values(complete_registry_label("b", namespaces, deploy, listing,
+                                               daint)) == strings{"build::"});
+        REQUIRE(values(complete_registry_label("prgenv-n", namespaces, deploy,
+                                               listing, daint)) ==
+                strings{"prgenv-nvfortran/24.11:v1"});
+        // another namespace
+        REQUIRE(values(complete_registry_label("build::", namespaces, deploy,
+                                               listing, daint)) ==
+                strings{"build::prgenv-gnu/24.11:1551223269"});
+        REQUIRE(values(complete_registry_label(
+                    "deploy::prgenv-gnu/24.11:v1@", namespaces, deploy, listing,
+                    daint)) == strings{"deploy::prgenv-gnu/24.11:v1@daint",
+                                       "deploy::prgenv-gnu/24.11:v1@eiger"});
+        REQUIRE(values(complete_registry_label("service::", namespaces, deploy,
+                                               listing, daint))
+                    .empty());
+    }
+    SECTION("the namespace first") {
+        REQUIRE(values(complete_registry_label("", namespaces, std::nullopt,
+                                               listing, daint)) ==
+                strings{"build::", "deploy::", "service::"});
+        REQUIRE(asked.empty());
+        REQUIRE(complete_registry_label("", namespaces, std::nullopt, listing,
+                                        daint)[0]
+                    .description == "namespace");
+        REQUIRE(values(complete_registry_label("de", namespaces, std::nullopt,
+                                               listing, daint)) ==
+                strings{"deploy::"});
+        REQUIRE(values(complete_registry_label("prgenv", namespaces,
+                                               std::nullopt, listing, daint))
+                    .empty());
+        REQUIRE(values(complete_registry_label("build::p", namespaces,
+                                               std::nullopt, listing, daint)) ==
+                strings{"build::prgenv-gnu/24.11:1551223269"});
+    }
+}
+
+TEST_CASE("complete_registry_destination", "[complete]") {
+    using uenv::complete_registry_destination;
+    const strings namespaces{"build", "deploy", "service"};
+    const std::vector<uenv::uenv_record> source{
+        record("prgenv-gnu", "24.11", "1551223269", "daint", "gh200"),
+    };
+
+    // the namespace first
+    REQUIRE(values(complete_registry_destination("", namespaces, source)) ==
+            strings{"build::", "deploy::", "service::"});
+    REQUIRE(values(complete_registry_destination("d", namespaces, source)) ==
+            strings{"deploy::"});
+    // then the name and version of the source, leaving the tag to the user
+    REQUIRE(
+        values(complete_registry_destination("deploy::", namespaces, source)) ==
+        strings{"deploy::prgenv-gnu/24.11:"});
+    REQUIRE(values(complete_registry_destination("deploy::prgenv-gnu/2",
+                                                 namespaces, source)) ==
+            strings{"deploy::prgenv-gnu/24.11:"});
+    REQUIRE(values(complete_registry_destination("deploy::netcdf", namespaces,
+                                                 source))
+                .empty());
+    REQUIRE(values(complete_registry_destination("deploy::prgenv-gnu/24.11:v1",
+                                                 namespaces, source))
+                .empty());
+    // then the system and uarch of the source
+    REQUIRE(values(complete_registry_destination("deploy::prgenv-gnu/24.11:v1@",
+                                                 namespaces, source)) ==
+            strings{"deploy::prgenv-gnu/24.11:v1@daint%gh200"});
+    REQUIRE(values(complete_registry_destination(
+                "deploy::prgenv-gnu/24.11:v1@da", namespaces, source)) ==
+            strings{"deploy::prgenv-gnu/24.11:v1@daint%gh200"});
+    REQUIRE(values(complete_registry_destination(
+                       "deploy::prgenv-gnu/24.11:v1@eiger", namespaces, source))
+                .empty());
+
+    SECTION("a source on several systems") {
+        const std::vector<uenv::uenv_record> sources{
+            record("prgenv-gnu", "24.11", "v1", "daint", "gh200"),
+            record("prgenv-gnu", "24.11", "v1", "eiger", "zen2"),
+        };
+        REQUIRE(values(complete_registry_destination("deploy::", namespaces,
+                                                     sources)) ==
+                strings{"deploy::prgenv-gnu/24.11:"});
+        REQUIRE(values(complete_registry_destination(
+                    "deploy::prgenv-gnu/24.11:v2@", namespaces, sources)) ==
+                strings{"deploy::prgenv-gnu/24.11:v2@daint%gh200",
+                        "deploy::prgenv-gnu/24.11:v2@eiger%zen2"});
+    }
+    SECTION("no source") {
+        REQUIRE(
+            values(complete_registry_destination("deploy::", namespaces, {}))
+                .empty());
+    }
+}
+
 TEST_CASE("complete_uenv_list", "[complete]") {
     using uenv::complete_uenv_list;
     const std::optional<std::string> daint = "daint";

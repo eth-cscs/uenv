@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <charconv>
 #include <filesystem>
+#include <initializer_list>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -19,6 +21,7 @@
 
 #include <argparse/argparse.h>
 #include <argparse/complete.h>
+#include <site/site.h>
 #include <uenv/complete.h>
 #include <uenv/log.h>
 #include <uenv/meta.h>
@@ -39,8 +42,9 @@ struct complete_args {
     std::vector<std::string> words;
 };
 
-// The configuration and repositories, loaded the first time they are needed:
-// completing a subcommand or option name reads neither.
+// The configuration, repositories and cached registry listings, loaded the
+// first time they are needed: completing a subcommand or option name reads
+// none of them.
 class sources {
   public:
     sources(const global_settings& settings, global_args globals)
@@ -93,6 +97,49 @@ class sources {
         return *records_;
     }
 
+    // the namespace of a registry label that has none
+    std::optional<std::string> default_namespace() {
+        auto c = config();
+        if (!c || !c->registry) {
+            return std::nullopt;
+        }
+        return c->registry->default_namespace;
+    }
+
+    // the namespaces of the registry: the site's, and those in the cache
+    std::vector<std::string> namespaces() {
+        std::vector<std::string> result(std::begin(site::registry_namespaces),
+                                        std::end(site::registry_namespaces));
+        if (auto nspace = default_namespace()) {
+            result.push_back(*nspace);
+        }
+        if (auto dir = listing_cache()) {
+            auto cached = site::cached_namespaces(*dir);
+            result.insert(result.end(), cached.begin(), cached.end());
+        }
+        return result;
+    }
+
+    // the records of a namespace in the cached listing of the registry: the
+    // registry itself is never queried
+    const std::vector<uenv_record>& listing(const std::string& nspace) {
+        auto it = listings_.find(nspace);
+        if (it == listings_.end()) {
+            std::optional<std::vector<uenv_record>> records;
+            if (auto dir = listing_cache()) {
+                records = site::cached_registry_listing(*dir, nspace);
+            }
+            it = listings_.emplace(nspace, records.value_or({})).first;
+        }
+        return it->second;
+    }
+
+    // whether a registry is configured
+    bool has_registry() {
+        auto c = config();
+        return c && c->registry;
+    }
+
   private:
     const envvars::state& env_;
     global_args globals_;
@@ -101,6 +148,16 @@ class sources {
     bool repos_loaded_ = false;
     std::vector<repository> repos_;
     std::optional<std::vector<uenv_record>> records_;
+    std::map<std::string, std::vector<uenv_record>> listings_;
+
+    std::optional<std::filesystem::path> listing_cache() {
+        auto c = config();
+        auto root = user_cache_path(env_);
+        if (!c || !c->registry || !root) {
+            return std::nullopt;
+        }
+        return site::listing_cache_dir(*root, c->registry->listing_url);
+    }
 
     std::optional<configuration> load() const {
         std::optional<std::vector<repo_label>> repo_labels;
@@ -161,18 +218,64 @@ std::vector<std::pair<std::string, meta>> uenv_meta(std::string_view uenvs,
     return result;
 }
 
-// the uenvs given to the command that the cursor is in
-std::string_view named_uenvs(const argparse::completion_request& req) {
+// the value given to the command that the cursor is in, for the positional
+// argument whose values are completed with one of the custom `tags`
+std::optional<std::string_view>
+positional_value(const argparse::completion_request& req,
+                 std::initializer_list<std::string_view> tags) {
     for (auto& it : req.context.items) {
         if (it.cmd == req.cmd && it.pos && it.value) {
             auto& c = it.pos->completer();
             if (c.type == argparse::completion::kind::custom &&
-                (c.arg == "uenv_list" || c.arg == "uenv")) {
+                std::find(tags.begin(), tags.end(), c.arg) != tags.end()) {
                 return *it.value;
             }
         }
     }
-    return {};
+    return std::nullopt;
+}
+
+// the uenvs given to the command that the cursor is in
+std::string_view named_uenvs(const argparse::completion_request& req) {
+    return positional_value(req, {"uenv_list", "uenv"}).value_or("");
+}
+
+// The records of the uenv that is copied (a label in the registry) or pushed
+// (a label in a local repository) by the command that the cursor is in.
+std::vector<uenv_record> copied_uenv(const argparse::completion_request& req,
+                                     sources& src) {
+    std::vector<uenv_record> result;
+    if (auto source = positional_value(req, {"registry_nslabel"})) {
+        // uenv image copy: the source is looked up as image_copy does
+        auto nslabel = parse_uenv_nslabel(std::string(*source));
+        if (!nslabel || !nslabel->nspace) {
+            return result;
+        }
+        auto store = create_repository();
+        if (!store) {
+            return result;
+        }
+        for (auto& r : src.listing(*nslabel->nspace)) {
+            store->add(r);
+        }
+        if (auto rs = store->query(nslabel->label)) {
+            result.assign(rs->begin(), rs->end());
+        }
+    } else if (auto source = positional_value(req, {"uenv"})) {
+        // uenv image push: only a label has a name and version to offer
+        auto desc = parse_uenv_description(std::string(*source));
+        if (!desc || !desc->label()) {
+            return result;
+        }
+        auto query = apply_system(*desc->label(), src.system());
+        for (auto& repo : src.repos()) {
+            if (auto rs = repo.query(query); rs && !rs->empty()) {
+                result.assign(rs->begin(), rs->end());
+                break;
+            }
+        }
+    }
+    return result;
 }
 
 std::vector<candidate> complete_custom(const std::string& tag,
@@ -208,8 +311,25 @@ std::vector<candidate> complete_custom(const std::string& tag,
         }
         return result;
     }
-    // registry_label: labels in a remote registry would need a cache, so
-    // that completion never waits on the network.
+    // labels in a remote registry are read from the listings cached by the
+    // commands that fetched them: completion never waits on the network
+    if (tag == "registry_label" || tag == "registry_nslabel") {
+        if (!src.has_registry()) {
+            return {};
+        }
+        return complete_registry_label(
+            prefix, src.namespaces(),
+            tag == "registry_label" ? src.default_namespace() : std::nullopt,
+            [&src](const std::string& nspace) { return src.listing(nspace); },
+            src.system());
+    }
+    if (tag == "registry_dest") {
+        if (!src.has_registry()) {
+            return {};
+        }
+        return complete_registry_destination(prefix, src.namespaces(),
+                                             copied_uenv(req, src));
+    }
     return {};
 }
 

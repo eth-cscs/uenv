@@ -123,7 +123,9 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
 
     spdlog::info("image_pull: {}::{}", nspace, label);
 
-    auto registry = site::registry_listing(registry_cfg.listing_url, nspace);
+    auto registry =
+        site::registry_listing(registry_cfg.listing_url, nspace,
+                               user_cache_path(settings.calling_environment));
     if (!registry) {
         term::error("unable to get a listing of the uenv", registry.error());
         return 1;

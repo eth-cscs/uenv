@@ -99,7 +99,9 @@ int image_find([[maybe_unused]] const image_find_args& args,
     label = apply_system(label, settings.config.system_name);
     spdlog::info("image_find: {}::{}", nspace, label);
 
-    auto store = site::registry_listing(registry_cfg.listing_url, nspace);
+    auto store =
+        site::registry_listing(registry_cfg.listing_url, nspace,
+                               user_cache_path(settings.calling_environment));
     if (!store) {
         term::error("unable to get a listing of the uenv", store.error());
         return 1;

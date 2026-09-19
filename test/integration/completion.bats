@@ -21,6 +21,9 @@ function setup() {
     cat > $XDG_CONFIG_HOME/uenv/config.toml <<EOF
 system_name = 'arapiles'
 EOF
+    # registry labels are completed from the listings cached here, not from
+    # those in the user's home
+    export XDG_CACHE_HOME=$TMP/cache
 
     export REPO=$REPOS/apptool
 
@@ -316,7 +319,122 @@ app,spack
     assert_output ":command-offset=5"
 }
 
-@test "registry labels are not completed" {
+# Serve a listing of the registry, with a record for each of the paths given
+# as arguments, and configure uenv to use it. The server is stopped with
+# stop_listing.
+function serve_listing() {
+    LISTING=$TMP/listing.jsonl
+    local path sha
+    for path in "$@"; do
+        sha=$(printf '%s' "$path" | sha256sum | cut -c1-64)
+        listing_mock add $LISTING --path $path --sha $sha >/dev/null
+    done
+    local port=$(listing_mock free-port)
+    listing_mock serve $LISTING $port &
+    listing_mock wait-server $port --timeout 5
+    cat >> $XDG_CONFIG_HOME/uenv/config.toml <<EOF
+[registry]
+url = "http://127.0.0.1:1/uenv"
+default_namespace = "deploy"
+listing_url = "http://127.0.0.1:$port/list"
+EOF
+}
+
+function stop_listing() {
+    listing_mock kill $LISTING 2>/dev/null || true
+}
+
+@test "registry labels are completed from the cached listings" {
+    serve_listing \
+        deploy/arapiles/zen3/prgenv-gnu/24.11/v1 \
+        deploy/arapiles/zen3/prgenv-gnu/24.11/v2 \
+        deploy/arapiles/zen3/netcdf/4.9/v1 \
+        deploy/eiger/zen2/prgenv-gnu/24.11/v3 \
+        build/arapiles/zen3/prgenv-gnu/24.11/1551223269 \
+        service/arapiles/zen3/tool/1.0/v1 \
+        mine/arapiles/zen3/tool/2.0/v1
+
+    # nothing is cached: only the namespaces are known
+    complete_line uenv image pull ""
+    assert_output ":"
+    complete_line uenv image delete ""
+    assert_output "build::
+deploy::
+service::
+:nospace"
+
+    # every command that fetches a listing caches it
+    run uenv image find
+    assert_success
+    run uenv image find build::
+    assert_success
+    run uenv image find mine::
+    assert_success
+    # completion reads only the cache
+    stop_listing
+
+    # pull and find: the default namespace, then the others
+    complete_line uenv image pull ""
+    assert_output "netcdf/4.9:v1
+prgenv-gnu/24.11:v1
+prgenv-gnu/24.11:v2
+:"
+    complete_line uenv image find prgenv-gnu/24.11:v
+    assert_output "prgenv-gnu/24.11:v1
+prgenv-gnu/24.11:v2
+:"
+    complete_line uenv image pull prgenv-gnu/24.11:v3@
+    assert_output "prgenv-gnu/24.11:v3@eiger
+:"
+    complete_line uenv image pull b
+    assert_output "build::
+:nospace"
+    complete_line uenv image pull build::
+    assert_output "build::prgenv-gnu/24.11:1551223269
+:"
+    # a namespace that is not the site's is known from the cache
+    complete_line uenv image find m
+    assert_output "mine::
+:nospace"
+    complete_line uenv image find mine::
+    assert_output "mine::tool/2.0:v1
+:"
+    # a namespace that has not been cached
+    complete_line uenv image find service::
+    assert_output ":"
+
+    # delete and the source of copy: the namespace first
+    complete_line uenv image delete ""
+    assert_output "build::
+deploy::
+mine::
+service::
+:nospace"
+    complete_line uenv image copy build::p
+    assert_output "build::prgenv-gnu/24.11:1551223269
+:"
+
+    # the destination of copy: the name and version of the source
+    complete_line uenv image copy build::prgenv-gnu/24.11:1551223269 d
+    assert_output "deploy::
+:nospace"
+    complete_line uenv image copy build::prgenv-gnu/24.11:1551223269 deploy::
+    assert_output "deploy::prgenv-gnu/24.11:
+:nospace"
+    complete_line uenv image copy build::nothing deploy::
+    assert_output ":"
+
+    # the destination of push: the name and version of the local source, then
+    # its system and uarch
+    complete_line uenv --repo=$REPO image push app/42.0:v1 deploy::
+    assert_output "deploy::app/42.0:
+:nospace"
+    complete_line uenv --repo=$REPO image push app/42.0:v1 deploy::app/42.0:v2@
+    assert_output --regexp "^deploy::app/42.0:v2@arapiles%[a-z0-9]+
+:$"
+
+    # an old listing is not used
+    touch -d "40 days ago" $(find $XDG_CACHE_HOME -name deploy.json)
     complete_line uenv image pull ""
     assert_output ":"
 }

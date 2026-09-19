@@ -403,3 +403,12 @@ TEST_CASE("read config files v2 malformed", "[settings]") {
         }
     }
 }
+
+TEST_CASE("user_cache_path", "[settings]") {
+    envvars::state env;
+    REQUIRE(!uenv::user_cache_path(env));
+    env.set("HOME", "/home/user");
+    REQUIRE(uenv::user_cache_path(env) == "/home/user/.cache/uenv");
+    env.set("XDG_CACHE_HOME", "/cache");
+    REQUIRE(uenv::user_cache_path(env) == "/cache/uenv");
+}

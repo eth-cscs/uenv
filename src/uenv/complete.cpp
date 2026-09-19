@@ -316,6 +316,72 @@ complete_views(std::string_view prefix,
 }
 
 std::vector<candidate>
+complete_namespace(std::string_view prefix,
+                   const std::vector<std::string>& names) {
+    std::vector<candidate> result;
+    for (auto& name : names) {
+        auto value = fmt::format("{}::", name);
+        if (value.starts_with(prefix)) {
+            result.push_back({std::move(value), "namespace"});
+        }
+    }
+    sort_unique(result);
+    return result;
+}
+
+std::vector<candidate>
+complete_registry_label(std::string_view prefix,
+                        const std::vector<std::string>& namespaces,
+                        const std::optional<std::string>& default_namespace,
+                        const namespace_records& records,
+                        const std::optional<std::string>& system) {
+    if (auto sep = prefix.find("::"); sep != std::string_view::npos) {
+        return prefixed(
+            prefix.substr(0, sep + 2),
+            complete_label(prefix.substr(sep + 2),
+                           records(std::string(prefix.substr(0, sep))),
+                           system));
+    }
+    std::vector<candidate> result;
+    if (default_namespace) {
+        result = complete_label(prefix, records(*default_namespace), system);
+    }
+    if (!default_namespace || !prefix.empty()) {
+        auto names = complete_namespace(prefix, namespaces);
+        result.insert(result.end(), names.begin(), names.end());
+    }
+    sort_unique(result);
+    return result;
+}
+
+std::vector<candidate>
+complete_registry_destination(std::string_view prefix,
+                              const std::vector<std::string>& namespaces,
+                              const std::vector<uenv_record>& sources) {
+    const auto sep = prefix.find("::");
+    if (sep == std::string_view::npos) {
+        return complete_namespace(prefix, namespaces);
+    }
+    const auto rest = prefix.substr(sep + 2);
+    std::vector<candidate> result;
+    for (auto& r : sources) {
+        auto stem = fmt::format("{}/{}:", r.name, r.version);
+        const auto at = rest.find('@', stem.size());
+        if (stem.starts_with(rest)) {
+            result.push_back({std::move(stem), {}});
+        } else if (rest.starts_with(stem) && at != std::string_view::npos) {
+            auto value =
+                fmt::format("{}@{}%{}", rest.substr(0, at), r.system, r.uarch);
+            if (value.starts_with(rest)) {
+                result.push_back({std::move(value), {}});
+            }
+        }
+    }
+    sort_unique(result);
+    return prefixed(prefix.substr(0, sep + 2), std::move(result));
+}
+
+std::vector<candidate>
 complete_system(std::string_view prefix,
                 const std::vector<uenv_record>& records) {
     std::vector<candidate> result;

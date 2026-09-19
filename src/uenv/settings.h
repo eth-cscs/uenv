@@ -91,6 +91,12 @@ std::optional<std::filesystem::path> system_config_path();
 std::optional<std::filesystem::path>
 user_config_path(const envvars::state& calling_env);
 
+// the directory for the user's cached data: $XDG_CACHE_HOME/uenv, or
+// $HOME/.cache/uenv. It may not exist. Returns nullopt if neither variable is
+// set.
+std::optional<std::filesystem::path>
+user_cache_path(const envvars::state& calling_env);
+
 // helper that will return the default writeable repository, if it exists or can
 // be created.
 // used by modes that update a repo (image add, image rm, image pull, repo
