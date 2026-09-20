@@ -257,33 +257,12 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                                                     bool fuse_single_threaded) {
     spdlog::trace("do_sqfs_ll_mount");
 
-    // use a pipe to synchronize parent and child process
-    auto rf = util::ready_fork::create();
-    if (!rf) {
-        return util::unexpected(rf.error());
-    }
-
-    pid_t pid = rf->fork();
-    if (pid < 0) {
-        return util::unexpected(
-            fmt::format("fork() failed: {}", strerror(errno)));
-    }
-
-    if (pid == 0) {
-        // kill the fuse process when the parent exits. prctl(2) documents a
-        // race here: the parent can die in the gap between fork() returning
-        // and this call actually arming the signal, in which case we are
-        // already silently reparented and nothing will ever signal us. The
-        // kernel reparents atomically, so comparing getppid() to the pid
-        // rf captured (in the parent, before fork()) tells us definitively
-        // whether that already happened.
-        if (prctl(PR_SET_PDEATHSIG, SIGHUP) != 0) {
-            child_fail(fmt::format("prctl(PR_SET_PDEATHSIG) failed: {}",
-                                   strerror(errno)));
-        }
-        if (getppid() != rf->parent_pid()) {
-            child_fail("parent process exited before PDEATHSIG could be "
-                       "armed");
+    // the child process starts fuse, and informs this process via a pipe when
+    // the image is mounted
+    auto pid = util::fork_and_wait_ready([&](util::ready_fork& rf) {
+        // kill the fuse process when the parent exits
+        if (auto ok = rf.die_with_parent(SIGHUP); !ok) {
+            child_fail(ok.error());
         }
 
         // do not listen for SIGINT (ctrl+c)
@@ -318,9 +297,6 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
             }
         }
 
-        // the child process starts fuse and informs the calling process via
-        // pipe when done
-
         if (auto ll = sqfs_ll_open(entry.sqfs.c_str(), 0); ll == nullptr) {
             child_fail("sqfs_ll_open_failed");
         } else {
@@ -335,7 +311,7 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
                     if (fuse_set_signal_handlers(ch.session) != -1) {
                         // inform parent process that sqfs has been mounted with
                         // signal handlers in place
-                        if (auto ok = rf->notify_ready(); !ok) {
+                        if (auto ok = rf.notify_ready(); !ok) {
                             child_fail(ok.error());
                         }
 
@@ -405,13 +381,12 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         }
         fuse_opt_free_args(&args);
         _exit(0);
-    }
+    });
 
-    // parent block on pipe until fusemount has finished.
-    if (auto ok = rf->wait_ready(); !ok) {
-        return util::unexpected(
-            fmt::format("mounting squashfs image {} at {} failed: {}",
-                        entry.sqfs.string(), entry.mount.string(), ok.error()));
+    if (!pid) {
+        return util::unexpected(fmt::format(
+            "mounting squashfs image {} at {} failed: {}", entry.sqfs.string(),
+            entry.mount.string(), pid.error()));
     }
 
     return pid;
@@ -488,23 +463,12 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
 util::expected<void, std::string>
 fork_mount_supervisor(const uenv::mount_list& mounts,
                       bool fuse_single_threaded) {
-    auto rf = util::ready_fork::create();
-    if (!rf) {
-        return util::unexpected(rf.error());
-    }
-
-    pid_t pid = rf->fork();
-    if (pid < 0) {
+    auto pid = util::fork_and_wait_ready([&](util::ready_fork& rf) {
+        supervisor_main(rf, mounts, fuse_single_threaded);
+    });
+    if (!pid) {
         return util::unexpected(
-            fmt::format("fork() failed: {}", strerror(errno)));
-    }
-    if (pid == 0) {
-        supervisor_main(*rf, mounts, fuse_single_threaded);
-    }
-
-    if (auto ok = rf->wait_ready(); !ok) {
-        return util::unexpected(
-            fmt::format("mount supervisor failed: {}", ok.error()));
+            fmt::format("mount supervisor failed: {}", pid.error()));
     }
 
     return {};

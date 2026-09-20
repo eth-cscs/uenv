@@ -1,5 +1,6 @@
 #include <cerrno>
 #include <cstring>
+#include <sys/prctl.h>
 #include <unistd.h>
 
 #include <fmt/format.h>
@@ -32,6 +33,20 @@ expected<ready_fork, std::string> ready_fork::create() {
 
 pid_t ready_fork::parent_pid() const {
     return parent_pid_;
+}
+
+expected<void, std::string> ready_fork::die_with_parent(int sig) {
+    if (::prctl(PR_SET_PDEATHSIG, sig) != 0) {
+        return unexpected(
+            fmt::format("prctl(PR_SET_PDEATHSIG) failed: {}", strerror(errno)));
+    }
+    // the kernel reparents atomically, so this tells definitively whether the
+    // parent exited before the signal was armed
+    if (::getppid() != parent_pid_) {
+        return unexpected(std::string{
+            "parent process exited before PDEATHSIG could be armed"});
+    }
+    return {};
 }
 
 pid_t ready_fork::fork() {
@@ -76,6 +91,28 @@ expected<void, std::string> ready_fork::wait_ready() {
             std::string{"child exited before signaling readiness"});
     }
     return {};
+}
+
+expected<pid_t, std::string>
+fork_and_wait_ready(const std::function<void(ready_fork&)>& child) {
+    auto rf = ready_fork::create();
+    if (!rf) {
+        return unexpected(rf.error());
+    }
+
+    const pid_t pid = rf->fork();
+    if (pid < 0) {
+        return unexpected(fmt::format("fork() failed: {}", strerror(errno)));
+    }
+    if (pid == 0) {
+        child(*rf);
+        _exit(0);
+    }
+
+    if (auto ok = rf->wait_ready(); !ok) {
+        return unexpected(ok.error());
+    }
+    return pid;
 }
 
 } // namespace util
