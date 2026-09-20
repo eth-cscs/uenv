@@ -53,7 +53,7 @@ void close_fds_from(int first) {
 }
 
 void spawn_detached(const std::function<void()>& work,
-                    std::chrono::seconds limit) {
+                    std::chrono::seconds limit, detached_output output) {
     const pid_t child = ::fork();
     if (child < 0) {
         return;
@@ -67,7 +67,12 @@ void spawn_detached(const std::function<void()>& work,
             ::_exit(0);
         }
         // hold none of the caller's descriptors
-        if (!redirect_to_null({STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO})) {
+        if (output == detached_output::keep) {
+            if (!redirect_to_null({STDIN_FILENO})) {
+                ::close(STDIN_FILENO);
+            }
+        } else if (!redirect_to_null(
+                       {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO})) {
             ::close(STDIN_FILENO);
             ::close(STDOUT_FILENO);
             ::close(STDERR_FILENO);
