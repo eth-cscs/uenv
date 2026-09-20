@@ -1,6 +1,5 @@
 // vim: ts=4 sts=4 sw=4 et
 
-#include <fcntl.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -404,10 +403,7 @@ int complete_main(const argparse::program<global_args>& cli,
                   const global_settings& settings,
                   std::span<const char* const> args) {
     // the output is read by the shell: nothing may be written to the terminal
-    if (int fd = open("/dev/null", O_WRONLY); fd >= 0) {
-        dup2(fd, STDERR_FILENO);
-        close(fd);
-    }
+    (void)util::redirect_to_null({STDERR_FILENO});
     init_log(spdlog::level::off);
 
     argparse::command_builder<complete_args> builder("__complete",

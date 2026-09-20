@@ -2,8 +2,19 @@
 
 #include <chrono>
 #include <functional>
+#include <initializer_list>
+#include <string>
+
+#include <util/expected.h>
 
 namespace util {
+
+// Point each of the descriptors `fds` (e.g. STDIN_FILENO) at /dev/null. On
+// error, the descriptors before the one that failed have been redirected.
+expected<void, std::string> redirect_to_null(std::initializer_list<int> fds);
+
+// close every descriptor from `first` up
+void close_fds_from(int first);
 
 // Run `work` in a detached grandchild of this process, and return without
 // waiting for it. Used to do slow work (a network request) on behalf of a

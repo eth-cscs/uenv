@@ -1,4 +1,3 @@
-#include <fcntl.h>
 #include <unistd.h>
 
 #include <fmt/ranges.h>
@@ -6,40 +5,15 @@
 
 #include <uenv/elastic.h>
 #include <util/curl.h>
+#include <util/detach.h>
 
 namespace uenv {
-
-namespace impl {
-
-void drop_file_descriptors(bool in, bool out) {
-    if (in || out) {
-        int null_fd = open("/dev/null", O_RDWR);
-
-        if (null_fd != -1) {
-            if (in) {
-                dup2(null_fd, STDIN_FILENO);
-            }
-            if (out) {
-                dup2(null_fd, STDOUT_FILENO);
-                dup2(null_fd, STDERR_FILENO);
-            }
-
-            if (null_fd > 2) {
-                close(null_fd);
-            }
-        }
-    }
-}
-
-} // namespace impl
 
 void post_elastic(const std::vector<std::string>& payload,
                   const std::string& url, bool subproc) {
     if (subproc) {
         // create a sub-process to asynchronously post the results
         if (fork() == 0) {
-            // always disable input
-            const bool drop_in = true;
             // keep stdout/stderr if trace logging is enabled, so that it is
             // still possble to get trace curl output.
             const bool drop_out = spdlog::get_level() > spdlog::level::debug;
@@ -53,7 +27,13 @@ void post_elastic(const std::vector<std::string>& payload,
             // do not use stderr/stdin/stdout from parent process because
             // this does not play nicely with Slurm, particularly with the
             // --pty flag and srun.
-            impl::drop_file_descriptors(drop_in, drop_out);
+            // input is always disabled
+            if (drop_out) {
+                (void)util::redirect_to_null(
+                    {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO});
+            } else {
+                (void)util::redirect_to_null({STDIN_FILENO});
+            }
 
             // send the telemetry payload to elastic
             for (auto& text : payload) {
