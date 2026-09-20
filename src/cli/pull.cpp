@@ -124,7 +124,8 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
 
     auto registry = fetch_registry_listing(settings, nspace);
     if (!registry) {
-        term::error("{}", registry.error());
+        term::error("unable to get a listing of the uenv: {}",
+                    registry.error());
         return 1;
     }
 

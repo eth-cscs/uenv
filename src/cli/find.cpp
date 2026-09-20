@@ -101,7 +101,7 @@ int image_find([[maybe_unused]] const image_find_args& args,
 
     auto store = fetch_registry_listing(settings, nspace);
     if (!store) {
-        term::error("{}", store.error());
+        term::error("unable to get a listing of the uenv: {}", store.error());
         return 1;
     }
 

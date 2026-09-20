@@ -131,7 +131,8 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
 
     auto src_registry = fetch_registry_listing(settings, *src_label.nspace);
     if (!src_registry) {
-        term::error("{}", src_registry.error());
+        term::error("unable to get a listing of the uenv: {}",
+                    src_registry.error());
         return 1;
     }
 

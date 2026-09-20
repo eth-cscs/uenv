@@ -121,7 +121,8 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
 
     auto registry = fetch_registry_listing(settings, nspace);
     if (!registry) {
-        term::error("{}", registry.error());
+        term::error("unable to get a listing of the uenv: {}",
+                    registry.error());
         return 1;
     }
 

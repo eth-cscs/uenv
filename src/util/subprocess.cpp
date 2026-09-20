@@ -1,3 +1,6 @@
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -30,54 +33,76 @@ run(const std::vector<std::string>& argv,
         return unexpected("need at least one argument");
     }
 
-    // TODO: error handling
-    pipe inpipe = *make_pipe();
-    pipe outpipe = *make_pipe();
-    pipe errpipe = *make_pipe();
+    // check the run path here: an error can't be returned from the child
+    if (runpath && !std::filesystem::is_directory(*runpath)) {
+        return unexpected(
+            fmt::format("the run path {} does not exist", runpath->string()));
+    }
+
+    auto inpipe = make_pipe();
+    auto outpipe = make_pipe();
+    auto errpipe = make_pipe();
+    if (!inpipe || !outpipe || !errpipe) {
+        const auto msg = fmt::format("pipe() failed: {}", strerror(errno));
+        for (auto* p : {&inpipe, &outpipe, &errpipe}) {
+            if (*p) {
+                (*p)->close();
+            }
+        }
+        return unexpected(msg);
+    }
+
+    // everything the child needs is built before fork(): the child must not
+    // allocate, and must never return into the caller's code
+    std::vector<char*> args;
+    args.reserve(argv.size() + 1);
+    for (auto& arg : argv) {
+        args.push_back(const_cast<char*>(arg.data()));
+    }
+    args.push_back(nullptr);
+    const auto exec_error =
+        fmt::format("subprocess error running '{}'", fmt::join(argv, " "));
 
     auto pid = ::fork();
 
+    if (pid < 0) {
+        const auto msg = fmt::format("fork() failed: {}", strerror(errno));
+        inpipe->close();
+        outpipe->close();
+        errpipe->close();
+        return unexpected(msg);
+    }
+
     if (pid == 0) {
-        // TODO: error handling
-        ::dup2(outpipe.write(), STDOUT_FILENO);
-        ::dup2(errpipe.write(), STDERR_FILENO);
-        ::dup2(inpipe.read(), STDIN_FILENO);
-
-        outpipe.close();
-        errpipe.close();
-        inpipe.close();
-
-        // child(argv);
-        std::vector<char*> args;
-        args.reserve(argv.size() + 1);
-        for (auto& arg : argv) {
-            args.push_back(const_cast<char*>(arg.data()));
+        if (::dup2(outpipe->write(), STDOUT_FILENO) < 0 ||
+            ::dup2(errpipe->write(), STDERR_FILENO) < 0 ||
+            ::dup2(inpipe->read(), STDIN_FILENO) < 0) {
+            _exit(1);
         }
-        args.push_back(nullptr);
 
-        if (runpath) {
-            if (std::filesystem::is_directory(*runpath)) {
-                std::filesystem::current_path(*runpath);
-            } else {
-                return util::unexpected{fmt::format(
-                    "the run path {} does not exist", runpath->string())};
-            }
+        outpipe->close();
+        errpipe->close();
+        inpipe->close();
+
+        if (runpath && ::chdir(runpath->c_str()) != 0) {
+            std::perror(exec_error.c_str());
+            _exit(1);
         }
-        execvp(args[0], &args[0]);
+        execvp(args[0], args.data());
 
         // this code only executes if the attempt to launch the subprocess
         // fails to launch.
-        std::perror(
-            fmt::format("subprocess error running '{}'", fmt::join(argv, " "))
-                .c_str());
-        exit(1);
+        std::perror(exec_error.c_str());
+        // not exit(): the atexit handlers and static destructors are the
+        // parent's to run
+        _exit(1);
     }
 
-    outpipe.close_write();
-    errpipe.close_write();
-    inpipe.close_read();
+    outpipe->close_write();
+    errpipe->close_write();
+    inpipe->close_read();
 
-    return subprocess{outpipe, errpipe, inpipe, pid};
+    return subprocess{*outpipe, *errpipe, *inpipe, pid};
 }
 
 void subprocess::setrcode(int status) {
