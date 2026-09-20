@@ -55,6 +55,16 @@ TEST_CASE("runpath", "[subprocess]") {
     REQUIRE(proc->out.getline() == "/");
 }
 
+TEST_CASE("invalid runpath", "[subprocess]") {
+    // the error is returned to the caller, and only to the caller: a child
+    // that returned it too would run the rest of this test a second time
+    const auto pid = getpid();
+    auto proc = util::run({"pwd"}, "/wombat/soup");
+    REQUIRE(getpid() == pid);
+    REQUIRE(!proc);
+    REQUIRE_THAT(proc.error(), matchers::ContainsSubstring("/wombat/soup"));
+}
+
 TEST_CASE("kill", "[subprocess]") {
     // sleep 100 ms
     auto proc = util::run({"sleep", "0.1s"});
