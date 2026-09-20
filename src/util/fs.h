@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <ctime>
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 #include <util/expected.h>
 
@@ -70,6 +72,29 @@ read_single_line_file(const std::filesystem::path& path);
 // read the full contents of a text file into a string.
 util::expected<std::string, std::string>
 read_file(const std::filesystem::path& path);
+
+// The contents of a regular file of at most `max_size` bytes. Nothing else is
+// read, and the read never blocks: a FIFO put in place of the file would
+// otherwise hang the reader. Returns nullopt for anything else.
+std::optional<std::string> read_regular_file(const std::filesystem::path& path,
+                                             std::uintmax_t max_size);
+
+// Write `contents` to `path` so that a reader sees either the old file or the
+// whole of the new one: the contents are written to .<filename>.<pid> in the
+// same directory, which is then renamed over `path`. The temporary file is
+// removed on error.
+util::expected<void, std::string>
+write_file_atomic(const std::filesystem::path& path, std::string_view contents);
+
+// create `path` if it does not exist, and set its modification time to now.
+// Symbolic links are not followed.
+bool touch(const std::filesystem::path& path);
+
+// Whether `path` was modified within `age` of now. A time further than `age`
+// in the future, from a clock that was wrong, is not within it, so that it
+// can't keep a file recent for ever.
+bool modified_within(const std::filesystem::path& path,
+                     std::filesystem::file_time_type::duration age);
 
 // return if a path is inside a directory, i.e. direct or indirect child
 bool is_child(const std::filesystem::path& child,

@@ -7,7 +7,10 @@
 #include <string>
 #include <vector>
 
+#include <fcntl.h>
 #include <sys/file.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
@@ -17,6 +20,7 @@
 #include "expected.h"
 #include "fs.h"
 #include "subprocess.h"
+#include "unique_fd.h"
 
 namespace util {
 
@@ -283,6 +287,81 @@ read_file(const std::filesystem::path& path) {
             "unable to read {}: {}", path.string(), std::strerror(errno))};
     }
     return content;
+}
+
+std::optional<std::string> read_regular_file(const std::filesystem::path& path,
+                                             std::uintmax_t max_size) {
+    util::unique_fd fd(::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC));
+    struct stat st{};
+    if (!fd || ::fstat(fd.get(), &st) != 0 || !S_ISREG(st.st_mode) ||
+        static_cast<std::uintmax_t>(st.st_size) > max_size) {
+        return std::nullopt;
+    }
+    std::string contents(static_cast<std::size_t>(st.st_size), '\0');
+    std::size_t done = 0;
+    while (done < contents.size()) {
+        auto n =
+            ::read(fd.get(), contents.data() + done, contents.size() - done);
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            return std::nullopt;
+        }
+        done += static_cast<std::size_t>(n);
+    }
+    return contents;
+}
+
+util::expected<void, std::string>
+write_file_atomic(const std::filesystem::path& path,
+                  std::string_view contents) {
+    namespace fs = std::filesystem;
+
+    const auto tmp =
+        path.parent_path() /
+        fmt::format(".{}.{}", path.filename().string(), ::getpid());
+    bool written = false;
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        out.write(contents.data(),
+                  static_cast<std::streamsize>(contents.size()));
+        out.close();
+        written = !out.fail();
+    }
+    std::error_code ec;
+    if (!written) {
+        fs::remove(tmp, ec);
+        return util::unexpected{
+            fmt::format("unable to write {}", tmp.string())};
+    }
+    fs::rename(tmp, path, ec);
+    if (ec) {
+        const auto msg = fmt::format("unable to rename {} to {}: {}",
+                                     tmp.string(), path.string(), ec.message());
+        fs::remove(tmp, ec);
+        return util::unexpected{msg};
+    }
+    return {};
+}
+
+bool touch(const std::filesystem::path& path) {
+    util::unique_fd fd(
+        ::open(path.c_str(),
+               O_WRONLY | O_CREAT | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC, 0644));
+    return fd && ::futimens(fd.get(), nullptr) == 0;
+}
+
+bool modified_within(const std::filesystem::path& path,
+                     std::filesystem::file_time_type::duration age) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const auto modified = fs::last_write_time(path, ec);
+    if (ec) {
+        return false;
+    }
+    const auto elapsed = fs::file_time_type::clock::now() - modified;
+    return elapsed < age && elapsed > -age;
 }
 
 bool is_child(const std::filesystem::path& child,
