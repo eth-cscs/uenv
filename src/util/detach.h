@@ -26,12 +26,15 @@ void close_fds_from(int first);
 // - its stdin, stdout and stderr are /dev/null and every other descriptor is
 //   closed, so it holds none of the caller's pipes open: a shell reading the
 //   caller's output with $(...) waits for EOF, which a grandchild that kept
-//   stdout would delay until it finished;
+//   stdout would delay until it finished. With detached_output::keep, stdout
+//   and stderr are left alone, for debugging the work;
 // - it is killed by SIGALRM after `limit`, whatever it is doing.
 //
 // Only call this from a single-threaded process: `work` runs after fork(2)
 // without exec(2). Failure to fork is not reported: the work is not done.
+enum class detached_output { null, keep };
 void spawn_detached(const std::function<void()>& work,
-                    std::chrono::seconds limit);
+                    std::chrono::seconds limit,
+                    detached_output output = detached_output::null);
 
 } // namespace util

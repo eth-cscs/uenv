@@ -1,4 +1,4 @@
-#include <unistd.h>
+#include <chrono>
 
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
@@ -9,48 +9,42 @@
 
 namespace uenv {
 
+// the time the detached process may take to post a payload before it is killed
+constexpr auto async_post_limit = std::chrono::seconds(30);
+
 void post_elastic(const std::vector<std::string>& payload,
                   const std::string& url, bool subproc) {
     if (subproc) {
-        // create a sub-process to asynchronously post the results
-        if (fork() == 0) {
-            // keep stdout/stderr if trace logging is enabled, so that it is
-            // still possble to get trace curl output.
-            const bool drop_out = spdlog::get_level() > spdlog::level::debug;
-
-            // turn off logging
-            if (drop_out) {
-                spdlog::set_level(spdlog::level::off);
-                spdlog::set_error_handler([](const std::string&) {});
-            }
-
-            // do not use stderr/stdin/stdout from parent process because
-            // this does not play nicely with Slurm, particularly with the
-            // --pty flag and srun.
-            // input is always disabled
-            if (drop_out) {
-                (void)util::redirect_to_null(
-                    {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO});
-            } else {
-                (void)util::redirect_to_null({STDIN_FILENO});
-            }
-
-            // send the telemetry payload to elastic
-            for (auto& text : payload) {
-                // use 10s timeout
-                if (auto result =
-                        util::curl::post(text, url, "application/json", 10000);
-                    !result) {
-                    spdlog::warn("post_elastic: {}", result.error().message);
-                    break;
+        // Post the results from a detached process, which does not use
+        // stdin/stdout/stderr or any other descriptor of this process: they
+        // do not play nicely with Slurm, particularly with the --pty flag
+        // and srun.
+        // stdout/stderr are kept if trace logging is enabled, so that it is
+        // still possble to get trace curl output.
+        const bool keep_output = spdlog::get_level() <= spdlog::level::debug;
+        util::spawn_detached(
+            [&payload, &url, keep_output]() {
+                if (!keep_output) {
+                    spdlog::set_level(spdlog::level::off);
+                    spdlog::set_error_handler([](const std::string&) {});
                 }
-                spdlog::debug("post_elastic telemetry asynchronously to {}: {}",
-                              url, text);
-            }
-
-            // safer than exit()
-            _exit(0);
-        }
+                for (auto& text : payload) {
+                    // use 10s timeout
+                    if (auto result = util::curl::post(
+                            text, url, "application/json", 10000);
+                        !result) {
+                        spdlog::warn("post_elastic: {}",
+                                     result.error().message);
+                        break;
+                    }
+                    spdlog::debug(
+                        "post_elastic telemetry asynchronously to {}: {}", url,
+                        text);
+                }
+            },
+            async_post_limit,
+            keep_output ? util::detached_output::keep
+                        : util::detached_output::null);
         spdlog::debug("post_elastic: posting logs asynchronously");
     } else {
         for (auto& text : payload) {
