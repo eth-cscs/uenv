@@ -66,11 +66,9 @@ resolve_registry_credentials(const envvars::state& env,
 
     // the uenv token store: $XDG_CONFIG_HOME/uenv/tokens or
     // ~/.config/uenv/tokens.
-    if (auto xdg = env.get("XDG_CONFIG_HOME")) {
-        sources.uenv_token_dir = fs::path{*xdg} / "uenv" / "tokens";
-    } else if (auto home = env.get("HOME")) {
-        sources.uenv_token_dir =
-            fs::path{*home} / ".config" / "uenv" / "tokens";
+    if (auto config_home =
+            envvars::xdg_dir(env, "XDG_CONFIG_HOME", ".config")) {
+        sources.uenv_token_dir = *config_home / "uenv" / "tokens";
     }
 
     // docker config.json fallback: $DOCKER_CONFIG/config.json or

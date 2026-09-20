@@ -431,3 +431,28 @@ TEST_CASE("state::expand-unterminated", "[environment]") {
     REQUIRE(env.expand("}", envvars::expand_delim::curly) == "}");
     REQUIRE(env.expand("$}", envvars::expand_delim::curly) == "$}");
 }
+
+TEST_CASE("xdg_dir", "[envvars]") {
+    envvars::state E{};
+
+    REQUIRE(envvars::xdg_dir(E, "XDG_CONFIG_HOME", ".config") == std::nullopt);
+
+    E.set("HOME", "/home/alice");
+    REQUIRE(envvars::xdg_dir(E, "XDG_CONFIG_HOME", ".config") ==
+            "/home/alice/.config");
+    REQUIRE(envvars::xdg_dir(E, "XDG_CACHE_HOME", ".cache") ==
+            "/home/alice/.cache");
+
+    E.set("XDG_CONFIG_HOME", "/config");
+    REQUIRE(envvars::xdg_dir(E, "XDG_CONFIG_HOME", ".config") == "/config");
+    REQUIRE(envvars::xdg_dir(E, "XDG_CACHE_HOME", ".cache") ==
+            "/home/alice/.cache");
+
+    // an empty variable is treated as unset, as the XDG specification requires
+    E.set("XDG_CONFIG_HOME", "");
+    REQUIRE(envvars::xdg_dir(E, "XDG_CONFIG_HOME", ".config") ==
+            "/home/alice/.config");
+
+    E.set("HOME", "");
+    REQUIRE(envvars::xdg_dir(E, "XDG_CONFIG_HOME", ".config") == std::nullopt);
+}

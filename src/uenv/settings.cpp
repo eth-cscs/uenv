@@ -237,17 +237,14 @@ std::optional<std::filesystem::path>
 user_config_path(const envvars::state& calling_env) {
     namespace fs = std::filesystem;
 
-    const auto home_env = calling_env.get("HOME");
-    const auto xdg_env = calling_env.get("XDG_CONFIG_HOME");
+    const auto config_home =
+        envvars::xdg_dir(calling_env, "XDG_CONFIG_HOME", ".config");
     // return an null if no path available
-    if (!home_env && !xdg_env) {
+    if (!config_home) {
         return {};
     }
 
-    const auto config_path =
-        xdg_env ? (fs::path(xdg_env.value()) / "uenv")
-                : (fs::path(home_env.value()) / ".config/uenv");
-    const auto config_file = config_path / "config.toml";
+    const auto config_file = *config_home / "uenv" / "config.toml";
 
     if (fs::exists(config_file)) {
         return config_file;
@@ -258,13 +255,9 @@ user_config_path(const envvars::state& calling_env) {
 
 std::optional<std::filesystem::path>
 user_cache_path(const envvars::state& calling_env) {
-    namespace fs = std::filesystem;
-
-    if (auto xdg = calling_env.get("XDG_CACHE_HOME"); xdg && !xdg->empty()) {
-        return fs::path(*xdg) / "uenv";
-    }
-    if (auto home = calling_env.get("HOME"); home && !home->empty()) {
-        return fs::path(*home) / ".cache/uenv";
+    if (auto cache_home =
+            envvars::xdg_dir(calling_env, "XDG_CACHE_HOME", ".cache")) {
+        return *cache_home / "uenv";
     }
     return std::nullopt;
 }
@@ -276,17 +269,15 @@ util::expected<config_base, std::string>
 load_user_config(const envvars::state& calling_env, user_config_mode mode) {
     namespace fs = std::filesystem;
 
-    auto home_env = calling_env.get("HOME");
-    auto xdg_env = calling_env.get("XDG_CONFIG_HOME");
+    const auto config_home =
+        envvars::xdg_dir(calling_env, "XDG_CONFIG_HOME", ".config");
     // return an empty config if no configuration path can be determined
-    if (!home_env && !xdg_env) {
+    if (!config_home) {
         spdlog::warn("unable to find default configuration location, neither "
                      "HOME nor XDG_CONFIG_HOME are defined.");
         return config_base{};
     }
-    const auto config_path =
-        xdg_env ? (fs::path(xdg_env.value()) / "uenv")
-                : (fs::path(home_env.value()) / ".config/uenv");
+    const auto config_path = *config_home / "uenv";
     const auto config_file = config_path / "config.toml";
 
     auto create_config_file = [](const auto& path) {
