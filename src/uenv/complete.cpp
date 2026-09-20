@@ -92,15 +92,25 @@ std::size_t variable(std::string_view word, std::size_t i,
     return length;
 }
 
+// If `word` starts with a reference to the home directory, ~ or ~/, and HOME
+// is set, append its value to `out` and return the number of characters the
+// reference takes, which is 1; otherwise return 0.
+std::size_t home(std::string_view word, const envvars::state& env,
+                 std::string& out) {
+    if (word == "~" || word.starts_with("~/")) {
+        if (auto value = env.get("HOME")) {
+            out += *value;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 // the path named by text typed by the user: a leading ~ and variables are
 // expanded, as the shell will when the command is run
 std::string expand_path(std::string_view text, const envvars::state& env) {
     std::string result;
-    std::size_t i = 0;
-    if (text == "~" || text.starts_with("~/")) {
-        result = env.get("HOME").value_or("~");
-        i = 1;
-    }
+    std::size_t i = home(text, env, result);
     while (i < text.size()) {
         if (text[i] == '$') {
             if (auto n = variable(text, i, env, result)) {
@@ -116,13 +126,7 @@ std::string expand_path(std::string_view text, const envvars::state& env) {
 // shell_unquote, and if env is set, shell_expand
 std::string unquote(std::string_view word, const envvars::state* env) {
     std::string result;
-    std::size_t i = 0;
-    if (env && (word == "~" || word.starts_with("~/"))) {
-        if (auto home = env->get("HOME")) {
-            result = *home;
-            i = 1;
-        }
-    }
+    std::size_t i = env ? home(word, *env, result) : 0;
     enum { none, single, dbl } quote = none;
     for (; i < word.size(); ++i) {
         const char c = word[i];
