@@ -138,3 +138,65 @@ TEST_CASE("wait_ready retries after EINTR", "[ready_fork]") {
     int status;
     waitpid(pid, &status, 0);
 }
+
+TEST_CASE("fork_and_wait_ready", "[ready_fork]") {
+    SECTION("returns once the child is ready") {
+        auto pid = util::fork_and_wait_ready([](util::ready_fork& rf) {
+            rf.notify_ready();
+            _exit(7);
+        });
+        REQUIRE(pid);
+        int status;
+        REQUIRE(waitpid(*pid, &status, 0) == *pid);
+        REQUIRE(WIFEXITED(status));
+        REQUIRE(WEXITSTATUS(status) == 7);
+    }
+    SECTION("a child that exits before it is ready is an error") {
+        auto pid =
+            util::fork_and_wait_ready([](util::ready_fork&) { _exit(1); });
+        REQUIRE(!pid);
+    }
+    SECTION("a child that returns does not run the caller's code") {
+        const pid_t self = getpid();
+        auto pid = util::fork_and_wait_ready([](util::ready_fork&) {});
+        REQUIRE(getpid() == self);
+        REQUIRE(!pid);
+    }
+}
+
+TEST_CASE("die_with_parent", "[ready_fork]") {
+    // the child forks a grandchild that arms the signal and reports ready,
+    // then exits: the grandchild must be killed by the signal
+    int fds[2];
+    REQUIRE(::pipe(fds) == 0);
+
+    pid_t child = ::fork();
+    REQUIRE(child >= 0);
+    if (child == 0) {
+        ::close(fds[0]);
+        auto pid = util::fork_and_wait_ready([](util::ready_fork& rf) {
+            if (!rf.die_with_parent(SIGKILL)) {
+                _exit(1);
+            }
+            rf.notify_ready();
+            while (true) {
+                ::pause();
+            }
+        });
+        // the grandchild holds the write end of fds until it is killed
+        _exit(pid ? 0 : 1);
+    }
+
+    ::close(fds[1]);
+    int status;
+    REQUIRE(waitpid(child, &status, 0) == child);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 0);
+
+    // EOF once the grandchild is gone. The alarm bounds the wait if it is not.
+    ::alarm(10);
+    char c;
+    REQUIRE(::read(fds[0], &c, 1) == 0);
+    ::alarm(0);
+    ::close(fds[0]);
+}

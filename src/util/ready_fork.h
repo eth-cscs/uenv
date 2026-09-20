@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <sys/types.h>
 
@@ -45,6 +46,12 @@ class ready_fork {
     // child is already silently reparented and nothing will ever signal it.
     pid_t parent_pid() const;
 
+    // child-side; have the kernel send this process `sig` when its parent
+    // exits (PR_SET_PDEATHSIG), and check the race described above: an error
+    // is returned if the parent had already exited, in which case the signal
+    // will never be sent.
+    expected<void, std::string> die_with_parent(int sig);
+
     // child-side; call exactly once, right before entering the "serve
     // forever" loop, only once setup has fully succeeded. Returns an error
     // if the write to the parent fails (e.g. the parent has already died
@@ -63,5 +70,12 @@ class ready_fork {
     int write_fd_;
     pid_t parent_pid_;
 };
+
+// Fork a child that runs `child`, and block until it calls notify_ready() on
+// the ready_fork it is given. Returns the pid of the child, or an error if
+// the child exited before it was ready. `child` runs in the forked process
+// and should not return: if it does, the process exits.
+expected<pid_t, std::string>
+fork_and_wait_ready(const std::function<void(ready_fork&)>& child);
 
 } // namespace util
