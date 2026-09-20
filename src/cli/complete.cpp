@@ -200,23 +200,13 @@ class sources {
     }
 
     std::optional<configuration> load() const {
-        std::optional<std::vector<repo_label>> repo_labels;
-        if (globals_.repo) {
-            auto labels = parse_repo_list(*globals_.repo);
-            if (!labels) {
-                return std::nullopt;
-            }
-            repo_labels = *labels;
-        }
-        const config_base cli_config{.color = globals_.color,
-                                     .system_name = globals_.system};
         // completion must not create the user's configuration file
-        auto base = load_config(cli_config, repo_labels, env_,
-                                user_config_mode::read_only);
-        if (!base) {
+        auto loaded =
+            load_configuration(globals_, env_, user_config_mode::read_only);
+        if (!loaded) {
             return std::nullopt;
         }
-        return generate_configuration(*base);
+        return std::move(loaded->config);
     }
 };
 

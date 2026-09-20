@@ -6,7 +6,11 @@
 #include <fmt/ranges.h>
 
 #include <argparse/argparse.h>
+#include <spdlog/spdlog.h>
+
 #include <uenv/config.h>
+#include <uenv/parse.h>
+#include <uenv/settings.h>
 
 #include "build.h"
 #include "cli.h"
@@ -91,5 +95,34 @@ std::string help_footer() {
 }
 
 } // namespace
+
+util::expected<loaded_configuration, std::string>
+load_configuration(const global_args& globals, const envvars::state& env,
+                   user_config_mode mode) {
+    // parse the repo flag if it was passed
+    std::optional<std::vector<repo_label>> repo_labels{};
+    if (globals.repo) {
+        auto labels = parse_repo_list(*globals.repo);
+        if (!labels) {
+            return util::unexpected{fmt::format("invalid --repo argument: {}",
+                                                labels.error().message())};
+        }
+        spdlog::info("selected repositories: {}", fmt::join(*labels, ", "));
+        repo_labels = std::move(*labels);
+    }
+
+    // set the configuration according to defaults, cli options and config
+    // files.
+    const config_base cli_config{.color = globals.color,
+                                 .system_name = globals.system};
+    auto base = load_config(cli_config, repo_labels, env, mode);
+    if (!base) {
+        return util::unexpected{base.error()};
+    }
+    // generate_configuration applies checks to ensure that paths in the
+    // config exist. If they don't it unsets them with warning messages.
+    return loaded_configuration{.config = generate_configuration(*base),
+                                .warnings = base->warnings};
+}
 
 } // namespace uenv
