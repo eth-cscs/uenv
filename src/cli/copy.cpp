@@ -12,7 +12,6 @@
 #include <oci/auth.h>
 #include <oci/client.h>
 #include <oci/push.h>
-#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -130,9 +129,7 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
         return 1;
     }
 
-    auto src_registry =
-        site::registry_listing(registry_cfg.listing_url, *src_label.nspace,
-                               user_cache_path(settings.calling_environment));
+    auto src_registry = fetch_registry_listing(settings, *src_label.nspace);
     if (!src_registry) {
         term::error("unable to get a listing of the uenv: {}",
                     src_registry.error());
@@ -195,9 +192,7 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
     spdlog::info("destination record: {} {}", dst_record.sha, dst_record);
 
     // check whether the destination already exists
-    auto dst_registry =
-        site::registry_listing(registry_cfg.listing_url, *dst_label.nspace,
-                               user_cache_path(settings.calling_environment));
+    auto dst_registry = fetch_registry_listing(settings, *dst_label.nspace);
     if (dst_registry && dst_registry->contains(dst_record)) {
         if (!args.force) {
             term::error("the destination already exists - use the --force flag "

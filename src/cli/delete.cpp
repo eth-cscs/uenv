@@ -9,7 +9,6 @@
 #include <spdlog/spdlog.h>
 
 #include <oci/auth.h>
-#include <site/site.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
@@ -120,9 +119,7 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     }
     spdlog::debug("requested to delete {}::{}", nspace, label);
 
-    auto registry =
-        site::registry_listing(registry_cfg.listing_url, nspace,
-                               user_cache_path(settings.calling_environment));
+    auto registry = fetch_registry_listing(settings, nspace);
     if (!registry) {
         term::error("unable to get a listing of the uenv: {}",
                     registry.error());

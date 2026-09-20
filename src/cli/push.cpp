@@ -16,7 +16,6 @@
 #include <oci/client.h>
 #include <oci/manifest.h>
 #include <oci/push.h>
-#include <site/site.h>
 #include <uenv/env.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
@@ -127,9 +126,7 @@ int image_push([[maybe_unused]] const image_push_args& args,
                   dst_label.label);
 
     const auto nspace = dst_label.nspace.value();
-    auto registry =
-        site::registry_listing(registry_cfg.listing_url, nspace,
-                               user_cache_path(settings.calling_environment));
+    auto registry = fetch_registry_listing(settings, nspace);
     if (!registry) {
         term::error("unable to get a listing of the uenv: {}",
                     registry.error());
