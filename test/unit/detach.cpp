@@ -108,3 +108,22 @@ TEST_CASE("spawn_detached", "[detach]") {
 
     fs::remove_all(dir);
 }
+
+TEST_CASE("redirect_to_null", "[detach]") {
+    // a pipe stands in for a standard descriptor
+    int fds[2];
+    REQUIRE(::pipe(fds) == 0);
+    REQUIRE(util::redirect_to_null({fds[1]}));
+
+    // the write end was the only one: the read end sees EOF, and what is
+    // written to the descriptor is discarded
+    char c = 'x';
+    REQUIRE(::write(fds[1], &c, 1) == 1);
+    REQUIRE(::read(fds[0], &c, 1) == 0);
+
+    ::close(fds[0]);
+    ::close(fds[1]);
+
+    // a descriptor that can't be the target of dup2
+    REQUIRE(!util::redirect_to_null({-1}));
+}
