@@ -2,6 +2,7 @@
 
 ## 10.2.0
 
+- #180 [fix] `util::run`: the forked child could return into the caller and continue as a second copy of uenv; report pipe and fork errors
 - #179 [improvement] bash and zsh completion computed by uenv itself, with the same parser as the CLI
 - #178 [feature] replace CLI11 with internal argument parsing library that facilitates completion
 - #176 [security] `kernel` mounting opens squashfs images with the credentials of the user, instead of as root
