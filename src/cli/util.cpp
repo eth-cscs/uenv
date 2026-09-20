@@ -17,11 +17,32 @@
 
 #include <oci/auth.h>
 #include <oci/types.h>
+#include <site/site.h>
 #include <uenv/parse.h>
+#include <uenv/settings.h>
 
+#include "uenv.h"
 #include "util.h"
 
 namespace uenv {
+
+util::expected<repository, std::string>
+fetch_registry_listing(const global_settings& settings,
+                       const std::string& nspace) {
+    if (!settings.config.registry) {
+        return util::unexpected{
+            "registry is not configured: add a [registry] section to your "
+            "uenv configuration file"};
+    }
+    auto listing =
+        site::registry_listing(settings.config.registry->listing_url, nspace,
+                               user_cache_path(settings.calling_environment));
+    if (!listing) {
+        return util::unexpected{fmt::format(
+            "unable to get a listing of the uenv: {}", listing.error())};
+    }
+    return listing;
+}
 
 util::expected<std::optional<oci::credentials>, std::string>
 resolve_registry_credentials(const envvars::state& env,

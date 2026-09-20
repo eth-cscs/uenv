@@ -17,9 +17,20 @@
 #include <util/sha.h>
 
 #include <oci/auth.h>
+#include <uenv/repository.h>
 #include <util/url.h>
 
 namespace uenv {
+
+struct global_settings;
+
+// The listing of namespace `nspace` of the configured registry, from the
+// listing service. The listing is also saved in the user's cache, which is
+// what tab completion of registry labels reads. The error is a complete
+// message for the user.
+util::expected<repository, std::string>
+fetch_registry_listing(const global_settings& settings,
+                       const std::string& nspace);
 
 // Resolve registry credentials for the registry named by `registry_url`, trying
 // (in order) an explicit --token, the uenv token store
