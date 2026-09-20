@@ -729,7 +729,7 @@ EOF
         x.squashfs $dst
     assert_failure
     refute_output --partial "--username"
-    assert_output --partial "unable to get a listing"
+    assert_output --partial "unable to get a listing of the uenv: "
 
     # ... and $USER is used when the flag is absent (note that env requires its
     # options before any NAME=VALUE assignment)

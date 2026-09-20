@@ -134,7 +134,7 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
         site::registry_listing(registry_cfg.listing_url, *src_label.nspace,
                                user_cache_path(settings.calling_environment));
     if (!src_registry) {
-        term::error("unable to get a listing of the uenv",
+        term::error("unable to get a listing of the uenv: {}",
                     src_registry.error());
         return 1;
     }
