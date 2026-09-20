@@ -89,35 +89,18 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // parse the repo flag if it was passed
-    std::optional<std::vector<uenv::repo_label>> cli_repo_labels{};
-    if (globals.repo) {
-        if (const auto result = uenv::parse_repo_list(*globals.repo)) {
-            spdlog::info("selected repositories: {}",
-                         fmt::join(result.value(), ", "));
-            cli_repo_labels = result.value();
-        } else {
-            term::error("invalid --repo argument: {}",
-                        result.error().description);
-            return 1;
-        }
-    }
-
     // set the configuration according to defaults, cli options and config
     // files.
-    const uenv::config_base cli_config{.color = globals.color,
-                                       .system_name = globals.system};
-    if (auto full_config = uenv::load_config(cli_config, cli_repo_labels,
-                                             settings.calling_environment)) {
+    if (auto loaded =
+            uenv::load_configuration(globals, settings.calling_environment,
+                                     uenv::user_config_mode::create)) {
         // print any warnings that were generated while loading configuration
-        for (const auto& warning : full_config->warnings) {
+        for (const auto& warning : loaded->warnings) {
             term::warn("{}", warning);
         }
-        // generate_configuration applies checks to ensure that paths in the
-        // config exist. If they don't it unsets them with warning messages.
-        settings.config = uenv::generate_configuration(full_config.value());
+        settings.config = std::move(loaded->config);
     } else {
-        term::error("{}", full_config.error());
+        term::error("{}", loaded.error());
         return 1;
     }
 

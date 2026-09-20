@@ -182,6 +182,11 @@ function teardown() {
     assert_success
     assert_line --index 0 "cli:/wombat is not a repository"
 
+    # a --repo flag that can't be parsed is reported with the reason
+    run uenv --repo='a=b=c' repo status
+    assert_failure
+    assert_output --partial "invalid --repo argument: expected a path"
+
     # TODO:
     # - check a read-only repo
     # - check an invalid repo
