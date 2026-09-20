@@ -187,6 +187,18 @@ std::optional<std::string> user_name(const state& env) {
     return std::nullopt;
 }
 
+std::optional<std::filesystem::path> xdg_dir(const state& env,
+                                             std::string_view variable,
+                                             std::string_view fallback) {
+    if (auto xdg = env.get(variable); xdg && !xdg->empty()) {
+        return std::filesystem::path(*xdg);
+    }
+    if (auto home = env.get("HOME"); home && !home->empty()) {
+        return std::filesystem::path(*home) / fallback;
+    }
+    return std::nullopt;
+}
+
 void c_env_free(char** env) {
     if (env == nullptr) {
         return;

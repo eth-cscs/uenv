@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
@@ -86,6 +87,12 @@ void c_env_free(char** env);
 // neither a controlling terminal nor an audit login uid - e.g. a Slurm batch
 // step, which is exactly where a token-authenticated push runs.
 std::optional<std::string> user_name(const state& env);
+
+// An XDG base directory: the value of `variable` (e.g. "XDG_CONFIG_HOME"),
+// or if that is unset or empty, `fallback` (e.g. ".config") in $HOME.
+// Returns nullopt if neither can be determined.
+std::optional<std::filesystem::path>
+xdg_dir(const state& env, std::string_view variable, std::string_view fallback);
 
 // represents a scalar environment variable.
 // all environment variables are scalar, with the exception of prefix_path
