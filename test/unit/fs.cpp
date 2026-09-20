@@ -1,6 +1,10 @@
+#include <sys/stat.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 
 #include <catch2/catch_all.hpp>
 #include <fmt/core.h>
@@ -194,4 +198,74 @@ TEST_CASE("is_child", "[fs]") {
         const std::filesystem::path parent = "/tmp";
         REQUIRE(!util::is_child(child, parent));
     }
+}
+
+TEST_CASE("read_regular_file", "[fs]") {
+    const auto dir = *util::make_temp_dir();
+
+    std::ofstream(dir / "file") << "hello";
+    REQUIRE(util::read_regular_file(dir / "file", 100) == "hello");
+    REQUIRE(util::read_regular_file(dir / "file", 5) == "hello");
+    // too large
+    REQUIRE(util::read_regular_file(dir / "file", 4) == std::nullopt);
+    // missing, a directory, and a FIFO, which must not block
+    REQUIRE(util::read_regular_file(dir / "missing", 100) == std::nullopt);
+    REQUIRE(util::read_regular_file(dir, 100) == std::nullopt);
+    REQUIRE(::mkfifo((dir / "fifo").c_str(), 0600) == 0);
+    REQUIRE(util::read_regular_file(dir / "fifo", 100) == std::nullopt);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("write_file_atomic", "[fs]") {
+    const auto dir = *util::make_temp_dir();
+    auto entries = [&dir] {
+        return std::distance(fs::directory_iterator(dir),
+                             fs::directory_iterator{});
+    };
+
+    REQUIRE(util::write_file_atomic(dir / "file", "one"));
+    REQUIRE(util::read_file(dir / "file") == "one");
+    REQUIRE(util::write_file_atomic(dir / "file", "two"));
+    REQUIRE(util::read_file(dir / "file") == "two");
+    // no temporary file is left
+    REQUIRE(entries() == 1);
+
+    // a directory in the way is an error, and no temporary file is left
+    fs::create_directory(dir / "dir");
+    REQUIRE(!util::write_file_atomic(dir / "dir", "three"));
+    REQUIRE(fs::is_directory(dir / "dir"));
+    REQUIRE(entries() == 2);
+
+    REQUIRE(!util::write_file_atomic(dir / "missing" / "file", "four"));
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("touch and modified_within", "[fs]") {
+    using namespace std::chrono_literals;
+    const auto dir = *util::make_temp_dir();
+    const auto file = dir / "stamp";
+
+    REQUIRE(!util::modified_within(file, 1h));
+    REQUIRE(util::touch(file));
+    REQUIRE(util::modified_within(file, 1h));
+
+    // old, and from a clock that was ahead
+    fs::last_write_time(file, fs::file_time_type::clock::now() - 2h);
+    REQUIRE(!util::modified_within(file, 1h));
+    fs::last_write_time(file, fs::file_time_type::clock::now() + 2h);
+    REQUIRE(!util::modified_within(file, 1h));
+
+    // touch resets the time
+    REQUIRE(util::touch(file));
+    REQUIRE(util::modified_within(file, 1h));
+
+    // not a directory, and not through a symbolic link
+    REQUIRE(!util::touch(dir));
+    fs::create_symlink(dir / "target", dir / "link");
+    REQUIRE(!util::touch(dir / "link"));
+    REQUIRE(!fs::exists(dir / "target"));
+
+    fs::remove_all(dir);
 }
