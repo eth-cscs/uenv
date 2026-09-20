@@ -2,6 +2,15 @@
 
 ## 10.2.0
 
+- #189 [fix] an empty `XDG_CONFIG_HOME` is treated as unset; one implementation of XDG directory lookup
+- #188 [improvement] completion: single rule for expanding a leading `~`
+- #187 [fix] tab completion and `main()` load the configuration with the same code; print the reason for an invalid `--repo`
+- #186 [improvement] move bounded/atomic file helpers from the listing cache into `util/fs`
+- #185 [improvement] `ready_fork`: add `fork_and_wait_ready` and `die_with_parent`, used by the FUSE mount daemons and supervisor
+- #184 [fix] elastic telemetry is posted from a detached process that is reaped, holds no descriptors of srun and has a time limit
+- #183 [improvement] shared `util::redirect_to_null` and `util::close_fds_from` replace four hand-written /dev/null redirections
+- #182 [improvement] single helper for fetching registry listings in the CLI
+- #181 [fix] print the reason when the registry listing can't be fetched in `image find/pull/push/copy/delete`
 - #180 [fix] `util::run`: the forked child could return into the caller and continue as a second copy of uenv; report pipe and fork errors
 - #179 [improvement] bash and zsh completion computed by uenv itself, with the same parser as the CLI
 - #178 [feature] replace CLI11 with internal argument parsing library that facilitates completion
