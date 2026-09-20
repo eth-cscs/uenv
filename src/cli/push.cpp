@@ -128,12 +128,8 @@ int image_push([[maybe_unused]] const image_push_args& args,
     const auto nspace = dst_label.nspace.value();
     auto registry = fetch_registry_listing(settings, nspace);
     if (!registry) {
-<<<<<<< HEAD
-        term::error("{}", registry.error());
-=======
         term::error("unable to get a listing of the uenv: {}",
                     registry.error());
->>>>>>> main
         return 1;
     }
 
