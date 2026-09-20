@@ -52,12 +52,12 @@ argparse::command image_copy_command(const global_settings& settings) {
         .add_positional("source-uenv", &image_copy_args::src_uenv_description,
                         "either name/version:tag, sha256 or id")
         .required()
-        .complete(completion::custom("registry_label"));
+        .complete(completion::custom("registry_nslabel"));
     copy_cli
         .add_positional("dest-uenv", &image_copy_args::dst_uenv_description,
                         "label to copy to")
         .required()
-        .complete(completion::custom("registry_label"));
+        .complete(completion::custom("registry_dest"));
     copy_cli
         .add_option(
             "token", &image_copy_args::token,
@@ -131,7 +131,8 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
     }
 
     auto src_registry =
-        site::registry_listing(registry_cfg.listing_url, *src_label.nspace);
+        site::registry_listing(registry_cfg.listing_url, *src_label.nspace,
+                               user_cache_path(settings.calling_environment));
     if (!src_registry) {
         term::error("unable to get a listing of the uenv",
                     src_registry.error());
@@ -195,7 +196,8 @@ int image_copy([[maybe_unused]] const image_copy_args& args,
 
     // check whether the destination already exists
     auto dst_registry =
-        site::registry_listing(registry_cfg.listing_url, *dst_label.nspace);
+        site::registry_listing(registry_cfg.listing_url, *dst_label.nspace,
+                               user_cache_path(settings.calling_environment));
     if (dst_registry && dst_registry->contains(dst_record)) {
         if (!args.force) {
             term::error("the destination already exists - use the --force flag "

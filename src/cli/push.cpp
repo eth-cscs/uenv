@@ -67,7 +67,7 @@ argparse::command image_push_command(const global_settings& settings) {
                         "the destination in the full "
                         "namespace::name/version:tag@system%uarch form")
         .required()
-        .complete(completion::custom("registry_label"));
+        .complete(completion::custom("registry_dest"));
     push_cli
         .add_option(
             "token", &image_push_args::token,
@@ -127,7 +127,9 @@ int image_push([[maybe_unused]] const image_push_args& args,
                   dst_label.label);
 
     const auto nspace = dst_label.nspace.value();
-    auto registry = site::registry_listing(registry_cfg.listing_url, nspace);
+    auto registry =
+        site::registry_listing(registry_cfg.listing_url, nspace,
+                               user_cache_path(settings.calling_environment));
     if (!registry) {
         term::error("unable to get a listing of the uenv", registry.error());
         return 1;

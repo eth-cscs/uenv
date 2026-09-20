@@ -48,7 +48,7 @@ argparse::command image_delete_command(const global_settings& settings) {
         .add_positional("uenv", &image_delete_args::uenv_description,
                         "either name/version:tag, sha256 or id")
         .required()
-        .complete(completion::custom("registry_label"));
+        .complete(completion::custom("registry_nslabel"));
     delete_cli
         .add_option(
             "token", &image_delete_args::token,
@@ -120,7 +120,9 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
     }
     spdlog::debug("requested to delete {}::{}", nspace, label);
 
-    auto registry = site::registry_listing(registry_cfg.listing_url, nspace);
+    auto registry =
+        site::registry_listing(registry_cfg.listing_url, nspace,
+                               user_cache_path(settings.calling_environment));
     if (!registry) {
         term::error("unable to get a listing of the uenv", registry.error());
         return 1;

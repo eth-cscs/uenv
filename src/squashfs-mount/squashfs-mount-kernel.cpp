@@ -122,7 +122,7 @@ int main(int argc, char** argv, char** envp) {
     builder.add_flag("version", &squashfs_mount_args::print_version,
                      "print version");
     builder
-        .add_option({'s', "sqfs"}, &squashfs_mount_args::raw_mounts,
+        .add_option("sqfs", &squashfs_mount_args::raw_mounts,
                     "comma separated list of squashfs files to mount")
         .complete(argparse::completion::custom("mount_list"));
     builder

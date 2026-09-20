@@ -64,6 +64,8 @@ function setup() {
     fi
 
     export XDG_CONFIG_HOME="$REG_CONFIG"
+    # the listings fetched by the tests are cached here, not in the user's home
+    export XDG_CACHE_HOME="$REG_CONFIG/cache"
 
     export TMP=$DATA/scratch
     rm -rf $TMP

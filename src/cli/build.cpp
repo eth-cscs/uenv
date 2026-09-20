@@ -42,7 +42,7 @@ argparse::command build_command(const global_settings& settings) {
     using argparse::completion;
     argparse::command_builder<build_args> build_cli(
         "build", "build a uenv from a local recipe");
-    build_cli.add_flag({'d', "develop"}, &build_args::spack_develop,
+    build_cli.add_flag("develop", &build_args::spack_develop,
                        "Assume spack@develop");
     build_cli
         .add_positional("recipe", &build_args::uenv_recipe_path,

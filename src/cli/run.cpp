@@ -60,14 +60,14 @@ argparse::command run_command(const global_settings& settings) {
         .required()
         .complete(completion::command());
 
-    run_cli.add_flag({'V', "no-default-view"}, &run_args::disable_default_view,
+    run_cli.add_flag("no-default-view", &run_args::disable_default_view,
                      "disable loading default views when no view is specified");
 
     // the --join flag is only meaningful for the FUSE backend, where a
     // single task mounts and the others join its namespaces. The
     // setuid/kernel backend mounts independently in every task.
     if constexpr (uenv::backend_fuse) {
-        run_cli.add_flag({'j', "join"}, &run_args::join,
+        run_cli.add_flag("join", &run_args::join,
                          "join namespaces of tasks on the same node");
     }
 

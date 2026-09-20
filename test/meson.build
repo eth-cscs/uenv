@@ -39,6 +39,7 @@ custom_target('zot-binary',
 
 if uenv_cli
   fs.copyfile('integration/cli.bats', 'cli.bats')
+  fs.copyfile('integration/completion.bats', 'completion.bats')
   # the registry suite drives uenv against a throwaway local zot registry.
   # registry_ctl (zot binary lifecycle) and listing_mock (uenv listing service
   # stand-in) are installed with execute permissions, like elastic_mock.
@@ -98,8 +99,10 @@ unit_src = [
         'unit/archive.cpp',
         'unit/argparse.cpp',
         'unit/cgroup.cpp',
+        'unit/complete.cpp',
         'unit/curl.cpp',
         'unit/dates.cpp',
+        'unit/detach.cpp',
         'unit/env.cpp',
         'unit/envvars.cpp',
         'unit/fs.cpp',
@@ -157,6 +160,7 @@ if uenv_cli
   endif
   test('cli', bats, args: ['./test/cli.bats'], env: cli_env, is_parallel : false)
   test('registry', bats, args: ['./test/registry.bats'], is_parallel : false)
+  test('completion', bats, args: ['./test/completion.bats'], is_parallel : false)
 endif
 if use_fuse
   test('join', bats, args: ['./test/join.bats'], is_parallel : false)

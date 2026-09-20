@@ -38,7 +38,6 @@ struct image_pull_args {
     std::optional<std::string> username;
     bool only_meta = false;
     bool force = false;
-    bool build = false;
 };
 
 std::string image_pull_footer();
@@ -70,8 +69,6 @@ argparse::command image_pull_command(const global_settings& settings) {
                       "only download meta data");
     pull_cli.add_flag("force", &image_pull_args::force,
                       "download and overwrite existing images");
-    pull_cli.add_flag("build", &image_pull_args::build,
-                      "invalid: replaced with 'build::' prefix on uenv label");
     pull_cli.action([&settings](const image_pull_args& args) {
         return image_pull(args, settings);
     });
@@ -85,15 +82,6 @@ namespace {
 
 int image_pull(const image_pull_args& args, const global_settings& settings) {
     namespace fs = std::filesystem;
-
-    if (args.build) {
-        term::error(
-            "the --build flag has been removed.\nSpecify the build namespace "
-            "as part of the uenv description, e.g.\n{}",
-            color::yellow(fmt::format("uenv image pull build::{}",
-                                      args.uenv_description)));
-        return 1;
-    }
 
     if (!settings.config.registry) {
         term::error("registry is not configured: add a [registry] section to "
@@ -135,7 +123,9 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
 
     spdlog::info("image_pull: {}::{}", nspace, label);
 
-    auto registry = site::registry_listing(registry_cfg.listing_url, nspace);
+    auto registry =
+        site::registry_listing(registry_cfg.listing_url, nspace,
+                               user_cache_path(settings.calling_environment));
     if (!registry) {
         term::error("unable to get a listing of the uenv", registry.error());
         return 1;
