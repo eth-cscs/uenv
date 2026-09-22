@@ -14,6 +14,7 @@
 #include <uenv/log.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
+#include <uenv/pull.h>
 #include <uenv/repository.h>
 #include <uenv/telemetry.h>
 #include <util/envvars.h>
@@ -161,11 +162,23 @@ static spank_option passthrough_arg{
         return ESPANK_SUCCESS;
     }};
 
+static spank_option pull_arg{
+    (char*)"uenv-pull",
+    (char*)"",
+    (char*)"auto-pull uenv from the registry if not found locally",
+    0, // does not take an argument
+    0, // plugin specific value to pass to the callback (unused)
+    [](int val [[maybe_unused]], const char* optarg [[maybe_unused]],
+       int remote [[maybe_unused]]) -> int {
+        args.uenv_pull = true;
+        return ESPANK_SUCCESS;
+    }};
+
 int slurm_spank_init(spank_t sp, int ac [[maybe_unused]],
                      char** av [[maybe_unused]]) {
 
     for (auto arg : {&uenv_arg, &view_arg, &repo_arg, &disable_view_arg,
-                     &passthrough_arg}) {
+                     &passthrough_arg, &pull_arg}) {
         if (auto status = spank_option_register(sp, arg)) {
             return status;
         }
@@ -438,9 +451,22 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
             return -ESPANK_ERROR;
         }
 
-        const auto resolved =
-            uenv::resolve_uenv_args(args.uenv_description.value(),
-                                    config_g.repos, config_g.system_name);
+        auto cbs = uenv::pull_callbacks{
+            .on_pull_start = [](const uenv::uenv_record& r) {
+                slurm_verbose("uenv '%s' not found locally, auto-pulling "
+                              "from registry",
+                              fmt::format("{}", r).c_str());
+            },
+            .on_pull_end = [](bool success) {
+                if (!success) {
+                    slurm_verbose("auto-pull failed");
+                }
+            },
+        };
+
+        const auto resolved = uenv::resolve_and_ensure_uenvs(
+            args.uenv_description.value(), config_g, calling_environment,
+            args.uenv_pull, cbs);
         if (!resolved) {
             slurm_error("%s", resolved.error().c_str());
             return -ESPANK_ERROR;

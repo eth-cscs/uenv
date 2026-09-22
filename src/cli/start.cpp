@@ -1,6 +1,7 @@
 // vim: ts=4 sts=4 sw=4 et
 #include <unistd.h>
 
+#include <memory>
 #include <string>
 
 #include <fmt/core.h>
@@ -9,6 +10,7 @@
 #include <spdlog/spdlog.h>
 
 #include <uenv/env.h>
+#include <uenv/pull.h>
 #include <util/expected.h>
 #include <util/shell.h>
 
@@ -27,6 +29,7 @@ struct start_args {
     bool ignore_tty = false;
     std::optional<std::string> view_description;
     bool disable_default_view = false;
+    bool pull = false;
 };
 
 std::string format_as(const start_args& args) {
@@ -57,6 +60,8 @@ argparse::command start_command(const global_settings& settings) {
     start_cli.add_flag(
         "no-default-view", &start_args::disable_default_view,
         "disable loading default views when no view is specified");
+    start_cli.add_flag("pull", &start_args::pull,
+                       "auto-pull uenv from the registry if not found locally");
     start_cli.action(
         [&settings](const start_args& args) { return start(args, settings); });
     start_cli.footer(start_footer);
@@ -119,9 +124,32 @@ will not work, because it starts a new interactive shell.)",
         return 1;
     }
 
+    std::unique_ptr<uenv::transfer_bar> bar;
+    auto cbs = uenv::pull_callbacks{
+        .on_pull_start = [&bar](const uenv::uenv_record& r) {
+            term::msg("image '{}' not found locally, pulling from "
+                      "registry...", r);
+            bar = uenv::make_transfer_bar(
+                r.size_byte, fmt::format("pulling {}", r.id.string()));
+        },
+        .progress = [&bar](std::uint64_t now, std::uint64_t) {
+            if (bar) {
+                bar->update(now);
+            }
+        },
+        .on_pull_end = [&bar](bool success) {
+            if (bar) {
+                success ? bar->finish() : bar->stop();
+                bar.reset();
+            }
+        },
+    };
+
     const auto resolved =
-        resolve_uenv_args(args.uenv_description, settings.config.repos,
-                          settings.config.system_name);
+        uenv::resolve_and_ensure_uenvs(args.uenv_description,
+                                       settings.config,
+                                       settings.calling_environment,
+                                       args.pull, cbs);
     if (!resolved) {
         term::error("{}", resolved.error());
         term::hint("{}",

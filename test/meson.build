@@ -120,6 +120,7 @@ unit_src = [
         'unit/parse.cpp',
         'unit/privilege.cpp',
         'unit/proc_barrier.cpp',
+        'unit/pull.cpp',
         'unit/sha.cpp',
         'unit/shared_mapping.cpp',
         'unit/shell.cpp',

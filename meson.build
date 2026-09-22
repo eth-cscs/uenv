@@ -142,6 +142,7 @@ lib_uenv_src = [
         'src/uenv/mount.cpp',
         'src/uenv/parse.cpp',
         'src/uenv/print.cpp',
+        'src/uenv/pull.cpp',
         'src/uenv/repository.cpp',
         'src/uenv/settings.cpp',
         'src/uenv/telemetry.cpp',

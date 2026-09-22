@@ -27,6 +27,8 @@ function setup_file() {
     export REG_CONFIG="$(mktemp -d)"
     mkdir -p "$REG_CONFIG/uenv"
     cat > "$REG_CONFIG/uenv/config.toml" <<EOF
+system_name = 'arapiles'
+
 [registry]
 url = "http://127.0.0.1:${REG_PORT}/${REG_PREFIX}"
 default_namespace = "deploy"
@@ -166,4 +168,126 @@ function teardown() {
     [ -f "$RP2/images/$registry_digest/manifest.json" ]
     diff "$RP/images/$local_sha/manifest.json" \
          "$RP2/images/$registry_digest/manifest.json"
+}
+
+# Auto-pull: `uenv run --pull <missing-label>` pulls from the registry
+# before running the command, without requiring an explicit
+# `uenv image pull` first.
+@test "uenv run --pull auto-pulls a missing image" {
+    local sqfs=$SQFS_LIB/apptool/standalone/tool.squashfs
+    [ -f "$sqfs" ]
+
+    # push an image and register a listing record for it
+    run uenv image push "$sqfs" "deploy::tool/1.0:autopull@arapiles%zen3"
+    log "${output}"
+    [ "${status}" -eq 0 ]
+
+    local repo="${REG_PREFIX}/deploy/arapiles/zen3/tool/1.0"
+    local digest
+    digest="$(registry_ctl digest "$REG_PORT" "$repo" autopull)"
+    [ -n "$digest" ]
+    local size
+    size="$(stat -c%s "$sqfs")"
+    listing_mock add "$LISTING_FILE" \
+        --path "deploy/arapiles/zen3/tool/1.0/autopull" --sha "$digest" --size "$size"
+
+    # a fresh repo with no images
+    local RP=$TMP/auto-pull-run
+    run uenv repo create "$RP"
+    assert_success
+
+    # the image is not in the repo yet
+    run uenv --repo "$RP" image ls --no-header tool
+    assert_success
+    assert_output ""
+
+    # --pull auto-pulls and runs
+    run uenv --repo "$RP" run --view=tool --pull tool:autopull -- tool
+    log "${output}"
+    assert_success
+    assert_output --partial "hello tool"
+
+    # the image is now in the local repo
+    run uenv --repo "$RP" image ls --no-header tool
+    assert_success
+    assert_output --partial "tool"
+}
+
+# Auto-pull: `uenv start --pull <missing-label>` pulls from the registry
+# before starting a session.
+@test "uenv start --pull auto-pulls a missing image" {
+    local sqfs=$SQFS_LIB/apptool/standalone/tool.squashfs
+    [ -f "$sqfs" ]
+
+    # push an image and register a listing record for it
+    run uenv image push "$sqfs" "deploy::tool/1.0:autopull2@arapiles%zen3"
+    log "${output}"
+    [ "${status}" -eq 0 ]
+
+    local repo="${REG_PREFIX}/deploy/arapiles/zen3/tool/1.0"
+    local digest
+    digest="$(registry_ctl digest "$REG_PORT" "$repo" autopull2)"
+    [ -n "$digest" ]
+    local size
+    size="$(stat -c%s "$sqfs")"
+    listing_mock add "$LISTING_FILE" \
+        --path "deploy/arapiles/zen3/tool/1.0/autopull2" --sha "$digest" --size "$size"
+
+    # a fresh repo with no images
+    local RP=$TMP/auto-pull-start
+    run uenv repo create "$RP"
+    assert_success
+
+    # --pull auto-pulls and starts
+    run uenv --repo "$RP" start --ignore-tty --view=tool --pull tool:autopull2 <<EOF
+tool
+exit
+EOF
+    log "${output}"
+    assert_success
+    assert_output --partial "hello tool"
+
+    # the image is now in the local repo
+    run uenv --repo "$RP" image ls --no-header tool
+    assert_success
+    assert_output --partial "tool"
+}
+
+# Without --pull, a missing image must fail with the same error as
+# before (no auto-pull, no changed messaging).
+@test "uenv run without --pull fails for missing image" {
+    local RP=$TMP/no-auto-pull
+    run uenv repo create "$RP"
+    assert_success
+
+    run uenv --repo "$RP" run nonexistent/1.0:v1 -- /bin/true
+    assert_failure
+    assert_output --partial "no uenv matches"
+    refute_output --partial "pulling from registry"
+}
+
+# --pull with a registry that has no matching image must produce a
+# clear error that mentions both "not found locally" and the pull
+# failure.
+@test "uenv run --pull reports when image not in registry either" {
+    local RP=$TMP/auto-pull-not-in-registry
+    run uenv repo create "$RP"
+    assert_success
+
+    run uenv --repo "$RP" run --pull nonexistent/1.0:v1 -- /bin/true
+    assert_failure
+    assert_output --partial "not found locally"
+    assert_output --partial "could not be pulled"
+}
+
+# File-path descriptions must never be auto-pulled, even with --pull.
+@test "uenv run --pull with file path never auto-pulls" {
+    local RP=$TMP/auto-pull-file-path
+    run uenv repo create "$RP"
+    assert_success
+
+    run uenv --repo "$RP" run --pull /nonexistent/file.squashfs -- /bin/true
+    assert_failure
+    assert_output --partial "does not exist or is not a file"
+    refute_output --partial "pulling from registry"
 }

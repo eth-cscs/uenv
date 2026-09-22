@@ -23,6 +23,7 @@ struct arg_pack {
     std::optional<std::string> repo_description;
     passthrough_policy passthrough = passthrough_policy::none;
     bool use_default_views = true;
+    bool uenv_pull = false;
 };
 
 } // namespace uenv::slurm

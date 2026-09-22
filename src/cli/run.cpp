@@ -1,5 +1,6 @@
 // vim: ts=4 sts=4 sw=4 et
 
+#include <memory>
 #include <string>
 
 #include <fmt/core.h>
@@ -9,6 +10,7 @@
 
 #include <uenv/config.h>
 #include <uenv/env.h>
+#include <uenv/pull.h>
 #include <util/expected.h>
 #include <util/shell.h>
 #include <util/subprocess.h>
@@ -29,6 +31,7 @@ struct run_args {
     bool join = false;
     std::vector<std::string> commands;
     bool disable_default_view = false;
+    bool pull = false;
 };
 
 std::string format_as(const run_args& args) {
@@ -62,6 +65,8 @@ argparse::command run_command(const global_settings& settings) {
 
     run_cli.add_flag("no-default-view", &run_args::disable_default_view,
                      "disable loading default views when no view is specified");
+    run_cli.add_flag("pull", &run_args::pull,
+                     "auto-pull uenv from the registry if not found locally");
 
     // the --join flag is only meaningful for the FUSE backend, where a
     // single task mounts and the others join its namespaces. The
@@ -96,9 +101,32 @@ You need to finish the current session by typing 'exit' or hitting '<ctrl-d>'.)"
         term::warn("{}", messages::no_repos());
     }
 
+    std::unique_ptr<uenv::transfer_bar> bar;
+    auto cbs = uenv::pull_callbacks{
+        .on_pull_start = [&bar](const uenv::uenv_record& r) {
+            term::msg("image '{}' not found locally, pulling from "
+                      "registry...", r);
+            bar = uenv::make_transfer_bar(
+                r.size_byte, fmt::format("pulling {}", r.id.string()));
+        },
+        .progress = [&bar](std::uint64_t now, std::uint64_t) {
+            if (bar) {
+                bar->update(now);
+            }
+        },
+        .on_pull_end = [&bar](bool success) {
+            if (bar) {
+                success ? bar->finish() : bar->stop();
+                bar.reset();
+            }
+        },
+    };
+
     const auto resolved =
-        resolve_uenv_args(args.uenv_description, settings.config.repos,
-                          settings.config.system_name);
+        uenv::resolve_and_ensure_uenvs(args.uenv_description,
+                                       settings.config,
+                                       settings.calling_environment,
+                                       args.pull, cbs);
     if (!resolved) {
         term::error("{}", resolved.error());
         term::hint("{}",
