@@ -550,8 +550,8 @@ TEST_CASE("oci registry deleting an absent tag reports 404", "[registry]") {
     // the repository has to exist first: a registry asked to delete from a
     // repository it has never heard of answers NAME_UNKNOWN, which zot reports
     // as 400 rather than 404.
-    REQUIRE(oci::push_squashfs(*c, sqfs,
-                               oci::reference::tag(oci::tag::parse("v1").value()))
+    REQUIRE(oci::push_squashfs(
+                *c, sqfs, oci::reference::tag(oci::tag::parse("v1").value()))
                 .has_value());
 
     auto missing = c->delete_manifest(
