@@ -229,7 +229,7 @@ changing that code path, check they are actually running rather than skipping.
   - Logging (`log.h/cpp`, `print.h/cpp`)
   - Settings management (`settings.h/cpp`)
   - Tab completion of labels, uenv lists, views, repos and paths (`complete.h/cpp`)
-- `src/oci/` - Native OCI registry client (container registry interaction: pull, push, copy, manifests, auth); replaces the external `oras` binary. See "Self-contained `src/oci`" below.
+- `src/oci/` - Native OCI registry client (container registry interaction: pull, push, copy, delete, manifests, auth); replaces the external `oras` binary. See "Self-contained `src/oci`" below. Deletion is **tag-scoped**: `uenv image delete` removes a tag, never a manifest digest, because other tags may point at the same manifest. It no longer uses JFrog Artifactory's REST API; the `registry.artifactory_url` config key has been removed, and is accepted-and-ignored (with an `spdlog::warn`) only so a build runs on a system whose deployed config still sets it.
 - `src/util/` - Utility libraries (color, curl, envvars, fs, lex, lustre, privilege, semver, shell, signal, strings, subprocess, toml, unique_fd), plus the FUSE backend's IPC/process-coordination primitives (`proc_barrier.h/cpp`, `named_semaphore.h`, `shared_mapping.h`, `robust_mutex.h`, `setns.h/cpp`, `ready_fork.h/cpp`) — see "Multi-task rendezvous and IPC error model" below
 - `src/site/` - Site-specific configuration (CSCS-specific logic)
 - `src/slurm/` - Slurm plugin implementation; `plugin_kernel.cpp` or `plugin_fuse.cpp` is compiled in depending on `mount_backend`

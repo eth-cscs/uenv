@@ -9,10 +9,13 @@
 #include <spdlog/spdlog.h>
 
 #include <oci/auth.h>
+#include <oci/client.h>
+#include <oci/reference.h>
+#include <oci/tag.h>
+#include <oci/types.h>
 #include <uenv/parse.h>
 #include <uenv/print.h>
 #include <uenv/repository.h>
-#include <util/curl.h>
 #include <util/expected.h>
 #include <util/fs.h>
 #include <util/signal.h>
@@ -51,12 +54,11 @@ argparse::command image_delete_command(const global_settings& settings) {
     delete_cli
         .add_option(
             "token", &image_delete_args::token,
-            "a path that contains a TOKEN file for accessing restricted uenv")
-        .required()
+            "a path that contains a TOKEN file for accessing the registry")
         .complete(completion::path());
     delete_cli
         .add_option("username", &image_delete_args::username,
-                    "user name for accessing restricted uenv.")
+                    "user name for the registry (by default $USER is used).")
         .complete(completion::none());
     delete_cli.action([&settings](const image_delete_args& args) {
         return image_delete(args, settings);
@@ -77,30 +79,16 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
         return 1;
     }
     const auto& registry_cfg = *settings.config.registry;
-    if (!registry_cfg.artifactory_url) {
-        term::error("registry.artifactory_url is not configured: it is "
-                    "required for deleting images");
-        return 1;
-    }
-    const auto& artifactory_url = *registry_cfg.artifactory_url;
 
-    oci::credentials credentials;
+    std::optional<oci::credentials> credentials;
     if (auto c = resolve_registry_credentials(settings.calling_environment,
-                                              artifactory_url, args.username,
+                                              registry_cfg.url, args.username,
                                               args.token)) {
-        // resolve_registry_credentials returns nullopt when no credentials
-        // were found; deletion is never anonymous, so this is an error.
-        if (!c->has_value()) {
-            term::error("full credentials must be provided to delete a uenv: "
-                        "see the --token and --username flags");
-            return 1;
-        }
-        credentials = c->value();
+        credentials = *c;
     } else {
         term::error("{}", c.error());
         return 1;
     }
-    spdlog::debug("registry credentials: {}", credentials);
 
     uenv_label label{};
     std::string nspace{};
@@ -149,24 +137,50 @@ int image_delete([[maybe_unused]] const image_delete_args& args,
         return 1;
     }
 
-    for (auto& record : *matches) {
-        // resolve() joins with exactly one '/', so a configured
-        // artifactory_url with a trailing slash no longer yields "//".
-        auto url =
-            artifactory_url
-                .resolve(fmt::format("{}/{}/{}/{}/{}/{}", nspace, record.system,
-                                     record.uarch, record.name, record.version,
-                                     record.tag))
-                .string();
+    const auto loc = oci::split_registry(registry_cfg.url);
 
-        if (auto result = util::curl::del(url, credentials.username,
-                                          credentials.password);
-            !result) {
-            term::error("unable to delete uenv: {}", result.error().message);
+    for (auto& record : *matches) {
+        const auto repository =
+            oci::repository_path(loc.prefix, nspace, record.system,
+                                 record.uarch, record.name, record.version);
+
+        auto client = oci::client::create(loc.base, repository, credentials);
+        if (!client) {
+            term::error("unable to connect to the registry: {}",
+                        client.error());
             return 1;
         }
 
-        term::msg("delete {}", url);
+        // the record's tag comes from the listing service, so it is not
+        // guaranteed to be a well-formed OCI tag until it is parsed.
+        auto tag = oci::tag::parse(record.tag);
+        if (!tag) {
+            term::error("invalid tag '{}': {}", record.tag,
+                        tag.error().message());
+            return 1;
+        }
+
+        // delete the *tag*, never the digest: other tags may point at the same
+        // manifest, and deleting by digest would take them with it.
+        if (auto result = client->delete_manifest(oci::reference::tag(*tag));
+            !result) {
+            const auto& err = result.error();
+            if (err.http_status == 404) {
+                term::error("{}::{} is not in the registry: the listing may be "
+                            "out of date",
+                            nspace, record);
+            } else if (err.http_status == 405 || err.http_status == 501) {
+                term::error("this registry does not support deleting tags "
+                            "through the OCI API ({})",
+                            err.message);
+            } else {
+                term::error("unable to delete {}::{}: {}", nspace, record,
+                            err.message);
+            }
+            return 1;
+        }
+
+        term::msg("deleted {}::{}", nspace, record);
     }
 
     return 0;
@@ -179,12 +193,21 @@ std::string image_delete_footer() {
         help::block{none, "Delete a uenv from a remote registry." },
         help::linebreak{},
         help::linebreak{},
-        help::block{xmpl, "deploy a uenv from build to deploy namespace"},
+        help::block{xmpl, "delete a uenv from a namespace"},
         help::block{code,   "uenv image delete build::prgenv-gnu/24.11:1551223269@todi%gh200"},
         help::block{code,   "uenv image delete build::7890d67458ce7deb"},
         help::block{code,   "uenv image delete deploy::prgenv-gnu/24.11:rc1@todi"},
         help::linebreak{},
         help::block{note, "the requested uenv must resolve to a unique sha."},
+        help::block{none, "only the tag is deleted: other tags that refer to the" },
+        help::block{none, "same uenv are not affected." },
+        help::linebreak{},
+        help::block{xmpl, "use a token for the registry"},
+        help::block{code,   "uenv image delete --token=/opt/cscs/uenv/tokens/vasp6 \\"},
+        help::block{code,   "                  build::vasp/6.4.2:1551223269@todi%gh200"},
+        help::block{note, "credentials are resolved in order: --token, then the" },
+        help::block{none, "uenv token store $XDG_CONFIG_HOME/uenv/tokens/<registry>," },
+        help::block{none, "then ~/.docker/config.json." },
         // clang-format on
     };
 

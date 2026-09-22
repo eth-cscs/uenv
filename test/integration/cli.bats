@@ -552,7 +552,7 @@ EOF
     sqfs_file=$TMP/app43.squashfs
     cp $SQFS_LIB/apptool/standalone/app43.squashfs $sqfs_file
     [ -f  $sqfs_file ]
-    run uenv -vv --repo=$RP image add --move quokka/24:v1@arapiles%zen3 $sqfs_file
+    run uenv --repo=$RP image add --move quokka/24:v1@arapiles%zen3 $sqfs_file
     assert_success
     refute_output --partial "warning"
     refute_output --partial "error"
@@ -672,7 +672,7 @@ EOF
     pattern=bilby/24:v1
     sha=$(uenv --repo=$UENV_REPO_PATH image inspect $pattern --format={sha256})
     [ -d $UENV_REPO_PATH/images/$sha ]
-    run uenv --repo=$UENV_REPO_PATH -vv image rm $pattern
+    run uenv --repo=$UENV_REPO_PATH image rm $pattern
     assert_success
     # verify that the file was removed
     [ ! -d $UENV_REPO_PATH/images/$sha ]
@@ -690,7 +690,7 @@ EOF
     sha=$(uenv --repo=$UENV_REPO_PATH image inspect $pattern --format={sha256})
     [ -d $UENV_REPO_PATH/images/$sha ]
 
-    run uenv --repo=$UENV_REPO_PATH -vv image rm $pattern
+    run uenv --repo=$UENV_REPO_PATH image rm $pattern
     assert_success
     [ -d $UENV_REPO_PATH/images/$sha ]
 

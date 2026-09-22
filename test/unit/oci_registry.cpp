@@ -487,3 +487,75 @@ TEST_CASE("oci registry a manifest is rejected unless it hashes to the "
     REQUIRE(unsupported.error().message.find("unsupported digest algorithm") !=
             std::string::npos);
 }
+
+// uenv deletes a *label*, which is a tag, and several tags can point at one
+// manifest. Deleting a tag must therefore remove only that pointer — deleting
+// the digest instead would silently take every sibling tag with it.
+TEST_CASE("oci registry deleting a tag leaves its siblings", "[registry]") {
+    const auto base = registry_base();
+    if (base.empty()) {
+        SKIP("no zot binary available for the registry tests");
+    }
+
+    auto dir = util::make_temp_dir().value();
+    const auto sqfs = dir / "store.squashfs";
+    write_file(sqfs, "squashfs-bytes-delete-tag");
+
+    auto c = oci::client::create(registry_url(), "test/deltag/1.0");
+    REQUIRE(c.has_value());
+
+    const auto v1 = oci::reference::tag(oci::tag::parse("v1").value());
+    const auto v2 = oci::reference::tag(oci::tag::parse("v2").value());
+
+    auto pushed = oci::push_squashfs(*c, sqfs, v1);
+    REQUIRE(pushed.has_value());
+
+    // point a second tag at the very same manifest bytes, so both tags share
+    // one digest - the situation the tag-scoped rule exists for.
+    auto body = c->get_manifest(v1);
+    REQUIRE(body.has_value());
+    REQUIRE(c->put_manifest(v2, body->body).has_value());
+    REQUIRE(c->get_manifest(v2).value().digest == *pushed);
+
+    REQUIRE(c->delete_manifest(v1).has_value());
+
+    // the sibling tag, and the manifest itself, survive.
+    auto survivor = c->get_manifest(v2);
+    REQUIRE(survivor.has_value());
+    REQUIRE(survivor->digest == *pushed);
+    REQUIRE(c->get_manifest(oci::reference::digest(*pushed)).has_value());
+
+    // the deleted tag does not.
+    auto gone = c->get_manifest(v1);
+    REQUIRE(!gone.has_value());
+    REQUIRE(gone.error().http_status == 404);
+}
+
+// The case a stale listing produces: the repository is there, the tag is not.
+// It has to be distinguishable from a transport failure, because `image delete`
+// reports it as "the listing may be out of date" rather than as an error.
+TEST_CASE("oci registry deleting an absent tag reports 404", "[registry]") {
+    const auto base = registry_base();
+    if (base.empty()) {
+        SKIP("no zot binary available for the registry tests");
+    }
+
+    auto dir = util::make_temp_dir().value();
+    const auto sqfs = dir / "store.squashfs";
+    write_file(sqfs, "squashfs-bytes-delete-missing");
+
+    auto c = oci::client::create(registry_url(), "test/delmissing/1.0");
+    REQUIRE(c.has_value());
+
+    // the repository has to exist first: a registry asked to delete from a
+    // repository it has never heard of answers NAME_UNKNOWN, which zot reports
+    // as 400 rather than 404.
+    REQUIRE(oci::push_squashfs(*c, sqfs,
+                               oci::reference::tag(oci::tag::parse("v1").value()))
+                .has_value());
+
+    auto missing = c->delete_manifest(
+        oci::reference::tag(oci::tag::parse("nosuchtag").value()));
+    REQUIRE(!missing.has_value());
+    REQUIRE(missing.error().http_status == 404);
+}

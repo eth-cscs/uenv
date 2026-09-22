@@ -167,3 +167,110 @@ function teardown() {
     diff "$RP/images/$local_sha/manifest.json" \
          "$RP2/images/$registry_digest/manifest.json"
 }
+
+# `image delete` removes a *tag*, never a digest: other tags may point at the
+# same manifest. It resolves its target through the listing service, so the
+# record has to be registered with listing_mock before it can be deleted.
+@test "uenv image delete removes the tag from the registry" {
+    # real uenv images are always named store.squashfs: push that name here too.
+    local sqfs=$TMP/store.squashfs
+    cp "$SQFS_LIB/apptool/standalone/tool.squashfs" "$sqfs"
+
+    run uenv image push "$sqfs" "test::del/1.0:v1@arapiles%zen3"
+    log "${output}"
+    assert_success
+
+    local repo="${REG_PREFIX}/test/arapiles/zen3/del/1.0"
+    local digest
+    digest="$(registry_ctl digest "$REG_PORT" "$repo" v1)"
+    [ -n "$digest" ]
+    listing_mock add "$LISTING_FILE" \
+        --path "test/arapiles/zen3/del/1.0/v1" --sha "$digest" \
+        --size "$(stat -c%s "$sqfs")"
+
+    # deletion is never anonymous, so the CLI insists on full credentials. The
+    # test registry is anonymous and ignores them, but the guard still applies.
+    local token=$TMP/token
+    echo "dummy-token" > "$token"
+
+    run uenv image delete --username=tester --token="$token" \
+        "test::del/1.0:v1@arapiles%zen3"
+    log "${output}"
+    assert_success
+    assert_output --partial "deleted"
+
+    # the tag no longer resolves
+    run registry_ctl digest "$REG_PORT" "$repo" v1
+    log "${output}"
+    assert_failure
+}
+
+# --token is not the only way to authenticate a delete: it resolves credentials
+# through the same chain as push and pull (--token, then the uenv token store,
+# then ~/.docker/config.json), all keyed on the host of registry.url.
+@test "uenv image delete uses a token from the uenv token store" {
+    local sqfs=$TMP/store.squashfs
+    cp "$SQFS_LIB/apptool/standalone/tool.squashfs" "$sqfs"
+
+    run uenv image push "$sqfs" "test::store/1.0:v1@arapiles%zen3"
+    log "${output}"
+    assert_success
+
+    local repo="${REG_PREFIX}/test/arapiles/zen3/store/1.0"
+    local digest
+    digest="$(registry_ctl digest "$REG_PORT" "$repo" v1)"
+    [ -n "$digest" ]
+    listing_mock add "$LISTING_FILE" \
+        --path "test/arapiles/zen3/store/1.0/v1" --sha "$digest" \
+        --size "$(stat -c%s "$sqfs")"
+
+    # the store is keyed by the registry's host[:port], not by a url.
+    mkdir -p "$XDG_CONFIG_HOME/uenv/tokens"
+    echo "dummy-token" > "$XDG_CONFIG_HOME/uenv/tokens/127.0.0.1:${REG_PORT}"
+    chmod 600 "$XDG_CONFIG_HOME/uenv/tokens/127.0.0.1:${REG_PORT}"
+
+    run uenv image delete --username=tester "test::store/1.0:v1@arapiles%zen3"
+    log "${output}"
+    assert_success
+    assert_output --partial "deleted"
+
+    run registry_ctl digest "$REG_PORT" "$repo" v1
+    log "${output}"
+    assert_failure
+}
+
+# with no source of credentials at all, delete goes ahead anonymously and lets
+# the registry decide, exactly as push and pull do. The test registry allows it;
+# a real one answers 401 and the error is reported.
+@test "uenv image delete without credentials is left to the registry" {
+    local sqfs=$TMP/store.squashfs
+    cp "$SQFS_LIB/apptool/standalone/tool.squashfs" "$sqfs"
+
+    run uenv image push "$sqfs" "test::anon/1.0:v1@arapiles%zen3"
+    log "${output}"
+    assert_success
+
+    local repo="${REG_PREFIX}/test/arapiles/zen3/anon/1.0"
+    local digest
+    digest="$(registry_ctl digest "$REG_PORT" "$repo" v1)"
+    [ -n "$digest" ]
+    listing_mock add "$LISTING_FILE" \
+        --path "test/arapiles/zen3/anon/1.0/v1" --sha "$digest" \
+        --size "$(stat -c%s "$sqfs")"
+
+    # remove every source: the token store entry another test may have written,
+    # and the docker config (pointed at an empty directory so that the user's
+    # own ~/.docker/config.json is never consulted).
+    rm -f "$XDG_CONFIG_HOME/uenv/tokens/127.0.0.1:${REG_PORT}"
+    export DOCKER_CONFIG=$TMP/docker
+    mkdir -p "$DOCKER_CONFIG"
+
+    run uenv image delete "test::anon/1.0:v1@arapiles%zen3"
+    log "${output}"
+    assert_success
+    assert_output --partial "deleted"
+
+    run registry_ctl digest "$REG_PORT" "$repo" v1
+    log "${output}"
+    assert_failure
+}

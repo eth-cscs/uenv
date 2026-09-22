@@ -20,7 +20,6 @@ namespace uenv {
 struct registry_config {
     util::url url;
     std::string default_namespace;
-    std::optional<util::url> artifactory_url;
     std::optional<util::url> listing_url;
 };
 

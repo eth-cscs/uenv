@@ -104,6 +104,23 @@ class client {
     put_manifest(const reference& ref, const std::string& body,
                  std::string_view media_type = media_type_manifest);
 
+    // DELETE the manifest addressed by `ref`.
+    //
+    // The two forms of reference do different things, and the difference
+    // matters: a tag is a pointer to a manifest digest, and several tags can
+    // point at the same manifest. Deleting a *digest* removes the manifest and
+    // takes every tag pointing at it with it; deleting a *tag* removes only
+    // that pointer. uenv deletes labels, so it always passes a tag.
+    //
+    // Deletion is OPTIONAL in the distribution spec, and tag deletion is
+    // optional separately from digest deletion: a registry that does not
+    // implement it answers 405 or 501, which callers read off
+    // client_error::http_status. A 404 means the reference is already absent.
+    //
+    // Blobs are not touched: an untagged manifest and its layers are left for
+    // the registry's garbage collector.
+    util::expected<void, client_error> delete_manifest(const reference& ref);
+
     // grant this client pull access to an additional repository, so its tokens
     // carry the scope a cross-repo blob mount needs (see mount_blob). must be
     // called before the first operation that fetches a token.
