@@ -192,11 +192,15 @@ parameters of its own.
 
 **Where urls are parsed.** At the boundaries they enter:
 
-- *configuration* — `registry.url`, `artifactory_url` and `listing_url` are
-  parsed in `uenv::parse_config_toml`, so a malformed url fails at startup with
-  the offending key named, rather than half way through a push. Each is
-  guaranteed http or https, with https assumed when the config omits a scheme
-  (the form the CSCS deployment uses).
+- *configuration* — `registry.url` and `listing_url` are parsed in
+  `uenv::parse_config_toml`, so a malformed url fails at startup with the
+  offending key named, rather than half way through a push. Each is guaranteed
+  http or https, with https assumed when the config omits a scheme (the form the
+  CSCS deployment uses). (`registry.artifactory_url` has been removed: `uenv image delete`
+  used to reach JFrog Artifactory's REST API directly, and now deletes through
+  `registry.url` like every other registry operation. The key is still accepted
+  and its contents ignored, with a `spdlog::warn`, so that a build can run on a
+  system whose deployed config still sets it.)
 - *response headers* — a Bearer challenge `realm` is parsed by
   `parse_bearer_challenge`; an upload `Location` by `detail::resolve_upload_url`.
 
@@ -293,6 +297,7 @@ Write operations:
 | `put_blob(digest, path, progress)` | upload a blob, streamed from disk |
 | `put_blob_bytes(digest, data)` | upload a small in-memory blob |
 | `put_manifest(reference, body, media_type)` | PUT a manifest under a tag or digest |
+| `delete_manifest(reference)` | DELETE a tag, or a manifest by digest — see below |
 | `mount_blob(digest, from_repository)` | cross-repo mount; true if mounted, false if the registry wants a full upload |
 | `add_pull_scope(repository)` | add a repository to this client's token scopes |
 
@@ -317,6 +322,34 @@ and local errors (unwritable destination, digest mismatch). Callers that must
 distinguish "not found" (often an expected outcome) from a transient failure
 branch on `http_status`; everyone else just prints `message`, for which a `fmt`
 formatter is provided.
+
+#### Deletion is tag-scoped
+
+`delete_manifest` takes a `reference`, and the two forms do materially different
+things:
+
+| reference | effect |
+| --- | --- |
+| a **tag** | removes that tag only; the manifest and every other tag pointing at it survive |
+| a **digest** | removes the manifest, and with it *every* tag that points at it |
+
+A tag is only a pointer to a manifest digest, and several tags routinely share
+one manifest — re-tagging a build in place produces exactly that. uenv deletes a
+*label*, which is a tag, so `uenv image delete` always passes
+`reference::tag(...)` and never a digest. Deleting by digest there would silently
+take a user's other tags with it.
+
+Two consequences worth knowing:
+
+- **Deletion is optional in the distribution spec**, and tag deletion is optional
+  *separately* from digest deletion: CNCF `distribution` accepts digests only,
+  while zot accepts both. A registry that does not implement it answers `405` or
+  `501`, which callers read off `client_error::http_status`. A `404` means the
+  reference was already absent.
+- **Blobs are not touched.** After the last tag on a manifest goes, that manifest,
+  any `uenv/meta` artifact attached to it, the `<algo>-<hex>` referrers-index tag
+  the push side maintains, and the squashfs layer itself are all left for the
+  registry's garbage collector. uenv does not chase them, and never has.
 
 ### `manifest.h` — the image document
 

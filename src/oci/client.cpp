@@ -73,6 +73,8 @@ class client_impl {
     put_manifest(const reference& ref, const std::string& body,
                  std::string_view media_type);
 
+    util::expected<void, client_error> delete_manifest(const reference& ref);
+
     void add_pull_scope(std::string repository);
 
     // a cached bearer token and the deadline after which it is considered
@@ -643,6 +645,32 @@ client_impl::put_manifest(const reference& ref, const std::string& body,
     return {};
 }
 
+util::expected<void, client_error>
+client_impl::delete_manifest(const reference& ref) {
+    util::curl::request req;
+    req.url =
+        registry_url_.resolve(detail::manifest_path(repository_, ref.string()))
+            .string();
+    req.method = util::curl::http_method::del;
+
+    // the write path: deletion needs the pull,push token, and inherits the
+    // 401-refresh-and-retry that comes with it.
+    auto resp = authed_perform(req, true);
+    if (!resp) {
+        return util::unexpected{resp.error()};
+    }
+    // the spec's success status is 202; some registries answer 200 instead.
+    if (resp->status != 202 && resp->status != 200) {
+        return util::unexpected{client_error{
+            fmt::format("failed to delete manifest {} (status {}): {} {}",
+                        ref.string(), resp->status,
+                        util::curl::http_message(resp->status), resp->body),
+            resp->status}};
+    }
+    spdlog::debug("oci::delete_manifest deleted {}", ref.string());
+    return {};
+}
+
 //
 // client: forwarders onto client_impl
 //
@@ -700,6 +728,11 @@ util::expected<void, client_error>
 client::put_manifest(const reference& ref, const std::string& body,
                      std::string_view media_type) {
     return impl_->put_manifest(ref, body, media_type);
+}
+
+util::expected<void, client_error>
+client::delete_manifest(const reference& ref) {
+    return impl_->delete_manifest(ref);
 }
 
 void client::add_pull_scope(std::string repository) {

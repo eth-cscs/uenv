@@ -181,6 +181,39 @@ default_namespace = "deploy")"sv;
         REQUIRE(!result->registry->listing_url);
     }
     {
+        // artifactory_url is gone, but the key must still parse rather than
+        // being rejected as unknown: a system config that uenv cannot parse is
+        // discarded wholesale, which would take registry.url and system_name
+        // with it. Tolerating the key is what lets a test build run on a
+        // production system whose config has not been updated yet. Its value
+        // is ignored entirely, so even a nonsense one must not fail the parse.
+        const std::string_view input = R"(
+[registry]
+url = "jfrog.svc.cscs.ch/uenv"
+default_namespace = "deploy"
+artifactory_url = "not even a url")"sv;
+        auto result = parse_config_toml(toml::parse(input), {});
+        REQUIRE(result);
+        REQUIRE(result->registry);
+        // the rest of the section is unaffected by its presence
+        REQUIRE(result->registry->url.string() ==
+                "https://jfrog.svc.cscs.ch/uenv");
+        REQUIRE(result->registry->default_namespace == "deploy");
+    }
+    {
+        // an unknown key in [registry] is still an error: tolerating the one
+        // retired key must not turn into tolerating typos.
+        const std::string_view input = R"(
+[registry]
+url = "jfrog.svc.cscs.ch/uenv"
+default_namespace = "deploy"
+artifactroy_url = "a typo")"sv;
+        auto result = parse_config_toml(toml::parse(input), {});
+        REQUIRE_FALSE(result);
+        REQUIRE(result.error().message.find("artifactroy_url") !=
+                std::string::npos);
+    }
+    {
         // an explicit http:// is honoured, so a local registry can be used
         const std::string_view input = R"(
 [registry]

@@ -620,10 +620,8 @@ parse_registry(const toml::node& input) {
 
     std::optional<std::string> url{};
     std::optional<std::string> default_namespace{};
-    std::optional<std::string> artifactory_url{};
     std::optional<std::string> listing_url{};
     std::uint32_t url_line = input.source().begin.line;
-    std::uint32_t artifactory_line = url_line;
     std::uint32_t listing_line = url_line;
 
     for (const auto& entry : *tbl) {
@@ -655,14 +653,25 @@ parse_registry(const toml::node& input) {
                     value.source().begin.line);
             }
         } else if (key == "artifactory_url") {
-            if (auto v = value.value<std::string>()) {
-                artifactory_url = v.value();
-                artifactory_line = value.source().begin.line;
-            } else {
-                return make_config_error(
-                    "registry.artifactory_url must be a string",
-                    value.source().begin.line);
-            }
+            // Removed: `uenv image delete` used to reach JFrog Artifactory's
+            // REST API, and now deletes through registry.url like every other
+            // registry operation. The key is accepted and its contents ignored
+            // rather than rejected, because an unrecognised key below fails the
+            // whole section — and a system config that uenv cannot parse is
+            // discarded wholesale (see load_config), which would take
+            // registry.url and system_name down with it. Tolerating the key is
+            // what lets a test build run on a production system whose
+            // /etc/uenv/config.toml has not been updated yet.
+            //
+            // spdlog rather than term::warn on purpose: this is a note for
+            // whoever maintains the deployed configuration, not for the user
+            // running the command, and console logging is off unless --verbose
+            // is given.
+            spdlog::warn("registry.artifactory_url (line {}) is no longer used "
+                         "and is ignored: deleting uenv goes through "
+                         "registry.url. The key can be removed from the "
+                         "configuration file.",
+                         value.source().begin.line);
         } else {
             return make_config_error(fmt::format("unexpected key '{}'", key),
                                      value.source().begin.line);
@@ -683,15 +692,6 @@ parse_registry(const toml::node& input) {
     if (!parsed_url) {
         return util::unexpected{parsed_url.error()};
     }
-    std::optional<util::url> parsed_artifactory;
-    if (artifactory_url) {
-        auto p = parse_config_url("registry.artifactory_url", *artifactory_url,
-                                  artifactory_line);
-        if (!p) {
-            return util::unexpected{p.error()};
-        }
-        parsed_artifactory = std::move(*p);
-    }
     std::optional<util::url> parsed_listing;
     if (listing_url) {
         auto p = parse_config_url("registry.listing_url", *listing_url,
@@ -705,7 +705,6 @@ parse_registry(const toml::node& input) {
     return registry_config{.url = std::move(*parsed_url),
                            .default_namespace =
                                std::move(default_namespace.value()),
-                           .artifactory_url = std::move(parsed_artifactory),
                            .listing_url = std::move(parsed_listing)};
 }
 

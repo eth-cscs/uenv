@@ -296,37 +296,6 @@ expected<std::string, error> upload(std::string url,
     return resp->body;
 }
 
-expected<void, error> del(std::string url, std::string username,
-                          std::string token) {
-    request req;
-    req.url = url;
-    req.method = http_method::del;
-    req.username = username;
-    req.password = token;
-    req.connect_timeout_ms = 1000L;
-    req.timeout_ms = 10000L;
-    req.follow_redirects = false;
-
-    auto resp = perform(req);
-    if (!resp) {
-        return unexpected{resp.error()};
-    }
-    spdlog::trace("curl::del http_code: {}", resp->status);
-
-    if (resp->status >= 400) {
-        return unexpected{error{
-            CURLE_HTTP_RETURNED_ERROR,
-            fmt::format("{}: {}", resp->status, http_message(resp->status))}};
-    }
-
-    spdlog::info("curl -X DELETE -u {}:{} {}", username,
-                 std::string(token.size(), 'X'), url);
-
-    spdlog::trace("curl::del successfully deleted {}", url);
-
-    return {};
-}
-
 namespace {
 
 size_t header_callback(char* buffer, size_t size, size_t nitems,

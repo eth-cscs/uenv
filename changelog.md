@@ -2,6 +2,8 @@
 
 ## 10.2.0
 
+- #190 [improvement] `uenv image delete` deletes through the native OCI client instead of the JFrog Artifactory REST API; the `registry.artifactory_url` config key is removed (still accepted and ignored, so it can be dropped from deployed configs at leisure)
+- #190 [improvement] `uenv image delete` resolves credentials exactly like `push` and `pull` (`--token`, then the uenv token store, then `~/.docker/config.json`), now that deletion authenticates against `registry.url`: `--token` is no longer required, and an unauthorised delete is reported by the registry instead of being refused locally
 - #189 [fix] an empty `XDG_CONFIG_HOME` is treated as unset; one implementation of XDG directory lookup
 - #188 [improvement] completion: single rule for expanding a leading `~`
 - #187 [fix] tab completion and `main()` load the configuration with the same code; print the reason for an invalid `--repo`
