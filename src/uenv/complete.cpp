@@ -193,7 +193,7 @@ std::vector<candidate> complete_path(std::string_view prefix,
         return {};
     }
     if (dir.empty()) {
-        dir = dir_text.empty() ? "." : "/";
+        dir = dir_text.empty() ? '.' : '/';
     }
 
     std::vector<candidate> result;
