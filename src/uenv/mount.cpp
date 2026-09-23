@@ -166,9 +166,9 @@ validate_mount_list(const mount_list& input) {
                 fmt::format("the mount path {} does not exist", p.string())};
         }
         if (ec) {
-            return util::unexpected{fmt::format(
-                "unable to access the mount path {} ({})", p.string(),
-                ec.message())};
+            return util::unexpected{
+                fmt::format("unable to access the mount path {} ({})",
+                            p.string(), ec.message())};
         }
         if (!fs::is_directory(status)) {
             return util::unexpected{fmt::format(
