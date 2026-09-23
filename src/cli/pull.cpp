@@ -310,7 +310,12 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
             spdlog::debug("removing record {}", record);
             store->remove(record.sha);
             spdlog::debug("deleting path {}", paths.store);
-            std::filesystem::remove_all(paths.store);
+            std::error_code ec;
+            std::filesystem::remove_all(paths.store, ec);
+            if (ec) {
+                spdlog::warn("unable to delete {}: {}", paths.store.string(),
+                             ec.message());
+            }
             // reraise the signal
             raise(e.signal);
         }

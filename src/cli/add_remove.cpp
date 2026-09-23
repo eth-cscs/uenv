@@ -264,7 +264,13 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         if (fs::exists(uenv_paths.store)) {
             spdlog::debug("image_add: remove the target path {} before copying",
                           uenv_paths.store.string());
-            fs::remove_all(uenv_paths.store);
+            fs::remove_all(uenv_paths.store, ec);
+            if (ec) {
+                spdlog::error("unable to remove path {}: {}",
+                              uenv_paths.store.string(), ec.message());
+                term::error("unable to add the uenv");
+                return 1;
+            }
         }
 
         fs::create_directories(uenv_paths.store, ec);
@@ -491,16 +497,24 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
     if (sha) {
         spdlog::info("removing sha {}", *sha);
 
-        removed = *store->remove(*sha);
-
+        // delete the files before the database record, so that if the
+        // deletion fails the record survives and `image rm` can be retried.
         auto store_path = store->uenv_paths(*sha).store;
         if (std::filesystem::exists(store_path)) {
             spdlog::info("image_rm: deleting path {}", store_path.string());
-            std::filesystem::remove_all(store_path);
+            std::error_code ec;
+            std::filesystem::remove_all(store_path, ec);
+            if (ec) {
+                term::error("unable to delete {}: {}", store_path.string(),
+                            ec.message());
+                return 1;
+            }
         } else {
             spdlog::warn("image_rm: the path {} does not exist - skipping",
                          store_path.string());
         }
+
+        removed = *store->remove(*sha);
     } else if (record) {
         spdlog::info("removing record {}", *record);
 
