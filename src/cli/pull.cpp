@@ -171,8 +171,8 @@ int image_pull(const image_pull_args& args, const global_settings& settings) {
     // to attempt the pull one-after-the-other
     auto lock = util::make_file_lock(paths.store.string() + ".lock");
 
-    bool meta_exists = fs::exists(paths.meta);
-    bool sqfs_exists = fs::exists(paths.squashfs);
+    bool meta_exists = util::path_exists(paths.meta);
+    bool sqfs_exists = util::path_exists(paths.squashfs);
 
     auto in_repo = [&store](uenv_label label) -> bool {
         return !(store->query(label)->empty());

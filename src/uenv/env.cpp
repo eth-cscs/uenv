@@ -103,7 +103,7 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
     // this test checks whether the meta path contains env.json.
     // extend in the future to check for other required files, as needed.
     auto is_valid_meta_path = [](const std::filesystem::path& path) -> bool {
-        return fs::is_regular_file(path / "env.json");
+        return util::path_is_file(path / "env.json");
     };
 
     meta_info meta;
@@ -124,7 +124,7 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
     if (meta.path) {
         auto env_meta = meta.path.value() / "env.json";
 
-        if (fs::is_regular_file(env_meta)) {
+        if (util::path_is_file(env_meta)) {
             meta.env = env_meta;
         }
         if (meta.env) {
@@ -153,9 +153,13 @@ resolve_uenv_info(const uenv_record& record, const repository& store) {
 
     // set sqfs_path, manifest_path and digest
     const auto paths = store.uenv_paths(record.sha);
-    info.sqfs_path = fs::absolute(paths.squashfs);
+    if (auto abs = util::absolute_path(paths.squashfs)) {
+        info.sqfs_path = *abs;
+    } else {
+        return unexpected(abs.error());
+    }
     info.manifest_path = paths.manifest;
-    if (!fs::exists(info.sqfs_path) || !fs::is_regular_file(info.sqfs_path)) {
+    if (!util::path_is_file(info.sqfs_path)) {
         return unexpected(fmt::format(
             "the uenv image {} does not exist or is not a file. Run "
             "'uenv repo status' to check the health of the repo.",
@@ -191,8 +195,12 @@ resolve_uenv_info(const std::filesystem::path& sqfs_path) {
     uenv_info info;
 
     // set sqfs_path and digest
-    info.sqfs_path = fs::absolute(sqfs_path);
-    if (!fs::exists(info.sqfs_path) || !fs::is_regular_file(info.sqfs_path)) {
+    if (auto abs = util::absolute_path(sqfs_path)) {
+        info.sqfs_path = *abs;
+    } else {
+        return unexpected(abs.error());
+    }
+    if (!util::path_is_file(info.sqfs_path)) {
         return unexpected(fmt::format(
             "the uenv image {} does not exist or is not a file. Run "
             "'uenv repo status' to check the health of the repo.",
@@ -371,12 +379,21 @@ concretise_env(const std::vector<resolved_uenv>& input_uenvs,
         fs::path mount;
         if (auto p = parse_path(mount_string)) {
             mount = p.value();
-            if (!fs::exists(mount)) {
+            // examine the mount point without throwing: it may be one that
+            // can't be accessed, which is different from one that is missing
+            std::error_code status_ec;
+            const auto mount_status = fs::status(mount, status_ec);
+            if (mount_status.type() == fs::file_type::not_found) {
                 return unexpected(
                     fmt::format("the mount point {} for {} does not exist",
                                 mount, label_str));
             }
-            if (!fs::is_directory(mount)) {
+            if (status_ec) {
+                return unexpected(fmt::format(
+                    "unable to access the mount point {} for {}: {}", mount,
+                    label_str, status_ec.message()));
+            }
+            if (!fs::is_directory(mount_status)) {
                 return unexpected(
                     fmt::format("the mount point {} for {} is not a directory",
                                 mount, label_str));
@@ -395,7 +412,14 @@ concretise_env(const std::vector<resolved_uenv>& input_uenvs,
 
         // check for unique mount points and squashfs images
         {
-            mount = fs::canonical(mount);
+            std::error_code canon_ec;
+            const auto canonical_mount = fs::canonical(mount, canon_ec);
+            if (canon_ec) {
+                return unexpected(fmt::format(
+                    "unable to resolve the mount point {} for {}: {}", mount,
+                    label_str, canon_ec.message()));
+            }
+            mount = canonical_mount;
             if (used_mounts.count(mount)) {
                 return unexpected(fmt::format("more than one image mounted "
                                               "at the mount point '{}'",
@@ -403,7 +427,13 @@ concretise_env(const std::vector<resolved_uenv>& input_uenvs,
             }
             used_mounts.insert(mount);
 
-            auto canonical_sqfs = fs::canonical(info.sqfs_path);
+            const auto canonical_sqfs =
+                fs::canonical(info.sqfs_path, canon_ec);
+            if (canon_ec) {
+                return unexpected(fmt::format(
+                    "unable to resolve the squashfs image {}: {}",
+                    info.sqfs_path.string(), canon_ec.message()));
+            }
             if (used_sqfs.count(canonical_sqfs)) {
                 return unexpected(fmt::format(
                     "the '{}' uenv is mounted more than once", canonical_sqfs));
