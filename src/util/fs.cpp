@@ -176,12 +176,7 @@ file_creation_date(const std::filesystem::path& path) {
     std::time_t cftime = cr::system_clock::to_time_t(sctp);
 
     // extract the date components
-    std::tm date{};
-    if (gmtime_r(&cftime, &date) == nullptr) {
-        return util::unexpected{fmt::format(
-            "the modification time of {} is out of range", path.string())};
-    }
-    return date;
+    return *std::gmtime(&cftime);
 }
 
 namespace {
