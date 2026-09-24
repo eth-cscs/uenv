@@ -427,12 +427,11 @@ concretise_env(const std::vector<resolved_uenv>& input_uenvs,
             }
             used_mounts.insert(mount);
 
-            const auto canonical_sqfs =
-                fs::canonical(info.sqfs_path, canon_ec);
+            const auto canonical_sqfs = fs::canonical(info.sqfs_path, canon_ec);
             if (canon_ec) {
-                return unexpected(fmt::format(
-                    "unable to resolve the squashfs image {}: {}",
-                    info.sqfs_path.string(), canon_ec.message()));
+                return unexpected(
+                    fmt::format("unable to resolve the squashfs image {}: {}",
+                                info.sqfs_path.string(), canon_ec.message()));
             }
             if (used_sqfs.count(canonical_sqfs)) {
                 return unexpected(fmt::format(
