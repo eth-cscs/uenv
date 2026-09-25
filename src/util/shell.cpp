@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -74,10 +75,13 @@ std::optional<std::filesystem::path> which(std::string const& name,
     };
 
     // resolve symlinks, falling back to the path as given
-    auto resolve = [](const fs::path& p) -> fs::path {
+    auto resolve = [](const fs::path& p) -> std::optional<fs::path> {
         std::error_code ec;
         auto c = fs::canonical(p, ec);
-        return ec ? p : c;
+        if (ec) {
+            return std::nullopt;
+        }
+        return c;
     };
 
     if (name.find('/') != std::string::npos) {
