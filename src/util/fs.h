@@ -29,6 +29,21 @@ void clear_temp_dirs();
 util::expected<std::tm, std::string>
 file_creation_date(const std::filesystem::path& path);
 
+// Non-throwing tests on a path.
+// The std::filesystem functions without an std::error_code throw when a path
+// cannot be examined (EACCES on a parent directory, ENAMETOOLONG, a stale
+// network file system), which terminates the program. These return false in
+// that case, and log the reason at debug level. Like the std::filesystem
+// equivalents, they follow symlinks.
+bool path_exists(const std::filesystem::path& path);
+bool path_is_file(const std::filesystem::path& path);
+bool path_is_dir(const std::filesystem::path& path);
+
+// std::filesystem::absolute, reporting a failure (the current directory
+// can't be determined) as an error instead of throwing.
+util::expected<std::filesystem::path, std::string>
+absolute_path(const std::filesystem::path& path);
+
 class file_lock {
   public:
     file_lock(const file_lock&) = delete;

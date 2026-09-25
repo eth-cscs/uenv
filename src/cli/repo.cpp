@@ -212,9 +212,27 @@ repo_consistency check_repo_consistency(const uenv::repository& store) {
 
             auto p = store.uenv_paths(digest);
 
+            // Only a definite "not found" marks the storage as missing, because
+            // the stale record is then deleted. A path that can't be examined
+            // (EACCES, EIO on a network file system) must not cost the user
+            // their records.
+            auto is_missing = [](const fs::path& path, bool directory) {
+                std::error_code ec;
+                const auto status = fs::status(path, ec);
+                if (status.type() == fs::file_type::not_found) {
+                    return true;
+                }
+                if (ec) {
+                    spdlog::warn("unable to examine {}: {}", path.string(),
+                                 ec.message());
+                    return false;
+                }
+                return directory ? !fs::is_directory(status)
+                                 : !fs::is_regular_file(status);
+            };
+
             // record the digest if the storage path or squashfs file is missing
-            if (!fs::is_directory(p.store) ||
-                !fs::is_regular_file(p.squashfs)) {
+            if (is_missing(p.store, true) || is_missing(p.squashfs, false)) {
                 spdlog::trace("check_repo_consistency:: {} does not exist",
                               p.squashfs);
                 R.no_storage[digest].push_back(r);

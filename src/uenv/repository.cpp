@@ -48,8 +48,8 @@ default_repo_path(const envvars::state& env, bool exists) {
             return base / repo;
         };
         bool exists() const {
-            return fs::is_directory(join()) &&
-                   fs::is_regular_file(join() / "index.db");
+            return util::path_is_dir(join()) &&
+                   util::path_is_file(join() / "index.db");
         }
         bool writeable() const {
             auto canwrite = [](const fs::path& path) -> bool {
@@ -131,10 +131,10 @@ validate_repo_path(const std::filesystem::path& path, bool is_absolute,
         return unexpected(
             fmt::format("'{}' is not an absolute path.", path.string()));
     }
-    if (exists && !fs::exists(path)) {
+    if (exists && !util::path_exists(path)) {
         return unexpected(fmt::format("'{}' does not exist.", path.string()));
     }
-    return fs::absolute(path);
+    return util::absolute_path(path);
 }
 
 bool operator<(const repo_description& lhs, const repo_description& rhs) {
@@ -142,8 +142,13 @@ bool operator<(const repo_description& lhs, const repo_description& rhs) {
 }
 
 bool operator==(const repo_description& lhs, const repo_description& rhs) {
-    return std::filesystem::weakly_canonical(lhs.path) ==
-           std::filesystem::weakly_canonical(rhs.path);
+    // a path that can't be resolved is compared as given
+    auto canonical = [](const std::filesystem::path& p) {
+        std::error_code ec;
+        auto c = std::filesystem::weakly_canonical(p, ec);
+        return ec ? p.lexically_normal() : c;
+    };
+    return canonical(lhs.path) == canonical(rhs.path);
 }
 
 //
@@ -365,7 +370,7 @@ hopefully<sqlite_database> open_sqlite_database(const fs::path path,
                                                 repo_open_mode mode) {
     using enum repo_open_mode;
 
-    if (!fs::exists(path)) {
+    if (!util::path_exists(path)) {
         return unexpected(
             fmt::format("database file {} does not exist", path.string()));
     }
@@ -400,11 +405,11 @@ hopefully<sqlite_database>
 create_sqlite_database(const std::optional<fs::path> path = {}) {
     using enum repo_open_mode;
 
-    if (path && fs::exists(*path)) {
+    if (path && util::path_exists(*path)) {
         return unexpected(
             fmt::format("database file {} already exists", path->string()));
     }
-    if (path && !fs::exists(path->parent_path())) {
+    if (path && !util::path_exists(path->parent_path())) {
         return unexpected(fmt::format("the path {} needs to be crated first",
                                       path->parent_path().string()));
     }
@@ -607,7 +612,7 @@ repository::repository(std::unique_ptr<repository_impl> impl)
 repo_state validate_repository(const fs::path& repo_path) {
     using enum repo_state;
 
-    if (!fs::is_directory(repo_path)) {
+    if (!util::path_is_dir(repo_path)) {
         spdlog::debug("validate_repository: repository path {} does not exist",
                       repo_path);
         return no_exist;
@@ -615,7 +620,7 @@ repo_state validate_repository(const fs::path& repo_path) {
     spdlog::debug("validate_repository: repository path {} exists", repo_path);
 
     auto db_path = repo_path / "index.db";
-    if (!fs::is_regular_file(db_path)) {
+    if (!util::path_is_file(db_path)) {
         spdlog::debug("validate_repository: database {} does not exist",
                       db_path);
         // the path exists, but there is no database file
@@ -690,7 +695,11 @@ create_repository(const fs::path& repo_path, repo_create_mode mode) {
     using enum repo_state;
     using enum repo_create_mode;
 
-    auto abs_repo_path = fs::absolute(repo_path);
+    const auto abs = util::absolute_path(repo_path);
+    if (!abs) {
+        return unexpected(abs.error());
+    }
+    const auto abs_repo_path = *abs;
 
     const auto initial_state = validate_repository(abs_repo_path);
     switch (initial_state) {

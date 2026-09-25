@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -70,14 +71,23 @@ std::optional<std::filesystem::path> which(std::string const& name,
     namespace fs = std::filesystem;
 
     auto is_executable = [](const fs::path& p) {
-        return fs::exists(p) && fs::is_regular_file(p) &&
-               access(p.c_str(), X_OK) == 0;
+        return util::path_is_file(p) && access(p.c_str(), X_OK) == 0;
+    };
+
+    // resolve symlinks, falling back to the path as given
+    auto resolve = [](const fs::path& p) -> std::optional<fs::path> {
+        std::error_code ec;
+        auto c = fs::canonical(p, ec);
+        if (ec) {
+            return std::nullopt;
+        }
+        return c;
     };
 
     if (name.find('/') != std::string::npos) {
         const auto p = make_path(name);
         if (p && is_executable(*p)) {
-            return fs::canonical(*p);
+            return resolve(*p);
         }
         return {};
     }
@@ -86,7 +96,7 @@ std::optional<std::filesystem::path> which(std::string const& name,
         if (const auto root = make_path(path)) {
             const auto candidate = *root / name;
             if (is_executable(candidate)) {
-                return fs::canonical(candidate);
+                return resolve(candidate);
             }
         }
     }

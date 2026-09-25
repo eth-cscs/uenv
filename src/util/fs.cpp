@@ -159,7 +159,13 @@ file_creation_date(const std::filesystem::path& path) {
     namespace fs = std::filesystem;
     namespace cr = std::chrono;
 
-    const auto creation_time = fs::last_write_time(path);
+    std::error_code ec;
+    const auto creation_time = fs::last_write_time(path, ec);
+    if (ec) {
+        return util::unexpected{
+            fmt::format("unable to read the modification time of {}: {}",
+                        path.string(), ec.message())};
+    }
 
     // convert file_time_type to system clock time_point
     const auto sctp = cr::time_point_cast<cr::system_clock::duration>(
@@ -171,6 +177,40 @@ file_creation_date(const std::filesystem::path& path) {
 
     // extract the date components
     return *std::gmtime(&cftime);
+}
+
+namespace {
+std::filesystem::file_status status_or_log(const std::filesystem::path& path) {
+    std::error_code ec;
+    const auto status = std::filesystem::status(path, ec);
+    if (ec && status.type() != std::filesystem::file_type::not_found) {
+        spdlog::warn("unable to examine {}: {}", path.string(), ec.message());
+    }
+    return status;
+}
+} // namespace
+
+bool path_exists(const std::filesystem::path& path) {
+    return std::filesystem::exists(status_or_log(path));
+}
+
+bool path_is_file(const std::filesystem::path& path) {
+    return std::filesystem::is_regular_file(status_or_log(path));
+}
+
+bool path_is_dir(const std::filesystem::path& path) {
+    return std::filesystem::is_directory(status_or_log(path));
+}
+
+util::expected<std::filesystem::path, std::string>
+absolute_path(const std::filesystem::path& path) {
+    std::error_code ec;
+    auto abs = std::filesystem::absolute(path, ec);
+    if (ec) {
+        return util::unexpected{fmt::format("unable to make {} absolute: {}",
+                                            path.string(), ec.message())};
+    }
+    return abs;
 }
 
 util::expected<file_lock, std::string>
@@ -262,12 +302,10 @@ file_level file_access_level(const std::filesystem::path& path) {
 
 std::optional<std::string>
 read_single_line_file(const std::filesystem::path& path) {
-    if (std::filesystem::exists(path)) {
-        if (auto file = std::ifstream{path}) {
-            std::string line;
-            if (std::getline(file, line)) {
-                return line;
-            }
+    if (auto file = std::ifstream{path}) {
+        std::string line;
+        if (std::getline(file, line)) {
+            return line;
         }
     }
     return std::nullopt;
