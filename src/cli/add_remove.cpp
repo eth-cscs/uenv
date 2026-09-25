@@ -186,6 +186,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
             term::error("unable to add the uenv: {}", creation_date.error());
             return 1;
         }
+        auto created = oci::rfc3339(*creation_date);
         std::error_code size_ec;
         const auto sqfs_size = fs::file_size(sqfs->sqfs, size_ec);
         if (size_ec) {
@@ -193,7 +194,6 @@ int image_add(const image_add_args& args, const global_settings& settings) {
                         sqfs->sqfs.string(), size_ec.message());
             return 1;
         }
-        auto created = oci::rfc3339(*creation_date);
         auto m = oci::make_squashfs_manifest(oci::digest::sha256(sqfs->hash),
                                              sqfs_size, created);
         manifest_body = oci::serialize_manifest(m);
