@@ -379,21 +379,7 @@ concretise_env(const std::vector<resolved_uenv>& input_uenvs,
         fs::path mount;
         if (auto p = parse_path(mount_string)) {
             mount = p.value();
-            // examine the mount point without throwing: it may be one that
-            // can't be accessed, which is different from one that is missing
-            std::error_code status_ec;
-            const auto mount_status = fs::status(mount, status_ec);
-            if (mount_status.type() == fs::file_type::not_found) {
-                return unexpected(
-                    fmt::format("the mount point {} for {} does not exist",
-                                mount, label_str));
-            }
-            if (status_ec) {
-                return unexpected(fmt::format(
-                    "unable to access the mount point {} for {}: {}", mount,
-                    label_str, status_ec.message()));
-            }
-            if (!fs::is_directory(mount_status)) {
+            if (!util::path_is_dir(mount)) {
                 return unexpected(
                     fmt::format("the mount point {} for {} is not a directory",
                                 mount, label_str));
