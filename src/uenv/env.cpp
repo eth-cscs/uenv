@@ -553,6 +553,7 @@ std::set<std::string_view> unsecure_envvars__{
     "LD_ORIGIN_PATH",
     "LD_PRELOAD",
     "LD_PROFILE",
+    "LD_PROFILE_OUTPUT",
     "LD_SHOW_AUXV",
     "LD_VERBOSE",
     "LD_WARN",
@@ -571,6 +572,7 @@ std::set<std::string_view> unsecure_envvars__{
     "RESOLV_HOST_CONF",
     "RES_OPTIONS",
     "TMPDIR",
+    "TZDIR",
 };
 
 envvars::state generate_environment(const env& environment,
