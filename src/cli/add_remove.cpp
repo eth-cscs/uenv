@@ -181,10 +181,21 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     sha256 image_hash = sqfs->hash;
     std::optional<std::string> manifest_body;
     if (!from_label) {
-        auto created = oci::rfc3339(*util::file_creation_date(sqfs->sqfs));
-        auto m =
-            oci::make_squashfs_manifest(oci::digest::sha256(sqfs->hash),
-                                        fs::file_size(sqfs->sqfs), created);
+        const auto creation_date = util::file_creation_date(sqfs->sqfs);
+        if (!creation_date) {
+            term::error("unable to add the uenv: {}", creation_date.error());
+            return 1;
+        }
+        auto created = oci::rfc3339(*creation_date);
+        std::error_code size_ec;
+        const auto sqfs_size = fs::file_size(sqfs->sqfs, size_ec);
+        if (size_ec) {
+            term::error("unable to read the size of {}: {}",
+                        sqfs->sqfs.string(), size_ec.message());
+            return 1;
+        }
+        auto m = oci::make_squashfs_manifest(oci::digest::sha256(sqfs->hash),
+                                             sqfs_size, created);
         manifest_body = oci::serialize_manifest(m);
         spdlog::debug("image_add: creating manifest {}", *manifest_body);
 
@@ -261,10 +272,16 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         // if the path exists, delete it: it was probably caused by an aborted
         // `image add` or `image pull` command that did not complete the
         // download and database update.
-        if (fs::exists(uenv_paths.store)) {
+        if (util::path_exists(uenv_paths.store)) {
             spdlog::debug("image_add: remove the target path {} before copying",
                           uenv_paths.store.string());
-            fs::remove_all(uenv_paths.store);
+            fs::remove_all(uenv_paths.store, ec);
+            if (ec) {
+                spdlog::error("unable to remove path {}: {}",
+                              uenv_paths.store.string(), ec.message());
+                term::error("unable to add the uenv");
+                return 1;
+            }
         }
 
         fs::create_directories(uenv_paths.store, ec);
@@ -356,7 +373,21 @@ int image_add(const image_add_args& args, const global_settings& settings) {
     // read the creation date from the image in its final destination in the
     // repository: in the --move case the source path no longer exists, and in
     // both cases the in-repo copy is the authoritative file.
-    const uenv::uenv_date date{*util::file_creation_date(uenv_paths.squashfs)};
+    const auto creation_date = util::file_creation_date(uenv_paths.squashfs);
+    if (!creation_date) {
+        spdlog::error("image_add: {}", creation_date.error());
+        term::error("unable to add the uenv");
+        return 1;
+    }
+    const uenv::uenv_date date{*creation_date};
+    std::error_code size_ec;
+    const auto sqfs_size = fs::file_size(uenv_paths.squashfs, size_ec);
+    if (size_ec) {
+        spdlog::error("unable to read the size of {}: {}",
+                      uenv_paths.squashfs.string(), size_ec.message());
+        term::error("unable to add the uenv");
+        return 1;
+    }
     if (!date.validate()) {
         spdlog::error("the date {} is invalid", date);
         term::error("unable to add the uenv");
@@ -369,7 +400,7 @@ int image_add(const image_add_args& args, const global_settings& settings) {
         *label->version,
         *label->tag,
         date,
-        fs::file_size(uenv_paths.squashfs),
+        sqfs_size,
         image_hash,
         uenv_id::parse(image_hash.string().substr(0, 16)).value(),
     };
@@ -491,16 +522,24 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
     if (sha) {
         spdlog::info("removing sha {}", *sha);
 
-        removed = *store->remove(*sha);
-
+        // delete the files before the database record, so that if the
+        // deletion fails the record survives and `image rm` can be retried.
         auto store_path = store->uenv_paths(*sha).store;
         if (std::filesystem::exists(store_path)) {
             spdlog::info("image_rm: deleting path {}", store_path.string());
-            std::filesystem::remove_all(store_path);
+            std::error_code ec;
+            std::filesystem::remove_all(store_path, ec);
+            if (ec) {
+                term::error("unable to delete {}: {}", store_path.string(),
+                            ec.message());
+                return 1;
+            }
         } else {
             spdlog::warn("image_rm: the path {} does not exist - skipping",
                          store_path.string());
         }
+
+        removed = *store->remove(*sha);
     } else if (record) {
         spdlog::info("removing record {}", *record);
 

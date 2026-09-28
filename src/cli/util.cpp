@@ -202,11 +202,16 @@ util::expected<squashfs_image, std::string> validate_squashfs_image(
                                             path, file.error().message())};
     }
     img.sqfs = *file;
-    if (!fs::is_regular_file(img.sqfs)) {
+    if (!util::path_is_file(img.sqfs)) {
         return util::unexpected{
             fmt::format("invalid squashfs: {} is not a file", path)};
     }
-    img.sqfs = fs::absolute(img.sqfs);
+    if (auto abs = util::absolute_path(img.sqfs)) {
+        img.sqfs = *abs;
+    } else {
+        return util::unexpected{
+            fmt::format("invalid squashfs file {}: {}", path, abs.error())};
+    }
     spdlog::info("found squashfs {}", img.sqfs);
 
     if (auto p = util::unsquashfs_tmp(img.sqfs, "meta")) {

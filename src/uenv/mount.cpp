@@ -153,19 +153,41 @@ validate_mount_list(const mount_list& input) {
     const auto b = std::begin(mview);
     const auto e = std::cend(mview);
 
+    // Check that a mount point is an existing directory. The throwing
+    // overloads of std::filesystem must not be used here: a mount point
+    // that cannot be examined (EACCES on a parent, ENAMETOOLONG, a stale
+    // network file system) would terminate the process.
+    auto check_mount_point =
+        [](const fs::path& p) -> util::expected<void, std::string> {
+        std::error_code ec;
+        const auto status = fs::status(p, ec);
+        if (ec) {
+            return util::unexpected{
+                fmt::format("unable to access the mount path {} ({})",
+                            p.string(), ec.message())};
+        }
+        if (status.type() == fs::file_type::not_found) {
+            return util::unexpected{
+                fmt::format("the mount path {} does not exist", p.string())};
+        }
+        if (!fs::is_directory(status)) {
+            return util::unexpected{fmt::format(
+                "the mount path {} is not a directory", p.string())};
+        }
+        return {};
+    };
+
     // check whether the first mount point exists
-    if (!fs::is_directory(*b)) {
-        return util::unexpected{
-            fmt::format("the mount path {} does not exist", (*b).string())};
+    if (auto ok = check_mount_point(*b); !ok) {
+        return util::unexpected{ok.error()};
     }
     // iterate over the remaining mounts
     for (auto c = b + 1; c != e; ++c) {
         auto parent = std::find_if(
             b, c, [&c, is_child](const auto& it) { return is_child(it, *c); });
         if (parent == c) { // there is no parent
-            if (!fs::is_directory(*c)) {
-                return util::unexpected{
-                    fmt::format("the mount path {} does not exist", *c)};
+            if (auto ok = check_mount_point(*c); !ok) {
+                return util::unexpected{ok.error()};
             }
         } else {
             spdlog::warn("the mount {} is inside another mount {}", *c,

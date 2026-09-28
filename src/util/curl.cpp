@@ -450,7 +450,16 @@ expected<response, error> perform(const request& req) {
                                     fmt::format("unable to open {} for upload",
                                                 req.upload_file->string())}};
         }
-        curl_off_t file_size = std::filesystem::file_size(*req.upload_file);
+        std::error_code size_ec;
+        const auto upload_size =
+            std::filesystem::file_size(*req.upload_file, size_ec);
+        if (size_ec) {
+            return unexpected{error{
+                CURLE_READ_ERROR,
+                fmt::format("unable to read the size of {}: {}",
+                            req.upload_file->string(), size_ec.message())}};
+        }
+        curl_off_t file_size = static_cast<curl_off_t>(upload_size);
         CURL_EASY(curl_easy_setopt(h, CURLOPT_UPLOAD, 1L));
         CURL_EASY(curl_easy_setopt(h, CURLOPT_READDATA, upload));
         CURL_EASY(curl_easy_setopt(h, CURLOPT_INFILESIZE_LARGE, file_size));
