@@ -19,16 +19,16 @@ TEST_CASE("error", "[subprocess]") {
                      matchers::ContainsSubstring("No such file or directory"));
     }
     // check that errors are handled correctly when an application launches,
-    // then fails with an error
+    // then fails with an error.
+    // use sh rather than e.g. `ls --garbage`, so that the expected exit code
+    // and message do not depend on which coreutils implementation is installed
     {
-        auto proc = util::run({"ls", "--garbage"});
-        // ls returns 2 for "serious trouble, e.g. can't access comand line
-        // argument"
+        auto proc =
+            util::run({"sh", "-c", "echo 'oops: --garbage' >&2; exit 2"});
         REQUIRE(proc->wait() == 2);
         auto line = proc->err.getline();
         REQUIRE(line);
-        REQUIRE_THAT(*line,
-                     matchers::Equals("ls: unrecognized option '--garbage'"));
+        REQUIRE_THAT(*line, matchers::Equals("oops: --garbage"));
     }
 }
 
