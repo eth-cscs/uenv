@@ -127,11 +127,11 @@ int init_post_opt_remote(spank_t sp) {
         !result) {
         slurm_error("uenv: unable to open the uenv images as the job user: %s",
                     result.error().c_str());
-        return -ESPANK_ERROR;
+        return ESPANK_JOB_FAILURE;
     }
     if (!images) {
         slurm_error("%s", images.error().c_str());
-        return -ESPANK_ERROR;
+        return ESPANK_JOB_FAILURE;
     }
 
     if (auto result = uenv::unshare_mount_namespace(); !result) {
@@ -142,7 +142,7 @@ int init_post_opt_remote(spank_t sp) {
     if (auto result = uenv::do_mount(images.value()); !result) {
         slurm_error("error mounting the requested uenv image: %s",
                     result.error().c_str());
-        return -ESPANK_ERROR;
+        return ESPANK_JOB_FAILURE;
     }
 
     return ESPANK_SUCCESS;

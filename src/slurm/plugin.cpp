@@ -369,7 +369,7 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
             !mount_list) {
             slurm_error("invalid UENV_MOUNT_LIST: %s",
                         mount_list.error().c_str());
-            return -ESPANK_ERROR;
+            return ESPANK_JOB_FAILURE;
         }
 
         // derive telemetry information from the calling environment
