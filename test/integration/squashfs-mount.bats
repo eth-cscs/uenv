@@ -268,3 +268,204 @@ $my_gid"
     assert_output "hello app"
     assert_success
 }
+
+#
+# -r/--mutable-root and --bind-mount
+#
+# Both flags exist only in the fuse/rootless backend: the kernel backend's
+# CLI11 parser does not define them at all, and passing them there is a plain
+# parse error rather than a meaningful skip. --help output is a reliable way
+# to tell the backends apart, whether or not the binary happens to be
+# installed setuid (that bit only distinguishes kernel builds that *are*
+# installed from ones that are not).
+#
+# Mount points/destinations below deliberately use fresh top-level names
+# (never nested under an existing top-level directory such as $TMP, which
+# lives under /home) - make_mutable_root() excludes a dst's top-level
+# component from the rebuilt "/" whenever that component already exists on
+# the host but the dst itself does not, which would also hide anything else
+# under that same top-level component (e.g. a --bind-mount source living
+# under $TMP). A brand new top-level name avoids that exclusion entirely, and
+# nothing created under it ever touches the real host filesystem: the whole
+# rebuild happens inside the process's own unshared mount namespace.
+#
+
+function require_fuse_backend() {
+    run squashfs-mount --help
+    if [[ "$output" != *"mutable-root"* ]]; then
+        skip "squashfs-mount is not built with the fuse backend (no mutable-root/bind-mount support)"
+    fi
+}
+
+@test "mutable root: --sqfs mounts on a mount point that does not exist" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+
+    run squashfs-mount -r --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-mutable-root-mount -- /uenv-bats-mutable-root-mount/env/app/bin/app
+    assert_output "hello app"
+    assert_success
+}
+
+@test "without -r, a --sqfs mount point that does not exist is refused" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+
+    run squashfs-mount --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-no-mutable-root-mount -- true
+    assert_failure
+    assert_output --partial "does not exist"
+}
+
+@test "--bind-mount to a destination that already exists" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc $TMP/binddst
+    echo "bind-mount-content" > $TMP/bindsrc/file.txt
+
+    run squashfs-mount --bind-mount=$TMP/bindsrc:$TMP/binddst -- cat $TMP/binddst/file.txt
+    assert_output "bind-mount-content"
+    assert_success
+}
+
+@test "without -r, a --bind-mount destination that does not exist is refused" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc
+
+    run squashfs-mount --bind-mount=$TMP/bindsrc:/uenv-bats-no-mutable-root-bind -- true
+    assert_failure
+    assert_output --partial "does not exist"
+}
+
+@test "mutable root: --bind-mount to a destination that does not exist" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc
+    echo "bind-mount-content" > $TMP/bindsrc/file.txt
+
+    run squashfs-mount -r --bind-mount=$TMP/bindsrc:/uenv-bats-mutable-root-bind -- cat /uenv-bats-mutable-root-bind/file.txt
+    assert_output "bind-mount-content"
+    assert_success
+}
+
+@test "--bind-mount cannot be repeated: use a comma separated list" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc1 $TMP/bindsrc2 $TMP/binddst1 $TMP/binddst2
+
+    run squashfs-mount \
+        --bind-mount=$TMP/bindsrc1:$TMP/binddst1 \
+        --bind-mount=$TMP/bindsrc2:$TMP/binddst2 \
+        -- true
+    assert_failure
+    assert_output --partial "can only be given once"
+}
+
+@test "--bind-mount accepts a comma separated list, like --sqfs" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc1 $TMP/bindsrc2 $TMP/binddst1 $TMP/binddst2
+    echo "first" > $TMP/bindsrc1/file.txt
+    echo "second" > $TMP/bindsrc2/file.txt
+
+    run squashfs-mount \
+        --bind-mount=$TMP/bindsrc1:$TMP/binddst1,$TMP/bindsrc2:$TMP/binddst2 \
+        -- sh -c "cat $TMP/binddst1/file.txt && cat $TMP/binddst2/file.txt"
+    assert_output "first
+second"
+    assert_success
+}
+
+@test "mutable root: --sqfs, --bind-mount and a command with its own flags together" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/bindsrc
+    echo "bind-mount-content" > $TMP/bindsrc/file.txt
+
+    # regression test: --bind-mount used to swallow the "--" that separates
+    # squashfs-mount's own options from the exec'd command, so a command
+    # using its own short option (here `sh -c`) was misparsed as an
+    # unrecognized option of squashfs-mount itself.
+    run squashfs-mount -r \
+        --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-combo-mount \
+        --bind-mount=$TMP/bindsrc:/uenv-bats-combo-bind \
+        -- sh -c "cat /uenv-bats-combo-bind/file.txt && /uenv-bats-combo-mount/env/app/bin/app"
+    assert_output "bind-mount-content
+hello app"
+    assert_success
+}
+
+#
+# --bind-mount/--tmpfs are applied in the order produced by a lexical,
+# stable sort of their destination paths, like bubblewrap's nesting
+# semantics but without needing to track what order the flags were actually
+# typed in: a parent destination's path is always a string prefix of (and
+# so sorts before) anything nested under it, which is what lets a --tmpfs
+# mount correctly bury a --bind-mount nested under it, or vice versa,
+# regardless of flag order. Two entries with the identical destination are
+# an error rather than a pick between them.
+#
+
+@test "--bind-mount and --tmpfs at an identical destination is refused" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc
+
+    run squashfs-mount -r \
+        --bind-mount=$TMP/bindsrc:/uenv-bats-order-mount \
+        --tmpfs=/uenv-bats-order-mount \
+        -- true
+    assert_failure
+    assert_output --partial "more than one --bind-mount/--tmpfs"
+
+    # same error regardless of flag order
+    run squashfs-mount -r \
+        --tmpfs=/uenv-bats-order-mount \
+        --bind-mount=$TMP/bindsrc:/uenv-bats-order-mount \
+        -- true
+    assert_failure
+    assert_output --partial "more than one --bind-mount/--tmpfs"
+}
+
+@test "a --bind-mount nested under a --tmpfs is visible on top of it, regardless of flag order" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc
+    echo "bind-content" > $TMP/bindsrc/file.txt
+
+    run squashfs-mount -r \
+        --bind-mount=$TMP/bindsrc:/uenv-bats-order-mount/child \
+        --tmpfs=/uenv-bats-order-mount \
+        -- cat /uenv-bats-order-mount/child/file.txt
+    assert_output "bind-content"
+    assert_success
+
+    run squashfs-mount -r \
+        --tmpfs=/uenv-bats-order-mount \
+        --bind-mount=$TMP/bindsrc:/uenv-bats-order-mount/child \
+        -- cat /uenv-bats-order-mount/child/file.txt
+    assert_output "bind-content"
+    assert_success
+}
+
+@test "--tmpfs nested under an --sqfs mount point is refused" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+
+    # unlike --bind-mount/--tmpfs, --sqfs is always mounted last (it is
+    # mounted through a separate, --join-rendezvous-aware step), so this
+    # ordering can never be honored -- it must be a clear error rather than a
+    # silently broken mount.
+    run squashfs-mount -r \
+        --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-shadow-sqfs \
+        --tmpfs=/uenv-bats-shadow-sqfs/inner \
+        -- true
+    assert_failure
+    assert_output --partial "squashfs images are always mounted last"
+}
+
+@test "--tmpfs above an --sqfs mount point is fine" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+
+    # the reverse nesting direction is already correctly ordered today
+    # (the tmpfs mounts before the later --sqfs mount), so it is not an error.
+    run squashfs-mount -r \
+        --tmpfs=/uenv-bats-shadow-sqfs-ok \
+        --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-shadow-sqfs-ok/inner \
+        -- /uenv-bats-shadow-sqfs-ok/inner/env/app/bin/app
+    assert_output "hello app"
+    assert_success
+}

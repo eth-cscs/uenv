@@ -108,8 +108,81 @@ make_mount_pair(const mount_description& d) {
     return mount_pair{.sqfs = sqfs, .mount = mount};
 }
 
+bool is_nested_path(const std::filesystem::path& parent,
+                    const std::filesystem::path& child) {
+    auto rel = child.lexically_relative(parent);
+    return !rel.empty() && *rel.begin() != "..";
+}
+
+util::expected<void, std::string>
+validate_sqfs_not_shadowed(const mount_list& mounts,
+                           const std::vector<bindmount_pair>& bind_mounts,
+                           const std::vector<tmpfs_tuple>& tmpfs) {
+    for (const auto& m : mounts) {
+        for (const auto& b : bind_mounts) {
+            if (is_nested_path(m.mount, b.dst)) {
+                return util::unexpected{fmt::format(
+                    "the bind-mount destination {} is nested inside the "
+                    "squashfs mount point {}: squashfs images are always "
+                    "mounted last, so it can never be made visible",
+                    b.dst.string(), m.mount.string())};
+            }
+        }
+        for (const auto& t : tmpfs) {
+            if (is_nested_path(m.mount, t.mount)) {
+                return util::unexpected{fmt::format(
+                    "the tmpfs mount point {} is nested inside the squashfs "
+                    "mount point {}: squashfs images are always mounted "
+                    "last, so it can never be made visible",
+                    t.mount.string(), m.mount.string())};
+            }
+        }
+    }
+    return {};
+}
+
+util::expected<mount_order, std::string>
+build_mount_order(const std::vector<bindmount_pair>& bind_mounts,
+                  const std::vector<tmpfs_tuple>& tmpfs) {
+    struct entry {
+        std::filesystem::path dst;
+        mount_kind kind;
+        std::size_t index;
+    };
+
+    std::vector<entry> entries;
+    entries.reserve(bind_mounts.size() + tmpfs.size());
+    for (std::size_t i = 0; i < bind_mounts.size(); ++i) {
+        entries.push_back({bind_mounts[i].dst, mount_kind::bind_mount, i});
+    }
+    for (std::size_t i = 0; i < tmpfs.size(); ++i) {
+        entries.push_back({tmpfs[i].mount, mount_kind::tmpfs, i});
+    }
+
+    std::stable_sort(entries.begin(), entries.end(),
+                     [](const auto& lhs, const auto& rhs) {
+                         return lhs.dst.compare(rhs.dst) < 0;
+                     });
+
+    for (std::size_t i = 1; i < entries.size(); ++i) {
+        if (entries[i - 1].dst == entries[i].dst) {
+            return util::unexpected{fmt::format(
+                "the destination {} is used by more than one --bind-mount/"
+                "--tmpfs",
+                entries[i].dst.string())};
+        }
+    }
+
+    mount_order order;
+    order.reserve(entries.size());
+    for (const auto& e : entries) {
+        order.push_back({e.kind, e.index});
+    }
+    return order;
+}
+
 util::expected<std::vector<uenv::mount_pair>, std::string>
-validate_mount_list(const mount_list& input) {
+validate_mount_list(const mount_list& input, bool mount_points_must_exist) {
     namespace fs = std::filesystem;
 
     if (input.empty()) {
@@ -134,11 +207,6 @@ validate_mount_list(const mount_list& input) {
                   return lhs.mount.compare(rhs.mount) < 0;
               });
 
-    auto is_child = [](const fs::path& parent, const fs::path& child) -> bool {
-        auto rel = child.lexically_relative(parent);
-        return !rel.empty() && *rel.begin() != "..";
-    };
-
     auto mview = std::ranges::transform_view(
         mounts, [](const auto& in) -> const fs::path& { return in.mount; });
 
@@ -154,16 +222,17 @@ validate_mount_list(const mount_list& input) {
     const auto e = std::cend(mview);
 
     // check whether the first mount point exists
-    if (!fs::is_directory(*b)) {
+    if (!fs::is_directory(*b) && mount_points_must_exist) {
         return util::unexpected{
             fmt::format("the mount path {} does not exist", (*b).string())};
     }
     // iterate over the remaining mounts
     for (auto c = b + 1; c != e; ++c) {
-        auto parent = std::find_if(
-            b, c, [&c, is_child](const auto& it) { return is_child(it, *c); });
+        auto parent = std::find_if(b, c, [&c](const auto& it) {
+            return is_nested_path(it, *c);
+        });
         if (parent == c) { // there is no parent
-            if (!fs::is_directory(*c)) {
+            if (!fs::is_directory(*c) && mount_points_must_exist) {
                 return util::unexpected{
                     fmt::format("the mount path {} does not exist", *c)};
             }
@@ -177,7 +246,8 @@ validate_mount_list(const mount_list& input) {
 }
 
 util::expected<mount_list, std::string>
-validate_mount_descriptions(const std::vector<mount_description>& input) {
+validate_mount_descriptions(const std::vector<mount_description>& input,
+                            bool mount_points_must_exist) {
     mount_list mounts;
     for (auto desc : input) {
         if (auto mount = uenv::make_mount_pair(desc); !mount) {
@@ -189,17 +259,19 @@ validate_mount_descriptions(const std::vector<mount_description>& input) {
         }
     }
 
-    return validate_mount_list(mounts);
+    return validate_mount_list(mounts, mount_points_must_exist);
 }
 
 util::expected<mount_list, std::string>
-parse_and_validate_mounts(const std::string& description) {
+parse_and_validate_mounts(const std::string& description,
+                          bool mount_points_must_exist) {
     auto mount_descriptions = uenv::parse_mount_list(description);
     if (!mount_descriptions) {
         return util::unexpected{mount_descriptions.error().message()};
     }
 
-    return validate_mount_descriptions(mount_descriptions.value());
+    return validate_mount_descriptions(mount_descriptions.value(),
+                                       mount_points_must_exist);
 }
 
 util::expected<void, std::string> mount(std::optional<std::string> source,
@@ -217,6 +289,23 @@ util::expected<void, std::string> mount(std::optional<std::string> source,
             fmt::format("mount failed: {}", strerror(errno)));
     }
     return {};
+}
+
+util::expected<void, std::string>
+mount_tmpfs(std::filesystem::path dst, std::optional<std::uint64_t> size) {
+    std::string options = "mode=0755";
+    if (size) {
+        options = fmt::format("{},size={}", options, size.value());
+    }
+    return uenv::mount("tmpfs", dst.string(), "tmpfs", MS_NOSUID | MS_NODEV,
+                       options.c_str());
+}
+
+util::expected<void, std::string> bind_mount(std::filesystem::path src,
+                                             std::filesystem::path dst) {
+    spdlog::trace("bind_mount({}, {})", src.string(), dst.string());
+    return uenv::mount(src.string(), dst.string(), std::nullopt,
+                       MS_NOSUID | MS_BIND | MS_REC | MS_SILENT, nullptr);
 }
 
 } // namespace uenv

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <filesystem>
+#include <set>
+
 #include "uenv/mount.h"
 
 namespace uenv {
@@ -26,10 +29,29 @@ namespace rootless {
 // once it is safe to do so, so a caller that started out non-dumpable ends
 // up non-dumpable again, and one that started out dumpable stays dumpable --
 // callers do not need their own policy for this.
+// `order` gives the application order across `bind_mounts` and `tmpfs`, a
+// lexical stable sort of their destination paths (see
+// uenv::build_mount_order()); an empty order is only valid when both
+// `bind_mounts` and `tmpfs` are empty, e.g. the Slurm plugin call site,
+// which does not expose either flag.
 util::expected<void, std::string>
 mount_and_join_ns(const std::string& tag, int ntasks,
-                  const uenv::mount_list& mounts, bool fuse_single_threaded,
-                  uid_t uid, gid_t gid);
+                  const uenv::mount_list& mounts,
+                  const std::vector<uenv::bindmount_pair>& bind_mounts,
+                  const std::vector<uenv::tmpfs_tuple>& tmpfs,
+                  const uenv::mount_order& order, bool fuse_single_threaded,
+                  uid_t uid, gid_t gid, bool mutable_root);
+
+// Rebuild "/" from bind mounts of everything currently under it (inspired by
+// bubblewrap), giving the caller a private, writable root directory tree so
+// that mount points which do not already exist on the real root can be
+// created before mounting onto them. Must be called after
+// unshare_mount_map_root(), inside the mount namespace that owns the mounts
+// being set up.
+//
+// Only implemented for the rootless/fuse backend -- the setuid kernel
+// backend does not compile this file in.
+util::expected<void, std::string> make_mutable_root(std::set<std::filesystem::path> = {});
 
 } // namespace rootless
 } // namespace uenv

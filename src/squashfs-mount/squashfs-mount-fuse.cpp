@@ -29,7 +29,10 @@ struct squashfs_mount_args {
     int verbosity = 0;
     bool fuse_single_threaded = false;
     bool tasks_join = false;
+    bool mutable_root = false;
     std::optional<std::string> raw_mounts;
+    std::optional<std::string> tmpfs;
+    std::optional<std::string> bind_mounts;
     std::optional<std::vector<std::string>> commands;
 };
 
@@ -79,6 +82,8 @@ int main(int argc, char** argv, char** envp) {
         "squashfs-mount", fmt::format("squashfs-mount {}", UENV_VERSION));
     builder.add_flag({'v', "verbose"}, &squashfs_mount_args::verbosity,
                      "enable verbose output");
+    builder.add_flag({'r', "mutable-root"}, &squashfs_mount_args::mutable_root,
+                     "mutable root");
     builder.add_flag("version", &squashfs_mount_args::print_version,
                      "print version");
     builder.add_flag("fuse-single", &squashfs_mount_args::fuse_single_threaded,
@@ -89,6 +94,13 @@ int main(int argc, char** argv, char** envp) {
         .add_option("sqfs", &squashfs_mount_args::raw_mounts,
                     "comma separated list of squashfs files to mount")
         .complete(argparse::completion::custom("mount_list"));
+    builder
+        .add_option("tmpfs", &squashfs_mount_args::tmpfs,
+                    "comma separated list of tmpfs mounts, <mount>[:<size>] "
+                    "(size in bytes)")
+        .complete(argparse::completion::directory());
+    builder.add_option("bind-mount", &squashfs_mount_args::bind_mounts,
+                       "comma separated list of bind mounts, <src>:<dst>");
     builder
         .add_rest("commands", &squashfs_mount_args::commands,
                   "the command to run, including with arguments")
@@ -108,6 +120,7 @@ int main(int argc, char** argv, char** envp) {
     const int verbosity = args.verbosity;
     const bool fuse_single_threaded = args.fuse_single_threaded;
     const bool tasks_join = args.tasks_join;
+    const bool mutable_root = args.mutable_root;
     const auto& raw_mounts = args.raw_mounts;
     const auto& commands = args.commands;
 
@@ -134,7 +147,7 @@ int main(int argc, char** argv, char** envp) {
 
     // By default there is no logging to the console
     // The level of logging is increased by adding --verbose
-    spdlog::level::level_enum console_log_level = spdlog::level::off;
+    spdlog::level::level_enum console_log_level = spdlog::level::critical;
     if (verbosity == 1) {
         console_log_level = spdlog::level::info;
     } else if (verbosity == 2) {
@@ -149,9 +162,13 @@ int main(int argc, char** argv, char** envp) {
     // validate the mount points
     //
 
+    // with a mutable root, mount points are created as needed, so their
+    // existence does not need to be checked up front.
+    const bool mount_points_must_exist = !mutable_root;
     uenv::mount_list mounts;
     if (raw_mounts) {
-        auto r = uenv::parse_and_validate_mounts(*raw_mounts);
+        auto r = uenv::parse_and_validate_mounts(*raw_mounts,
+                                                 mount_points_must_exist);
         if (!r) {
             error_and_exit("{}", r.error());
         }
@@ -163,7 +180,32 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("uenv_mount_list {}", uenv_mount_list);
     spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
 
-    if (!mounts.empty()) {
+    //
+    // validate the tmpfs and bind mount arguments
+    //
+
+    auto tmpfs = uenv::parse_tmpfs_and_validate(args.tmpfs, mutable_root);
+    if (!tmpfs) {
+        error_and_exit("failed to parse tmpfs: {}", tmpfs.error());
+    }
+    auto bind_mounts =
+        uenv::parse_bindmounts_and_validate(args.bind_mounts, mutable_root);
+    if (!bind_mounts) {
+        error_and_exit("failed to parse bind mounts: {}", bind_mounts.error());
+    }
+
+    auto mount_order = uenv::build_mount_order(*bind_mounts, *tmpfs);
+    if (!mount_order) {
+        error_and_exit("{}", mount_order.error());
+    }
+
+    if (auto r = uenv::validate_sqfs_not_shadowed(mounts, *bind_mounts, *tmpfs);
+        !r) {
+        error_and_exit("{}", r.error());
+    }
+
+    if (!mounts.empty() || !tmpfs->empty() || !bind_mounts->empty() ||
+        mutable_root) {
         auto join_ctx = uenv::local_join_context(calling_env, tasks_join);
         if (!join_ctx) {
             error_and_exit("{}", join_ctx.error());
@@ -172,13 +214,14 @@ int main(int argc, char** argv, char** envp) {
                       join_ctx->ntasks, join_ctx->tag);
 
         if (auto r = uenv::rootless::mount_and_join_ns(
-                join_ctx->tag, join_ctx->ntasks, mounts, fuse_single_threaded,
-                uid, gid);
+                join_ctx->tag, join_ctx->ntasks, mounts, *bind_mounts, *tmpfs,
+                *mount_order, fuse_single_threaded, uid, gid, mutable_root);
             !r) {
             error_and_exit("mount failed {}", r.error());
         }
     } else {
-        spdlog::warn("nothing mounted (no --sqfs flag provided)");
+        spdlog::warn("nothing mounted (no --sqfs, --tmpfs or --bind-mount flag "
+                     "provided)");
     }
 
     //

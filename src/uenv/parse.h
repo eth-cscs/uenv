@@ -33,6 +33,26 @@ parse_uenv_args(const std::string& arg);
 util::expected<std::vector<mount_description>, parse_error>
 parse_mount_list(const std::string& arg);
 
+// parse the value of the --tmpfs CLI option and validate that each mount
+// point exists. The value is a comma-separated list of <mount>[:<size>]
+// items, the same list syntax --sqfs uses. With mutable_root=true
+// (--mutable-root), a mount point that does not exist is also accepted provided
+// its top-level ancestor (e.g.
+// "/foo" for "/foo/bar/tmp") does not exist either.
+util::expected<std::vector<tmpfs_tuple>, std::string>
+parse_tmpfs_and_validate(const std::optional<std::string>& arg,
+                         bool mutable_root);
+
+// parse the value of the --bind-mount CLI option and validate that each
+// destination exists. The value is a comma-separated list of <src>:<dst>
+// items, the same list syntax --sqfs uses. With mutable_root=true
+// (--mutable-root), a destination that does not exist is also accepted provided
+// its top-level ancestor (e.g.
+// "/foo" for "/foo/bar/tmp") does not exist either.
+util::expected<std::vector<bindmount_pair>, std::string>
+parse_bindmounts_and_validate(const std::optional<std::string>& arg,
+                              bool mutable_root);
+
 util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg);
 
 util::expected<std::string, parse_error> parse_path(const std::string& in);

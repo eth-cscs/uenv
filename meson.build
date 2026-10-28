@@ -113,6 +113,10 @@ if use_fuse
 
     # fuse3 is a dynamic dependency.
     fuse_dep = dependency('fuse3', required: true)
+
+    # libmount is a dynamic dependency, used by mutable_root.cpp to parse
+    # /proc/self/mountinfo (not used for the actual mount(2) calls
+    mount_dep = dependency('mount', required: true)
 endif
 
 # the lib dependency is all of the common funtionality shared between the CLI
@@ -173,7 +177,7 @@ lib_uenv_src = [
 ]
 
 if use_fuse
-    lib_uenv_src += ['src/uenv/mount_rootless.cpp']
+    lib_uenv_src += ['src/uenv/mount_rootless.cpp', 'src/uenv/mutable_root.cpp']
 else
     lib_uenv_src += ['src/uenv/mount_kernel.cpp']
 endif
@@ -193,7 +197,7 @@ lib_uenv_deps = [
     zlib_dep,
 ]
 if use_fuse
-    lib_uenv_deps += [squashfuse_dep, fuse_dep]
+    lib_uenv_deps += [squashfuse_dep, fuse_dep, mount_dep]
 endif
 
 lib_uenv = static_library(

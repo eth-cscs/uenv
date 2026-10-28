@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -474,9 +475,111 @@ fork_mount_supervisor(const uenv::mount_list& mounts,
     return {};
 }
 
+// Called after unshare_mount_map_root(), inside the mount namespace the
+// mounts will live in. When mutable_root is requested, rebuild "/" (see
+// make_mutable_root()) first, since a mutable root starts out without any of
+// the mount points below. Then perform the bind mounts and tmpfs mounts in
+// `order` (a lexical stable sort of their destination paths across the two,
+// see uenv::build_mount_order() -- honoring it is what lets a --tmpfs mount
+// correctly bury an earlier --bind-mount nested under it, or vice versa,
+// since a parent destination always sorts before anything nested under it,
+// regardless of which flag was used for which or what order they were typed
+// in), and create the directories for the --sqfs mount points (--sqfs itself is
+// mounted separately by the caller, once for every peer's rendezvous, so it
+// is not mounted here -- see uenv::validate_sqfs_not_shadowed() for why its
+// position relative to `order` is fixed rather than participating in it);
+// without a mutable root, every one of these mount points must already exist
+// (see parse_and_validate_mounts's mount_points_must_exist).
 util::expected<void, std::string>
-unshare_and_mount(const uenv::mount_list& mounts, bool fuse_single_threaded) {
+prepare_mount_points(bool mutable_root, const uenv::mount_list& mounts,
+                     const std::vector<uenv::bindmount_pair>& bind_mounts,
+                     const std::vector<uenv::tmpfs_tuple>& tmpfs,
+                     const uenv::mount_order& order) {
+    if (order.size() != bind_mounts.size() + tmpfs.size()) {
+        return util::unexpected(fmt::format(
+            "internal error: mount ordering has {} entries but there are {} "
+            "bind-mount/tmpfs entries to apply",
+            order.size(), bind_mounts.size() + tmpfs.size()));
+    }
+
+    if (mutable_root) {
+        // collect top level directories
+        std::set<std::filesystem::path> dst_dirs;
+        for (auto item : mounts) {
+            dst_dirs.emplace(item.mount);
+        }
+        for (auto item : bind_mounts) {
+            dst_dirs.emplace(item.dst);
+        }
+
+        for (auto item : tmpfs) {
+            dst_dirs.emplace(item.mount);
+        }
+
+        if (auto r = make_mutable_root(dst_dirs); !r) {
+            return r;
+        }
+    }
+
+    for (auto& e : order) {
+        if (e.kind == uenv::mount_kind::bind_mount) {
+            auto& entry = bind_mounts.at(e.index);
+            if (mutable_root) {
+                std::error_code ec;
+                std::filesystem::create_directories(entry.dst, ec);
+                if (ec) {
+                    return util::unexpected(fmt::format(
+                        "failed to create bind mount point {}: {}",
+                        entry.dst.string(), ec.message()));
+                }
+            }
+            if (auto r = uenv::bind_mount(entry.src, entry.dst); !r) {
+                return r;
+            }
+        } else {
+            auto& entry = tmpfs.at(e.index);
+            if (mutable_root) {
+                std::error_code ec;
+                std::filesystem::create_directories(entry.mount, ec);
+                if (ec) {
+                    return util::unexpected(
+                        fmt::format("failed to create tmpfs mount point {}: {}",
+                                    entry.mount.string(), ec.message()));
+                }
+            }
+            if (auto r = uenv::mount_tmpfs(entry.mount, entry.size); !r) {
+                return r;
+            }
+        }
+    }
+
+    if (!mutable_root) {
+        return {};
+    }
+    for (auto& entry : mounts) {
+        std::error_code ec;
+        std::filesystem::create_directories(entry.mount, ec);
+        if (ec) {
+            return util::unexpected(
+                fmt::format("failed to create mount point {}: {}",
+                            entry.mount.string(), ec.message()));
+        }
+    }
+    return {};
+}
+
+util::expected<void, std::string>
+unshare_and_mount(const uenv::mount_list& mounts,
+                  const std::vector<uenv::bindmount_pair>& bind_mounts,
+                  const std::vector<uenv::tmpfs_tuple>& tmpfs,
+                  const uenv::mount_order& order, bool fuse_single_threaded,
+                  bool mutable_root) {
     if (auto r = unshare_mount_map_root(); !r) {
+        return r;
+    }
+    if (auto r = prepare_mount_points(mutable_root, mounts, bind_mounts, tmpfs,
+                                      order);
+        !r) {
         return r;
     }
     for (auto& entry : mounts) {
@@ -487,10 +590,12 @@ unshare_and_mount(const uenv::mount_list& mounts, bool fuse_single_threaded) {
     return {};
 }
 
-util::expected<void, std::string>
-mount_and_join_ns(const std::string& tag, int ntasks,
-                  const uenv::mount_list& mounts, bool fuse_single_threaded,
-                  uid_t uid, gid_t gid) {
+util::expected<void, std::string> mount_and_join_ns(
+    const std::string& tag, int ntasks, const uenv::mount_list& mounts,
+    const std::vector<uenv::bindmount_pair>& bind_mounts,
+    const std::vector<uenv::tmpfs_tuple>& tmpfs,
+    const uenv::mount_order& order, bool fuse_single_threaded, uid_t uid,
+    gid_t gid, bool mutable_root) {
     // capture the caller's dumpable state before unshare_and_mount forces it
     // on, so that lock_down can restore it once the mounts are ready.
     // Any non-zero result (SUID_DUMP_USER or SUID_DUMP_ROOT) counts as
@@ -505,7 +610,9 @@ mount_and_join_ns(const std::string& tag, int ntasks,
 
     if (ntasks == 1) {
         // no peers to join, just mount and drop privileges
-        if (auto r = unshare_and_mount(mounts, fuse_single_threaded); !r) {
+        if (auto r = unshare_and_mount(mounts, bind_mounts, tmpfs, order,
+                                       fuse_single_threaded, mutable_root);
+            !r) {
             return r;
         }
         if (auto r = map_effective_user(uid, gid); !r) {
@@ -521,6 +628,11 @@ mount_and_join_ns(const std::string& tag, int ntasks,
 
     if (barrier->is_leader()) {
         if (auto r = unshare_mount_map_root(); !r) {
+            return r;
+        }
+        if (auto r = prepare_mount_points(mutable_root, mounts, bind_mounts,
+                                          tmpfs, order);
+            !r) {
             return r;
         }
 
