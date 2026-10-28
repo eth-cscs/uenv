@@ -114,35 +114,9 @@ bool is_nested_path(const std::filesystem::path& parent,
     return !rel.empty() && *rel.begin() != "..";
 }
 
-util::expected<void, std::string>
-validate_sqfs_not_shadowed(const mount_list& mounts,
-                           const std::vector<bindmount_pair>& bind_mounts,
-                           const std::vector<tmpfs_tuple>& tmpfs) {
-    for (const auto& m : mounts) {
-        for (const auto& b : bind_mounts) {
-            if (is_nested_path(m.mount, b.dst)) {
-                return util::unexpected{fmt::format(
-                    "the bind-mount destination {} is nested inside the "
-                    "squashfs mount point {}: squashfs images are always "
-                    "mounted last, so it can never be made visible",
-                    b.dst.string(), m.mount.string())};
-            }
-        }
-        for (const auto& t : tmpfs) {
-            if (is_nested_path(m.mount, t.mount)) {
-                return util::unexpected{fmt::format(
-                    "the tmpfs mount point {} is nested inside the squashfs "
-                    "mount point {}: squashfs images are always mounted "
-                    "last, so it can never be made visible",
-                    t.mount.string(), m.mount.string())};
-            }
-        }
-    }
-    return {};
-}
-
 util::expected<mount_order, std::string>
-build_mount_order(const std::vector<bindmount_pair>& bind_mounts,
+build_mount_order(const mount_list& mounts,
+                  const std::vector<bindmount_pair>& bind_mounts,
                   const std::vector<tmpfs_tuple>& tmpfs) {
     struct entry {
         std::filesystem::path dst;
@@ -151,7 +125,10 @@ build_mount_order(const std::vector<bindmount_pair>& bind_mounts,
     };
 
     std::vector<entry> entries;
-    entries.reserve(bind_mounts.size() + tmpfs.size());
+    entries.reserve(mounts.size() + bind_mounts.size() + tmpfs.size());
+    for (std::size_t i = 0; i < mounts.size(); ++i) {
+        entries.push_back({mounts[i].mount, mount_kind::sqfs, i});
+    }
     for (std::size_t i = 0; i < bind_mounts.size(); ++i) {
         entries.push_back({bind_mounts[i].dst, mount_kind::bind_mount, i});
     }
@@ -167,8 +144,8 @@ build_mount_order(const std::vector<bindmount_pair>& bind_mounts,
     for (std::size_t i = 1; i < entries.size(); ++i) {
         if (entries[i - 1].dst == entries[i].dst) {
             return util::unexpected{fmt::format(
-                "the destination {} is used by more than one --bind-mount/"
-                "--tmpfs",
+                "the destination {} is used by more than one --sqfs/"
+                "--bind-mount/--tmpfs",
                 entries[i].dst.string())};
         }
     }
@@ -228,9 +205,8 @@ validate_mount_list(const mount_list& input, bool mount_points_must_exist) {
     }
     // iterate over the remaining mounts
     for (auto c = b + 1; c != e; ++c) {
-        auto parent = std::find_if(b, c, [&c](const auto& it) {
-            return is_nested_path(it, *c);
-        });
+        auto parent = std::find_if(
+            b, c, [&c](const auto& it) { return is_nested_path(it, *c); });
         if (parent == c) { // there is no parent
             if (!fs::is_directory(*c) && mount_points_must_exist) {
                 return util::unexpected{

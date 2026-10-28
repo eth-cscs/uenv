@@ -184,24 +184,20 @@ int main(int argc, char** argv, char** envp) {
     // validate the tmpfs and bind mount arguments
     //
 
-    auto tmpfs = uenv::parse_tmpfs_and_validate(args.tmpfs, mutable_root);
+    auto tmpfs =
+        uenv::parse_tmpfs_and_validate(args.tmpfs, mutable_root, mounts);
     if (!tmpfs) {
         error_and_exit("failed to parse tmpfs: {}", tmpfs.error());
     }
-    auto bind_mounts =
-        uenv::parse_bindmounts_and_validate(args.bind_mounts, mutable_root);
+    auto bind_mounts = uenv::parse_bindmounts_and_validate(
+        args.bind_mounts, mutable_root, mounts);
     if (!bind_mounts) {
         error_and_exit("failed to parse bind mounts: {}", bind_mounts.error());
     }
 
-    auto mount_order = uenv::build_mount_order(*bind_mounts, *tmpfs);
+    auto mount_order = uenv::build_mount_order(mounts, *bind_mounts, *tmpfs);
     if (!mount_order) {
         error_and_exit("{}", mount_order.error());
-    }
-
-    if (auto r = uenv::validate_sqfs_not_shadowed(mounts, *bind_mounts, *tmpfs);
-        !r) {
-        error_and_exit("{}", r.error());
     }
 
     if (!mounts.empty() || !tmpfs->empty() || !bind_mounts->empty() ||

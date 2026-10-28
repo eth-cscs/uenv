@@ -29,18 +29,15 @@ namespace rootless {
 // once it is safe to do so, so a caller that started out non-dumpable ends
 // up non-dumpable again, and one that started out dumpable stays dumpable --
 // callers do not need their own policy for this.
-// `order` gives the application order across `bind_mounts` and `tmpfs`, a
-// lexical stable sort of their destination paths (see
-// uenv::build_mount_order()); an empty order is only valid when both
-// `bind_mounts` and `tmpfs` are empty, e.g. the Slurm plugin call site,
-// which does not expose either flag.
-util::expected<void, std::string>
-mount_and_join_ns(const std::string& tag, int ntasks,
-                  const uenv::mount_list& mounts,
-                  const std::vector<uenv::bindmount_pair>& bind_mounts,
-                  const std::vector<uenv::tmpfs_tuple>& tmpfs,
-                  const uenv::mount_order& order, bool fuse_single_threaded,
-                  uid_t uid, gid_t gid, bool mutable_root);
+// `order` gives the application order across `mounts`, `bind_mounts` and
+// `tmpfs`, a lexical stable sort of their destination paths (see
+// uenv::build_mount_order()), so that a parent is always mounted before
+// anything nested under it.
+util::expected<void, std::string> mount_and_join_ns(
+    const std::string& tag, int ntasks, const uenv::mount_list& mounts,
+    const std::vector<uenv::bindmount_pair>& bind_mounts,
+    const std::vector<uenv::tmpfs_tuple>& tmpfs, const uenv::mount_order& order,
+    bool fuse_single_threaded, uid_t uid, gid_t gid, bool mutable_root);
 
 // Rebuild "/" from bind mounts of everything currently under it (inspired by
 // bubblewrap), giving the caller a private, writable root directory tree so
@@ -51,7 +48,8 @@ mount_and_join_ns(const std::string& tag, int ntasks,
 //
 // Only implemented for the rootless/fuse backend -- the setuid kernel
 // backend does not compile this file in.
-util::expected<void, std::string> make_mutable_root(std::set<std::filesystem::path> = {});
+util::expected<void, std::string>
+    make_mutable_root(std::set<std::filesystem::path> = {});
 
 } // namespace rootless
 } // namespace uenv

@@ -273,7 +273,7 @@ $my_gid"
 # -r/--mutable-root and --bind-mount
 #
 # Both flags exist only in the fuse/rootless backend: the kernel backend's
-# CLI11 parser does not define them at all, and passing them there is a plain
+# parser does not define them at all, and passing them there is a plain
 # parse error rather than a meaningful skip. --help output is a reliable way
 # to tell the backends apart, whether or not the binary happens to be
 # installed setuid (that bit only distinguishes kernel builds that *are*
@@ -390,12 +390,12 @@ hello app"
 }
 
 #
-# --bind-mount/--tmpfs are applied in the order produced by a lexical,
+# --sqfs/--bind-mount/--tmpfs are applied in the order produced by a lexical,
 # stable sort of their destination paths, like bubblewrap's nesting
 # semantics but without needing to track what order the flags were actually
-# typed in: a parent destination's path is always a string prefix of (and
-# so sorts before) anything nested under it, which is what lets a --tmpfs
-# mount correctly bury a --bind-mount nested under it, or vice versa,
+# typed in: a parent destination's path always sorts before anything nested
+# under it, which is what lets a --tmpfs mount correctly bury a --bind-mount
+# nested under it, a --tmpfs land inside a squashfs image, or vice versa,
 # regardless of flag order. Two entries with the identical destination are
 # an error rather than a pick between them.
 #
@@ -409,7 +409,7 @@ hello app"
         --tmpfs=/uenv-bats-order-mount \
         -- true
     assert_failure
-    assert_output --partial "more than one --bind-mount/--tmpfs"
+    assert_output --partial "more than one --sqfs/--bind-mount/--tmpfs"
 
     # same error regardless of flag order
     run squashfs-mount -r \
@@ -417,7 +417,7 @@ hello app"
         --bind-mount=$TMP/bindsrc:/uenv-bats-order-mount \
         -- true
     assert_failure
-    assert_output --partial "more than one --bind-mount/--tmpfs"
+    assert_output --partial "more than one --sqfs/--bind-mount/--tmpfs"
 }
 
 @test "a --bind-mount nested under a --tmpfs is visible on top of it, regardless of flag order" {
@@ -440,28 +440,66 @@ hello app"
     assert_success
 }
 
-@test "--tmpfs nested under an --sqfs mount point is refused" {
+@test "a --tmpfs nested under an --sqfs mount point is mounted inside the image, regardless of flag order" {
     require_fuse_backend
     SQFS_PATH=$SQFS_LIB/apptool/standalone
 
-    # unlike --bind-mount/--tmpfs, --sqfs is always mounted last (it is
-    # mounted through a separate, --join-rendezvous-aware step), so this
-    # ordering can never be honored -- it must be a clear error rather than a
-    # silently broken mount.
+    # /env exists inside the image: the tmpfs hides its content and is writable
     run squashfs-mount -r \
-        --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-shadow-sqfs \
-        --tmpfs=/uenv-bats-shadow-sqfs/inner \
+        --tmpfs=/uenv-bats-sqfs-tmpfs/env \
+        --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-sqfs-tmpfs \
+        -- sh -c "touch /uenv-bats-sqfs-tmpfs/env/new && ls /uenv-bats-sqfs-tmpfs/env && ls /uenv-bats-sqfs-tmpfs/meta"
+    assert_success
+    assert_line --index 0 "new"
+    assert_line --index 1 "env.json"
+}
+
+@test "a --bind-mount nested under an --sqfs mount point is visible inside the image" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/bindsrc
+    echo "bind-content" > $TMP/bindsrc/file.txt
+
+    run squashfs-mount -r \
+        --bind-mount=$TMP/bindsrc:/uenv-bats-sqfs-bind/env/app \
+        --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-sqfs-bind \
+        -- cat /uenv-bats-sqfs-bind/env/app/file.txt
+    assert_output "bind-content"
+    assert_success
+}
+
+@test "without -r, a --tmpfs inside an --sqfs mount point is not checked on the host" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/sqfs-mnt
+
+    # $TMP/sqfs-mnt/env does not exist on the host, only inside the image
+    run squashfs-mount \
+        --sqfs=$SQFS_PATH/app42.squashfs:$TMP/sqfs-mnt \
+        --tmpfs=$TMP/sqfs-mnt/env \
+        -- sh -c "touch $TMP/sqfs-mnt/env/new && ls $TMP/sqfs-mnt/env"
+    assert_output "new"
+    assert_success
+}
+
+@test "a mount point missing inside an --sqfs image is an error" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+
+    # the image is read only, so a mutable root can not create it either
+    run squashfs-mount -r \
+        --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-sqfs-missing \
+        --tmpfs=/uenv-bats-sqfs-missing/not-in-image \
         -- true
     assert_failure
-    assert_output --partial "squashfs images are always mounted last"
+    assert_output --partial "/uenv-bats-sqfs-missing/not-in-image"
 }
 
 @test "--tmpfs above an --sqfs mount point is fine" {
     require_fuse_backend
     SQFS_PATH=$SQFS_LIB/apptool/standalone
 
-    # the reverse nesting direction is already correctly ordered today
-    # (the tmpfs mounts before the later --sqfs mount), so it is not an error.
+    # the tmpfs is mounted first, then the image inside it
     run squashfs-mount -r \
         --tmpfs=/uenv-bats-shadow-sqfs-ok \
         --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-shadow-sqfs-ok/inner \

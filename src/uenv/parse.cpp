@@ -602,10 +602,19 @@ parse_arg_list(std::string_view what, const std::optional<std::string>& arg,
 
 namespace {
 util::expected<void, std::string>
-validate_mount_target(const std::filesystem::path& dst, bool mutable_root) {
+validate_mount_target(const std::filesystem::path& dst, bool mutable_root,
+                      const mount_list& sqfs_mounts) {
     namespace fs = std::filesystem;
     if (fs::is_directory(dst) || mutable_root) {
         return {};
+    }
+    // the mount point is inside a squashfs image that is mounted first, so
+    // it can not be checked here: like a --sqfs mount point nested inside
+    // another (see validate_mount_list), mounting fails if it is missing
+    for (const auto& m : sqfs_mounts) {
+        if (is_nested_path(m.mount, dst)) {
+            return {};
+        }
     }
     return util::unexpected{
         fmt::format("the directory {} does not exist", dst.string())};
@@ -616,14 +625,15 @@ validate_mount_target(const std::filesystem::path& dst, bool mutable_root) {
 // to exists, otherwise check dst is a directory
 util::expected<std::vector<tmpfs_tuple>, std::string>
 parse_tmpfs_and_validate(const std::optional<std::string>& arg,
-                         bool mutable_root) {
+                         bool mutable_root, const mount_list& sqfs_mounts) {
     auto result = parse_arg_list<tmpfs_tuple>("parse_tmpfs", arg,
                                               parse_tmpfs_description);
     if (!result) {
         return util::unexpected{result.error().message()};
     }
     for (const auto& t : *result) {
-        if (auto r = validate_mount_target(t.mount, mutable_root); !r) {
+        if (auto r = validate_mount_target(t.mount, mutable_root, sqfs_mounts);
+            !r) {
             return util::unexpected{r.error()};
         }
     }
@@ -634,14 +644,16 @@ parse_tmpfs_and_validate(const std::optional<std::string>& arg,
 // to exists, otherwise check dst is a directory
 util::expected<std::vector<bindmount_pair>, std::string>
 parse_bindmounts_and_validate(const std::optional<std::string>& arg,
-                              bool mutable_root) {
+                              bool mutable_root,
+                              const mount_list& sqfs_mounts) {
     auto result = parse_arg_list<bindmount_pair>("parse_bindmounts", arg,
                                                  parse_bindmount_description);
     if (!result) {
         return util::unexpected{result.error().message()};
     }
     for (const auto& b : *result) {
-        if (auto r = validate_mount_target(b.dst, mutable_root); !r) {
+        if (auto r = validate_mount_target(b.dst, mutable_root, sqfs_mounts);
+            !r) {
             return util::unexpected{r.error()};
         }
     }

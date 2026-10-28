@@ -81,12 +81,16 @@ int slurm_spank_task_init_sqfs_ll(spank_t sp) {
         return -ESPANK_ERROR;
     }
 
+    // bind mounts and tmpfs mounts are not exposed to the slurm plugin
+    auto order = uenv::build_mount_order(*mounts, {}, {});
+    if (!order) {
+        slurm_error("%s", order.error().c_str());
+        return -ESPANK_ERROR;
+    }
+
     if (auto r = uenv::rootless::mount_and_join_ns(
-            barrier_tag, static_cast<int>(ntasks), mounts.value(),
-            {} /*bind mounts are not exposed to the slurm plugin*/,
-            {} /*tmpfs mounts are not exposed to the slurm plugin*/,
-            {} /*mount ordering is not exposed to the slurm plugin*/,
-            false /*use multi threaded fuse*/, uid, gid,
+            barrier_tag, static_cast<int>(ntasks), mounts.value(), {}, {},
+            *order, false /*use multi threaded fuse*/, uid, gid,
             false /*mutable root is not exposed to the slurm plugin*/);
         !r) {
         slurm_error("%s", r.error().c_str());
