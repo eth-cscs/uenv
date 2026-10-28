@@ -631,7 +631,14 @@ parse_tmpfs_and_validate(const std::optional<std::string>& arg,
     if (!result) {
         return util::unexpected{result.error().message()};
     }
-    for (const auto& t : *result) {
+    for (auto& t : *result) {
+        auto mount = canonical_mount_path(t.mount);
+        if (!mount) {
+            return util::unexpected{fmt::format("invalid mount point {} ({})",
+                                                t.mount.string(),
+                                                mount.error())};
+        }
+        t.mount = std::move(*mount);
         if (auto r = validate_mount_target(t.mount, mutable_root, sqfs_mounts);
             !r) {
             return util::unexpected{r.error()};
@@ -651,7 +658,20 @@ parse_bindmounts_and_validate(const std::optional<std::string>& arg,
     if (!result) {
         return util::unexpected{result.error().message()};
     }
-    for (const auto& b : *result) {
+    for (auto& b : *result) {
+        auto src = canonical_mount_path(b.src);
+        if (!src) {
+            return util::unexpected{fmt::format("invalid bind-mount source {} ({})",
+                                                b.src.string(), src.error())};
+        }
+        auto dst = canonical_mount_path(b.dst);
+        if (!dst) {
+            return util::unexpected{
+                fmt::format("invalid bind-mount destination {} ({})",
+                            b.dst.string(), dst.error())};
+        }
+        b.src = std::move(*src);
+        b.dst = std::move(*dst);
         if (auto r = validate_mount_target(b.dst, mutable_root, sqfs_mounts);
             !r) {
             return util::unexpected{r.error()};

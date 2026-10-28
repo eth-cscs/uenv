@@ -6,6 +6,7 @@
 #include <fmt/std.h>
 
 #include <uenv/mount.h>
+#include <uenv/parse.h>
 #include <util/fs.h>
 
 // namespace fs = std::filesystem;
@@ -193,4 +194,210 @@ TEST_CASE("build_mount_order", "[mount]") {
         const std::vector<tmpfs_tuple> tmpfs = {{"/same", std::nullopt}};
         REQUIRE(!uenv::build_mount_order(mounts, {}, tmpfs));
     }
+}
+
+// A --bind-mount reads its source when it is mounted, so a source that lies
+// inside the destination of another --sqfs/--bind-mount/--tmpfs only exists
+// once that one is mounted: it has to be ordered after it, even when its own
+// destination sorts first.
+TEST_CASE("build_mount_order: bind-mount sources", "[mount]") {
+    using uenv::bindmount_pair;
+    using uenv::mount_kind;
+    using uenv::mount_order_entry;
+    using uenv::mount_pair;
+    using uenv::tmpfs_tuple;
+
+    auto require_order = [](const uenv::mount_order& order,
+                            const std::vector<mount_order_entry>& expected) {
+        REQUIRE(order.size() == expected.size());
+        for (std::size_t i = 0; i < expected.size(); ++i) {
+            REQUIRE(order[i].kind == expected[i].kind);
+            REQUIRE(order[i].index == expected[i].index);
+        }
+    };
+
+    // the source is inside a squashfs image: /opt/env sorts before
+    // /user-environment, but the image must be mounted first
+    {
+        const uenv::mount_list mounts = {
+            mount_pair{.sqfs = "/img/a.squashfs", .mount = "/user-environment"},
+        };
+        const std::vector<bindmount_pair> bind_mounts = {
+            {"/user-environment/env", "/opt/env"}};
+        auto order = uenv::build_mount_order(mounts, bind_mounts, {});
+        REQUIRE(order);
+        require_order(*order, {
+                                  {mount_kind::sqfs, 0},       // /user-environment
+                                  {mount_kind::bind_mount, 0}, // /opt/env
+                              });
+    }
+
+    // the source is the squashfs mount point itself
+    {
+        const uenv::mount_list mounts = {
+            mount_pair{.sqfs = "/img/a.squashfs", .mount = "/user-environment"},
+        };
+        const std::vector<bindmount_pair> bind_mounts = {
+            {"/user-environment", "/alias"}};
+        auto order = uenv::build_mount_order(mounts, bind_mounts, {});
+        REQUIRE(order);
+        require_order(*order, {
+                                  {mount_kind::sqfs, 0},       // /user-environment
+                                  {mount_kind::bind_mount, 0}, // /alias
+                              });
+    }
+
+    // the source is inside a --tmpfs
+    {
+        const std::vector<bindmount_pair> bind_mounts = {{"/scratch/data", "/a"}};
+        const std::vector<tmpfs_tuple> tmpfs = {{"/scratch", std::nullopt}};
+        auto order = uenv::build_mount_order({}, bind_mounts, tmpfs);
+        REQUIRE(order);
+        require_order(*order, {
+                                  {mount_kind::tmpfs, 0},      // /scratch
+                                  {mount_kind::bind_mount, 0}, // /a
+                              });
+    }
+
+    // the source is inside the destination of another --bind-mount
+    {
+        const std::vector<bindmount_pair> bind_mounts = {
+            {"/data/sub", "/alpha"}, {"/host", "/data"}};
+        auto order = uenv::build_mount_order({}, bind_mounts, {});
+        REQUIRE(order);
+        require_order(*order, {
+                                  {mount_kind::bind_mount, 1}, // /data
+                                  {mount_kind::bind_mount, 0}, // /alpha
+                              });
+    }
+
+    // a source inside a destination that is itself nested: the whole chain
+    // is respected, parents before children and sources before their users
+    {
+        const uenv::mount_list mounts = {
+            mount_pair{.sqfs = "/img/a.squashfs", .mount = "/ue/inner"},
+        };
+        const std::vector<bindmount_pair> bind_mounts = {
+            {"/ue/inner/env", "/a"}};
+        const std::vector<tmpfs_tuple> tmpfs = {{"/ue", std::nullopt}};
+        auto order = uenv::build_mount_order(mounts, bind_mounts, tmpfs);
+        REQUIRE(order);
+        require_order(*order, {
+                                  {mount_kind::tmpfs, 0},      // /ue
+                                  {mount_kind::sqfs, 0},       // /ue/inner
+                                  {mount_kind::bind_mount, 0}, // /a
+                              });
+    }
+
+    // two bind-mounts whose sources are each inside the other's destination
+    // can not be ordered, and are rejected
+    {
+        const std::vector<bindmount_pair> bind_mounts = {{"/b/x", "/a"},
+                                                         {"/a/y", "/b"}};
+        REQUIRE(!uenv::build_mount_order({}, bind_mounts, {}));
+    }
+
+    // a source unrelated to every destination does not change the order
+    {
+        const std::vector<bindmount_pair> bind_mounts = {{"/host/x", "/b"},
+                                                         {"/host/y", "/a"}};
+        auto order = uenv::build_mount_order({}, bind_mounts, {});
+        REQUIRE(order);
+        require_order(*order, {
+                                  {mount_kind::bind_mount, 1}, // /a
+                                  {mount_kind::bind_mount, 0}, // /b
+                              });
+    }
+}
+
+// Destinations are compared as written: the order and the duplicate check
+// only work if every destination is spelled the same way, i.e. absolute,
+// lexically normal and without a trailing separator. These go through the
+// parsers, which is where that spelling is fixed.
+TEST_CASE("build_mount_order: normalised destinations", "[mount]") {
+    using uenv::mount_kind;
+
+    auto base = std::filesystem::weakly_canonical(util::make_temp_dir().value());
+    std::filesystem::create_directories(base / "a" / "b");
+    std::filesystem::create_directories(base / "z");
+    auto sqfs = base / "img.squashfs";
+    std::ofstream{sqfs} << "hsqsx";
+
+    // a trailing separator: "<base>/a/" and "<base>/a" are the same mount
+    // point, so using both is a duplicate
+    {
+        auto tmpfs = uenv::parse_tmpfs_and_validate(
+            fmt::format("{}/", (base / "a").string()), false);
+        REQUIRE(tmpfs);
+        auto binds = uenv::parse_bindmounts_and_validate(
+            fmt::format("/host:{}", (base / "a").string()), false);
+        REQUIRE(binds);
+        REQUIRE(!uenv::build_mount_order({}, *binds, *tmpfs));
+    }
+
+    // "." and ".." components: "<base>/a/./b" and "<base>/a/b" are the same
+    {
+        auto tmpfs = uenv::parse_tmpfs_and_validate(
+            fmt::format("{}/a/./b", base.string()), false);
+        REQUIRE(tmpfs);
+        auto binds = uenv::parse_bindmounts_and_validate(
+            fmt::format("/host:{}/z/../a/b", base.string()), false);
+        REQUIRE(binds);
+        REQUIRE(!uenv::build_mount_order({}, *binds, *tmpfs));
+    }
+
+    // "<base>/z/../a" is the parent of "<base>/a/b", although it sorts after
+    // it as written
+    {
+        auto tmpfs = uenv::parse_tmpfs_and_validate(
+            fmt::format("{}/z/../a", base.string()), false);
+        REQUIRE(tmpfs);
+        auto binds = uenv::parse_bindmounts_and_validate(
+            fmt::format("/host:{}/a/b", base.string()), false);
+        REQUIRE(binds);
+        auto order = uenv::build_mount_order({}, *binds, *tmpfs);
+        REQUIRE(order);
+        REQUIRE(order->size() == 2);
+        REQUIRE((*order)[0].kind == mount_kind::tmpfs);
+        REQUIRE((*order)[1].kind == mount_kind::bind_mount);
+    }
+
+    // a --sqfs mount point is normalised the same way: "<base>/a/" duplicates
+    // a --tmpfs at "<base>/a"
+    {
+        auto mounts = uenv::parse_and_validate_mounts(
+            fmt::format("{}:{}/", sqfs.string(), (base / "a").string()));
+        REQUIRE(mounts);
+        REQUIRE(mounts->size() == 1);
+        REQUIRE((*mounts)[0].mount == base / "a");
+        auto tmpfs =
+            uenv::parse_tmpfs_and_validate((base / "a").string(), false);
+        REQUIRE(tmpfs);
+        REQUIRE(!uenv::build_mount_order(*mounts, {}, *tmpfs));
+    }
+
+    // a symlinked spelling: "<base>/link/a" is "<base>/real/a" when
+    // link -> real, for a --sqfs mount point and a --tmpfs alike
+    {
+        std::filesystem::create_directories(base / "real" / "a");
+        std::filesystem::create_directory_symlink("real", base / "link");
+        auto mounts = uenv::parse_and_validate_mounts(fmt::format(
+            "{}:{}", sqfs.string(), (base / "link" / "a").string()));
+        REQUIRE(mounts);
+        auto tmpfs = uenv::parse_tmpfs_and_validate(
+            (base / "real" / "a").string(), false);
+        REQUIRE(tmpfs);
+        REQUIRE(!uenv::build_mount_order(*mounts, {}, *tmpfs));
+
+        // and the other way round
+        mounts = uenv::parse_and_validate_mounts(fmt::format(
+            "{}:{}", sqfs.string(), (base / "real" / "a").string()));
+        REQUIRE(mounts);
+        tmpfs = uenv::parse_tmpfs_and_validate(
+            (base / "link" / "a").string(), false);
+        REQUIRE(tmpfs);
+        REQUIRE(!uenv::build_mount_order(*mounts, {}, *tmpfs));
+    }
+
+    std::filesystem::remove_all(base);
 }

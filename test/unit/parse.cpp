@@ -612,6 +612,74 @@ TEST_CASE("parse bind mounts", "[parse]") {
     std::filesystem::remove_all(tmpdir);
 }
 
+// --tmpfs and --bind-mount paths are returned in the same canonical form as
+// --sqfs mount points (uenv::canonical_mount_path): absolute, lexically normal
+// and without a trailing separator, so that the mount order and the duplicate
+// check (uenv::build_mount_order) compare like with like.
+TEST_CASE("parse mount destinations are normalised", "[parse]") {
+    namespace fs = std::filesystem;
+    auto tmpdir = fs::weakly_canonical(fs::temp_directory_path() /
+                                       "uenv-parse-normalise-test");
+    fs::create_directories(tmpdir / "sub");
+
+    for (bool mutable_root : {false, true}) {
+        // a trailing separator is dropped
+        {
+            auto result = uenv::parse_tmpfs_and_validate(
+                {tmpdir.string() + "/"}, mutable_root);
+            REQUIRE(result);
+            REQUIRE((*result)[0].mount == tmpdir);
+        }
+        {
+            auto result = uenv::parse_bindmounts_and_validate(
+                {"/host/dir/:" + tmpdir.string() + "/"}, mutable_root);
+            REQUIRE(result);
+            REQUIRE((*result)[0].src == "/host/dir");
+            REQUIRE((*result)[0].dst == tmpdir);
+        }
+        // "." and ".." components are resolved
+        {
+            auto result = uenv::parse_tmpfs_and_validate(
+                {tmpdir.string() + "/./sub/.."}, mutable_root);
+            REQUIRE(result);
+            REQUIRE((*result)[0].mount == tmpdir);
+        }
+        {
+            auto result = uenv::parse_bindmounts_and_validate(
+                {"/host/dir:" + tmpdir.string() + "/sub/../sub/."},
+                mutable_root);
+            REQUIRE(result);
+            REQUIRE((*result)[0].dst == tmpdir / "sub");
+        }
+        // a path relative to the working directory is made absolute, as a
+        // --sqfs mount point is
+        {
+            auto cwd = fs::current_path();
+            fs::current_path(tmpdir);
+            auto tmpfs = uenv::parse_tmpfs_and_validate({"./sub"}, mutable_root);
+            auto binds = uenv::parse_bindmounts_and_validate({"./sub:."},
+                                                             mutable_root);
+            fs::current_path(cwd);
+            REQUIRE(tmpfs);
+            REQUIRE((*tmpfs)[0].mount == tmpdir / "sub");
+            REQUIRE(binds);
+            REQUIRE((*binds)[0].src == tmpdir / "sub");
+            REQUIRE((*binds)[0].dst == tmpdir);
+        }
+    }
+
+    // a trailing separator after a part of the path that does not exist is
+    // dropped too (only a mutable root accepts a missing mount point)
+    {
+        auto result = uenv::parse_tmpfs_and_validate(
+            {tmpdir.string() + "/missing/deeper/"}, true);
+        REQUIRE(result);
+        REQUIRE((*result)[0].mount == tmpdir / "missing" / "deeper");
+    }
+
+    fs::remove_all(tmpdir);
+}
+
 TEST_CASE("parse registry entry", "[parse]") {
     {
         auto r = uenv::parse_registry_entry("deploy/balfrin/a100/mch/v8/rc1");

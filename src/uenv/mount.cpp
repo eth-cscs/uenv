@@ -43,10 +43,10 @@ make_mount_pair(const mount_description& d) {
     namespace fs = std::filesystem;
 
     std::error_code ec{};
-    const auto mount = fs::weakly_canonical(fs::path(d.mount_path), ec);
-    if (ec) {
+    const auto mount = canonical_mount_path(d.mount_path);
+    if (!mount) {
         return util::unexpected{fmt::format("invalid mount point {} ({})",
-                                            d.mount_path, ec.message())};
+                                            d.mount_path, mount.error())};
     }
 
     const auto sqfs = fs::weakly_canonical(fs::path(d.sqfs_path), ec);
@@ -105,13 +105,29 @@ make_mount_pair(const mount_description& d) {
             open_errno ? fmt::format(" ({})", strerror(open_errno)) : "")};
     }
 
-    return mount_pair{.sqfs = sqfs, .mount = mount};
+    return mount_pair{.sqfs = sqfs, .mount = *mount};
 }
 
 bool is_nested_path(const std::filesystem::path& parent,
                     const std::filesystem::path& child) {
     auto rel = child.lexically_relative(parent);
     return !rel.empty() && *rel.begin() != "..";
+}
+
+util::expected<std::filesystem::path, std::string>
+canonical_mount_path(const std::filesystem::path& p) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    auto result = fs::weakly_canonical(p, ec);
+    if (ec) {
+        return util::unexpected{ec.message()};
+    }
+    // weakly_canonical keeps a trailing separator when the end of the path
+    // does not exist: "/a/missing/" would not compare equal to "/a/missing"
+    if (!result.has_filename() && result != result.root_path()) {
+        result = result.parent_path();
+    }
+    return result;
 }
 
 util::expected<mount_order, std::string>

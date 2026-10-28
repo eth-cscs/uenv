@@ -507,3 +507,189 @@ hello app"
     assert_output "hello app"
     assert_success
 }
+
+# A --bind-mount reads its source when it is mounted, so a source inside
+# another destination must be mounted after that destination, even when its
+# own destination sorts first.
+
+@test "a --bind-mount whose source is inside an --sqfs mount point binds the image's directory" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    # $TMP/a-alias sorts before $TMP/sqfs-src; $TMP/sqfs-src/env only exists
+    # inside the image
+    mkdir -p $TMP/a-alias $TMP/sqfs-src
+
+    run squashfs-mount \
+        --sqfs=$SQFS_PATH/app42.squashfs:$TMP/sqfs-src \
+        --bind-mount=$TMP/sqfs-src/env:$TMP/a-alias \
+        -- $TMP/a-alias/app/bin/app
+    assert_output "hello app"
+    assert_success
+}
+
+@test "a --bind-mount whose source is the directory of another --bind-mount sees its content" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc/sub $TMP/a-alias $TMP/data
+    echo "nested-content" > $TMP/bindsrc/sub/file.txt
+
+    # $TMP/a-alias sorts before $TMP/data, its source $TMP/data/sub only
+    # exists once $TMP/bindsrc is bound at $TMP/data
+    run squashfs-mount \
+        --bind-mount=$TMP/data/sub:$TMP/a-alias,$TMP/bindsrc:$TMP/data \
+        -- cat $TMP/a-alias/file.txt
+    assert_output "nested-content"
+    assert_success
+}
+
+@test "--bind-mounts whose sources are inside each other's destination are refused" {
+    require_fuse_backend
+    mkdir -p $TMP/a/y $TMP/b/x
+
+    run squashfs-mount \
+        --bind-mount=$TMP/b/x:$TMP/a,$TMP/a/y:$TMP/b \
+        -- true
+    assert_failure
+}
+
+# Destinations are compared as written: a trailing separator, "." or ".."
+# would otherwise defeat the duplicate check and the parent-before-child
+# order.
+
+@test "a trailing separator does not hide a duplicate destination" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc $TMP/dup
+
+    run squashfs-mount \
+        --tmpfs=$TMP/dup/ \
+        --bind-mount=$TMP/bindsrc:$TMP/dup \
+        -- true
+    assert_failure
+    assert_output --partial "more than one --sqfs/--bind-mount/--tmpfs"
+}
+
+@test "a '.' or '..' component does not hide a duplicate destination" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc $TMP/dup $TMP/other
+
+    run squashfs-mount \
+        --tmpfs=$TMP/./dup \
+        --bind-mount=$TMP/bindsrc:$TMP/other/../dup \
+        -- true
+    assert_failure
+    assert_output --partial "more than one --sqfs/--bind-mount/--tmpfs"
+}
+
+@test "a '..' component does not break the parent-before-child order" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/sq $TMP/z
+
+    # $TMP/z/../sq is the parent of $TMP/sq/env, but sorts after it as
+    # written: mounted second, the image would hide the tmpfs. env exists
+    # inside the image, so this does not depend on creating mount points.
+    run squashfs-mount \
+        --sqfs=$SQFS_PATH/app42.squashfs:$TMP/z/../sq \
+        --tmpfs=$TMP/sq/env \
+        -- sh -c "touch $TMP/sq/env/new && ls $TMP/sq/env && ls $TMP/sq/meta"
+    assert_success
+    assert_line --index 0 "new"
+    assert_line --index 1 "env.json"
+}
+
+@test "a relative --tmpfs or --bind-mount path is resolved against the working directory" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc $TMP/cwd/rel
+    echo "bind-content" > $TMP/bindsrc/file.txt
+    cd $TMP/cwd
+
+    run squashfs-mount --tmpfs=./rel -- sh -c "touch $TMP/cwd/rel/new && ls $TMP/cwd/rel"
+    assert_output "new"
+    assert_success
+
+    run squashfs-mount --bind-mount=$TMP/bindsrc:./rel -- cat $TMP/cwd/rel/file.txt
+    assert_output "bind-content"
+    assert_success
+
+    # the relative and the absolute spelling of a directory are the same
+    # destination
+    run squashfs-mount \
+        --tmpfs=./rel \
+        --bind-mount=$TMP/bindsrc:$TMP/cwd/rel \
+        -- true
+    assert_failure
+    assert_output --partial "more than one --sqfs/--bind-mount/--tmpfs"
+}
+
+@test "a symlinked spelling does not hide a duplicate destination" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/real/mnt
+    ln -s real $TMP/link
+
+    run squashfs-mount \
+        --sqfs=$SQFS_PATH/app42.squashfs:$TMP/link/mnt \
+        --tmpfs=$TMP/real/mnt \
+        -- true
+    assert_failure
+    assert_output --partial "more than one --sqfs/--bind-mount/--tmpfs"
+}
+
+# A --tmpfs is empty and always writable: a mount point nested in it does not
+# exist until it is created there, with or without -r.
+
+@test "without -r, a --bind-mount nested in a --tmpfs is mounted, whether or not its destination exists on the host" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc $TMP/tmpfs-mnt/exists
+    echo "bind-content" > $TMP/bindsrc/file.txt
+
+    # exists on the host, but is hidden by the tmpfs
+    run squashfs-mount \
+        --tmpfs=$TMP/tmpfs-mnt \
+        --bind-mount=$TMP/bindsrc:$TMP/tmpfs-mnt/exists \
+        -- cat $TMP/tmpfs-mnt/exists/file.txt
+    assert_output "bind-content"
+    assert_success
+
+    # does not exist on the host
+    run squashfs-mount \
+        --tmpfs=$TMP/tmpfs-mnt \
+        --bind-mount=$TMP/bindsrc:$TMP/tmpfs-mnt/missing/deeper \
+        -- cat $TMP/tmpfs-mnt/missing/deeper/file.txt
+    assert_output "bind-content"
+    assert_success
+    # nothing was created on the host
+    [ ! -e $TMP/tmpfs-mnt/missing ]
+}
+
+@test "without -r, an --sqfs nested in a --tmpfs is mounted, whether or not its mount point exists on the host" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/tmpfs-mnt/exists
+
+    run squashfs-mount \
+        --tmpfs=$TMP/tmpfs-mnt \
+        --sqfs=$SQFS_PATH/app42.squashfs:$TMP/tmpfs-mnt/exists \
+        -- $TMP/tmpfs-mnt/exists/env/app/bin/app
+    assert_output "hello app"
+    assert_success
+
+    run squashfs-mount \
+        --tmpfs=$TMP/tmpfs-mnt \
+        --sqfs=$SQFS_PATH/app42.squashfs:$TMP/tmpfs-mnt/missing \
+        -- $TMP/tmpfs-mnt/missing/env/app/bin/app
+    assert_output "hello app"
+    assert_success
+    [ ! -e $TMP/tmpfs-mnt/missing ]
+}
+
+@test "without -r, a --tmpfs nested in a --tmpfs is mounted, whether or not its mount point exists on the host" {
+    require_fuse_backend
+    mkdir -p $TMP/tmpfs-mnt
+
+    run squashfs-mount \
+        --tmpfs=$TMP/tmpfs-mnt,$TMP/tmpfs-mnt/inner \
+        -- sh -c "touch $TMP/tmpfs-mnt/inner/new && ls $TMP/tmpfs-mnt/inner"
+    assert_output "new"
+    assert_success
+    [ ! -e $TMP/tmpfs-mnt/inner ]
+}

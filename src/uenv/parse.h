@@ -35,10 +35,11 @@ parse_mount_list(const std::string& arg);
 
 // parse the value of the --tmpfs CLI option and validate that each mount
 // point exists. The value is a comma-separated list of <mount>[:<size>]
-// items, the same list syntax --sqfs uses. With mutable_root=true
-// (--mutable-root), a mount point that does not exist is also accepted provided
-// its top-level ancestor (e.g.
-// "/foo" for "/foo/bar/tmp") does not exist either. A mount point inside one
+// items, the same list syntax --sqfs uses. Mount points are returned in
+// canonical form (see canonical_mount_path), the same as --sqfs mount points.
+// With mutable_root=true (--mutable-root), a mount point that does not exist
+// is also accepted provided its top-level ancestor (e.g. "/foo" for
+// "/foo/bar/tmp") does not exist either. A mount point inside one
 // of `sqfs_mounts` is not checked: it is provided by the squashfs image,
 // which is mounted before it.
 util::expected<std::vector<tmpfs_tuple>, std::string>
@@ -47,9 +48,10 @@ parse_tmpfs_and_validate(const std::optional<std::string>& arg,
 
 // parse the value of the --bind-mount CLI option and validate that each
 // destination exists. The value is a comma-separated list of <src>:<dst>
-// items, the same list syntax --sqfs uses. With mutable_root=true
-// (--mutable-root), a destination that does not exist is also accepted provided
-// its top-level ancestor (e.g.
+// items, the same list syntax --sqfs uses. Sources and destinations are
+// returned in canonical form (see canonical_mount_path), the same as --sqfs
+// mount points. With mutable_root=true (--mutable-root), a destination that
+// does not exist is also accepted provided its top-level ancestor (e.g.
 // "/foo" for "/foo/bar/tmp") does not exist either. A destination inside one
 // of `sqfs_mounts` is not checked: it is provided by the squashfs image,
 // which is mounted before it.

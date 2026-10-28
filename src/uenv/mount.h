@@ -44,6 +44,14 @@ using mount_list = std::vector<mount_pair>;
 bool is_nested_path(const std::filesystem::path& parent,
                     const std::filesystem::path& child);
 
+// The one spelling every --sqfs, --tmpfs and --bind-mount path is compared in:
+// absolute (a relative path is resolved against the working directory),
+// lexically normal, with symlinks in the part that exists resolved, and
+// without a trailing separator. The mount order and its duplicate check
+// (build_mount_order) rely on every path having been through this.
+util::expected<std::filesystem::path, std::string>
+canonical_mount_path(const std::filesystem::path& p);
+
 // Which CLI flag a mount_order_entry's payload came from.
 enum class mount_kind { sqfs, bind_mount, tmpfs };
 
