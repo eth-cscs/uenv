@@ -76,6 +76,37 @@ build_mount_order(const mount_list& mounts,
                   const std::vector<bindmount_pair>& bind_mounts,
                   const std::vector<tmpfs_tuple>& tmpfs);
 
+// the destination of the --sqfs, --bind-mount or --tmpfs entry `e` refers to
+const std::filesystem::path&
+mount_destination(const mount_order_entry& e, const mount_list& mounts,
+                  const std::vector<bindmount_pair>& bind_mounts,
+                  const std::vector<tmpfs_tuple>& tmpfs);
+
+// For each entry of `order`, the kind of the requested mount that provides
+// its mount point: the innermost other --sqfs, --bind-mount or --tmpfs
+// destination that it lies strictly below, or nullopt if it lies on the
+// host's own file system. `order` is parents first (build_mount_order), so
+// the provider is always mounted before the entry it provides.
+//
+// The provider decides whether a missing mount point can be created: in a
+// --tmpfs always (it is empty, writable and private to the mount namespace),
+// on the host only with a mutable root, and never in a squashfs image (read
+// only) or a bind mount (which would write into its source on the host).
+std::vector<std::optional<mount_kind>> mount_point_providers(
+    const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
+    const std::vector<tmpfs_tuple>& tmpfs, const mount_order& order);
+
+// Check that the mount point of every --sqfs, --bind-mount and --tmpfs entry
+// exists on the host, unless it lies below another of the requested
+// destinations (it is provided by that mount, see mount_point_providers, and
+// can not be checked before it is mounted), or `mutable_root` is set (the
+// mount point is created on demand). Paths must be in canonical form
+// (canonical_mount_path).
+util::expected<void, std::string>
+validate_mount_points(const mount_list& mounts,
+                      const std::vector<bindmount_pair>& bind_mounts,
+                      const std::vector<tmpfs_tuple>& tmpfs, bool mutable_root);
+
 // one shot from string description to sorted and validated inputs
 //
 // auto mountvar ;

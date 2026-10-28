@@ -174,6 +174,85 @@ build_mount_order(const mount_list& mounts,
     return order;
 }
 
+namespace {
+// the destination of every --sqfs, --bind-mount and --tmpfs entry
+std::vector<std::filesystem::path>
+all_destinations(const mount_list& mounts,
+                 const std::vector<bindmount_pair>& bind_mounts,
+                 const std::vector<tmpfs_tuple>& tmpfs) {
+    std::vector<std::filesystem::path> result;
+    result.reserve(mounts.size() + bind_mounts.size() + tmpfs.size());
+    for (const auto& m : mounts) {
+        result.push_back(m.mount);
+    }
+    for (const auto& b : bind_mounts) {
+        result.push_back(b.dst);
+    }
+    for (const auto& t : tmpfs) {
+        result.push_back(t.mount);
+    }
+    return result;
+}
+} // namespace
+
+const std::filesystem::path&
+mount_destination(const mount_order_entry& e, const mount_list& mounts,
+                  const std::vector<bindmount_pair>& bind_mounts,
+                  const std::vector<tmpfs_tuple>& tmpfs) {
+    switch (e.kind) {
+    case mount_kind::sqfs:
+        return mounts.at(e.index).mount;
+    case mount_kind::bind_mount:
+        return bind_mounts.at(e.index).dst;
+    case mount_kind::tmpfs:
+        break;
+    }
+    return tmpfs.at(e.index).mount;
+}
+
+std::vector<std::optional<mount_kind>> mount_point_providers(
+    const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
+    const std::vector<tmpfs_tuple>& tmpfs, const mount_order& order) {
+    auto dst = [&](const mount_order_entry& e) -> const std::filesystem::path& {
+        return mount_destination(e, mounts, bind_mounts, tmpfs);
+    };
+
+    std::vector<std::optional<mount_kind>> providers(order.size());
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        const auto& path = dst(order[i]);
+        // `order` is sorted by destination: scanning back from i-1, the first
+        // enclosing entry is the innermost
+        for (std::size_t j = i; j-- > 0;) {
+            const auto& parent = dst(order[j]);
+            if (parent != path && is_nested_path(parent, path)) {
+                providers[i] = order[j].kind;
+                break;
+            }
+        }
+    }
+    return providers;
+}
+
+util::expected<void, std::string> validate_mount_points(
+    const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
+    const std::vector<tmpfs_tuple>& tmpfs, bool mutable_root) {
+    if (mutable_root) {
+        return {};
+    }
+    const auto destinations = all_destinations(mounts, bind_mounts, tmpfs);
+    for (const auto& path : destinations) {
+        const bool provided =
+            std::ranges::any_of(destinations, [&path](const auto& other) {
+                return other != path && is_nested_path(other, path);
+            });
+        if (!provided && !std::filesystem::is_directory(path)) {
+            return util::unexpected{fmt::format(
+                "the mount point {} does not exist", path.string())};
+        }
+    }
+    return {};
+}
+
 util::expected<std::vector<uenv::mount_pair>, std::string>
 validate_mount_list(const mount_list& input, bool mount_points_must_exist) {
     namespace fs = std::filesystem;

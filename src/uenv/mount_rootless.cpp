@@ -252,10 +252,10 @@ fuse_lowlevel_ops make_fuse_lowlevel_options() {
 // Adapted from `squashfuse_ll` written by Dave Vasilevsky <dave@vasilevsky.ca>
 // Ref: https://github.com/vasi/squashfuse/blob/master/ll_main.c
 //
-// Returns the pid of the forked daemon, which is PDEATHSIG-tied to the
-// caller: the caller owns the mount's lifetime.
-util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
-                                                    bool fuse_single_threaded) {
+// The forked daemon is PDEATHSIG-tied to the caller: the caller owns the
+// mount's lifetime.
+util::expected<void, std::string> do_sqfs_ll_mount(const mount_pair& entry,
+                                                   bool fuse_single_threaded) {
     spdlog::trace("do_sqfs_ll_mount");
 
     // the child process starts fuse, and informs this process via a pipe when
@@ -390,7 +390,7 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
             entry.mount.string(), pid.error()));
     }
 
-    return pid;
+    return {};
 }
 
 // Everything the caller asked to be mounted, and the order to mount it in.
@@ -409,82 +409,81 @@ struct mount_request {
 // parent destination is always mounted before anything nested under it,
 // whichever flag either came from: a --tmpfs or --bind-mount can land inside
 // a squashfs image, and a squashfs image inside a --tmpfs. Each squashfs image
-// is mounted by its own fuse daemon, whose pid is returned; the image is
-// mounted by the time do_sqfs_ll_mount() returns, so an entry nested inside
+// is mounted by its own fuse daemon, PDEATHSIG-tied to this process; the image
+// is mounted by the time do_sqfs_ll_mount() returns, so an entry nested inside
 // it can be mounted straight after.
 //
-// With a mutable root, each mount point is created just before it is mounted
-// on: one inside a squashfs image can not be created, and must already exist
-// in the image.
+// A missing mount point is created just before it is mounted on, if the mount
+// that provides it allows (see uenv::mount_point_providers): one inside a
+// --tmpfs always, one on the host only with a mutable root. One inside a
+// squashfs image or a --bind-mount is never created: it must already exist
+// in the image, or in the bind mount's source.
 //
-// On failure the daemons started so far are killed: whoever waits on the
-// caller's readiness (see supervisor_main) would otherwise wait on them too.
-util::expected<std::vector<pid_t>, std::string>
-apply_mounts(const mount_request& req) {
-    std::vector<pid_t> daemons;
-    auto fail = [&daemons](std::string msg)
-        -> util::expected<std::vector<pid_t>, std::string> {
-        for (auto pid : daemons) {
-            ::kill(pid, SIGKILL);
-        }
-        return util::unexpected(std::move(msg));
-    };
-
+// On failure, the daemons started so far are left to PDEATHSIG: every caller
+// exits after an error (squashfs-mount, the Slurm task, the supervisor).
+util::expected<void, std::string> apply_mounts(const mount_request& req) {
     if (req.order.size() !=
         req.mounts.size() + req.bind_mounts.size() + req.tmpfs.size()) {
-        return fail(fmt::format(
+        return util::unexpected(fmt::format(
             "internal error: mount ordering has {} entries but there are {} "
             "sqfs/bind-mount/tmpfs entries to apply",
             req.order.size(),
             req.mounts.size() + req.bind_mounts.size() + req.tmpfs.size()));
     }
 
-    for (auto& e : req.order) {
-        const auto& dst = e.kind == uenv::mount_kind::sqfs
-                              ? req.mounts.at(e.index).mount
-                          : e.kind == uenv::mount_kind::bind_mount
-                              ? req.bind_mounts.at(e.index).dst
-                              : req.tmpfs.at(e.index).mount;
-        if (req.mutable_root) {
+    const auto providers = uenv::mount_point_providers(
+        req.mounts, req.bind_mounts, req.tmpfs, req.order);
+
+    for (std::size_t i = 0; i < req.order.size(); ++i) {
+        const auto& e = req.order[i];
+        const auto& dst =
+            uenv::mount_destination(e, req.mounts, req.bind_mounts, req.tmpfs);
+        const bool create = providers[i]
+                                ? *providers[i] == uenv::mount_kind::tmpfs
+                                : req.mutable_root;
+        if (create) {
             std::error_code ec;
+            // in a --tmpfs, or on the host with a mutable root
+            // (see mount_point_providers)
             std::filesystem::create_directories(dst, ec);
             if (ec) {
-                return fail(fmt::format("failed to create mount point {}: {}",
-                                        dst.string(), ec.message()));
+                return util::unexpected(
+                    fmt::format("failed to create mount point {}: {}",
+                                dst.string(), ec.message()));
             }
         }
 
         switch (e.kind) {
         case uenv::mount_kind::sqfs: {
-            auto pid = do_sqfs_ll_mount(req.mounts.at(e.index),
-                                        req.fuse_single_threaded);
-            if (!pid) {
-                return fail(pid.error());
+            if (auto r = do_sqfs_ll_mount(req.mounts.at(e.index),
+                                          req.fuse_single_threaded);
+                !r) {
+                return r;
             }
-            daemons.push_back(*pid);
             break;
         }
         case uenv::mount_kind::bind_mount: {
             const auto& entry = req.bind_mounts.at(e.index);
             if (auto r = uenv::bind_mount(entry.src, entry.dst); !r) {
-                return fail(fmt::format("bind mount {} at {} failed: {}",
-                                        entry.src.string(), entry.dst.string(),
-                                        r.error()));
+                return util::unexpected(fmt::format(
+                    "bind mount {} at {} failed: {}", entry.src.string(),
+                    entry.dst.string(), r.error()));
             }
             break;
         }
         case uenv::mount_kind::tmpfs: {
             const auto& entry = req.tmpfs.at(e.index);
             if (auto r = uenv::mount_tmpfs(entry.mount, entry.size); !r) {
-                return fail(fmt::format("tmpfs mount at {} failed: {}",
-                                        entry.mount.string(), r.error()));
+                return util::unexpected(
+                    fmt::format("tmpfs mount at {} failed: {}",
+                                entry.mount.string(), r.error()));
             }
             break;
         }
         }
     }
 
-    return daemons;
+    return {};
 }
 
 // Mount everything in `req` (forking one squashfuse daemon per image), report
@@ -508,22 +507,13 @@ apply_mounts(const mount_request& req) {
     signal(SIGTERM, SIG_IGN);
     signal(SIGHUP, SIG_IGN);
 
-    auto daemons = apply_mounts(req);
-    if (!daemons) {
-        child_fail(daemons.error());
+    if (auto r = apply_mounts(req); !r) {
+        child_fail(r.error());
     }
-    auto abandon = [&daemons](const std::string& msg) {
-        // the daemons hold a copy of rf's write end: leaving them running
-        // would keep the task blocked in wait_ready() instead of seeing
-        // this failure.
-        for (auto pid : *daemons) {
-            ::kill(pid, SIGKILL);
-        }
-        child_fail(msg);
-    };
 
-    spdlog::info("mount supervisor {} owns {} mount(s) in cgroup {}", getpid(),
-                 daemons->size(), util::current_cgroup().value_or("<unknown>"));
+    spdlog::info("mount supervisor {} owns {} image(s) in cgroup {}", getpid(),
+                 req.mounts.size(),
+                 util::current_cgroup().value_or("<unknown>"));
 
     // Point fds 0-2 at /dev/null: this process outlives the task that forked
     // it, and holding that task's stdout/stderr pipes open would stall
@@ -538,7 +528,8 @@ apply_mounts(const mount_request& req) {
     }
 
     if (auto ok = rf.notify_ready(); !ok) {
-        abandon(ok.error());
+        // the daemons are PDEATHSIG-tied to this process, and go with it
+        child_fail(ok.error());
     }
 
     while (true) {
@@ -571,16 +562,17 @@ util::expected<void, std::string> prepare_root(const mount_request& req) {
     if (!req.mutable_root) {
         return {};
     }
-    // collect top level directories
+    // the mount points on the host's own file system: one inside another
+    // requested mount is provided by that mount, not by the rebuilt root
+    const auto providers = uenv::mount_point_providers(
+        req.mounts, req.bind_mounts, req.tmpfs, req.order);
     std::set<std::filesystem::path> dst_dirs;
-    for (const auto& item : req.mounts) {
-        dst_dirs.emplace(item.mount);
-    }
-    for (const auto& item : req.bind_mounts) {
-        dst_dirs.emplace(item.dst);
-    }
-    for (const auto& item : req.tmpfs) {
-        dst_dirs.emplace(item.mount);
+    for (std::size_t i = 0; i < req.order.size(); ++i) {
+        if (providers[i]) {
+            continue;
+        }
+        dst_dirs.emplace(uenv::mount_destination(req.order[i], req.mounts,
+                                                 req.bind_mounts, req.tmpfs));
     }
     return make_mutable_root(dst_dirs);
 }
@@ -592,10 +584,7 @@ util::expected<void, std::string> unshare_and_mount(const mount_request& req) {
     if (auto r = prepare_root(req); !r) {
         return r;
     }
-    if (auto r = apply_mounts(req); !r) {
-        return util::unexpected(r.error());
-    }
-    return {};
+    return apply_mounts(req);
 }
 
 util::expected<void, std::string> mount_and_join_ns(
@@ -654,7 +643,7 @@ util::expected<void, std::string> mount_and_join_ns(
             spdlog::warn(
                 "squashfuse daemon will not get cleaned up automatically.");
             if (auto r = apply_mounts(req); !r) {
-                return util::unexpected(r.error());
+                return r;
             }
         } else if (auto r = fork_mount_supervisor(req); !r) {
             return r;

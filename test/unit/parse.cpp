@@ -372,205 +372,84 @@ TEST_CASE("parse mount", "[parse]") {
     }
 }
 
+// whether the mount points exist is not checked by the parsers: see
+// "validate_mount_points" in mount.cpp
 TEST_CASE("parse tmpfs", "[parse]") {
-    // a directory that exists is accepted whether or not --mutable-root
-    // (-r) is set.
-    auto tmpdir =
-        std::filesystem::temp_directory_path() / "uenv-parse-tmpfs-test";
-    std::filesystem::create_directories(tmpdir);
-
-    for (bool mutable_root : {false, true}) {
-        {
-            // no arguments: nothing to mount, not an error
-            auto result = uenv::parse_tmpfs_and_validate({}, mutable_root);
-            REQUIRE(result);
-            REQUIRE(result->empty());
-        }
-        {
-            // size is optional
-            auto result =
-                uenv::parse_tmpfs_and_validate({tmpdir.string()}, mutable_root);
-            REQUIRE(result);
-            REQUIRE(result->size() == 1);
-            auto t = (*result)[0];
-            REQUIRE(t.mount == tmpdir);
-            REQUIRE(!t.size);
-        }
-        {
-            auto result = uenv::parse_tmpfs_and_validate(
-                {tmpdir.string() + ":1024"}, mutable_root);
-            REQUIRE(result);
-            REQUIRE(result->size() == 1);
-            auto t = (*result)[0];
-            REQUIRE(t.mount == tmpdir);
-            REQUIRE(t.size == 1024u);
-        }
-        {
-            // relative paths are not permitted
-            auto result =
-                uenv::parse_tmpfs_and_validate({"scratch"}, mutable_root);
-            REQUIRE(!result);
-        }
-        {
-            // size must be an integer
-            auto result = uenv::parse_tmpfs_and_validate(
-                {tmpdir.string() + ":big"}, mutable_root);
-            REQUIRE(!result);
-        }
-        {
-            // trailing input after the size is rejected
-            auto result = uenv::parse_tmpfs_and_validate(
-                {tmpdir.string() + ":1024:extra"}, mutable_root);
-            REQUIRE(!result);
-        }
-        {
-            // a mount point nested inside an existing top-level directory
-            // (/tmp) but which does not itself exist is rejected without
-            // --mutable-root (nothing will create it), and permitted with
-            // --mutable-root (which will create the whole chain)
-            auto result = uenv::parse_tmpfs_and_validate(
-                {"/tmp/uenv-parse-tmpfs-test-nested/sub"}, mutable_root);
-            if (mutable_root) {
-                REQUIRE(result);
-            } else {
-                REQUIRE(!result);
-            }
-        }
-    }
-
     {
-        // without --mutable-root, a mount point that does not exist is
-        // rejected: nothing will create it, whether top-level or not
-        auto result = uenv::parse_tmpfs_and_validate(
-            {"/this-uenv-test-top-does-not-exist"}, false);
+        // no arguments: nothing to mount, not an error
+        auto result = uenv::parse_tmpfs_list({});
+        REQUIRE(result);
+        REQUIRE(result->empty());
+    }
+    {
+        // size is optional
+        auto result = uenv::parse_tmpfs_list({"/scratch"});
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        auto t = (*result)[0];
+        REQUIRE(t.mount == "/scratch");
+        REQUIRE(!t.size);
+    }
+    {
+        auto result = uenv::parse_tmpfs_list({"/scratch:1024"});
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        auto t = (*result)[0];
+        REQUIRE(t.mount == "/scratch");
+        REQUIRE(t.size == 1024u);
+    }
+    {
+        // a path has to start with '/' or '.'
+        auto result = uenv::parse_tmpfs_list({"scratch"});
         REQUIRE(!result);
-        result = uenv::parse_tmpfs_and_validate(
-            {"/this-uenv-test-top-does-not-exist/sub/dir"}, false);
+    }
+    {
+        // size must be an integer
+        auto result = uenv::parse_tmpfs_list({"/scratch:big"});
         REQUIRE(!result);
+    }
+    {
+        // trailing input after the size is rejected
+        auto result = uenv::parse_tmpfs_list({"/scratch:1024:extra"});
+        REQUIRE(!result);
+    }
+    {
+        // a mount point that does not exist is not an error here
+        auto result = uenv::parse_tmpfs_list(
+            {"/this-uenv-test-top-does-not-exist/sub/dir"});
+        REQUIRE(result);
+        REQUIRE((*result)[0].mount ==
+                "/this-uenv-test-top-does-not-exist/sub/dir");
     }
     {
         // --tmpfs takes a comma-separated list, the same list syntax --sqfs
         // uses
-        auto result = uenv::parse_tmpfs_and_validate(
-            {tmpdir.string() + ":1024,/tmp"}, false);
+        auto result = uenv::parse_tmpfs_list({"/scratch:1024,/data"});
         REQUIRE(result);
         REQUIRE(result->size() == 2);
-        REQUIRE((*result)[0].mount == tmpdir);
+        REQUIRE((*result)[0].mount == "/scratch");
         REQUIRE((*result)[0].size == 1024u);
-        REQUIRE((*result)[1].mount == "/tmp");
+        REQUIRE((*result)[1].mount == "/data");
         REQUIRE(!(*result)[1].size);
     }
     {
         // a trailing comma is tolerated, as with --sqfs
-        auto result =
-            uenv::parse_tmpfs_and_validate({tmpdir.string() + ","}, false);
+        auto result = uenv::parse_tmpfs_list({"/scratch,"});
         REQUIRE(result);
         REQUIRE(result->size() == 1);
-        REQUIRE((*result)[0].mount == tmpdir);
+        REQUIRE((*result)[0].mount == "/scratch");
     }
-    {
-        // with --mutable-root, a top-level directory that does not exist
-        // is accepted: a mutable root can create it on demand.
-        auto result = uenv::parse_tmpfs_and_validate(
-            {"/this-uenv-test-top-does-not-exist"}, true);
-        REQUIRE(result);
-        REQUIRE(result->size() == 1);
-        auto t = (*result)[0];
-        REQUIRE(t.mount == "/this-uenv-test-top-does-not-exist");
-        REQUIRE(!t.size);
-    }
-    {
-        // with --mutable-root, a deeply nested mount point is accepted as
-        // long as its top-level ancestor does not exist either: the whole
-        // chain (and its top-level ancestor) is created fresh
-        auto result = uenv::parse_tmpfs_and_validate(
-            {"/this-uenv-test-top-does-not-exist/sub/dir"}, true);
-        REQUIRE(result);
-        REQUIRE(result->size() == 1);
-        REQUIRE((*result)[0].mount ==
-                "/this-uenv-test-top-does-not-exist/sub/dir");
-    }
-
-    std::filesystem::remove_all(tmpdir);
 }
 
 TEST_CASE("parse bind mounts", "[parse]") {
-    // a destination that exists is accepted whether or not --mutable-root
-    // (-r) is set.
-    auto tmpdir =
-        std::filesystem::temp_directory_path() / "uenv-parse-bindmounts-test";
-    std::filesystem::create_directories(tmpdir);
-
-    for (bool mutable_root : {false, true}) {
-        {
-            // no arguments: nothing to mount, not an error
-            auto result = uenv::parse_bindmounts_and_validate({}, mutable_root);
-            REQUIRE(result);
-            REQUIRE(result->empty());
-        }
-        {
-            auto result = uenv::parse_bindmounts_and_validate(
-                {"/host/dir:" + tmpdir.string()}, mutable_root);
-            REQUIRE(result);
-            REQUIRE(result->size() == 1);
-            auto b = (*result)[0];
-            REQUIRE(b.src == "/host/dir");
-            REQUIRE(b.dst == tmpdir);
-        }
-        {
-            // the ':' separating src and dst is required
-            auto result = uenv::parse_bindmounts_and_validate({"/host/dir"},
-                                                              mutable_root);
-            REQUIRE(!result);
-        }
-        {
-            // relative paths are not permitted
-            auto result = uenv::parse_bindmounts_and_validate(
-                {"host/dir:" + tmpdir.string()}, mutable_root);
-            REQUIRE(!result);
-        }
-        {
-            // trailing input after dst is rejected
-            auto result = uenv::parse_bindmounts_and_validate(
-                {"/host/dir:" + tmpdir.string() + ":extra"}, mutable_root);
-            REQUIRE(!result);
-        }
-        {
-            // a destination nested inside an existing top-level directory
-            // (/tmp) but which does not itself exist is rejected without
-            // --mutable-root (nothing will create it), and permitted with
-            // --mutable-root (which will create the whole chain)
-            auto result = uenv::parse_bindmounts_and_validate(
-                {"/host/dir:/tmp/uenv-parse-bindmounts-test-nested/sub"},
-                mutable_root);
-            if (mutable_root) {
-                REQUIRE(result);
-            } else {
-                REQUIRE(!result);
-            }
-        }
-    }
-
     {
-        // without --mutable-root, a destination that does not exist is
-        // rejected: nothing will create it, whether top-level or not
-        auto result = uenv::parse_bindmounts_and_validate(
-            {"/host/dir:/container"}, false);
-        REQUIRE(!result);
-        result = uenv::parse_bindmounts_and_validate(
-            {"/host/dir:/this-uenv-test-top-does-not-exist/sub/dir"}, false);
-        REQUIRE(!result);
+        // no arguments: nothing to mount, not an error
+        auto result = uenv::parse_bindmount_list({});
+        REQUIRE(result);
+        REQUIRE(result->empty());
     }
     {
-        auto result = uenv::parse_bindmounts_and_validate(
-            "/host/a:" + tmpdir.string() + ",/host/b:/container-b", false);
-        REQUIRE(!result);
-    }
-    {
-        // with --mutable-root, /container is top-level: it does not need
-        // to exist, because a mutable root can create it on demand.
-        auto result =
-            uenv::parse_bindmounts_and_validate({"/host/dir:/container"}, true);
+        auto result = uenv::parse_bindmount_list({"/host/dir:/container"});
         REQUIRE(result);
         REQUIRE(result->size() == 1);
         auto b = (*result)[0];
@@ -578,10 +457,26 @@ TEST_CASE("parse bind mounts", "[parse]") {
         REQUIRE(b.dst == "/container");
     }
     {
+        // the ':' separating src and dst is required
+        auto result = uenv::parse_bindmount_list({"/host/dir"});
+        REQUIRE(!result);
+    }
+    {
+        // a path has to start with '/' or '.'
+        auto result = uenv::parse_bindmount_list({"host/dir:/container"});
+        REQUIRE(!result);
+    }
+    {
+        // trailing input after dst is rejected
+        auto result =
+            uenv::parse_bindmount_list({"/host/dir:/container:extra"});
+        REQUIRE(!result);
+    }
+    {
         // --bind-mount takes a comma-separated list, the same list syntax
         // --sqfs uses
-        auto result = uenv::parse_bindmounts_and_validate(
-            {"/host/a:/container-a,/host/b:/container-b"}, true);
+        auto result = uenv::parse_bindmount_list(
+            {"/host/a:/container-a,/host/b:/container-b"});
         REQUIRE(result);
         REQUIRE(result->size() == 2);
         REQUIRE((*result)[0].src == "/host/a");
@@ -591,25 +486,12 @@ TEST_CASE("parse bind mounts", "[parse]") {
     }
     {
         // a trailing comma is tolerated, as with --sqfs
-        auto result = uenv::parse_bindmounts_and_validate(
-            {"/host/a:/container-a,"}, true);
+        auto result = uenv::parse_bindmount_list({"/host/a:/container-a,"});
         REQUIRE(result);
         REQUIRE(result->size() == 1);
         REQUIRE((*result)[0].src == "/host/a");
         REQUIRE((*result)[0].dst == "/container-a");
     }
-    {
-        // with --mutable-root, a deeply nested destination is accepted as
-        // long as its top-level ancestor does not exist either
-        auto result = uenv::parse_bindmounts_and_validate(
-            {"/host/dir:/this-uenv-test-top-does-not-exist/sub/dir"}, true);
-        REQUIRE(result);
-        REQUIRE(result->size() == 1);
-        REQUIRE((*result)[0].dst ==
-                "/this-uenv-test-top-does-not-exist/sub/dir");
-    }
-
-    std::filesystem::remove_all(tmpdir);
 }
 
 // --tmpfs and --bind-mount paths are returned in the same canonical form as
@@ -622,59 +504,51 @@ TEST_CASE("parse mount destinations are normalised", "[parse]") {
                                        "uenv-parse-normalise-test");
     fs::create_directories(tmpdir / "sub");
 
-    for (bool mutable_root : {false, true}) {
-        // a trailing separator is dropped
-        {
-            auto result = uenv::parse_tmpfs_and_validate(
-                {tmpdir.string() + "/"}, mutable_root);
-            REQUIRE(result);
-            REQUIRE((*result)[0].mount == tmpdir);
-        }
-        {
-            auto result = uenv::parse_bindmounts_and_validate(
-                {"/host/dir/:" + tmpdir.string() + "/"}, mutable_root);
-            REQUIRE(result);
-            REQUIRE((*result)[0].src == "/host/dir");
-            REQUIRE((*result)[0].dst == tmpdir);
-        }
-        // "." and ".." components are resolved
-        {
-            auto result = uenv::parse_tmpfs_and_validate(
-                {tmpdir.string() + "/./sub/.."}, mutable_root);
-            REQUIRE(result);
-            REQUIRE((*result)[0].mount == tmpdir);
-        }
-        {
-            auto result = uenv::parse_bindmounts_and_validate(
-                {"/host/dir:" + tmpdir.string() + "/sub/../sub/."},
-                mutable_root);
-            REQUIRE(result);
-            REQUIRE((*result)[0].dst == tmpdir / "sub");
-        }
-        // a path relative to the working directory is made absolute, as a
-        // --sqfs mount point is
-        {
-            auto cwd = fs::current_path();
-            fs::current_path(tmpdir);
-            auto tmpfs = uenv::parse_tmpfs_and_validate({"./sub"}, mutable_root);
-            auto binds = uenv::parse_bindmounts_and_validate({"./sub:."},
-                                                             mutable_root);
-            fs::current_path(cwd);
-            REQUIRE(tmpfs);
-            REQUIRE((*tmpfs)[0].mount == tmpdir / "sub");
-            REQUIRE(binds);
-            REQUIRE((*binds)[0].src == tmpdir / "sub");
-            REQUIRE((*binds)[0].dst == tmpdir);
-        }
-    }
-
-    // a trailing separator after a part of the path that does not exist is
-    // dropped too (only a mutable root accepts a missing mount point)
+    // a trailing separator is dropped
     {
-        auto result = uenv::parse_tmpfs_and_validate(
-            {tmpdir.string() + "/missing/deeper/"}, true);
+        auto result = uenv::parse_tmpfs_list({tmpdir.string() + "/"});
+        REQUIRE(result);
+        REQUIRE((*result)[0].mount == tmpdir);
+    }
+    {
+        auto result =
+            uenv::parse_bindmount_list({"/host/dir/:" + tmpdir.string() + "/"});
+        REQUIRE(result);
+        REQUIRE((*result)[0].src == "/host/dir");
+        REQUIRE((*result)[0].dst == tmpdir);
+    }
+    // also after a part of the path that does not exist
+    {
+        auto result =
+            uenv::parse_tmpfs_list({tmpdir.string() + "/missing/deeper/"});
         REQUIRE(result);
         REQUIRE((*result)[0].mount == tmpdir / "missing" / "deeper");
+    }
+    // "." and ".." components are resolved
+    {
+        auto result = uenv::parse_tmpfs_list({tmpdir.string() + "/./sub/.."});
+        REQUIRE(result);
+        REQUIRE((*result)[0].mount == tmpdir);
+    }
+    {
+        auto result = uenv::parse_bindmount_list(
+            {"/host/dir:" + tmpdir.string() + "/sub/../sub/."});
+        REQUIRE(result);
+        REQUIRE((*result)[0].dst == tmpdir / "sub");
+    }
+    // a path relative to the working directory is made absolute, as a
+    // --sqfs mount point is
+    {
+        auto cwd = fs::current_path();
+        fs::current_path(tmpdir);
+        auto tmpfs = uenv::parse_tmpfs_list({"./sub"});
+        auto binds = uenv::parse_bindmount_list({"./sub:."});
+        fs::current_path(cwd);
+        REQUIRE(tmpfs);
+        REQUIRE((*tmpfs)[0].mount == tmpdir / "sub");
+        REQUIRE(binds);
+        REQUIRE((*binds)[0].src == tmpdir / "sub");
+        REQUIRE((*binds)[0].dst == tmpdir);
     }
 
     fs::remove_all(tmpdir);

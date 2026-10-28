@@ -693,3 +693,16 @@ hello app"
     assert_success
     [ ! -e $TMP/tmpfs-mnt/inner ]
 }
+
+@test "with -r, a mount point missing inside a --bind-mount is not created in its source" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc
+
+    # creating the mount point would write into $TMP/bindsrc on the host
+    run squashfs-mount -r \
+        --bind-mount=$TMP/bindsrc:/uenv-bats-bind-provider \
+        --tmpfs=/uenv-bats-bind-provider/new \
+        -- true
+    assert_failure
+    [ ! -e $TMP/bindsrc/new ]
+}

@@ -600,32 +600,8 @@ parse_arg_list(std::string_view what, const std::optional<std::string>& arg,
     return result;
 }
 
-namespace {
-util::expected<void, std::string>
-validate_mount_target(const std::filesystem::path& dst, bool mutable_root,
-                      const mount_list& sqfs_mounts) {
-    namespace fs = std::filesystem;
-    if (fs::is_directory(dst) || mutable_root) {
-        return {};
-    }
-    // the mount point is inside a squashfs image that is mounted first, so
-    // it can not be checked here: like a --sqfs mount point nested inside
-    // another (see validate_mount_list), mounting fails if it is missing
-    for (const auto& m : sqfs_mounts) {
-        if (is_nested_path(m.mount, dst)) {
-            return {};
-        }
-    }
-    return util::unexpected{
-        fmt::format("the directory {} does not exist", dst.string())};
-}
-} // namespace
-
-// parse tmpfs, if mutable_root is used dst directories need not
-// to exists, otherwise check dst is a directory
 util::expected<std::vector<tmpfs_tuple>, std::string>
-parse_tmpfs_and_validate(const std::optional<std::string>& arg,
-                         bool mutable_root, const mount_list& sqfs_mounts) {
+parse_tmpfs_list(const std::optional<std::string>& arg) {
     auto result = parse_arg_list<tmpfs_tuple>("parse_tmpfs", arg,
                                               parse_tmpfs_description);
     if (!result) {
@@ -639,20 +615,12 @@ parse_tmpfs_and_validate(const std::optional<std::string>& arg,
                                                 mount.error())};
         }
         t.mount = std::move(*mount);
-        if (auto r = validate_mount_target(t.mount, mutable_root, sqfs_mounts);
-            !r) {
-            return util::unexpected{r.error()};
-        }
     }
     return *result;
 }
 
-// parse bindmounts, if mutable_root is used dst directories need not
-// to exists, otherwise check dst is a directory
 util::expected<std::vector<bindmount_pair>, std::string>
-parse_bindmounts_and_validate(const std::optional<std::string>& arg,
-                              bool mutable_root,
-                              const mount_list& sqfs_mounts) {
+parse_bindmount_list(const std::optional<std::string>& arg) {
     auto result = parse_arg_list<bindmount_pair>("parse_bindmounts", arg,
                                                  parse_bindmount_description);
     if (!result) {
@@ -661,8 +629,9 @@ parse_bindmounts_and_validate(const std::optional<std::string>& arg,
     for (auto& b : *result) {
         auto src = canonical_mount_path(b.src);
         if (!src) {
-            return util::unexpected{fmt::format("invalid bind-mount source {} ({})",
-                                                b.src.string(), src.error())};
+            return util::unexpected{
+                fmt::format("invalid bind-mount source {} ({})", b.src.string(),
+                            src.error())};
         }
         auto dst = canonical_mount_path(b.dst);
         if (!dst) {
@@ -672,10 +641,6 @@ parse_bindmounts_and_validate(const std::optional<std::string>& arg,
         }
         b.src = std::move(*src);
         b.dst = std::move(*dst);
-        if (auto r = validate_mount_target(b.dst, mutable_root, sqfs_mounts);
-            !r) {
-            return util::unexpected{r.error()};
-        }
     }
     return *result;
 }

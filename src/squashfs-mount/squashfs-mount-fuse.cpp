@@ -162,13 +162,13 @@ int main(int argc, char** argv, char** envp) {
     // validate the mount points
     //
 
-    // with a mutable root, mount points are created as needed, so their
-    // existence does not need to be checked up front.
-    const bool mount_points_must_exist = !mutable_root;
+    // whether the mount points exist is checked below, by
+    // validate_mount_points, once the --tmpfs and --bind-mount entries are
+    // known too: a --sqfs mount point inside a --tmpfs is not on the host.
     uenv::mount_list mounts;
     if (raw_mounts) {
         auto r = uenv::parse_and_validate_mounts(*raw_mounts,
-                                                 mount_points_must_exist);
+                                                 false /* mounts must exist */);
         if (!r) {
             error_and_exit("{}", r.error());
         }
@@ -184,15 +184,21 @@ int main(int argc, char** argv, char** envp) {
     // validate the tmpfs and bind mount arguments
     //
 
-    auto tmpfs =
-        uenv::parse_tmpfs_and_validate(args.tmpfs, mutable_root, mounts);
+    auto tmpfs = uenv::parse_tmpfs_list(args.tmpfs);
     if (!tmpfs) {
         error_and_exit("failed to parse tmpfs: {}", tmpfs.error());
     }
-    auto bind_mounts = uenv::parse_bindmounts_and_validate(
-        args.bind_mounts, mutable_root, mounts);
+    auto bind_mounts = uenv::parse_bindmount_list(args.bind_mounts);
     if (!bind_mounts) {
         error_and_exit("failed to parse bind mounts: {}", bind_mounts.error());
+    }
+
+    // with a mutable root, mount points are created as needed, so their
+    // existence does not need to be checked up front.
+    if (auto r = uenv::validate_mount_points(mounts, *bind_mounts, *tmpfs,
+                                             mutable_root);
+        !r) {
+        error_and_exit("{}", r.error());
     }
 
     auto mount_order = uenv::build_mount_order(mounts, *bind_mounts, *tmpfs);
