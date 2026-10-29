@@ -741,6 +741,54 @@ hello app"
     [[ ! -e $TMP/proj/scratch ]]
 }
 
+# A squashfs image is always the host's file too: it is opened before
+# anything is mounted, so a --tmpfs or --bind-mount over its directory can not
+# hide it.
+
+@test "an --sqfs image under a --tmpfs is mounted from the host" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/imgs $TMP/ue
+    cp $SQFS_PATH/app42.squashfs $TMP/imgs/
+
+    # $TMP/imgs sorts before $TMP/ue: the tmpfs is mounted first
+    run squashfs-mount \
+        --sqfs=$TMP/imgs/app42.squashfs:$TMP/ue \
+        --tmpfs=$TMP/imgs \
+        -- sh -c "$TMP/ue/env/app/bin/app && ls -A $TMP/imgs"
+    assert_success
+    assert_output "hello app"
+}
+
+@test "an --sqfs image under a --bind-mount destination is mounted from the host" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/bindsrc $TMP/imgs $TMP/ue
+    cp $SQFS_PATH/app42.squashfs $TMP/imgs/
+
+    run squashfs-mount \
+        --sqfs=$TMP/imgs/app42.squashfs:$TMP/ue \
+        --bind-mount=$TMP/bindsrc:$TMP/imgs \
+        -- sh -c "$TMP/ue/env/app/bin/app && ls -A $TMP/imgs"
+    assert_success
+    assert_output "hello app"
+}
+
+@test "mutable root: an --sqfs image in a shadowed directory is mounted" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/imgs
+    rm -rf $TMP/imgs/ue
+    cp $SQFS_PATH/app42.squashfs $TMP/imgs/
+
+    # $TMP/imgs is shadowed to create the mount point $TMP/imgs/ue
+    run --separate-stderr squashfs-mount -r \
+        --sqfs=$TMP/imgs/app42.squashfs:$TMP/imgs/ue \
+        -- $TMP/imgs/ue/env/app/bin/app
+    assert_success
+    assert_output "hello app"
+}
+
 # Destinations are compared as written: a trailing separator, "." or ".."
 # would otherwise defeat the duplicate check and the parent-before-child
 # order.

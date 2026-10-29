@@ -84,9 +84,9 @@ using mount_order = std::vector<mount_order_entry>;
 // nothing forces otherwise, entries are in the lexical order of their
 // destinations.
 //
-// A --bind-mount source adds no dependency: it is always the host's
-// directory, as it was before anything was mounted, also when it lies inside
-// another destination (see capture_bind_sources in mount_rootless.cpp).
+// A --bind-mount source or a squashfs image adds no dependency: each is
+// always the host's, taken before anything is mounted, also when it lies
+// inside another destination (see capture_sources in mount_rootless.cpp).
 //
 // Errors: two entries with an identical destination (mirrors the duplicate
 // mount-point check in validate_mount_list for --sqfs).
