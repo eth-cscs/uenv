@@ -1,4 +1,5 @@
 #include <charconv>
+#include <climits>
 #include <filesystem>
 #include <string>
 #include <string_view>
