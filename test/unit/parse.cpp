@@ -474,6 +474,13 @@ TEST_CASE("parse bind mounts", "[parse]") {
         REQUIRE(result.error().loc == 9u);
     }
     {
+        auto result = uenv::parse_bindmount_list({"/host/dir,"});
+        REQUIRE(!result);
+        REQUIRE(result.error().detail ==
+                "expected a ':' separating the bind-mount src and dest, "
+                "found ','");
+    }
+    {
         // a path has to start with '/' or '.'
         auto result = uenv::parse_bindmount_list({"host/dir:/container"});
         REQUIRE(!result);

@@ -377,7 +377,7 @@ parse_bindmount_description(lex::lexer& L) {
         return util::unexpected{
             parse_error(L.string(),
                         fmt::format("expected a ':' separating the bind-mount "
-                                    "src and dest found {}'",
+                                    "src and dest, found '{}'",
                                     L.peek().spelling),
                         L.peek())};
     }
