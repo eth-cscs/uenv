@@ -62,15 +62,18 @@ struct mount_order_entry {
 };
 using mount_order = std::vector<mount_order_entry>;
 
-// Order --sqfs, --bind-mount and --tmpfs entries by a lexical, stable sort
-// of their destination paths: a parent directory's path always sorts before
-// anything nested under it, so sorting this way mounts parents before
-// children, regardless of which flag was used for which or what order they
-// were given on the command line. A --bind-mount or --tmpfs can therefore be
-// placed inside a squashfs image, and a squashfs image inside a --tmpfs. Two
-// entries with an identical destination are rejected as an error (mirrors
-// the duplicate mount-point check in validate_mount_list for --sqfs) rather
-// than picked between.
+// Order --sqfs, --bind-mount and --tmpfs entries so that each is mounted
+// after the mount that provides its mount point (parents before children),
+// and a --bind-mount also after the mount that provides its source,
+// regardless of which flag was used for which or what order they were given
+// on the command line. A --bind-mount or --tmpfs can therefore be placed
+// inside a squashfs image, a squashfs image inside a --tmpfs, and a
+// --bind-mount can bind a directory of an image. Where nothing forces
+// otherwise, entries are in the lexical order of their destinations.
+//
+// Errors: two entries with an identical destination (mirrors the duplicate
+// mount-point check in validate_mount_list for --sqfs), and bind sources and
+// destinations that depend on each other, e.g. /b/x:/a and /a/y:/b.
 util::expected<mount_order, std::string>
 build_mount_order(const mount_list& mounts,
                   const std::vector<bindmount_pair>& bind_mounts,
@@ -85,8 +88,8 @@ mount_destination(const mount_order_entry& e, const mount_list& mounts,
 // For each entry of `order`, the kind of the requested mount that provides
 // its mount point: the innermost other --sqfs, --bind-mount or --tmpfs
 // destination that it lies strictly below, or nullopt if it lies on the
-// host's own file system. `order` is parents first (build_mount_order), so
-// the provider is always mounted before the entry it provides.
+// host's own file system. With `order` from build_mount_order, the provider
+// is always mounted before the entry it provides.
 //
 // The provider decides whether a missing mount point can be created: in a
 // --tmpfs always (it is empty, writable and private to the mount namespace),

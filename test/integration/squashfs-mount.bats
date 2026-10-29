@@ -611,6 +611,7 @@ hello app"
         --bind-mount=$TMP/b/x:$TMP/a,$TMP/a/y:$TMP/b \
         -- true
     assert_failure
+    assert_output --partial "can not be ordered"
 }
 
 # Destinations are compared as written: a trailing separator, "." or ".."

@@ -4,7 +4,9 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <ranges>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -130,6 +132,31 @@ canonical_mount_path(const std::filesystem::path& p) {
     return result;
 }
 
+namespace {
+// The index of the innermost of `dsts` that `path` lies in (or is equal to,
+// if `allow_equal`), skipping `self`: the one with the most components.
+std::optional<std::size_t>
+innermost_enclosing(const std::vector<std::filesystem::path>& dsts,
+                    const std::filesystem::path& path, std::size_t self,
+                    bool allow_equal) {
+    std::optional<std::size_t> result;
+    std::size_t depth = 0;
+    for (std::size_t k = 0; k < dsts.size(); ++k) {
+        if (k == self || !is_nested_path(dsts[k], path) ||
+            (!allow_equal && dsts[k] == path)) {
+            continue;
+        }
+        const auto d = static_cast<std::size_t>(
+            std::distance(dsts[k].begin(), dsts[k].end()));
+        if (!result || d > depth) {
+            result = k;
+            depth = d;
+        }
+    }
+    return result;
+}
+} // namespace
+
 util::expected<mount_order, std::string>
 build_mount_order(const mount_list& mounts,
                   const std::vector<bindmount_pair>& bind_mounts,
@@ -166,10 +193,64 @@ build_mount_order(const mount_list& mounts,
         }
     }
 
-    mount_order order;
-    order.reserve(entries.size());
+    // Each entry is mounted after the mount that provides its mount point,
+    // and a --bind-mount also after the one that provides its source (or is
+    // its source). A source inside the bind's own destination is the host
+    // path it covers, and adds no dependency.
+    const auto n = entries.size();
+    std::vector<std::filesystem::path> dsts;
+    dsts.reserve(n);
     for (const auto& e : entries) {
-        order.push_back({e.kind, e.index});
+        dsts.push_back(e.dst);
+    }
+    std::vector<std::vector<std::size_t>> dependents(n);
+    std::vector<std::size_t> ndeps(n, 0);
+    auto add_dependency = [&](std::optional<std::size_t> dep, std::size_t i) {
+        if (dep &&
+            std::ranges::find(dependents[*dep], i) == dependents[*dep].end()) {
+            dependents[*dep].push_back(i);
+            ++ndeps[i];
+        }
+    };
+    for (std::size_t i = 0; i < n; ++i) {
+        add_dependency(innermost_enclosing(dsts, dsts[i], i, false), i);
+        if (entries[i].kind == mount_kind::bind_mount) {
+            const auto& src = bind_mounts[entries[i].index].src;
+            add_dependency(innermost_enclosing(dsts, src, i, true), i);
+        }
+    }
+
+    // a topological sort that takes the lexically smallest ready entry, so
+    // that the order only differs from the lexical one where it has to
+    std::set<std::size_t> ready;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (ndeps[i] == 0) {
+            ready.insert(i);
+        }
+    }
+    mount_order order;
+    order.reserve(n);
+    while (!ready.empty()) {
+        const auto i = *ready.begin();
+        ready.erase(ready.begin());
+        order.push_back({entries[i].kind, entries[i].index});
+        for (auto j : dependents[i]) {
+            if (--ndeps[j] == 0) {
+                ready.insert(j);
+            }
+        }
+    }
+    if (order.size() != n) {
+        std::vector<std::string> cycle;
+        for (std::size_t i = 0; i < n; ++i) {
+            if (ndeps[i] != 0) {
+                cycle.push_back(dsts[i].string());
+            }
+        }
+        return util::unexpected{fmt::format(
+            "the mounts at {} can not be ordered: a --bind-mount source and a "
+            "destination depend on each other",
+            fmt::join(cycle, ", "))};
     }
     return order;
 }
@@ -217,17 +298,15 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
         return mount_destination(e, mounts, bind_mounts, tmpfs);
     };
 
+    std::vector<std::filesystem::path> dsts;
+    dsts.reserve(order.size());
+    for (const auto& e : order) {
+        dsts.push_back(dst(e));
+    }
     std::vector<std::optional<mount_kind>> providers(order.size());
     for (std::size_t i = 0; i < order.size(); ++i) {
-        const auto& path = dst(order[i]);
-        // `order` is sorted by destination: scanning back from i-1, the first
-        // enclosing entry is the innermost
-        for (std::size_t j = i; j-- > 0;) {
-            const auto& parent = dst(order[j]);
-            if (parent != path && is_nested_path(parent, path)) {
-                providers[i] = order[j].kind;
-                break;
-            }
+        if (auto j = innermost_enclosing(dsts, dsts[i], i, false)) {
+            providers[i] = order[*j].kind;
         }
     }
     return providers;
