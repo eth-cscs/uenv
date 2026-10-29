@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <filesystem>
 
 #include <catch2/catch_all.hpp>
@@ -6,6 +7,7 @@
 #include <uenv/env.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
+#include <util/fs.h>
 #include <util/lex.h>
 
 // forward declare private parsers
@@ -1051,4 +1053,96 @@ TEST_CASE("parse namespace uenv label long input", "[parse]") {
         REQUIRE(r);
         REQUIRE(r->nspace == dashed);
     }
+}
+
+TEST_CASE("parse mountinfo", "[parse]") {
+    {
+        auto r = uenv::parse_mountinfo("");
+        REQUIRE(r);
+        REQUIRE(r->empty());
+    }
+    {
+        // no optional fields, one optional field, several, and a trailing
+        // newline
+        auto r = uenv::parse_mountinfo(
+            "22 1 0:21 / / rw,relatime - ext4 /dev/sda1 rw\n"
+            "36 22 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root "
+            "rw,errors=continue\n"
+            "40 36 0:44 / /user-environment ro,nosuid,nodev shared:5 "
+            "master:2 propagate_from:3 unbindable - fuse.squashfuse_ll "
+            "squashfuse_ll ro,user_id=1000\n");
+        REQUIRE(r);
+        REQUIRE(r->size() == 3);
+        auto& a = (*r)[0];
+        REQUIRE(a.id == 22);
+        REQUIRE(a.parent_id == 1);
+        REQUIRE(a.mountpoint == "/");
+        REQUIRE(a.vfs_options == "rw,relatime");
+        REQUIRE(a.fstype == "ext4");
+        auto& b = (*r)[1];
+        REQUIRE(b.id == 36);
+        REQUIRE(b.parent_id == 22);
+        REQUIRE(b.mountpoint == "/mnt2");
+        REQUIRE(b.vfs_options == "rw,noatime");
+        REQUIRE(b.fstype == "ext3");
+        auto& c = (*r)[2];
+        REQUIRE(c.mountpoint == "/user-environment");
+        REQUIRE(c.vfs_options == "ro,nosuid,nodev");
+        REQUIRE(c.fstype == "fuse.squashfuse_ll");
+    }
+    {
+        // the kernel escapes space, tab, newline and backslash as \ooo; an
+        // escape followed by digits must not swallow them
+        auto r = uenv::parse_mountinfo(
+            "50 22 0:50 / /mnt/a\\040b\\011c\\012d\\134e\\0401 rw - tmpfs "
+            "tmpfs rw\n");
+        REQUIRE(r);
+        REQUIRE(r->size() == 1);
+        REQUIRE((*r)[0].mountpoint == "/mnt/a b\tc\nd\\e 1");
+    }
+    {
+        // any other byte is kept as is: non-ascii and characters the lexer
+        // has no token for
+        auto r = uenv::parse_mountinfo(
+            "51 22 0:51 / /scratch/\xc3\xa9t\xc3\xa9<x>|{y} rw - tmpfs t rw");
+        REQUIRE(r);
+        REQUIRE((*r)[0].mountpoint == "/scratch/\xc3\xa9t\xc3\xa9<x>|{y}");
+    }
+    {
+        // an empty source leaves two spaces in a row after the fstype
+        auto r = uenv::parse_mountinfo("52 22 0:52 / /x rw - tmpfs  rw\n");
+        REQUIRE(r);
+        REQUIRE((*r)[0].fstype == "tmpfs");
+    }
+    for (const auto& in : {
+             "22 1 0:21 / / rw,relatime ext4 /dev/sda1 rw", // no separator
+             "22 1 0:21 / / rw,relatime -",                 // no fstype
+             "x 1 0:21 / / rw - ext4 /dev/sda1 rw",         // bad id
+             "22x 1 0:21 / / rw - ext4 /dev/sda1 rw",       // bad id
+             "22 -1 0:21 / / rw - ext4 /dev/sda1 rw",       // bad parent
+             "22 1 0:21 / /a\\04 rw - ext4 /dev/sda1 rw",   // short escape
+             "22 1 0:21 / /a\\089 rw - ext4 /dev/sda1 rw",  // not octal
+             "22 1 0:21 / /a\\ rw - ext4 /dev/sda1 rw",     // lone backslash
+             "22 1 0:21 / /",                               // truncated
+         }) {
+        CAPTURE(in);
+        REQUIRE(!uenv::parse_mountinfo(in));
+    }
+    {
+        // the error names the line
+        auto r = uenv::parse_mountinfo(
+            "22 1 0:21 / / rw - ext4 /dev/sda1 rw\nbroken\n");
+        REQUIRE(!r);
+        REQUIRE(r.error().message().starts_with("line 2:"));
+    }
+}
+
+TEST_CASE("parse /proc/self/mountinfo", "[parse]") {
+    const auto contents = util::read_file("/proc/self/mountinfo");
+    REQUIRE(contents);
+    auto r = uenv::parse_mountinfo(*contents);
+    REQUIRE(r);
+    REQUIRE(!r->empty());
+    REQUIRE(std::any_of(r->begin(), r->end(),
+                        [](const auto& e) { return e.mountpoint == "/"; }));
 }

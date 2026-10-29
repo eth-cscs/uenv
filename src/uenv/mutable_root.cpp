@@ -19,12 +19,13 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <fmt/std.h>
-#include <libmount/libmount.h>
 #include <spdlog/spdlog.h>
 
 #include <uenv/mount.h>
 #include <uenv/mount_rootless.h>
+#include <uenv/parse.h>
 #include <util/expected.h>
+#include <util/fs.h>
 
 namespace uenv {
 namespace rootless {
@@ -93,37 +94,28 @@ struct mount_entry {
     unsigned long flags{0};
 };
 
-// Parse /oldroot/proc/self/mountinfo
-util::expected<std::vector<mount_entry>, std::string> parse_mountinfo() {
-    std::unique_ptr<libmnt_table, decltype(&mnt_free_table)> tb(mnt_new_table(),
-                                                                mnt_free_table);
-    if (!tb) {
-        return util::unexpected{"mnt_new_table failed"};
+// Read and parse /oldroot/proc/self/mountinfo
+util::expected<std::vector<mount_entry>, std::string> read_mountinfo() {
+    const auto contents = util::read_file("/oldroot/proc/self/mountinfo");
+    if (!contents) {
+        return util::unexpected{contents.error()};
     }
-    if (int rc = mnt_table_parse_file(tb.get(), "/oldroot/proc/self/mountinfo");
-        rc != 0) {
-        return util::unexpected{fmt::format(
-            "unable to parse /proc/self/mountinfo: rc={} errno={} ({})", rc,
-            errno, strerror(errno))};
-    }
-
-    std::unique_ptr<libmnt_iter, decltype(&mnt_free_iter)> itr(
-        mnt_new_iter(MNT_ITER_FORWARD), mnt_free_iter);
-    if (!itr) {
-        return util::unexpected{"mnt_new_iter failed"};
+    auto table = uenv::parse_mountinfo(*contents);
+    if (!table) {
+        return util::unexpected{
+            fmt::format("unable to parse /proc/self/mountinfo: {}",
+                        table.error().message())};
     }
 
     std::vector<mount_entry> entries;
-    libmnt_fs* fs = nullptr;
-    while (mnt_table_next_fs(tb.get(), itr.get(), &fs) == 0) {
+    entries.reserve(table->size());
+    for (auto& m : *table) {
         mount_entry e;
-        e.id = mnt_fs_get_id(fs);
-        e.parent_id = mnt_fs_get_parent_id(fs);
-        e.mountpoint = mnt_fs_get_target(fs);
-        const char* fstype = mnt_fs_get_fstype(fs);
-        e.fstype = fstype ? fstype : "";
-        const char* vfs_options = mnt_fs_get_vfs_options(fs);
-        e.flags = decode_mountoptions(vfs_options ? vfs_options : "");
+        e.id = static_cast<int>(m.id);
+        e.parent_id = static_cast<int>(m.parent_id);
+        e.mountpoint = std::move(m.mountpoint);
+        e.fstype = std::move(m.fstype);
+        e.flags = decode_mountoptions(m.vfs_options);
         entries.push_back(std::move(e));
     }
     return entries;
@@ -131,10 +123,10 @@ util::expected<std::vector<mount_entry>, std::string> parse_mountinfo() {
 
 // Build the list of (mountpoint, current flags) for `root` and every mount
 // stacked at or below it, from an already-parsed /proc/self/mountinfo
-// (`parse_mountinfo()`). Mounts are attached to their real kernel parent
+// (`read_mountinfo()`). Mounts are attached to their real kernel parent
 // mount, and a mount stacked directly on top of another mount at the exact
 // same path "covers" (hides) the one underneath, mirroring what the kernel
-// itself exposes. This is the C++/libmount equivalent of bwrap's
+// itself exposes. This is the C++ equivalent of bwrap's
 // parse_mountinfo()/collect_mounts():
 // https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L207
 util::expected<std::vector<std::pair<std::filesystem::path, unsigned long>>,
@@ -435,7 +427,7 @@ make_mutable_root(const std::set<std::filesystem::path>& shadow) {
             fmt::format("fs::current_path(/) failed with {}", ec.message()));
     }
 
-    auto host_mounts = parse_mountinfo();
+    auto host_mounts = read_mountinfo();
     if (!host_mounts) {
         return util::unexpected{host_mounts.error()};
     }
@@ -450,7 +442,7 @@ make_mutable_root(const std::set<std::filesystem::path>& shadow) {
         return r;
     }
 
-    auto mountinfo = parse_mountinfo();
+    auto mountinfo = read_mountinfo();
     if (!mountinfo) {
         return util::unexpected{mountinfo.error()};
     }

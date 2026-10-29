@@ -35,6 +35,18 @@ struct bindmount_pair {
     std::filesystem::path dst;
 };
 
+// one line of /proc/self/mountinfo (see proc_pid_mountinfo(5)): only the
+// fields that uenv uses are kept.
+struct mountinfo_entry {
+    std::uint32_t id{};
+    std::uint32_t parent_id{};
+    // with the kernel's octal escapes (\040 for a space, ...) decoded
+    std::filesystem::path mountpoint;
+    // the per-mount options, e.g. "rw,nosuid,relatime"
+    std::string vfs_options;
+    std::string fstype;
+};
+
 // convert a description to a mount_pair that has a validated squashfs path
 util::expected<mount_pair, std::string>
 make_mount_pair(const mount_description& description);

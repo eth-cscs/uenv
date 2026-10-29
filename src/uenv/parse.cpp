@@ -386,6 +386,117 @@ parse_bindmount_description(lex::lexer& L) {
     return result;
 }
 
+// a field of a /proc/self/mountinfo line: every token up to the next
+// whitespace. The kernel escapes the space, tab, newline and backslash
+// characters in paths as \ooo, so a field never contains whitespace, but it
+// can contain any other byte, including ones that the lexer only knows as
+// error tokens.
+bool is_mountinfo_field_tok(lex::tok t) {
+    return t != lex::tok::whitespace && t != lex::tok::end;
+}
+
+util::expected<std::string, parse_error> parse_mountinfo_field(lex::lexer& L) {
+    return parse_string(L, "a mountinfo field", is_mountinfo_field_tok);
+}
+
+// a path field of a /proc/self/mountinfo line, with the \ooo escapes decoded.
+util::expected<std::string, parse_error> parse_mountinfo_path(lex::lexer& L) {
+    const auto start = L.peek();
+    std::string raw;
+    PARSE(L, mountinfo_field, raw);
+
+    auto is_octal = [](char c) { return c >= '0' && c <= '7'; };
+    std::string result;
+    result.reserve(raw.size());
+    for (std::size_t i = 0; i < raw.size(); ++i) {
+        if (raw[i] != '\\') {
+            result += raw[i];
+            continue;
+        }
+        // the kernel escapes every backslash, so one that does not start a
+        // three digit octal escape is not something it wrote.
+        if (i + 3 >= raw.size() || !is_octal(raw[i + 1]) ||
+            !is_octal(raw[i + 2]) || !is_octal(raw[i + 3])) {
+            return util::unexpected(parse_error{
+                L.string(),
+                fmt::format("invalid escape sequence in mountinfo path '{}'",
+                            raw),
+                start});
+        }
+        result +=
+            static_cast<char>((raw[i + 1] - '0') * 64 + (raw[i + 2] - '0') * 8 +
+                              (raw[i + 3] - '0'));
+        i += 3;
+    }
+    return result;
+}
+
+util::expected<void, parse_error> parse_mountinfo_space(lex::lexer& L) {
+    if (L.current_kind() != lex::tok::whitespace) {
+        const auto t = L.peek();
+        return util::unexpected(parse_error{
+            L.string(),
+            fmt::format("expected a space between mountinfo fields, found '{}'",
+                        t.spelling),
+            t});
+    }
+    L.next();
+    return {};
+}
+
+// one line of /proc/self/mountinfo:
+//
+//   36 35 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root
+//   rw,errors=continue (1)(2)(3)   (4)   (5)      (6)      (7)   (8) (9) (10)
+//   (11)
+//
+// (1) mount id, (2) parent id, (3) major:minor, (4) root, (5) mount point,
+// (6) per-mount options, (7) zero or more optional fields, (8) a "-"
+// separator, (9) filesystem type, (10) source, (11) per-superblock options.
+//
+// Everything after the filesystem type is ignored: it is not used, and the
+// source can be an empty string (`mount -t tmpfs "" /x`), which leaves two
+// spaces in a row that can't be told apart from a missing field.
+util::expected<mountinfo_entry, parse_error>
+parse_mountinfo_line(lex::lexer& L) {
+    mountinfo_entry result;
+    std::string ignored;
+
+#define PARSE_SPACE(L)                                                         \
+    if (auto r = parse_mountinfo_space(L); !r) {                               \
+        return util::unexpected(std::move(r.error()));                         \
+    }
+
+    PARSE(L, uint32, result.id);
+    PARSE_SPACE(L);
+    PARSE(L, uint32, result.parent_id);
+    PARSE_SPACE(L);
+    // major:minor
+    PARSE(L, mountinfo_field, ignored);
+    PARSE_SPACE(L);
+    // root
+    PARSE(L, mountinfo_path, ignored);
+    PARSE_SPACE(L);
+    PARSE(L, mountinfo_path, result.mountpoint);
+    PARSE_SPACE(L);
+    PARSE(L, mountinfo_field, result.vfs_options);
+    PARSE_SPACE(L);
+    // the optional fields, up to the separator
+    while (true) {
+        std::string field;
+        PARSE(L, mountinfo_field, field);
+        PARSE_SPACE(L);
+        if (field == "-") {
+            break;
+        }
+    }
+    PARSE(L, mountinfo_field, result.fstype);
+
+#undef PARSE_SPACE
+
+    return result;
+}
+
 /* Public interface.
  * These are the high level functions for parsing raw strings passed to the
  * command line.
@@ -1019,6 +1130,32 @@ parse_config_line(const std::string& arg) {
 // not super strict as per the semver standard.
 // however - valid semvers are parsed, though it might also parse invalid
 // semver.
+util::expected<std::vector<mountinfo_entry>, parse_error>
+parse_mountinfo(std::string_view in) {
+    std::vector<mountinfo_entry> result;
+    // a newline in a path is escaped as \012, so every newline in the file
+    // ends a line.
+    unsigned lineno = 0;
+    while (!in.empty()) {
+        ++lineno;
+        const auto end = in.find('\n');
+        const auto line = in.substr(0, end);
+        in.remove_prefix(end == std::string_view::npos ? in.size() : end + 1);
+        if (line.empty()) {
+            continue;
+        }
+        auto L = lex::lexer(line);
+        auto entry = parse_mountinfo_line(L);
+        if (!entry) {
+            auto e = std::move(entry.error());
+            e.detail = fmt::format("line {}: {}", lineno, e.detail);
+            return util::unexpected(std::move(e));
+        }
+        result.push_back(std::move(*entry));
+    }
+    return result;
+}
+
 util::expected<util::semver, parse_error> parse_semver(const std::string& arg) {
     const auto input = util::strip(arg);
     spdlog::trace("parsing semver '{}'", input);

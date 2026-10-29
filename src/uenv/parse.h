@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <util/expected.h>
@@ -49,6 +50,11 @@ parse_tmpfs_list(const std::optional<std::string>& arg);
 // known.
 util::expected<std::vector<bindmount_pair>, std::string>
 parse_bindmount_list(const std::optional<std::string>& arg);
+
+// parse the contents of /proc/self/mountinfo, one entry per line, in the
+// order of the file.
+util::expected<std::vector<mountinfo_entry>, parse_error>
+parse_mountinfo(std::string_view in);
 
 util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg);
 
