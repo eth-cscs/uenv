@@ -29,6 +29,7 @@ extern "C" {
 #include <util/ready_fork.h>
 #include <util/setns.h>
 #include <util/shell.h>
+#include <util/unique_fd.h>
 
 namespace {
 util::expected<int, std::string>
@@ -405,6 +406,41 @@ struct mount_request {
     bool fuse_single_threaded;
 };
 
+// A detached, recursive copy of each --bind-mount source, in the order of
+// `bind_mounts`, for apply_mounts() to attach at its destination. A bind
+// source is always the host's directory, as it was before anything was
+// mounted: with its host submounts, but without any --sqfs, --tmpfs or
+// --bind-mount, and without the mutable root's tmpfs copies. So this must be
+// called after unshare_mount_map_root() and before prepare_root() or any
+// mount. Each copy is made nosuid, recursively.
+util::expected<std::vector<util::unique_fd>, std::string>
+capture_bind_sources(const std::vector<uenv::bindmount_pair>& bind_mounts) {
+    std::vector<util::unique_fd> sources;
+    sources.reserve(bind_mounts.size());
+    for (const auto& b : bind_mounts) {
+        // AT_RECURSIVE: a mount inherited from the parent namespace is locked
+        // to its submounts, and can only be copied together with them
+        util::unique_fd fd(
+            ::open_tree(AT_FDCWD, b.src.c_str(),
+                        OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_RECURSIVE));
+        if (fd.get() < 0) {
+            return util::unexpected(
+                fmt::format("unable to copy the bind-mount source {}: {}",
+                            b.src.string(), strerror(errno)));
+        }
+        mount_attr attr{};
+        attr.attr_set = MOUNT_ATTR_NOSUID;
+        if (::mount_setattr(fd.get(), "", AT_EMPTY_PATH | AT_RECURSIVE, &attr,
+                            sizeof(attr)) != 0) {
+            return util::unexpected(fmt::format(
+                "unable to make the bind-mount source {} nosuid: {}",
+                b.src.string(), strerror(errno)));
+        }
+        sources.push_back(std::move(fd));
+    }
+    return sources;
+}
+
 // Mount every --sqfs, --bind-mount and --tmpfs entry in `req.order`, so that a
 // parent destination is always mounted before anything nested under it,
 // whichever flag either came from: a --tmpfs or --bind-mount can land inside
@@ -419,10 +455,14 @@ struct mount_request {
 // squashfs image or a --bind-mount is never created: it must already exist
 // in the image, or in the bind mount's source.
 //
+// A --bind-mount attaches its entry of `bind_sources` (see
+// capture_bind_sources), the copy of its source on the host.
+//
 // On failure the daemons started so far are killed: whoever waits on the
 // caller's readiness (see supervisor_main) would otherwise wait on them too.
 util::expected<std::vector<pid_t>, std::string>
-apply_mounts(const mount_request& req) {
+apply_mounts(const mount_request& req,
+             const std::vector<util::unique_fd>& bind_sources) {
     std::vector<pid_t> daemons;
     auto fail = [&daemons](std::string msg)
         -> util::expected<std::vector<pid_t>, std::string> {
@@ -474,10 +514,13 @@ apply_mounts(const mount_request& req) {
         }
         case uenv::mount_kind::bind_mount: {
             const auto& entry = req.bind_mounts.at(e.index);
-            if (auto r = uenv::bind_mount(entry.src, entry.dst); !r) {
+            spdlog::trace("move_mount({}, {})", entry.src.string(),
+                          entry.dst.string());
+            if (::move_mount(bind_sources.at(e.index).get(), "", AT_FDCWD,
+                             entry.dst.c_str(), MOVE_MOUNT_F_EMPTY_PATH) != 0) {
                 return fail(fmt::format("bind mount {} at {} failed: {}",
                                         entry.src.string(), entry.dst.string(),
-                                        r.error()));
+                                        strerror(errno)));
             }
             break;
         }
@@ -497,8 +540,9 @@ apply_mounts(const mount_request& req) {
 
 // Mount everything in `req` (forking one squashfuse daemon per image), report
 // readiness to the task that forked this process, then sleep until killed.
-[[noreturn]] void supervisor_main(util::ready_fork& rf,
-                                  const mount_request& req) {
+[[noreturn]] void
+supervisor_main(util::ready_fork& rf, const mount_request& req,
+                const std::vector<util::unique_fd>& bind_sources) {
     // Deliberately no PR_SET_PDEATHSIG: this process must outlive the task
     // that forked it, which goes on to exec the user's command.
     //
@@ -516,7 +560,7 @@ apply_mounts(const mount_request& req) {
     signal(SIGTERM, SIG_IGN);
     signal(SIGHUP, SIG_IGN);
 
-    auto daemons = apply_mounts(req);
+    auto daemons = apply_mounts(req, bind_sources);
     if (!daemons) {
         child_fail(daemons.error());
     }
@@ -558,9 +602,10 @@ apply_mounts(const mount_request& req) {
 // image mounted. Must be called after unshare_mount_map_root(), so that the
 // supervisor and its daemons live in the namespaces the mounts belong to.
 util::expected<void, std::string>
-fork_mount_supervisor(const mount_request& req) {
+fork_mount_supervisor(const mount_request& req,
+                      const std::vector<util::unique_fd>& bind_sources) {
     auto pid = util::fork_and_wait_ready(
-        [&](util::ready_fork& rf) { supervisor_main(rf, req); });
+        [&](util::ready_fork& rf) { supervisor_main(rf, req, bind_sources); });
     if (!pid) {
         return util::unexpected(
             fmt::format("mount supervisor failed: {}", pid.error()));
@@ -569,12 +614,12 @@ fork_mount_supervisor(const mount_request& req) {
     return {};
 }
 
-// Called after unshare_mount_map_root(), inside the mount namespace the
-// mounts will live in, before apply_mounts(). With a mutable root, rebuild "/"
-// (see make_mutable_root()), shadowing the path to each missing mount point
-// on the host so that apply_mounts() can create it in tmpfs. Without one,
-// every mount point on the host must already exist (validate_mount_points),
-// and there is nothing to do.
+// Called after unshare_mount_map_root() and capture_bind_sources(), inside
+// the mount namespace the mounts will live in, before apply_mounts(). With a
+// mutable root, rebuild "/" (see make_mutable_root()), shadowing the path to
+// each missing mount point on the host so that apply_mounts() can create it in
+// tmpfs. Without one, every mount point on the host must already exist
+// (validate_mount_points), and there is nothing to do.
 util::expected<void, std::string> prepare_root(const mount_request& req) {
     if (!req.mutable_root) {
         return {};
@@ -602,10 +647,14 @@ util::expected<void, std::string> unshare_and_mount(const mount_request& req) {
     if (auto r = unshare_mount_map_root(); !r) {
         return r;
     }
+    auto bind_sources = capture_bind_sources(req.bind_mounts);
+    if (!bind_sources) {
+        return util::unexpected(bind_sources.error());
+    }
     if (auto r = prepare_root(req); !r) {
         return r;
     }
-    if (auto r = apply_mounts(req); !r) {
+    if (auto r = apply_mounts(req, *bind_sources); !r) {
         return util::unexpected(r.error());
     }
     return {};
@@ -655,6 +704,10 @@ util::expected<void, std::string> mount_and_join_ns(
         if (auto r = unshare_mount_map_root(); !r) {
             return r;
         }
+        auto bind_sources = capture_bind_sources(req.bind_mounts);
+        if (!bind_sources) {
+            return util::unexpected(bind_sources.error());
+        }
         if (auto r = prepare_root(req); !r) {
             return r;
         }
@@ -666,10 +719,10 @@ util::expected<void, std::string> mount_and_join_ns(
         if (!daemon_process_will_cleanup()) {
             spdlog::warn(
                 "squashfuse daemon will not get cleaned up automatically.");
-            if (auto r = apply_mounts(req); !r) {
+            if (auto r = apply_mounts(req, *bind_sources); !r) {
                 return util::unexpected(r.error());
             }
-        } else if (auto r = fork_mount_supervisor(req); !r) {
+        } else if (auto r = fork_mount_supervisor(req, *bind_sources); !r) {
             return r;
         }
 

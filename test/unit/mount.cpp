@@ -208,6 +208,8 @@ TEST_CASE("build_mount_order", "[mount]") {
 // inside the destination of another --sqfs/--bind-mount/--tmpfs only exists
 // once that one is mounted: it has to be ordered after it, even when its own
 // destination sorts first.
+// A --bind-mount source is always the host's directory, so it never changes
+// the order: only the nesting of the destinations does.
 TEST_CASE("build_mount_order: bind-mount sources", "[mount]") {
     using uenv::bindmount_pair;
     using uenv::mount_kind;
@@ -224,8 +226,7 @@ TEST_CASE("build_mount_order: bind-mount sources", "[mount]") {
         }
     };
 
-    // the source is inside a squashfs image: /opt/env sorts before
-    // /user-environment, but the image must be mounted first
+    // a source inside a squashfs mount point: lexical order, the bind first
     {
         const uenv::mount_list mounts = {
             mount_pair{.sqfs = "/img/a.squashfs", .mount = "/user-environment"},
@@ -235,27 +236,12 @@ TEST_CASE("build_mount_order: bind-mount sources", "[mount]") {
         auto order = uenv::build_mount_order(mounts, bind_mounts, {});
         REQUIRE(order);
         require_order(*order, {
-                                  {mount_kind::sqfs, 0}, // /user-environment
                                   {mount_kind::bind_mount, 0}, // /opt/env
-                              });
-    }
-
-    // the source is the squashfs mount point itself
-    {
-        const uenv::mount_list mounts = {
-            mount_pair{.sqfs = "/img/a.squashfs", .mount = "/user-environment"},
-        };
-        const std::vector<bindmount_pair> bind_mounts = {
-            {"/user-environment", "/alias"}};
-        auto order = uenv::build_mount_order(mounts, bind_mounts, {});
-        REQUIRE(order);
-        require_order(*order, {
                                   {mount_kind::sqfs, 0}, // /user-environment
-                                  {mount_kind::bind_mount, 0}, // /alias
                               });
     }
 
-    // the source is inside a --tmpfs
+    // a source inside a --tmpfs
     {
         const std::vector<bindmount_pair> bind_mounts = {
             {"/scratch/data", "/a"}};
@@ -263,57 +249,31 @@ TEST_CASE("build_mount_order: bind-mount sources", "[mount]") {
         auto order = uenv::build_mount_order({}, bind_mounts, tmpfs);
         REQUIRE(order);
         require_order(*order, {
+                                  {mount_kind::bind_mount, 0}, // /a
                                   {mount_kind::tmpfs, 0},      // /scratch
-                                  {mount_kind::bind_mount, 0}, // /a
                               });
     }
 
-    // the source is inside the destination of another --bind-mount
-    {
-        const std::vector<bindmount_pair> bind_mounts = {
-            {"/data/sub", "/alpha"}, {"/host", "/data"}};
-        auto order = uenv::build_mount_order({}, bind_mounts, {});
-        REQUIRE(order);
-        require_order(*order, {
-                                  {mount_kind::bind_mount, 1}, // /data
-                                  {mount_kind::bind_mount, 0}, // /alpha
-                              });
-    }
-
-    // a source inside a destination that is itself nested: the whole chain
-    // is respected, parents before children and sources before their users
-    {
-        const uenv::mount_list mounts = {
-            mount_pair{.sqfs = "/img/a.squashfs", .mount = "/ue/inner"},
-        };
-        const std::vector<bindmount_pair> bind_mounts = {
-            {"/ue/inner/env", "/a"}};
-        const std::vector<tmpfs_tuple> tmpfs = {{"/ue", std::nullopt}};
-        auto order = uenv::build_mount_order(mounts, bind_mounts, tmpfs);
-        REQUIRE(order);
-        require_order(*order, {
-                                  {mount_kind::tmpfs, 0},      // /ue
-                                  {mount_kind::sqfs, 0},       // /ue/inner
-                                  {mount_kind::bind_mount, 0}, // /a
-                              });
-    }
-
-    // two bind-mounts whose sources are each inside the other's destination
-    // can not be ordered, and are rejected
+    // sources inside each other's destination are not a cycle
     {
         const std::vector<bindmount_pair> bind_mounts = {{"/b/x", "/a"},
                                                          {"/a/y", "/b"}};
-        REQUIRE(!uenv::build_mount_order({}, bind_mounts, {}));
+        auto order = uenv::build_mount_order({}, bind_mounts, {});
+        REQUIRE(order);
+        require_order(*order, {
+                                  {mount_kind::bind_mount, 0}, // /a
+                                  {mount_kind::bind_mount, 1}, // /b
+                              });
     }
 
-    // an image inside a bind destination is still mounted after the bind,
-    // not covered by it
+    // an image inside a bind destination is mounted after the bind, also
+    // when the bind's source is inside the image's mount point
     {
         const uenv::mount_list mounts = {
             mount_pair{.sqfs = "/img/a.squashfs", .mount = "/opt/env"},
         };
         const std::vector<bindmount_pair> bind_mounts = {
-            {"/scratch/opt", "/opt"}};
+            {"/opt/env/x", "/opt"}};
         auto order = uenv::build_mount_order(mounts, bind_mounts, {});
         REQUIRE(order);
         require_order(*order, {
@@ -322,34 +282,10 @@ TEST_CASE("build_mount_order: bind-mount sources", "[mount]") {
                               });
     }
 
-    // a bind whose source is inside its own destination binds the host path
-    // it covers: no dependency on itself
+    // a source inside its own destination
     {
         const std::vector<bindmount_pair> bind_mounts = {{"/d/sub", "/d"}};
         REQUIRE(uenv::build_mount_order({}, bind_mounts, {}));
-    }
-
-    // an image inside a bind destination, and the bind's source inside the
-    // image, can not be ordered either
-    {
-        const uenv::mount_list mounts = {
-            mount_pair{.sqfs = "/img/a.squashfs", .mount = "/opt/env"},
-        };
-        const std::vector<bindmount_pair> bind_mounts = {
-            {"/opt/env/x", "/opt"}};
-        REQUIRE(!uenv::build_mount_order(mounts, bind_mounts, {}));
-    }
-
-    // a source unrelated to every destination does not change the order
-    {
-        const std::vector<bindmount_pair> bind_mounts = {{"/host/x", "/b"},
-                                                         {"/host/y", "/a"}};
-        auto order = uenv::build_mount_order({}, bind_mounts, {});
-        REQUIRE(order);
-        require_order(*order, {
-                                  {mount_kind::bind_mount, 1}, // /a
-                                  {mount_kind::bind_mount, 0}, // /b
-                              });
     }
 }
 
@@ -392,10 +328,7 @@ bool same_entry(const uenv::mount_order_entry& a,
 // The first constraint `order` violates, or an empty string. Worked out from
 // the inputs alone, not with the implementation's helpers:
 // - every entry appears exactly once;
-// - an entry comes after every destination its own destination lies in;
-// - a --bind-mount comes after every other destination its source lies in
-//   (or is equal to). A source inside the bind's own destination is the host
-//   path it covers.
+// - an entry comes after every destination its own destination lies in.
 std::string check_order(const mount_input& in, const uenv::mount_order& order) {
     const auto all = in.all_entries();
     if (order.size() != all.size()) {
@@ -421,31 +354,13 @@ std::string check_order(const mount_input& in, const uenv::mount_order& order) {
             }
             const bool parent = in.dst(a) != in.dst(b) &&
                                 uenv::is_nested_path(in.dst(a), in.dst(b));
-            const bool source =
-                b.kind == uenv::mount_kind::bind_mount &&
-                uenv::is_nested_path(in.dst(a), in.bind_mounts[b.index].src);
-            if ((parent || source) && position(a) > position(b)) {
+            if (parent && position(a) > position(b)) {
                 return fmt::format("{} is mounted after {}", in.dst(a),
                                    in.dst(b));
             }
         }
     }
     return {};
-}
-
-// whether any order of the entries satisfies check_order
-bool any_valid_order(const mount_input& in) {
-    auto order = in.all_entries();
-    auto less = [](const auto& a, const auto& b) {
-        return std::tie(a.kind, a.index) < std::tie(b.kind, b.index);
-    };
-    std::ranges::sort(order, less);
-    do {
-        if (check_order(in, order).empty()) {
-            return true;
-        }
-    } while (std::ranges::next_permutation(order, less).found);
-    return false;
 }
 
 std::vector<std::string> destinations(const mount_input& in,
@@ -460,8 +375,8 @@ std::vector<std::string> destinations(const mount_input& in,
 } // namespace
 
 // build_mount_order is a topological sort: each entry after the mount that
-// provides its mount point, a --bind-mount also after the one that provides
-// its source, and otherwise in the lexical order of the destinations.
+// provides its mount point, and otherwise in the lexical order of the
+// destinations. A --bind-mount source plays no part.
 TEST_CASE("build_mount_order: dependency graph", "[mount]") {
     using uenv::mount_pair;
     using V = std::vector<std::string>;
@@ -476,72 +391,38 @@ TEST_CASE("build_mount_order: dependency graph", "[mount]") {
     };
 
     // a chain of binds, each source in the next one's destination: the
-    // reverse of the lexical order
+    // sources are on the host, so the order is lexical
     REQUIRE(ordered({.bind_mounts = {{"/d/x", "/c"},
                                      {"/c/x", "/b"},
                                      {"/b/x", "/a"},
                                      {"/host", "/d"}}}) ==
-            V{"/d", "/c", "/b", "/a"});
+            V{"/a", "/b", "/c", "/d"});
 
-    // a diamond: two binds from the same image, and a bind inside a tmpfs in
-    // one of them with its source in the other
+    // two binds with sources in an image, and a tmpfs in one of them that
+    // holds a third bind
     REQUIRE(ordered({.mounts = {mount_pair{.sqfs = "/img", .mount = "/u"}},
                      .bind_mounts = {{"/u/a", "/p"},
                                      {"/u/b", "/q"},
                                      {"/q/x", "/p/t/y"}},
                      .tmpfs = {{"/p/t", std::nullopt}}}) ==
-            V{"/u", "/p", "/p/t", "/q", "/p/t/y"});
+            V{"/p", "/p/t", "/p/t/y", "/q", "/u"});
 
-    // ties are broken by the lexical order: the unrelated /a and /z keep
-    // their places, /b waits for /m
-    REQUIRE(ordered({.bind_mounts = {{"/m/x", "/b"}},
-                     .tmpfs = {{"/a", std::nullopt},
-                               {"/m", std::nullopt},
-                               {"/z", std::nullopt}}}) ==
-            V{"/a", "/m", "/b", "/z"});
-
-    // two dependencies: the mount point is in a tmpfs, the source in an image
-    // that sorts after the bind's destination
+    // a mount point in a tmpfs that sorts after a sibling of the tmpfs
     REQUIRE(ordered({.mounts = {mount_pair{.sqfs = "/img", .mount = "/z"}},
                      .bind_mounts = {{"/z/x", "/a/b"}},
                      .tmpfs = {{"/a", std::nullopt}}}) ==
-            V{"/a", "/z", "/a/b"});
+            V{"/a", "/a/b", "/z"});
 
-    // the source is in the innermost destination: the image in the tmpfs
-    REQUIRE(ordered({.mounts = {mount_pair{.sqfs = "/img", .mount = "/t/s"}},
-                     .bind_mounts = {{"/t/s/env", "/a"}},
-                     .tmpfs = {{"/t", std::nullopt}}}) ==
-            V{"/t", "/t/s", "/a"});
-
-    // a cycle is an error that names the destinations in it
-    auto refused = [](const mount_input& in, const V& cycle) {
-        auto order = in.order();
-        REQUIRE(!order);
-        for (const auto& d : cycle) {
-            INFO(order.error());
-            REQUIRE(order.error().find(d) != std::string::npos);
-        }
-    };
-
-    // three binds
-    refused({.bind_mounts = {{"/b/x", "/a"}, {"/c/x", "/b"}, {"/a/x", "/c"}}},
-            {"/a", "/b", "/c"});
-
-    // through a tmpfs: the tmpfs is inside the bind's destination, and the
-    // bind's source inside the tmpfs
-    refused({.bind_mounts = {{"/t/in/x", "/t"}},
-             .tmpfs = {{"/t/in", std::nullopt}}},
-            {"/t", "/t/in"});
-
-    // unrelated entries do not hide a cycle
-    refused({.bind_mounts = {{"/b/x", "/a"}, {"/a/x", "/b"}},
-             .tmpfs = {{"/m", std::nullopt}, {"/z", std::nullopt}}},
-            {"/a", "/b"});
+    // what used to be cycles through a source: ordered by nesting alone
+    REQUIRE(ordered({.bind_mounts = {{"/b/x", "/a"},
+                                     {"/c/x", "/b"},
+                                     {"/a/x", "/c"}}}) == V{"/a", "/b", "/c"});
+    REQUIRE(ordered({.bind_mounts = {{"/t/in/x", "/t"}},
+                     .tmpfs = {{"/t/in", std::nullopt}}}) == V{"/t", "/t/in"});
 }
 
-// Every input of up to three entries over a small tree of paths: an order
-// that is returned satisfies every constraint, and an input is only refused
-// when no order does.
+// Every input of up to three entries over a small tree of paths is ordered,
+// and the order satisfies every constraint.
 TEST_CASE("build_mount_order: generated inputs", "[mount]") {
     const std::vector<std::string> pool = {"/a", "/a/b", "/a/b/c",
                                            "/b", "/b/a", "/c"};
@@ -551,7 +432,7 @@ TEST_CASE("build_mount_order: generated inputs", "[mount]") {
     sources.push_back("/host");
     const std::size_t nchoices = 2 + sources.size();
 
-    std::size_t ninputs = 0, nrefused = 0;
+    std::size_t ninputs = 0;
     // every set of distinct destinations, as a bit mask over the pool
     for (unsigned mask = 1; mask < (1u << pool.size()); ++mask) {
         std::vector<std::string> dsts;
@@ -583,19 +464,12 @@ TEST_CASE("build_mount_order: generated inputs", "[mount]") {
             }
             ++ninputs;
             auto order = in.order();
-            if (order) {
-                INFO(fmt::format("{}", destinations(in, *order)));
-                REQUIRE(check_order(in, *order) == "");
-            } else {
-                ++nrefused;
-                INFO(order.error());
-                REQUIRE(!any_valid_order(in));
-            }
+            REQUIRE(order);
+            INFO(fmt::format("{}", destinations(in, *order)));
+            REQUIRE(check_order(in, *order) == "");
         }
     }
-    // the generator produced both outcomes
     REQUIRE(ninputs > 10000);
-    REQUIRE(nrefused > 0);
 }
 
 // Destinations are compared as written: the order and the duplicate check
@@ -727,13 +601,13 @@ TEST_CASE("mount_point_providers", "[mount]") {
     REQUIRE(providers({}, {{"/src", "/data2"}}, {{"/data", std::nullopt}}) ==
             P{std::nullopt, std::nullopt});
 
-    // an order that is not lexical: the bind at /b has its source in the
-    // image, so /z and /z/s come first, then /b and the tmpfs inside it
+    // a bind source inside an image does not change the order or the
+    // providers: /b and the tmpfs inside it, then /z and the image inside it
     REQUIRE(providers({mount_pair{.sqfs = "/img.squashfs", .mount = "/z/s"}},
                       {{"/z/s/env", "/b"}},
                       {{"/z", std::nullopt}, {"/b/inner", std::nullopt}}) ==
-            P{std::nullopt, mount_kind::tmpfs, std::nullopt,
-              mount_kind::bind_mount});
+            P{std::nullopt, mount_kind::bind_mount, std::nullopt,
+              mount_kind::tmpfs});
 }
 
 TEST_CASE("validate_mount_points", "[mount]") {
@@ -844,11 +718,18 @@ TEST_CASE("validate_mount_points", "[mount]") {
         std::ofstream(base / "src-file").close();
         REQUIRE(!uenv::validate_mount_points({}, {{base / "src-file", exists}},
                                              {}, mutable_root));
-        // inside another destination: provided by that mount, not checked
-        REQUIRE(uenv::validate_mount_points(
+        // inside another destination: still the host's directory, checked
+        REQUIRE(!uenv::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = exists}},
             {{exists / "in-image", src}}, {}, mutable_root));
-        REQUIRE(uenv::validate_mount_points({}, {{exists / "in-tmpfs", src}},
+        REQUIRE(!uenv::validate_mount_points({}, {{exists / "in-tmpfs", src}},
+                                             {{exists, std::nullopt}},
+                                             mutable_root));
+        std::filesystem::create_directories(exists / "on-host");
+        REQUIRE(uenv::validate_mount_points(
+            {mount_pair{.sqfs = "/img.squashfs", .mount = exists}},
+            {{exists / "on-host", src}}, {}, mutable_root));
+        REQUIRE(uenv::validate_mount_points({}, {{exists / "on-host", src}},
                                             {{exists, std::nullopt}},
                                             mutable_root));
         // inside its own destination: the host path, checked

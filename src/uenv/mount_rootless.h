@@ -31,8 +31,8 @@ namespace rootless {
 // callers do not need their own policy for this.
 // `order` gives the application order across `mounts`, `bind_mounts` and
 // `tmpfs` (see uenv::build_mount_order()): a parent is always mounted before
-// anything nested under it, and a bind mount after the mount providing its
-// source.
+// anything nested under it. A bind mount's source is always the host's
+// directory, never another of the requested mounts.
 util::expected<void, std::string> mount_and_join_ns(
     const std::string& tag, int ntasks, const uenv::mount_list& mounts,
     const std::vector<uenv::bindmount_pair>& bind_mounts,

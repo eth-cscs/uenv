@@ -194,10 +194,9 @@ build_mount_order(const mount_list& mounts,
         }
     }
 
-    // Each entry is mounted after the mount that provides its mount point,
-    // and a --bind-mount also after the one that provides its source (or is
-    // its source). A source inside the bind's own destination is the host
-    // path it covers, and adds no dependency.
+    // Each entry is mounted after the mount that provides its mount point. A
+    // --bind-mount source adds no dependency: it is always the host's
+    // directory, copied before anything is mounted.
     const auto n = entries.size();
     std::vector<std::filesystem::path> dsts;
     dsts.reserve(n);
@@ -215,10 +214,6 @@ build_mount_order(const mount_list& mounts,
     };
     for (std::size_t i = 0; i < n; ++i) {
         add_dependency(innermost_enclosing(dsts, dsts[i], i, false), i);
-        if (entries[i].kind == mount_kind::bind_mount) {
-            const auto& src = bind_mounts[entries[i].index].src;
-            add_dependency(innermost_enclosing(dsts, src, i, true), i);
-        }
     }
 
     // a topological sort that takes the lexically smallest ready entry, so
@@ -241,17 +236,11 @@ build_mount_order(const mount_list& mounts,
             }
         }
     }
+    // nesting of distinct paths is a forest, so this can only fail on a bug
     if (order.size() != n) {
-        std::vector<std::string> cycle;
-        for (std::size_t i = 0; i < n; ++i) {
-            if (ndeps[i] != 0) {
-                cycle.push_back(dsts[i].string());
-            }
-        }
-        return util::unexpected{fmt::format(
-            "the mounts at {} can not be ordered: a --bind-mount source and a "
-            "destination depend on each other",
-            fmt::join(cycle, ", "))};
+        return util::unexpected{
+            fmt::format("internal error: only {} of {} mounts could be ordered",
+                        order.size(), n)};
     }
     return order;
 }
@@ -349,18 +338,9 @@ util::expected<void, std::string> validate_mount_points(
         }
     }
 
-    // a bind-mount source inside (or equal to) another destination only
-    // exists once that is mounted; a source inside the bind's own destination
-    // is the host path it covers
-    const auto destinations = all_destinations(mounts, bind_mounts, tmpfs);
+    // a bind-mount source is always the host's directory, also when it is
+    // inside another destination
     for (const auto& b : bind_mounts) {
-        const bool provided =
-            std::ranges::any_of(destinations, [&b](const auto& d) {
-                return d != b.dst && is_nested_path(d, b.src);
-            });
-        if (provided) {
-            continue;
-        }
         std::error_code ec;
         const auto status = std::filesystem::status(b.src, ec);
         if (!std::filesystem::exists(status)) {
@@ -552,13 +532,6 @@ mount_tmpfs(std::filesystem::path dst, std::optional<std::uint64_t> size) {
     }
     return uenv::mount("tmpfs", dst.string(), "tmpfs", MS_NOSUID | MS_NODEV,
                        options.c_str());
-}
-
-util::expected<void, std::string> bind_mount(std::filesystem::path src,
-                                             std::filesystem::path dst) {
-    spdlog::trace("bind_mount({}, {})", src.string(), dst.string());
-    return uenv::mount(src.string(), dst.string(), std::nullopt,
-                       MS_NOSUID | MS_BIND | MS_REC | MS_SILENT, nullptr);
 }
 
 } // namespace uenv

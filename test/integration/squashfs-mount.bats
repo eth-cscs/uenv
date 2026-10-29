@@ -647,44 +647,98 @@ hello app"
 # another destination must be mounted after that destination, even when its
 # own destination sorts first.
 
-@test "a --bind-mount whose source is inside an --sqfs mount point binds the image's directory" {
+# A --bind-mount source is always the host's directory, as it was before
+# anything was mounted: never another --sqfs, --tmpfs or --bind-mount, nor the
+# mutable root's tmpfs copies.
+
+@test "a --bind-mount whose source is inside an --sqfs mount point binds the host's directory" {
     require_fuse_backend
     SQFS_PATH=$SQFS_LIB/apptool/standalone
-    # $TMP/a-alias sorts before $TMP/sqfs-src; $TMP/sqfs-src/env only exists
-    # inside the image
-    mkdir -p $TMP/a-alias $TMP/sqfs-src
+    # $TMP/a-alias sorts before $TMP/sqfs-src; the image also has an env
+    # directory, which the bind does not see
+    mkdir -p $TMP/a-alias $TMP/sqfs-src/env
+    echo "host-content" > $TMP/sqfs-src/env/file.txt
 
     run squashfs-mount \
         --sqfs=$SQFS_PATH/app42.squashfs:$TMP/sqfs-src \
         --bind-mount=$TMP/sqfs-src/env:$TMP/a-alias \
-        -- $TMP/a-alias/app/bin/app
-    assert_output "hello app"
+        -- sh -c "cat $TMP/a-alias/file.txt && test -x $TMP/sqfs-src/env/app/bin/app && test ! -e $TMP/a-alias/app"
     assert_success
+    assert_output "host-content"
 }
 
-@test "a --bind-mount whose source is the directory of another --bind-mount sees its content" {
+@test "a --bind-mount whose source is inside an --sqfs mount point must exist on the host" {
     require_fuse_backend
-    mkdir -p $TMP/bindsrc/sub $TMP/a-alias $TMP/data
-    echo "nested-content" > $TMP/bindsrc/sub/file.txt
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/a-alias $TMP/sqfs-src
 
-    # $TMP/a-alias sorts before $TMP/data, its source $TMP/data/sub only
-    # exists once $TMP/bindsrc is bound at $TMP/data
+    # env exists in the image, but not on the host
+    run squashfs-mount \
+        --sqfs=$SQFS_PATH/app42.squashfs:$TMP/sqfs-src \
+        --bind-mount=$TMP/sqfs-src/env:$TMP/a-alias \
+        -- true
+    assert_failure
+    assert_output --partial "the bind-mount source $TMP/sqfs-src/env does not exist"
+}
+
+@test "a --bind-mount whose source is the directory of another --bind-mount binds the host's directory" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc/sub $TMP/a-alias $TMP/data/sub
+    echo "bound-content" > $TMP/bindsrc/sub/file.txt
+    echo "host-content" > $TMP/data/sub/file.txt
+
+    # $TMP/a-alias sorts before $TMP/data, whose bind does not change what
+    # $TMP/data/sub refers to
     run squashfs-mount \
         --bind-mount=$TMP/data/sub:$TMP/a-alias,$TMP/bindsrc:$TMP/data \
-        -- cat $TMP/a-alias/file.txt
-    assert_output "nested-content"
+        -- sh -c "cat $TMP/a-alias/file.txt $TMP/data/sub/file.txt"
     assert_success
+    assert_line --index 0 "host-content"
+    assert_line --index 1 "bound-content"
 }
 
-@test "--bind-mounts whose sources are inside each other's destination are refused" {
+@test "--bind-mounts whose sources are inside each other's destination bind the host's directories" {
     require_fuse_backend
     mkdir -p $TMP/a/y $TMP/b/x
+    echo "a-y" > $TMP/a/y/file.txt
+    echo "b-x" > $TMP/b/x/file.txt
 
     run squashfs-mount \
         --bind-mount=$TMP/b/x:$TMP/a,$TMP/a/y:$TMP/b \
-        -- true
-    assert_failure
-    assert_output --partial "can not be ordered"
+        -- sh -c "cat $TMP/a/file.txt $TMP/b/file.txt"
+    assert_success
+    assert_line --index 0 "b-x"
+    assert_line --index 1 "a-y"
+}
+
+@test "a --bind-mount whose source encloses an --sqfs mount point does not see the image" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    # $TMP/app sorts before $TMP/proj/env: the result must not depend on it
+    mkdir -p $TMP/proj/env $TMP/app
+
+    run squashfs-mount \
+        --sqfs=$SQFS_PATH/app42.squashfs:$TMP/proj/env \
+        --bind-mount=$TMP/proj:$TMP/app \
+        -- sh -c "test -x $TMP/proj/env/env/app/bin/app && ls -A $TMP/app/env"
+    assert_success
+    assert_output ""
+}
+
+@test "mutable root: writes through a --bind-mount of a shadowed directory reach the host" {
+    require_fuse_backend
+    mkdir -p $TMP/proj $TMP/work
+    rm -rf $TMP/proj/scratch
+
+    # $TMP/proj is shadowed to create $TMP/proj/scratch, but the bind at
+    # $TMP/work is of the host's $TMP/proj
+    run squashfs-mount -r \
+        --tmpfs=$TMP/proj/scratch \
+        --bind-mount=$TMP/proj:$TMP/work \
+        -- sh -c "touch $TMP/work/out.dat && test ! -e $TMP/work/scratch"
+    assert_success
+    [[ -f $TMP/proj/out.dat ]]
+    [[ ! -e $TMP/proj/scratch ]]
 }
 
 # Destinations are compared as written: a trailing separator, "." or ".."

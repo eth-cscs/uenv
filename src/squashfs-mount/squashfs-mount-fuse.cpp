@@ -101,7 +101,8 @@ int main(int argc, char** argv, char** envp) {
         .complete(argparse::completion::directory());
     builder
         .add_option("bind-mount", &squashfs_mount_args::bind_mounts,
-                    "comma separated list of bind mounts, <src>:<dst>")
+                    "comma separated list of bind mounts, <src>:<dst> (src "
+                    "is always the host's directory, not another mount)")
         .complete(argparse::completion::path());
     builder
         .add_rest("commands", &squashfs_mount_args::commands,
