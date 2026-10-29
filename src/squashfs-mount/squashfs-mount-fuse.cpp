@@ -99,13 +99,19 @@ int main(int argc, char** argv, char** envp) {
                     "comma separated list of tmpfs mounts, <mount>[:<size>] "
                     "(size in bytes)")
         .complete(argparse::completion::directory());
-    builder.add_option("bind-mount", &squashfs_mount_args::bind_mounts,
-                       "comma separated list of bind mounts, <src>:<dst>");
+    builder
+        .add_option("bind-mount", &squashfs_mount_args::bind_mounts,
+                    "comma separated list of bind mounts, <src>:<dst>")
+        .complete(argparse::completion::path());
     builder
         .add_rest("commands", &squashfs_mount_args::commands,
                   "the command to run, including with arguments")
         .complete(argparse::completion::command());
     const argparse::program<squashfs_mount_args> cli(std::move(builder));
+    if (auto valid = cli.validate(); !valid) {
+        error_and_exit("internal error in the command line interface: {}",
+                       valid.error());
+    }
 
     const auto command_line = cli.parse(argc, argv);
     if (!command_line) {
