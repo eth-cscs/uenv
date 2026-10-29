@@ -565,6 +565,15 @@ Do not use banner-style section comments with trailing dashes
 //
 ```
 
+All C++ is formatted with clang-format, using `.clang-format` at the repository
+root (`subprojects/` and `extern/barkeep` are excluded by `.clang-format-ignore`).
+CI checks this (`.github/workflows/clang_format.yml`) and fails the PR on any
+difference, so format every changed file before committing:
+
+```bash
+clang-format -i <changed .cpp/.h files>
+```
+
 ### Error Handling
 
 Use `util::expected<T, E>` (similar to std::expected) for fallible operations. This is defined in `src/util/expected.h`.
