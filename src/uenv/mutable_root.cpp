@@ -408,8 +408,8 @@ make_mutable_root(const std::set<std::filesystem::path>& shadow) {
     }
     fs::create_directory("newroot", ec);
     if (ec) {
-        return util::unexpected(
-            fmt::format("fs::create_directory(newroot) failed with {}", ec.message()));
+        return util::unexpected(fmt::format(
+            "fs::create_directory(newroot) failed with {}", ec.message()));
     }
 
     if (auto r =
@@ -420,8 +420,8 @@ make_mutable_root(const std::set<std::filesystem::path>& shadow) {
     }
     fs::create_directory("oldroot", ec);
     if (ec) {
-        return util::unexpected(
-            fmt::format("fs::create_directory(oldroot) failed with {}", ec.message()));
+        return util::unexpected(fmt::format(
+            "fs::create_directory(oldroot) failed with {}", ec.message()));
     }
 
     // make /tmp the new root mount, while /oldroot contains the old root
