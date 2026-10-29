@@ -21,6 +21,7 @@
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <util/expected.h>
+#include <util/fs.h>
 
 namespace uenv {
 
@@ -111,12 +112,6 @@ make_mount_pair(const mount_description& d) {
     return mount_pair{.sqfs = sqfs, .mount = *mount};
 }
 
-bool is_nested_path(const std::filesystem::path& parent,
-                    const std::filesystem::path& child) {
-    auto rel = child.lexically_relative(parent);
-    return !rel.empty() && *rel.begin() != "..";
-}
-
 util::expected<std::filesystem::path, std::string>
 canonical_mount_path(const std::filesystem::path& p) {
     namespace fs = std::filesystem;
@@ -178,7 +173,7 @@ innermost_enclosing(const std::vector<std::filesystem::path>& dsts,
     std::optional<std::size_t> result;
     std::size_t depth = 0;
     for (std::size_t k = 0; k < dsts.size(); ++k) {
-        if (k == self || !is_nested_path(dsts[k], path) ||
+        if (k == self || !util::is_child(path, dsts[k]) ||
             (!allow_equal && dsts[k] == path)) {
             continue;
         }
@@ -349,7 +344,7 @@ missing_host_mount_points(const mount_list& mounts,
     for (const auto& path : destinations) {
         const bool provided =
             std::ranges::any_of(destinations, [&path](const auto& other) {
-                return other != path && is_nested_path(other, path);
+                return other != path && util::is_child(path, other);
             });
         if (!provided && !std::filesystem::is_directory(path)) {
             result.push_back(path);
@@ -498,7 +493,7 @@ validate_mount_list(const mount_list& input, bool mount_points_must_exist) {
     // iterate over the remaining mounts
     for (auto c = b + 1; c != e; ++c) {
         auto parent = std::find_if(
-            b, c, [&c](const auto& it) { return is_nested_path(it, *c); });
+            b, c, [&c](const auto& it) { return util::is_child(*c, it); });
         if (parent == c) { // there is no parent
             if (!fs::is_directory(*c) && mount_points_must_exist) {
                 return util::unexpected{

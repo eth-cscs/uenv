@@ -64,22 +64,6 @@ TEST_CASE("validate_mounts", "[mount]") {
     }
 }
 
-TEST_CASE("is_nested_path", "[mount]") {
-    using uenv::is_nested_path;
-
-    // strict child
-    REQUIRE(is_nested_path("/data", "/data/foo"));
-    // deep-nested child
-    REQUIRE(is_nested_path("/data", "/data/foo/bar"));
-    // parent == child is treated as nested
-    REQUIRE(is_nested_path("/data", "/data"));
-    // sibling with a shared string prefix, not nested
-    REQUIRE(!is_nested_path("/data", "/data2"));
-    // unrelated paths
-    REQUIRE(!is_nested_path("/data/foo", "/data"));
-    REQUIRE(!is_nested_path("/a/b", "/c/d"));
-}
-
 TEST_CASE("build_mount_order", "[mount]") {
     using uenv::bindmount_pair;
     using uenv::mount_kind;
@@ -352,8 +336,8 @@ std::string check_order(const mount_input& in, const uenv::mount_order& order) {
             if (same_entry(a, b)) {
                 continue;
             }
-            const bool parent = in.dst(a) != in.dst(b) &&
-                                uenv::is_nested_path(in.dst(a), in.dst(b));
+            const bool parent =
+                in.dst(a) != in.dst(b) && util::is_child(in.dst(b), in.dst(a));
             if (parent && position(a) > position(b)) {
                 return fmt::format("{} is mounted after {}", in.dst(a),
                                    in.dst(b));

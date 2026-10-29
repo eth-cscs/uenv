@@ -161,7 +161,7 @@ mounts_under(const std::vector<mount_entry>& entries,
 
     // find children
     for (std::size_t i = 0; i < nodes.size(); ++i) {
-        if (i == root_idx || !uenv::is_nested_path(root, nodes[i].mountpoint)) {
+        if (i == root_idx || !util::is_child(nodes[i].mountpoint, root)) {
             continue;
         }
         auto pit = id_to_index.find(nodes[i].parent_id);
@@ -179,16 +179,15 @@ mounts_under(const std::vector<mount_entry>& entries,
         const bool covered =
             std::any_of(parent.children.begin(), parent.children.end(),
                         [&](std::size_t sidx) {
-                            return uenv::is_nested_path(nodes[sidx].mountpoint,
-                                                        nodes[i].mountpoint);
+                            return util::is_child(nodes[i].mountpoint,
+                                                  nodes[sidx].mountpoint);
                         });
         if (covered) {
             continue;
         }
         // any sibling nested inside this mount is superseded by it.
         std::erase_if(parent.children, [&](std::size_t sidx) {
-            return uenv::is_nested_path(nodes[i].mountpoint,
-                                        nodes[sidx].mountpoint);
+            return util::is_child(nodes[sidx].mountpoint, nodes[i].mountpoint);
         });
         parent.children.push_back(i);
     }
@@ -250,7 +249,7 @@ check_no_autofs(const std::vector<mount_entry>& entries,
         const mount_entry* mount = nullptr;
         std::ptrdiff_t depth = 0;
         for (const auto& e : entries) {
-            if (!uenv::is_nested_path(e.mountpoint, host)) {
+            if (!util::is_child(host, e.mountpoint)) {
                 continue;
             }
             const auto d =
