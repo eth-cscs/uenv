@@ -36,19 +36,14 @@ parse_mount_list(const std::string& arg);
 
 // parse the value of the --tmpfs CLI option: a comma-separated list of
 // <mount>[:<size>] items, the same list syntax --sqfs uses. Mount points are
-// returned in canonical form (see canonical_mount_path), the same as --sqfs
-// mount points. Whether they exist is checked by validate_mount_points, once
-// every --sqfs, --bind-mount and --tmpfs entry is known.
-util::expected<std::vector<tmpfs_tuple>, std::string>
+// returned as written: see canonical_tmpfs_list.
+util::expected<std::vector<tmpfs_tuple>, parse_error>
 parse_tmpfs_list(const std::optional<std::string>& arg);
 
 // parse the value of the --bind-mount CLI option: a comma-separated list of
-// <src>:<dst> items, the same list syntax --sqfs uses. Sources and
-// destinations are returned in canonical form (see canonical_mount_path), the
-// same as --sqfs mount points. Whether the destinations exist is checked by
-// validate_mount_points, once every --sqfs, --bind-mount and --tmpfs entry is
-// known.
-util::expected<std::vector<bindmount_pair>, std::string>
+// <src>:<dst> items, the same list syntax --sqfs uses. Paths are returned as
+// written: see canonical_bindmount_list.
+util::expected<std::vector<bindmount_pair>, parse_error>
 parse_bindmount_list(const std::optional<std::string>& arg);
 
 // parse the contents of /proc/self/mountinfo, one entry per line, in the

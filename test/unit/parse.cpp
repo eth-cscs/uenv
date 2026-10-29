@@ -409,11 +409,19 @@ TEST_CASE("parse tmpfs", "[parse]") {
         // size must be an integer
         auto result = uenv::parse_tmpfs_list({"/scratch:big"});
         REQUIRE(!result);
+        REQUIRE(result.error().loc == 9u);
     }
     {
         // trailing input after the size is rejected
         auto result = uenv::parse_tmpfs_list({"/scratch:1024:extra"});
         REQUIRE(!result);
+    }
+    {
+        // paths are returned as written: canonical_tmpfs_list (mount.cpp)
+        // normalises them, so the parser does not touch the file system
+        auto result = uenv::parse_tmpfs_list({"/scratch/./sub/../"});
+        REQUIRE(result);
+        REQUIRE((*result)[0].mount == "/scratch/./sub/../");
     }
     {
         // a mount point that does not exist is not an error here
@@ -462,6 +470,8 @@ TEST_CASE("parse bind mounts", "[parse]") {
         // the ':' separating src and dst is required
         auto result = uenv::parse_bindmount_list({"/host/dir"});
         REQUIRE(!result);
+        // the error points at the end of the input, where ':' was expected
+        REQUIRE(result.error().loc == 9u);
     }
     {
         // a path has to start with '/' or '.'
@@ -494,66 +504,6 @@ TEST_CASE("parse bind mounts", "[parse]") {
         REQUIRE((*result)[0].src == "/host/a");
         REQUIRE((*result)[0].dst == "/container-a");
     }
-}
-
-// --tmpfs and --bind-mount paths are returned in the same canonical form as
-// --sqfs mount points (uenv::canonical_mount_path): absolute, lexically normal
-// and without a trailing separator, so that the mount order and the duplicate
-// check (uenv::build_mount_order) compare like with like.
-TEST_CASE("parse mount destinations are normalised", "[parse]") {
-    namespace fs = std::filesystem;
-    auto tmpdir = fs::weakly_canonical(fs::temp_directory_path() /
-                                       "uenv-parse-normalise-test");
-    fs::create_directories(tmpdir / "sub");
-
-    // a trailing separator is dropped
-    {
-        auto result = uenv::parse_tmpfs_list({tmpdir.string() + "/"});
-        REQUIRE(result);
-        REQUIRE((*result)[0].mount == tmpdir);
-    }
-    {
-        auto result =
-            uenv::parse_bindmount_list({"/host/dir/:" + tmpdir.string() + "/"});
-        REQUIRE(result);
-        REQUIRE((*result)[0].src == "/host/dir");
-        REQUIRE((*result)[0].dst == tmpdir);
-    }
-    // also after a part of the path that does not exist
-    {
-        auto result =
-            uenv::parse_tmpfs_list({tmpdir.string() + "/missing/deeper/"});
-        REQUIRE(result);
-        REQUIRE((*result)[0].mount == tmpdir / "missing" / "deeper");
-    }
-    // "." and ".." components are resolved
-    {
-        auto result = uenv::parse_tmpfs_list({tmpdir.string() + "/./sub/.."});
-        REQUIRE(result);
-        REQUIRE((*result)[0].mount == tmpdir);
-    }
-    {
-        auto result = uenv::parse_bindmount_list(
-            {"/host/dir:" + tmpdir.string() + "/sub/../sub/."});
-        REQUIRE(result);
-        REQUIRE((*result)[0].dst == tmpdir / "sub");
-    }
-    // a path relative to the working directory is made absolute, as a
-    // --sqfs mount point is
-    {
-        auto cwd = fs::current_path();
-        fs::current_path(tmpdir);
-        auto tmpfs = uenv::parse_tmpfs_list({"./sub"});
-        auto binds = uenv::parse_bindmount_list({"./sub:."});
-        fs::current_path(cwd);
-        REQUIRE(tmpfs);
-        REQUIRE((*tmpfs)[0].mount == tmpdir / "sub");
-        REQUIRE(binds);
-        REQUIRE((*binds)[0].src == tmpdir / "sub");
-        REQUIRE((*binds)[0].dst == tmpdir);
-    }
-
-    fs::remove_all(tmpdir);
 }
 
 TEST_CASE("parse registry entry", "[parse]") {

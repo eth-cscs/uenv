@@ -472,10 +472,91 @@ TEST_CASE("build_mount_order: generated inputs", "[mount]") {
     REQUIRE(ninputs > 10000);
 }
 
+namespace {
+// parse and canonicalise a --tmpfs or --bind-mount value, as squashfs-mount
+// does
+util::expected<std::vector<uenv::tmpfs_tuple>, std::string>
+parse_tmpfs(const std::string& arg) {
+    auto parsed = uenv::parse_tmpfs_list(arg);
+    if (!parsed) {
+        return util::unexpected{parsed.error().message()};
+    }
+    return uenv::canonical_tmpfs_list(std::move(*parsed));
+}
+
+util::expected<std::vector<uenv::bindmount_pair>, std::string>
+parse_binds(const std::string& arg) {
+    auto parsed = uenv::parse_bindmount_list(arg);
+    if (!parsed) {
+        return util::unexpected{parsed.error().message()};
+    }
+    return uenv::canonical_bindmount_list(std::move(*parsed));
+}
+} // namespace
+
+// canonical_tmpfs_list and canonical_bindmount_list put paths in the same
+// canonical form as --sqfs mount points (uenv::canonical_mount_path): absolute,
+// lexically normal and without a trailing separator, so that the mount order
+// and the duplicate check (uenv::build_mount_order) compare like with like.
+TEST_CASE("canonical tmpfs and bind-mount lists", "[mount]") {
+    namespace fs = std::filesystem;
+    auto tmpdir = fs::weakly_canonical(fs::temp_directory_path() /
+                                       "uenv-parse-normalise-test");
+    fs::create_directories(tmpdir / "sub");
+
+    // a trailing separator is dropped
+    {
+        auto result = parse_tmpfs({tmpdir.string() + "/"});
+        REQUIRE(result);
+        REQUIRE((*result)[0].mount == tmpdir);
+    }
+    {
+        auto result = parse_binds({"/host/dir/:" + tmpdir.string() + "/"});
+        REQUIRE(result);
+        REQUIRE((*result)[0].src == "/host/dir");
+        REQUIRE((*result)[0].dst == tmpdir);
+    }
+    // also after a part of the path that does not exist
+    {
+        auto result = parse_tmpfs({tmpdir.string() + "/missing/deeper/"});
+        REQUIRE(result);
+        REQUIRE((*result)[0].mount == tmpdir / "missing" / "deeper");
+    }
+    // "." and ".." components are resolved
+    {
+        auto result = parse_tmpfs({tmpdir.string() + "/./sub/.."});
+        REQUIRE(result);
+        REQUIRE((*result)[0].mount == tmpdir);
+    }
+    {
+        auto result =
+            parse_binds({"/host/dir:" + tmpdir.string() + "/sub/../sub/."});
+        REQUIRE(result);
+        REQUIRE((*result)[0].dst == tmpdir / "sub");
+    }
+    // a path relative to the working directory is made absolute, as a
+    // --sqfs mount point is
+    {
+        auto cwd = fs::current_path();
+        fs::current_path(tmpdir);
+        auto tmpfs = parse_tmpfs({"./sub"});
+        auto binds = parse_binds({"./sub:."});
+        fs::current_path(cwd);
+        REQUIRE(tmpfs);
+        REQUIRE((*tmpfs)[0].mount == tmpdir / "sub");
+        REQUIRE(binds);
+        REQUIRE((*binds)[0].src == tmpdir / "sub");
+        REQUIRE((*binds)[0].dst == tmpdir);
+    }
+
+    fs::remove_all(tmpdir);
+}
+
 // Destinations are compared as written: the order and the duplicate check
 // only work if every destination is spelled the same way, i.e. absolute,
 // lexically normal and without a trailing separator. These go through the
-// parsers, which is where that spelling is fixed.
+// parsers and canonical_tmpfs_list/canonical_bindmount_list, which is where
+// that spelling is fixed.
 TEST_CASE("build_mount_order: normalised destinations", "[mount]") {
     using uenv::mount_kind;
 
@@ -489,22 +570,20 @@ TEST_CASE("build_mount_order: normalised destinations", "[mount]") {
     // a trailing separator: "<base>/a/" and "<base>/a" are the same mount
     // point, so using both is a duplicate
     {
-        auto tmpfs =
-            uenv::parse_tmpfs_list(fmt::format("{}/", (base / "a").string()));
+        auto tmpfs = parse_tmpfs(fmt::format("{}/", (base / "a").string()));
         REQUIRE(tmpfs);
-        auto binds = uenv::parse_bindmount_list(
-            fmt::format("/host:{}", (base / "a").string()));
+        auto binds =
+            parse_binds(fmt::format("/host:{}", (base / "a").string()));
         REQUIRE(binds);
         REQUIRE(!uenv::build_mount_order({}, *binds, *tmpfs));
     }
 
     // "." and ".." components: "<base>/a/./b" and "<base>/a/b" are the same
     {
-        auto tmpfs =
-            uenv::parse_tmpfs_list(fmt::format("{}/a/./b", base.string()));
+        auto tmpfs = parse_tmpfs(fmt::format("{}/a/./b", base.string()));
         REQUIRE(tmpfs);
-        auto binds = uenv::parse_bindmount_list(
-            fmt::format("/host:{}/z/../a/b", base.string()));
+        auto binds =
+            parse_binds(fmt::format("/host:{}/z/../a/b", base.string()));
         REQUIRE(binds);
         REQUIRE(!uenv::build_mount_order({}, *binds, *tmpfs));
     }
@@ -512,11 +591,9 @@ TEST_CASE("build_mount_order: normalised destinations", "[mount]") {
     // "<base>/z/../a" is the parent of "<base>/a/b", although it sorts after
     // it as written
     {
-        auto tmpfs =
-            uenv::parse_tmpfs_list(fmt::format("{}/z/../a", base.string()));
+        auto tmpfs = parse_tmpfs(fmt::format("{}/z/../a", base.string()));
         REQUIRE(tmpfs);
-        auto binds = uenv::parse_bindmount_list(
-            fmt::format("/host:{}/a/b", base.string()));
+        auto binds = parse_binds(fmt::format("/host:{}/a/b", base.string()));
         REQUIRE(binds);
         auto order = uenv::build_mount_order({}, *binds, *tmpfs);
         REQUIRE(order);
@@ -533,7 +610,7 @@ TEST_CASE("build_mount_order: normalised destinations", "[mount]") {
         REQUIRE(mounts);
         REQUIRE(mounts->size() == 1);
         REQUIRE((*mounts)[0].mount == base / "a");
-        auto tmpfs = uenv::parse_tmpfs_list((base / "a").string());
+        auto tmpfs = parse_tmpfs((base / "a").string());
         REQUIRE(tmpfs);
         REQUIRE(!uenv::build_mount_order(*mounts, {}, *tmpfs));
     }
@@ -546,7 +623,7 @@ TEST_CASE("build_mount_order: normalised destinations", "[mount]") {
         auto mounts = uenv::parse_and_validate_mounts(fmt::format(
             "{}:{}", sqfs.string(), (base / "link" / "a").string()));
         REQUIRE(mounts);
-        auto tmpfs = uenv::parse_tmpfs_list((base / "real" / "a").string());
+        auto tmpfs = parse_tmpfs((base / "real" / "a").string());
         REQUIRE(tmpfs);
         REQUIRE(!uenv::build_mount_order(*mounts, {}, *tmpfs));
 
@@ -554,7 +631,7 @@ TEST_CASE("build_mount_order: normalised destinations", "[mount]") {
         mounts = uenv::parse_and_validate_mounts(fmt::format(
             "{}:{}", sqfs.string(), (base / "real" / "a").string()));
         REQUIRE(mounts);
-        tmpfs = uenv::parse_tmpfs_list((base / "link" / "a").string());
+        tmpfs = parse_tmpfs((base / "link" / "a").string());
         REQUIRE(tmpfs);
         REQUIRE(!uenv::build_mount_order(*mounts, {}, *tmpfs));
     }

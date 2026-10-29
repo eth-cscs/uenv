@@ -66,6 +66,16 @@ bool is_nested_path(const std::filesystem::path& parent,
 util::expected<std::filesystem::path, std::string>
 canonical_mount_path(const std::filesystem::path& p);
 
+// --tmpfs mount points, and --bind-mount sources and destinations, as parsed
+// by parse_tmpfs_list and parse_bindmount_list, in canonical form (see
+// canonical_mount_path), the same as --sqfs mount points (make_mount_pair).
+// Whether they exist is checked by validate_mount_points, once every --sqfs,
+// --bind-mount and --tmpfs entry is known.
+util::expected<std::vector<tmpfs_tuple>, std::string>
+canonical_tmpfs_list(std::vector<tmpfs_tuple> tmpfs);
+util::expected<std::vector<bindmount_pair>, std::string>
+canonical_bindmount_list(std::vector<bindmount_pair> bind_mounts);
+
 // Which CLI flag a mount_order_entry's payload came from.
 enum class mount_kind { sqfs, bind_mount, tmpfs };
 

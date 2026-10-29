@@ -133,6 +133,41 @@ canonical_mount_path(const std::filesystem::path& p) {
     return result;
 }
 
+util::expected<std::vector<tmpfs_tuple>, std::string>
+canonical_tmpfs_list(std::vector<tmpfs_tuple> tmpfs) {
+    for (auto& t : tmpfs) {
+        auto mount = canonical_mount_path(t.mount);
+        if (!mount) {
+            return util::unexpected{fmt::format("invalid mount point {} ({})",
+                                                t.mount.string(),
+                                                mount.error())};
+        }
+        t.mount = std::move(*mount);
+    }
+    return tmpfs;
+}
+
+util::expected<std::vector<bindmount_pair>, std::string>
+canonical_bindmount_list(std::vector<bindmount_pair> bind_mounts) {
+    for (auto& b : bind_mounts) {
+        auto src = canonical_mount_path(b.src);
+        if (!src) {
+            return util::unexpected{
+                fmt::format("invalid bind-mount source {} ({})", b.src.string(),
+                            src.error())};
+        }
+        auto dst = canonical_mount_path(b.dst);
+        if (!dst) {
+            return util::unexpected{
+                fmt::format("invalid bind-mount destination {} ({})",
+                            b.dst.string(), dst.error())};
+        }
+        b.src = std::move(*src);
+        b.dst = std::move(*dst);
+    }
+    return bind_mounts;
+}
+
 namespace {
 // The index of the innermost of `dsts` that `path` lies in (or is equal to,
 // if `allow_equal`), skipping `self`: the one with the most components.

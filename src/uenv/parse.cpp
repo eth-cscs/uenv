@@ -711,49 +711,16 @@ parse_arg_list(std::string_view what, const std::optional<std::string>& arg,
     return result;
 }
 
-util::expected<std::vector<tmpfs_tuple>, std::string>
+util::expected<std::vector<tmpfs_tuple>, parse_error>
 parse_tmpfs_list(const std::optional<std::string>& arg) {
-    auto result = parse_arg_list<tmpfs_tuple>("parse_tmpfs", arg,
-                                              parse_tmpfs_description);
-    if (!result) {
-        return util::unexpected{result.error().message()};
-    }
-    for (auto& t : *result) {
-        auto mount = canonical_mount_path(t.mount);
-        if (!mount) {
-            return util::unexpected{fmt::format("invalid mount point {} ({})",
-                                                t.mount.string(),
-                                                mount.error())};
-        }
-        t.mount = std::move(*mount);
-    }
-    return *result;
+    return parse_arg_list<tmpfs_tuple>("parse_tmpfs", arg,
+                                       parse_tmpfs_description);
 }
 
-util::expected<std::vector<bindmount_pair>, std::string>
+util::expected<std::vector<bindmount_pair>, parse_error>
 parse_bindmount_list(const std::optional<std::string>& arg) {
-    auto result = parse_arg_list<bindmount_pair>("parse_bindmounts", arg,
-                                                 parse_bindmount_description);
-    if (!result) {
-        return util::unexpected{result.error().message()};
-    }
-    for (auto& b : *result) {
-        auto src = canonical_mount_path(b.src);
-        if (!src) {
-            return util::unexpected{
-                fmt::format("invalid bind-mount source {} ({})", b.src.string(),
-                            src.error())};
-        }
-        auto dst = canonical_mount_path(b.dst);
-        if (!dst) {
-            return util::unexpected{
-                fmt::format("invalid bind-mount destination {} ({})",
-                            b.dst.string(), dst.error())};
-        }
-        b.src = std::move(*src);
-        b.dst = std::move(*dst);
-    }
-    return *result;
+    return parse_arg_list<bindmount_pair>("parse_bindmounts", arg,
+                                          parse_bindmount_description);
 }
 
 util::expected<uenv_registry_entry, parse_error>
