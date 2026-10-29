@@ -85,13 +85,14 @@ using mount_order = std::vector<mount_order_entry>;
 // after the mount that provides its mount point (parents before children),
 // regardless of which flag was used for which or what order they were given
 // on the command line. A --bind-mount or --tmpfs can therefore be placed
-// inside a squashfs image, and a squashfs image inside a --tmpfs. Where
-// nothing forces otherwise, entries are in the lexical order of their
-// destinations.
+// inside a squashfs image, and a squashfs image inside a --tmpfs.
 //
-// A --bind-mount source or a squashfs image adds no dependency: each is
-// always the host's, taken before anything is mounted, also when it lies
-// inside another destination (see capture_sources in mount_rootless.cpp).
+// The order is the lexical order of the destinations, which already puts
+// parents first: paths compare component by component, so a path sorts
+// before every path below it. Nothing else constrains the order: a
+// --bind-mount source or a squashfs image is always the host's, taken before
+// anything is mounted, also when it lies inside another destination (see
+// capture_sources in mount_rootless.cpp).
 //
 // Errors: two entries with an identical destination (mirrors the duplicate
 // mount-point check in validate_mount_list for --sqfs).
@@ -121,9 +122,9 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
     const std::vector<tmpfs_tuple>& tmpfs, const mount_order& order);
 
 // Check the mount point of every --sqfs, --bind-mount and --tmpfs entry that
-// is on the host: one below another of the requested destinations is
-// provided by that mount (see mount_point_providers), and can not be checked
-// before it is mounted. Paths must be in canonical form
+// is on the host, or inside a --bind-mount. One inside a --sqfs or --tmpfs
+// destination is provided by that mount (see mount_point_providers), and can
+// not be checked before it is mounted. Paths must be in canonical form
 // (canonical_mount_path).
 //
 // Without `mutable_root`, a mount point on the host must exist. With it, a
@@ -133,7 +134,10 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
 //
 // Every --bind-mount source must be an existing directory on the host, with
 // or without `mutable_root`, also one inside another requested destination:
-// a bind source is always the host's directory (see build_mount_order).
+// a bind source is always the host's directory (see build_mount_order). So
+// a mount point whose innermost provider is a --bind-mount is checked too,
+// at the same path below the bind's source: it is never created, mutable
+// root or not, as that would write into the source on the host.
 util::expected<void, std::string>
 validate_mount_points(const mount_list& mounts,
                       const std::vector<bindmount_pair>& bind_mounts,

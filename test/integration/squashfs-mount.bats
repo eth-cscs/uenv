@@ -643,10 +643,6 @@ hello app"
     assert_success
 }
 
-# A --bind-mount reads its source when it is mounted, so a source inside
-# another destination must be mounted after that destination, even when its
-# own destination sorts first.
-
 # A --bind-mount source is always the host's directory, as it was before
 # anything was mounted: never another --sqfs, --tmpfs or --bind-mount, nor the
 # mutable root's tmpfs copies.
@@ -942,5 +938,17 @@ hello app"
         --tmpfs=/uenv-bats-bind-provider/new \
         -- true
     assert_failure
+    assert_output --partial "the mount point /uenv-bats-bind-provider/new does not exist: it is inside the --bind-mount $TMP/bindsrc:/uenv-bats-bind-provider"
     [ ! -e $TMP/bindsrc/new ]
+}
+
+@test "a mount point inside a --bind-mount is the directory below its source on the host" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc/sub $TMP/dst
+
+    run squashfs-mount \
+        --bind-mount=$TMP/bindsrc:$TMP/dst \
+        --tmpfs=$TMP/dst/sub \
+        -- sh -c "touch $TMP/dst/sub/file && test ! -e $TMP/bindsrc/sub/file"
+    assert_success
 }

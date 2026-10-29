@@ -259,6 +259,18 @@ struct captured_sources {
     std::vector<util::unique_fd> binds;
 };
 
+// Close every fd in `sources` but `keep`, in a forked process that will never
+// return to where `sources` is owned (its unique_fds are not destroyed there).
+void close_sources(const captured_sources& sources, int keep = -1) {
+    for (const auto* fds : {&sources.images, &sources.binds}) {
+        for (const auto& fd : *fds) {
+            if (fd.get() != keep) {
+                ::close(fd.get());
+            }
+        }
+    }
+}
+
 // sqfs_ll_open(), but from an image that is already open: squashfuse would
 // open it by path, inside the mount namespace that is being built, where an
 // earlier --tmpfs or --bind-mount may hide it.
@@ -318,13 +330,7 @@ do_sqfs_ll_mount(const mount_pair& entry, const captured_sources& sources,
 
         // hold no image or bind source other than this daemon's own
         const int image = sources.images.at(index).get();
-        for (const auto* fds : {&sources.images, &sources.binds}) {
-            for (const auto& fd : *fds) {
-                if (fd.get() != image) {
-                    ::close(fd.get());
-                }
-            }
-        }
+        close_sources(sources, image);
 
         // setup dummy fuse_args to make sqfs_ll_open happy
         std::string dummy{"dummy"};
@@ -487,17 +493,22 @@ capture_sources(const mount_request& req) {
             ::open_tree(AT_FDCWD, b.src.c_str(),
                         OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_RECURSIVE));
         if (fd.get() < 0) {
-            return util::unexpected(
-                fmt::format("unable to copy the bind-mount source {}: {}",
-                            b.src.string(), strerror(errno)));
+            const int err = errno;
+            return util::unexpected(fmt::format(
+                "unable to copy the bind-mount source {}: {}{}", b.src.string(),
+                strerror(err),
+                err == ENOSYS ? " (open_tree needs Linux 5.2 or later)" : ""));
         }
         mount_attr attr{};
         attr.attr_set = MOUNT_ATTR_NOSUID;
         if (::mount_setattr(fd.get(), "", AT_EMPTY_PATH | AT_RECURSIVE, &attr,
                             sizeof(attr)) != 0) {
+            const int err = errno;
             return util::unexpected(fmt::format(
-                "unable to make the bind-mount source {} nosuid: {}",
-                b.src.string(), strerror(errno)));
+                "unable to make the bind-mount source {} nosuid: {}{}",
+                b.src.string(), strerror(err),
+                err == ENOSYS ? " (mount_setattr needs Linux 5.12 or later)"
+                              : ""));
         }
         sources.binds.push_back(std::move(fd));
     }
@@ -626,6 +637,9 @@ apply_mounts(const mount_request& req, const captured_sources& sources) {
     if (!daemons) {
         child_fail(daemons.error());
     }
+    // every bind source is attached and every daemon has its own image fd:
+    // this process, which lives as long as the step, needs none of them
+    close_sources(sources);
     auto abandon = [&daemons](const std::string& msg) {
         // the daemons hold a copy of rf's write end: leaving them running
         // would keep the task blocked in wait_ready() instead of seeing

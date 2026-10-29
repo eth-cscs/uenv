@@ -188,13 +188,10 @@ TEST_CASE("build_mount_order", "[mount]") {
     }
 }
 
-// A --bind-mount reads its source when it is mounted, so a source that lies
-// inside the destination of another --sqfs/--bind-mount/--tmpfs only exists
-// once that one is mounted: it has to be ordered after it, even when its own
-// destination sorts first.
 // A --bind-mount source is always the host's directory, so it never changes
 // the order: only the nesting of the destinations does.
-TEST_CASE("build_mount_order: bind-mount sources", "[mount]") {
+TEST_CASE("build_mount_order: bind-mount sources do not change the order",
+          "[mount]") {
     using uenv::bindmount_pair;
     using uenv::mount_kind;
     using uenv::mount_order_entry;
@@ -210,7 +207,7 @@ TEST_CASE("build_mount_order: bind-mount sources", "[mount]") {
         }
     };
 
-    // a source inside a squashfs mount point: lexical order, the bind first
+    // a source inside a squashfs mount point
     {
         const uenv::mount_list mounts = {
             mount_pair{.sqfs = "/img/a.squashfs", .mount = "/user-environment"},
@@ -250,8 +247,8 @@ TEST_CASE("build_mount_order: bind-mount sources", "[mount]") {
                               });
     }
 
-    // an image inside a bind destination is mounted after the bind, also
-    // when the bind's source is inside the image's mount point
+    // an image inside a bind destination, whose source is inside the image's
+    // mount point
     {
         const uenv::mount_list mounts = {
             mount_pair{.sqfs = "/img/a.squashfs", .mount = "/opt/env"},
@@ -681,9 +678,10 @@ TEST_CASE("validate_mount_points", "[mount]") {
     std::filesystem::create_directories(base / "exists");
     const auto exists = base / "exists";
     const auto missing = base / "missing";
-    // a bind-mount source that exists
+    // a bind-mount source that exists, with the mount point that the first
+    // test below puts inside a bind of it onto `base`
     const auto src = base / "src";
-    std::filesystem::create_directories(src);
+    std::filesystem::create_directories(src / "exists");
 
     for (bool mutable_root : {false, true}) {
         // mount points that exist on the host
@@ -742,8 +740,8 @@ TEST_CASE("validate_mount_points", "[mount]") {
         {}, {{src, exists / "new/x"}},
         {{exists, std::nullopt}, {exists / "new", std::nullopt}}, true));
 
-    // a missing mount point inside a --tmpfs, --sqfs or --bind-mount is
-    // provided by that mount, and is not checked on the host
+    // a missing mount point inside a --tmpfs or --sqfs is provided by that
+    // mount, and is not checked on the host
     {
         const std::vector<tmpfs_tuple> tmpfs = {{exists, std::nullopt}};
         REQUIRE(uenv::validate_mount_points({}, {{src, exists / "new"}}, tmpfs,
@@ -761,10 +759,38 @@ TEST_CASE("validate_mount_points", "[mount]") {
         REQUIRE(uenv::validate_mount_points(
             mounts, {}, {{exists / "in-image", std::nullopt}}, false));
     }
-    {
+
+    // a mount point inside a --bind-mount is the path below its source on
+    // the host, so it is checked, and never created: also with a mutable root
+    for (bool mutable_root : {false, true}) {
+        std::filesystem::remove_all(src / "in-source");
+        auto r = uenv::validate_mount_points(
+            {}, {{src, exists}}, {{exists / "in-source", std::nullopt}},
+            mutable_root);
+        REQUIRE(!r);
+        REQUIRE(r.error() ==
+                fmt::format("the mount point {} does not exist: it is inside "
+                            "the --bind-mount {}:{}, where {} is not a "
+                            "directory",
+                            (exists / "in-source").string(), src.string(),
+                            exists.string(), (src / "in-source").string()));
+        std::filesystem::create_directories(src / "in-source");
         REQUIRE(uenv::validate_mount_points(
             {}, {{src, exists}}, {{exists / "in-source", std::nullopt}},
-            false));
+            mutable_root));
+        // only the innermost provider counts: a --tmpfs inside the bind
+        // provides what is below it
+        REQUIRE(uenv::validate_mount_points(
+            {mount_pair{.sqfs = "/img.squashfs",
+                        .mount = exists / "in-source/new"}},
+            {{src, exists}}, {{exists / "in-source", std::nullopt}},
+            mutable_root));
+        // and the provider is the bind, not the host path it covers
+        std::filesystem::create_directories(exists / "host-only");
+        REQUIRE(!uenv::validate_mount_points(
+            {}, {{src, exists}}, {{exists / "host-only", std::nullopt}},
+            mutable_root));
+        std::filesystem::remove_all(src / "in-source");
     }
 
     // but the provider itself has to exist

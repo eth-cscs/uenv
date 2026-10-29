@@ -164,17 +164,15 @@ canonical_bindmount_list(std::vector<bindmount_pair> bind_mounts) {
 }
 
 namespace {
-// The index of the innermost of `dsts` that `path` lies in (or is equal to,
-// if `allow_equal`), skipping `self`: the one with the most components.
+// The index of the innermost of `dsts` that `path` lies strictly below,
+// skipping `self`: the one with the most components.
 std::optional<std::size_t>
 innermost_enclosing(const std::vector<std::filesystem::path>& dsts,
-                    const std::filesystem::path& path, std::size_t self,
-                    bool allow_equal) {
+                    const std::filesystem::path& path, std::size_t self) {
     std::optional<std::size_t> result;
     std::size_t depth = 0;
     for (std::size_t k = 0; k < dsts.size(); ++k) {
-        if (k == self || !util::is_child(path, dsts[k]) ||
-            (!allow_equal && dsts[k] == path)) {
+        if (k == self || dsts[k] == path || !util::is_child(path, dsts[k])) {
             continue;
         }
         const auto d = static_cast<std::size_t>(
@@ -224,53 +222,16 @@ build_mount_order(const mount_list& mounts,
         }
     }
 
-    // Each entry is mounted after the mount that provides its mount point. A
-    // --bind-mount source adds no dependency: it is always the host's
-    // directory, copied before anything is mounted.
-    const auto n = entries.size();
-    std::vector<std::filesystem::path> dsts;
-    dsts.reserve(n);
-    for (const auto& e : entries) {
-        dsts.push_back(e.dst);
-    }
-    std::vector<std::vector<std::size_t>> dependents(n);
-    std::vector<std::size_t> ndeps(n, 0);
-    auto add_dependency = [&](std::optional<std::size_t> dep, std::size_t i) {
-        if (dep &&
-            std::ranges::find(dependents[*dep], i) == dependents[*dep].end()) {
-            dependents[*dep].push_back(i);
-            ++ndeps[i];
-        }
-    };
-    for (std::size_t i = 0; i < n; ++i) {
-        add_dependency(innermost_enclosing(dsts, dsts[i], i, false), i);
-    }
-
-    // a topological sort that takes the lexically smallest ready entry, so
-    // that the order only differs from the lexical one where it has to
-    std::set<std::size_t> ready;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (ndeps[i] == 0) {
-            ready.insert(i);
-        }
-    }
+    // Each entry is mounted after the mount that provides its mount point,
+    // which the lexical order already guarantees: paths compare component by
+    // component, so a destination sorts before every destination below it. A
+    // --bind-mount source or a squashfs image adds no constraint: each is
+    // taken from the host before anything is mounted (see capture_sources in
+    // mount_rootless.cpp).
     mount_order order;
-    order.reserve(n);
-    while (!ready.empty()) {
-        const auto i = *ready.begin();
-        ready.erase(ready.begin());
-        order.push_back({entries[i].kind, entries[i].index});
-        for (auto j : dependents[i]) {
-            if (--ndeps[j] == 0) {
-                ready.insert(j);
-            }
-        }
-    }
-    // nesting of distinct paths is a forest, so this can only fail on a bug
-    if (order.size() != n) {
-        return util::unexpected{
-            fmt::format("internal error: only {} of {} mounts could be ordered",
-                        order.size(), n)};
+    order.reserve(entries.size());
+    for (const auto& e : entries) {
+        order.push_back({e.kind, e.index});
     }
     return order;
 }
@@ -325,7 +286,7 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
     }
     std::vector<std::optional<mount_kind>> providers(order.size());
     for (std::size_t i = 0; i < order.size(); ++i) {
-        if (auto j = innermost_enclosing(dsts, dsts[i], i, false)) {
+        if (auto j = innermost_enclosing(dsts, dsts[i], i)) {
             providers[i] = order[*j].kind;
         }
     }
@@ -380,6 +341,27 @@ util::expected<void, std::string> validate_mount_points(
         if (!std::filesystem::is_directory(status)) {
             return util::unexpected{fmt::format(
                 "the bind-mount source {} is not a directory", b.src.string())};
+        }
+    }
+
+    // a mount point inside a --bind-mount is never created (that would write
+    // into its source on the host), and is the same path below the bind's
+    // source on the host, so it can be checked before anything is mounted
+    const auto destinations = all_destinations(mounts, bind_mounts, tmpfs);
+    const auto first_bind = mounts.size();
+    for (std::size_t i = 0; i < destinations.size(); ++i) {
+        const auto k = innermost_enclosing(destinations, destinations[i], i);
+        if (!k || *k < first_bind || *k >= first_bind + bind_mounts.size()) {
+            continue;
+        }
+        const auto& b = bind_mounts[*k - first_bind];
+        const auto host = b.src / destinations[i].lexically_relative(b.dst);
+        if (!std::filesystem::is_directory(host)) {
+            return util::unexpected{fmt::format(
+                "the mount point {} does not exist: it is inside the "
+                "--bind-mount {}:{}, where {} is not a directory",
+                destinations[i].string(), b.src.string(), b.dst.string(),
+                host.string())};
         }
     }
     return {};
