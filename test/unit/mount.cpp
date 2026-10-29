@@ -235,7 +235,7 @@ TEST_CASE("build_mount_order: bind-mount sources", "[mount]") {
         auto order = uenv::build_mount_order(mounts, bind_mounts, {});
         REQUIRE(order);
         require_order(*order, {
-                                  {mount_kind::sqfs, 0},       // /user-environment
+                                  {mount_kind::sqfs, 0}, // /user-environment
                                   {mount_kind::bind_mount, 0}, // /opt/env
                               });
     }
@@ -250,14 +250,15 @@ TEST_CASE("build_mount_order: bind-mount sources", "[mount]") {
         auto order = uenv::build_mount_order(mounts, bind_mounts, {});
         REQUIRE(order);
         require_order(*order, {
-                                  {mount_kind::sqfs, 0},       // /user-environment
+                                  {mount_kind::sqfs, 0}, // /user-environment
                                   {mount_kind::bind_mount, 0}, // /alias
                               });
     }
 
     // the source is inside a --tmpfs
     {
-        const std::vector<bindmount_pair> bind_mounts = {{"/scratch/data", "/a"}};
+        const std::vector<bindmount_pair> bind_mounts = {
+            {"/scratch/data", "/a"}};
         const std::vector<tmpfs_tuple> tmpfs = {{"/scratch", std::nullopt}};
         auto order = uenv::build_mount_order({}, bind_mounts, tmpfs);
         REQUIRE(order);
@@ -604,7 +605,8 @@ TEST_CASE("build_mount_order: generated inputs", "[mount]") {
 TEST_CASE("build_mount_order: normalised destinations", "[mount]") {
     using uenv::mount_kind;
 
-    auto base = std::filesystem::weakly_canonical(util::make_temp_dir().value());
+    auto base =
+        std::filesystem::weakly_canonical(util::make_temp_dir().value());
     std::filesystem::create_directories(base / "a" / "b");
     std::filesystem::create_directories(base / "z");
     auto sqfs = base / "img.squashfs";
