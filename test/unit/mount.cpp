@@ -754,31 +754,27 @@ TEST_CASE("validate_mount_points", "[mount]") {
             {}, {{"/src", exists}}, {{base, std::nullopt}}, mutable_root));
     }
 
-    // a mount point missing on the host: an error without a mutable root.
-    // With one, it is also an error when its parent is writable by the
-    // caller (base is), asking to create it
+    // a mount point missing on the host: an error, unless a mutable root
+    // creates it (also under a writable directory, see writable_shadowed_dirs)
     {
         const std::vector<tmpfs_tuple> tmpfs = {{missing, std::nullopt}};
         REQUIRE(!uenv::validate_mount_points({}, {}, tmpfs, false));
-        auto r = uenv::validate_mount_points({}, {}, tmpfs, true);
-        REQUIRE(!r);
-        REQUIRE_THAT(r.error(), Catch::Matchers::ContainsSubstring(fmt::format(
-                                    "mkdir -p {}", missing.string())));
+        REQUIRE(uenv::validate_mount_points({}, {}, tmpfs, true));
     }
     {
         const std::vector<bindmount_pair> binds = {{"/src", missing}};
         REQUIRE(!uenv::validate_mount_points({}, binds, {}, false));
-        REQUIRE(!uenv::validate_mount_points({}, binds, {}, true));
+        REQUIRE(uenv::validate_mount_points({}, binds, {}, true));
     }
     {
         const uenv::mount_list mounts = {
             mount_pair{.sqfs = "/img.squashfs", .mount = missing}};
         REQUIRE(!uenv::validate_mount_points(mounts, {}, {}, false));
-        REQUIRE(!uenv::validate_mount_points(mounts, {}, {}, true));
+        REQUIRE(uenv::validate_mount_points(mounts, {}, {}, true));
     }
 
-    // with a mutable root, a missing mount point is accepted when its deepest
-    // existing ancestor is not writable (it is shadowed in tmpfs), or is "/"
+    // with a mutable root, a missing mount point is accepted whatever its
+    // deepest existing ancestor, a read-only directory or "/"
     {
         REQUIRE(uenv::validate_mount_points(
             {}, {}, {{"/uenv-unit-test-missing/a", std::nullopt}}, true));
@@ -834,6 +830,51 @@ TEST_CASE("validate_mount_points", "[mount]") {
     // but the provider itself has to exist
     REQUIRE(!uenv::validate_mount_points({}, {{"/src", missing / "new"}},
                                          {{missing, std::nullopt}}, false));
+
+    std::filesystem::remove_all(base);
+}
+
+TEST_CASE("writable_shadowed_dirs", "[mount]") {
+    using uenv::bindmount_pair;
+    using uenv::mount_pair;
+    using P =
+        std::vector<std::pair<std::filesystem::path, std::filesystem::path>>;
+
+    auto base =
+        std::filesystem::weakly_canonical(util::make_temp_dir().value());
+    std::filesystem::create_directories(base / "exists");
+
+    // a missing mount point under a writable directory, several levels deep:
+    // reported with its deepest existing ancestor
+    REQUIRE(
+        uenv::writable_shadowed_dirs({}, {}, {{base / "new", std::nullopt}}) ==
+        P{{base / "new", base}});
+    REQUIRE(uenv::writable_shadowed_dirs(
+                {mount_pair{.sqfs = "/img", .mount = base / "exists/a/b"}}, {},
+                {}) == P{{base / "exists/a/b", base / "exists"}});
+
+    // existing, below "/" only, or provided by another mount: nothing
+    REQUIRE(uenv::writable_shadowed_dirs({}, {{"/src", base / "exists"}}, {})
+                .empty());
+    REQUIRE(uenv::writable_shadowed_dirs(
+                {}, {}, {{"/uenv-unit-test-missing/x", std::nullopt}})
+                .empty());
+    REQUIRE(uenv::writable_shadowed_dirs({}, {{"/src", base / "exists/new"}},
+                                         {{base / "exists", std::nullopt}})
+                .empty());
+
+    // a directory the caller can not write to
+    if (::geteuid() != 0) {
+        const auto ro = base / "read-only";
+        std::filesystem::create_directories(ro);
+        std::filesystem::permissions(ro,
+                                     std::filesystem::perms::owner_read |
+                                         std::filesystem::perms::owner_exec);
+        REQUIRE(
+            uenv::writable_shadowed_dirs({}, {}, {{ro / "new", std::nullopt}})
+                .empty());
+        std::filesystem::permissions(ro, std::filesystem::perms::owner_all);
+    }
 
     std::filesystem::remove_all(base);
 }

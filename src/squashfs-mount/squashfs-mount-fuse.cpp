@@ -206,6 +206,20 @@ int main(int argc, char** argv, char** envp) {
         !r) {
         error_and_exit("{}", r.error());
     }
+    // printed whatever the log level: the command's writes are affected
+    if (mutable_root) {
+        for (const auto& [path, dir] :
+             uenv::writable_shadowed_dirs(mounts, *bind_mounts, *tmpfs)) {
+            fmt::print(stderr,
+                       "{}: the mount point {} does not exist, so {} is "
+                       "rebuilt in memory to create it: new files written "
+                       "directly in {} are lost on exit, and saving a file "
+                       "there by renaming over it fails. Run `mkdir -p {}` "
+                       "first to avoid this.\n",
+                       ::color::yellow("warning"), path.string(), dir.string(),
+                       dir.string(), path.string());
+        }
+    }
 
     auto mount_order = uenv::build_mount_order(mounts, *bind_mounts, *tmpfs);
     if (!mount_order) {

@@ -6,6 +6,7 @@
 #include <set>
 #include <string>
 #include <sys/types.h>
+#include <utility>
 #include <vector>
 
 #include <fmt/core.h>
@@ -108,10 +109,8 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
 //
 // Without `mutable_root`, a mount point on the host must exist. With it, a
 // missing one is created in the mutable root, on the tmpfs copy of the path
-// to it (see mutable_root_shadow_dirs). That is refused when its deepest
-// existing ancestor, other than "/", is writable by the caller: anything the
-// command wrote there would be lost when it exits, so the caller is asked to
-// create the mount point instead.
+// to it (see mutable_root_shadow_dirs); only a file or a dangling symlink in
+// its path is an error.
 util::expected<void, std::string>
 validate_mount_points(const mount_list& mounts,
                       const std::vector<bindmount_pair>& bind_mounts,
@@ -130,6 +129,17 @@ deepest_existing_ancestor(const std::filesystem::path& path);
 // bind mount of the host. `dsts` must be canonical.
 util::expected<std::set<std::filesystem::path>, std::string>
 mutable_root_shadow_dirs(const std::set<std::filesystem::path>& dsts);
+
+// With a mutable root: each missing mount point on the host whose deepest
+// existing ancestor, other than "/", is writable by the caller, paired with
+// that ancestor. The ancestor is shadowed in tmpfs, so for the command, new
+// files written directly in it are lost on exit, and a file in it can not be
+// replaced by renaming another over it (EBUSY: it is a bind mount), as editors
+// and shell history do. Callers warn about these.
+std::vector<std::pair<std::filesystem::path, std::filesystem::path>>
+writable_shadowed_dirs(const mount_list& mounts,
+                       const std::vector<bindmount_pair>& bind_mounts,
+                       const std::vector<tmpfs_tuple>& tmpfs);
 
 // one shot from string description to sorted and validated inputs
 //

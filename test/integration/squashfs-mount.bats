@@ -281,8 +281,8 @@ $my_gid"
 #
 # Mount points that don't exist use fresh top-level names, or a directory the
 # user can't write to such as /usr/share: with -r, a missing mount point under
-# a directory the user can write to (e.g. $TMP) is refused, because what the
-# command wrote next to it would be lost. Nothing created in the mutable root
+# a directory the user can write to (e.g. $TMP) prints a warning, because what
+# the command writes next to it is lost. Nothing created in the mutable root
 # touches the real host filesystem.
 #
 
@@ -439,14 +439,19 @@ function require_fuse_backend() {
     assert_output "$(ls /usr/share/doc)"
 }
 
-@test "mutable root: a missing mount point in a writable directory is refused" {
+@test "mutable root: a missing mount point in a writable directory warns" {
     require_fuse_backend
+    mkdir -p $TMP/bindsrc
 
-    run squashfs-mount -r --tmpfs=$TMP/uenv-bats-new -- true
-    assert_failure
-    assert_output --partial "the mount point $TMP/uenv-bats-new does not exist"
-    assert_output --partial "mkdir -p $TMP/uenv-bats-new"
+    # $TMP is shadowed: its entries are still there, the mount point is
+    # created in tmpfs, and a new file directly in $TMP is not kept
+    run --separate-stderr squashfs-mount -r --tmpfs=$TMP/uenv-bats-new -- \
+        sh -c "test -d $TMP/bindsrc && findmnt -n -o FSTYPE $TMP/uenv-bats-new && touch $TMP/uenv-bats-lost"
+    assert_success
+    assert_output "tmpfs"
+    [[ "$stderr" == *"warning"*"$TMP is rebuilt in memory"*"mkdir -p $TMP/uenv-bats-new"* ]]
     [[ ! -e $TMP/uenv-bats-new ]]
+    [[ ! -e $TMP/uenv-bats-lost ]]
 }
 
 @test "mutable root: nothing is printed without -v" {

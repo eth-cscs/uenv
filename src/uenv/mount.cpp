@@ -313,35 +313,58 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
     return providers;
 }
 
-util::expected<void, std::string> validate_mount_points(
-    const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
-    const std::vector<tmpfs_tuple>& tmpfs, bool mutable_root) {
+namespace {
+// the mount points on the host that do not exist: those not below another
+// requested destination (which provides them, see mount_point_providers)
+std::vector<std::filesystem::path>
+missing_host_mount_points(const mount_list& mounts,
+                          const std::vector<bindmount_pair>& bind_mounts,
+                          const std::vector<tmpfs_tuple>& tmpfs) {
     const auto destinations = all_destinations(mounts, bind_mounts, tmpfs);
+    std::vector<std::filesystem::path> result;
     for (const auto& path : destinations) {
         const bool provided =
             std::ranges::any_of(destinations, [&path](const auto& other) {
                 return other != path && is_nested_path(other, path);
             });
-        if (provided || std::filesystem::is_directory(path)) {
-            continue;
+        if (!provided && !std::filesystem::is_directory(path)) {
+            result.push_back(path);
         }
+    }
+    return result;
+}
+} // namespace
+
+util::expected<void, std::string> validate_mount_points(
+    const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
+    const std::vector<tmpfs_tuple>& tmpfs, bool mutable_root) {
+    for (const auto& path :
+         missing_host_mount_points(mounts, bind_mounts, tmpfs)) {
         if (!mutable_root) {
             return util::unexpected{fmt::format(
                 "the mount point {} does not exist", path.string())};
         }
-        auto ancestor = deepest_existing_ancestor(path);
-        if (!ancestor) {
+        if (auto ancestor = deepest_existing_ancestor(path); !ancestor) {
             return util::unexpected{ancestor.error()};
-        }
-        if (*ancestor != ancestor->root_path() &&
-            ::access(ancestor->c_str(), W_OK) == 0) {
-            return util::unexpected{fmt::format(
-                "the mount point {} does not exist, and the mutable root would "
-                "hide what is written to {}: create it with `mkdir -p {}`",
-                path.string(), ancestor->string(), path.string())};
         }
     }
     return {};
+}
+
+std::vector<std::pair<std::filesystem::path, std::filesystem::path>>
+writable_shadowed_dirs(const mount_list& mounts,
+                       const std::vector<bindmount_pair>& bind_mounts,
+                       const std::vector<tmpfs_tuple>& tmpfs) {
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> result;
+    for (const auto& path :
+         missing_host_mount_points(mounts, bind_mounts, tmpfs)) {
+        auto ancestor = deepest_existing_ancestor(path);
+        if (ancestor && *ancestor != ancestor->root_path() &&
+            ::access(ancestor->c_str(), W_OK) == 0) {
+            result.emplace_back(path, *ancestor);
+        }
+    }
+    return result;
 }
 
 util::expected<std::filesystem::path, std::string>
