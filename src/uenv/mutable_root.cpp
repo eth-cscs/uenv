@@ -308,15 +308,23 @@ make_mutable_root(std::set<std::filesystem::path> dst_dirs) {
     spdlog::info("make mutable root");
     std::vector<fs::path> topdirs;
     std::vector<fs::path> topfiles;
-    std::vector<std::pair<fs::path, fs::path>> files_symlinks;
+    // (symlink, target), the target as stored in the link
+    std::vector<std::pair<fs::path, fs::path>> symlinks;
     for (const auto& entry : fs::directory_iterator("/")) {
         // Check is_symlink() first: it is lstat-based and never throws, even
         // for a dangling target. is_directory() follows the link via
         // status(), which throws ENOENT for exactly that case - so it must
         // only be called once a symlink has already been ruled out.
+        // Symlinks are recreated in the new root rather than followed, so a
+        // dangling link or a link to a file needs no special handling.
         if (entry.is_symlink()) {
-            files_symlinks.push_back(
-                std::make_pair(entry.path(), fs::read_symlink(entry)));
+            auto target = fs::read_symlink(entry.path(), ec);
+            if (ec) {
+                return util::unexpected(
+                    fmt::format("unable to read symlink {}: {}",
+                                entry.path().string(), ec.message()));
+            }
+            symlinks.emplace_back(entry.path(), std::move(target));
         } else if (entry.is_directory()) {
             if (std::ranges::find(excluded_topdirs, entry.path()) !=
                 std::ranges::end(excluded_topdirs)) {
@@ -378,18 +386,22 @@ make_mutable_root(std::set<std::filesystem::path> dst_dirs) {
         return util::unexpected(fmt::format(
             "pivot_root(\"/tmp\", \"oldroot\") failed: {}", strerror(errno)));
     }
-    fs::current_path("/");
+    fs::current_path("/", ec);
+    if (ec) {
+        return util::unexpected(
+            fmt::format("fs::current_path(/) failed with {}", ec.message()));
+    }
 
-    for (auto entry : files_symlinks) {
-        auto src = fs::path("/oldroot") / entry.second.relative_path();
-        auto dst = fs::path("/newroot") / entry.first.relative_path();
-
-        spdlog::debug("src {}, dst {}", src.c_str(), dst.c_str());
-        fs::create_directories(dst);
-        if (auto r = uenv::mount(src.string(), dst.string(), std::nullopt,
-                                 MS_BIND | MS_REC | MS_SILENT, nullptr);
-            !r) {
-            return r;
+    // top-level symlinks, with their target unchanged: a relative target
+    // resolves against the new "/", which has the same top-level entries
+    for (const auto& [link, target] : symlinks) {
+        auto dst = fs::path("/newroot") / link.relative_path();
+        spdlog::debug("symlink {} -> {}", dst.string(), target.string());
+        fs::create_symlink(target, dst, ec);
+        if (ec) {
+            return util::unexpected(fmt::format(
+                "unable to recreate symlink {} -> {}: {}", link.string(),
+                target.string(), ec.message()));
         }
     }
 
@@ -399,7 +411,12 @@ make_mutable_root(std::set<std::filesystem::path> dst_dirs) {
     for (auto entry : topdirs) {
         auto src = fs::path("/oldroot") / entry.relative_path();
         auto dst = fs::path("/newroot") / entry.relative_path();
-        fs::create_directory(dst);
+        fs::create_directory(dst, ec);
+        if (ec) {
+            return util::unexpected(
+                fmt::format("fs::create_directory({}) failed with {}",
+                            dst.string(), ec.message()));
+        }
         if (auto r = uenv::mount(src.string(), dst.string(), std::nullopt,
                                  MS_BIND | MS_REC | MS_SILENT, nullptr);
             !r) {

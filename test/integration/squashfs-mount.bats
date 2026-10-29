@@ -344,6 +344,68 @@ function require_fuse_backend() {
     assert_success
 }
 
+@test "mutable root: top-level symlinks stay symlinks" {
+    require_fuse_backend
+    local link
+    link=$(find / -maxdepth 1 -type l -print -quit)
+    if [[ -z "$link" ]]; then
+        skip "no symlink directly under / on this host"
+    fi
+
+    run squashfs-mount -r --tmpfs=/uenv-bats-mutable-root-tmpfs -- \
+        sh -c "test -L $link && readlink $link"
+    assert_success
+    assert_output "$(readlink "$link")"
+}
+
+# The host's "/" can not be changed, so build a copy of it with a symlink to a
+# file and a dangling symlink, pivot_root into it in an outer user and mount
+# namespace, and run squashfs-mount -r there. pivot_root, not chroot: a
+# chrooted process can not create the nested user namespace.
+@test "mutable root: symlinks in / to a file or to nothing" {
+    require_fuse_backend
+    if ! command -v unshare >/dev/null || ! command -v pivot_root >/dev/null; then
+        skip "unshare or pivot_root is not available"
+    fi
+    if ! unshare -rm true 2>/dev/null; then
+        skip "unprivileged user namespaces are not available"
+    fi
+
+    local root=$TMP/fake-root
+    mkdir -p $root
+    echo "file-link-content" > $TMP/link-target.txt
+
+    run unshare -rm bash -c '
+        set -e
+        root=$1; target=$2; shift 2
+        mount -t tmpfs tmpfs "$root"
+        for e in /*; do
+            if [[ -L "$e" ]]; then
+                ln -s "$(readlink "$e")" "$root$e"
+            elif [[ -d "$e" ]]; then
+                mkdir "$root$e"
+                mount --rbind "$e" "$root$e"
+            else
+                touch "$root$e"
+                mount --bind "$e" "$root$e"
+            fi
+        done
+        ln -s "${target#/}" "$root/uenv-bats-file-link"
+        ln -s does-not-exist "$root/uenv-bats-dangling-link"
+        cd "$root"
+        mkdir uenv-bats-oldroot
+        pivot_root . uenv-bats-oldroot
+        umount -l /uenv-bats-oldroot
+        rmdir /uenv-bats-oldroot
+        exec "$@"' \
+        _ $root $TMP/link-target.txt \
+        $(command -v squashfs-mount) -r --tmpfs=/uenv-bats-mutable-root-tmpfs -- \
+        sh -c 'cat /uenv-bats-file-link && readlink /uenv-bats-dangling-link'
+    assert_success
+    assert_line --index 0 "file-link-content"
+    assert_line --index 1 "does-not-exist"
+}
+
 @test "--bind-mount cannot be repeated: use a comma separated list" {
     require_fuse_backend
     mkdir -p $TMP/bindsrc1 $TMP/bindsrc2 $TMP/binddst1 $TMP/binddst2
