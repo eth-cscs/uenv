@@ -744,14 +744,17 @@ TEST_CASE("validate_mount_points", "[mount]") {
     std::filesystem::create_directories(base / "exists");
     const auto exists = base / "exists";
     const auto missing = base / "missing";
+    // a bind-mount source that exists
+    const auto src = base / "src";
+    std::filesystem::create_directories(src);
 
     for (bool mutable_root : {false, true}) {
         // mount points that exist on the host
         REQUIRE(uenv::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = exists}},
-            {{"/src", base}}, {}, mutable_root));
+            {{src, base}}, {}, mutable_root));
         REQUIRE(uenv::validate_mount_points(
-            {}, {{"/src", exists}}, {{base, std::nullopt}}, mutable_root));
+            {}, {{src, exists}}, {{base, std::nullopt}}, mutable_root));
     }
 
     // a mount point missing on the host: an error, unless a mutable root
@@ -762,7 +765,7 @@ TEST_CASE("validate_mount_points", "[mount]") {
         REQUIRE(uenv::validate_mount_points({}, {}, tmpfs, true));
     }
     {
-        const std::vector<bindmount_pair> binds = {{"/src", missing}};
+        const std::vector<bindmount_pair> binds = {{src, missing}};
         REQUIRE(!uenv::validate_mount_points({}, binds, {}, false));
         REQUIRE(uenv::validate_mount_points({}, binds, {}, true));
     }
@@ -799,15 +802,15 @@ TEST_CASE("validate_mount_points", "[mount]") {
     // a mount point provided by another mount is not checked with a mutable
     // root either
     REQUIRE(uenv::validate_mount_points(
-        {}, {{"/src", exists / "new/x"}},
+        {}, {{src, exists / "new/x"}},
         {{exists, std::nullopt}, {exists / "new", std::nullopt}}, true));
 
     // a missing mount point inside a --tmpfs, --sqfs or --bind-mount is
     // provided by that mount, and is not checked on the host
     {
         const std::vector<tmpfs_tuple> tmpfs = {{exists, std::nullopt}};
-        REQUIRE(uenv::validate_mount_points({}, {{"/src", exists / "new"}},
-                                            tmpfs, false));
+        REQUIRE(uenv::validate_mount_points({}, {{src, exists / "new"}}, tmpfs,
+                                            false));
         REQUIRE(uenv::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = exists / "new"}}, {},
             tmpfs, false));
@@ -823,13 +826,40 @@ TEST_CASE("validate_mount_points", "[mount]") {
     }
     {
         REQUIRE(uenv::validate_mount_points(
-            {}, {{"/src", exists}}, {{exists / "in-source", std::nullopt}},
+            {}, {{src, exists}}, {{exists / "in-source", std::nullopt}},
             false));
     }
 
     // but the provider itself has to exist
-    REQUIRE(!uenv::validate_mount_points({}, {{"/src", missing / "new"}},
+    REQUIRE(!uenv::validate_mount_points({}, {{src, missing / "new"}},
                                          {{missing, std::nullopt}}, false));
+
+    // a bind-mount source on the host must be an existing directory, with or
+    // without a mutable root
+    for (bool mutable_root : {false, true}) {
+        REQUIRE(!uenv::validate_mount_points({}, {{missing, exists}}, {},
+                                             mutable_root));
+        std::ofstream(base / "src-file").close();
+        REQUIRE(!uenv::validate_mount_points({}, {{base / "src-file", exists}},
+                                             {}, mutable_root));
+        // inside another destination: provided by that mount, not checked
+        REQUIRE(uenv::validate_mount_points(
+            {mount_pair{.sqfs = "/img.squashfs", .mount = exists}},
+            {{exists / "in-image", src}}, {}, mutable_root));
+        REQUIRE(uenv::validate_mount_points({}, {{exists / "in-tmpfs", src}},
+                                            {{exists, std::nullopt}},
+                                            mutable_root));
+        // inside its own destination: the host path, checked
+        REQUIRE(!uenv::validate_mount_points({}, {{exists / "missing", exists}},
+                                             {}, mutable_root));
+    }
+    {
+        auto r = uenv::validate_mount_points({}, {{missing, exists}}, {}, true);
+        REQUIRE(!r);
+        REQUIRE(r.error() ==
+                fmt::format("the bind-mount source {} does not exist",
+                            missing.string()));
+    }
 
     std::filesystem::remove_all(base);
 }

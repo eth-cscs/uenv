@@ -330,6 +330,20 @@ function require_fuse_backend() {
     assert_output --partial "does not exist"
 }
 
+@test "a --bind-mount source that does not exist is refused before mounting" {
+    require_fuse_backend
+    mkdir -p $TMP/binddst
+
+    for r in "" "-r"; do
+        run squashfs-mount -vvv $r --bind-mount=$TMP/uenv-bats-no-such-src:$TMP/binddst -- true
+        assert_failure
+        assert_output --partial "the bind-mount source $TMP/uenv-bats-no-such-src does not exist"
+        # nothing was unshared or mounted
+        refute_output --partial "make mutable root"
+        refute_output --partial "become fake root"
+    done
+}
+
 @test "mutable root: --bind-mount to a destination that does not exist" {
     require_fuse_backend
     mkdir -p $TMP/bindsrc

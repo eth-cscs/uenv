@@ -348,6 +348,30 @@ util::expected<void, std::string> validate_mount_points(
             return util::unexpected{ancestor.error()};
         }
     }
+
+    // a bind-mount source inside (or equal to) another destination only
+    // exists once that is mounted; a source inside the bind's own destination
+    // is the host path it covers
+    const auto destinations = all_destinations(mounts, bind_mounts, tmpfs);
+    for (const auto& b : bind_mounts) {
+        const bool provided =
+            std::ranges::any_of(destinations, [&b](const auto& d) {
+                return d != b.dst && is_nested_path(d, b.src);
+            });
+        if (provided) {
+            continue;
+        }
+        std::error_code ec;
+        const auto status = std::filesystem::status(b.src, ec);
+        if (!std::filesystem::exists(status)) {
+            return util::unexpected{fmt::format(
+                "the bind-mount source {} does not exist", b.src.string())};
+        }
+        if (!std::filesystem::is_directory(status)) {
+            return util::unexpected{fmt::format(
+                "the bind-mount source {} is not a directory", b.src.string())};
+        }
+    }
     return {};
 }
 

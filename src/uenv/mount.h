@@ -111,6 +111,10 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
 // missing one is created in the mutable root, on the tmpfs copy of the path
 // to it (see mutable_root_shadow_dirs); only a file or a dangling symlink in
 // its path is an error.
+//
+// A --bind-mount source on the host must be an existing directory, with or
+// without `mutable_root`, so that a typo fails before anything is mounted.
+// One inside another requested destination is not checked, as above.
 util::expected<void, std::string>
 validate_mount_points(const mount_list& mounts,
                       const std::vector<bindmount_pair>& bind_mounts,
