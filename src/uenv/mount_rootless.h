@@ -30,26 +30,33 @@ namespace rootless {
 // up non-dumpable again, and one that started out dumpable stays dumpable --
 // callers do not need their own policy for this.
 // `order` gives the application order across `mounts`, `bind_mounts` and
-// `tmpfs`, a lexical stable sort of their destination paths (see
-// uenv::build_mount_order()), so that a parent is always mounted before
-// anything nested under it.
+// `tmpfs` (see uenv::build_mount_order()): a parent is always mounted before
+// anything nested under it, and a bind mount after the mount providing its
+// source.
 util::expected<void, std::string> mount_and_join_ns(
     const std::string& tag, int ntasks, const uenv::mount_list& mounts,
     const std::vector<uenv::bindmount_pair>& bind_mounts,
     const std::vector<uenv::tmpfs_tuple>& tmpfs, const uenv::mount_order& order,
     bool fuse_single_threaded, uid_t uid, gid_t gid, bool mutable_root);
 
-// Rebuild "/" from bind mounts of everything currently under it (inspired by
-// bubblewrap), giving the caller a private, writable root directory tree so
-// that mount points which do not already exist on the real root can be
-// created before mounting onto them. Must be called after
-// unshare_mount_map_root(), inside the mount namespace that owns the mounts
-// being set up.
+// Rebuild "/" on a tmpfs (inspired by bubblewrap), so that mount points which
+// do not exist on the host can be created before mounting onto them. Each
+// directory in `shadow` (see uenv::mutable_root_shadow_dirs(); it must
+// contain "/") is recreated on the tmpfs, holding a bind mount of each of the
+// host's entries, a copy of each symlink, and the shadowed directories below
+// it. Everything else is a bind mount of the host, so writes there reach the
+// host as usual. Must be called after unshare_mount_map_root(), inside the
+// mount namespace that owns the mounts being set up.
+//
+// Errors: a shadowed directory on an autofs mount (its entries are mounted
+// on demand, and a copy would only hold the ones mounted now), or with more
+// than max_shadow_entries entries.
 //
 // Only implemented for the rootless/fuse backend -- the setuid kernel
 // backend does not compile this file in.
+inline constexpr std::size_t max_shadow_entries = 4096;
 util::expected<void, std::string>
-    make_mutable_root(std::set<std::filesystem::path> = {});
+make_mutable_root(const std::set<std::filesystem::path>& shadow);
 
 } // namespace rootless
 } // namespace uenv

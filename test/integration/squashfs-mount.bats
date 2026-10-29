@@ -279,15 +279,11 @@ $my_gid"
 # installed setuid (that bit only distinguishes kernel builds that *are*
 # installed from ones that are not).
 #
-# Mount points/destinations below deliberately use fresh top-level names
-# (never nested under an existing top-level directory such as $TMP, which
-# lives under /home) - make_mutable_root() excludes a dst's top-level
-# component from the rebuilt "/" whenever that component already exists on
-# the host but the dst itself does not, which would also hide anything else
-# under that same top-level component (e.g. a --bind-mount source living
-# under $TMP). A brand new top-level name avoids that exclusion entirely, and
-# nothing created under it ever touches the real host filesystem: the whole
-# rebuild happens inside the process's own unshared mount namespace.
+# Mount points that don't exist use fresh top-level names, or a directory the
+# user can't write to such as /usr/share: with -r, a missing mount point under
+# a directory the user can write to (e.g. $TMP) is refused, because what the
+# command wrote next to it would be lost. Nothing created in the mutable root
+# touches the real host filesystem.
 #
 
 function require_fuse_backend() {
@@ -404,6 +400,64 @@ function require_fuse_backend() {
     assert_success
     assert_line --index 0 "file-link-content"
     assert_line --index 1 "does-not-exist"
+}
+
+@test "mutable root: a missing mount point keeps the rest of its parent directories" {
+    require_fuse_backend
+    if [[ ! -d /usr/share/doc ]] || [[ -w /usr/share ]]; then
+        skip "needs a /usr/share/doc that the user can not write to"
+    fi
+
+    # /usr and /usr/share are shadowed, everything else in them is the host's
+    run squashfs-mount -r --tmpfs=/usr/share/uenv-bats-new -- \
+        sh -c 'test -d /usr/share/doc && findmnt -n -o FSTYPE /usr/share/uenv-bats-new && touch /usr/share/uenv-bats-new/file'
+    assert_success
+    assert_output "tmpfs"
+}
+
+@test "mutable root: a directory next to a shadowed one is still the host's" {
+    require_fuse_backend
+    if [[ -w /usr/share ]]; then
+        skip "/usr/share is writable by the user"
+    fi
+
+    run squashfs-mount -r --tmpfs=/usr/share/uenv-bats-new -- \
+        sh -c 'findmnt -n -o TARGET /usr/share/doc'
+    assert_success
+    assert_output "/usr/share/doc"
+}
+
+@test "mutable root: a bind source inside a shadowed directory" {
+    require_fuse_backend
+    if [[ ! -d /usr/share/doc ]] || [[ -w /usr/share ]]; then
+        skip "needs a /usr/share/doc that the user can not write to"
+    fi
+
+    run squashfs-mount -r --bind-mount=/usr/share/doc:/usr/share/uenv-bats-doc -- \
+        sh -c 'ls /usr/share/uenv-bats-doc'
+    assert_success
+    assert_output "$(ls /usr/share/doc)"
+}
+
+@test "mutable root: a missing mount point in a writable directory is refused" {
+    require_fuse_backend
+
+    run squashfs-mount -r --tmpfs=$TMP/uenv-bats-new -- true
+    assert_failure
+    assert_output --partial "the mount point $TMP/uenv-bats-new does not exist"
+    assert_output --partial "mkdir -p $TMP/uenv-bats-new"
+    [[ ! -e $TMP/uenv-bats-new ]]
+}
+
+@test "mutable root: nothing is printed without -v" {
+    require_fuse_backend
+    if [[ -w /usr/share ]]; then
+        skip "/usr/share is writable by the user"
+    fi
+
+    run --separate-stderr squashfs-mount -r --tmpfs=/usr/share/uenv-bats-quiet -- true
+    assert_success
+    [[ -z "$stderr" ]]
 }
 
 @test "--bind-mount cannot be repeated: use a comma separated list" {

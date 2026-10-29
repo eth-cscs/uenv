@@ -147,7 +147,7 @@ int main(int argc, char** argv, char** envp) {
 
     // By default there is no logging to the console
     // The level of logging is increased by adding --verbose
-    spdlog::level::level_enum console_log_level = spdlog::level::critical;
+    spdlog::level::level_enum console_log_level = spdlog::level::off;
     if (verbosity == 1) {
         console_log_level = spdlog::level::info;
     } else if (verbosity == 2) {

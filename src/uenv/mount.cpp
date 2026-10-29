@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <sys/mount.h>
+#include <unistd.h>
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -315,21 +316,76 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
 util::expected<void, std::string> validate_mount_points(
     const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
     const std::vector<tmpfs_tuple>& tmpfs, bool mutable_root) {
-    if (mutable_root) {
-        return {};
-    }
     const auto destinations = all_destinations(mounts, bind_mounts, tmpfs);
     for (const auto& path : destinations) {
         const bool provided =
             std::ranges::any_of(destinations, [&path](const auto& other) {
                 return other != path && is_nested_path(other, path);
             });
-        if (!provided && !std::filesystem::is_directory(path)) {
+        if (provided || std::filesystem::is_directory(path)) {
+            continue;
+        }
+        if (!mutable_root) {
             return util::unexpected{fmt::format(
                 "the mount point {} does not exist", path.string())};
         }
+        auto ancestor = deepest_existing_ancestor(path);
+        if (!ancestor) {
+            return util::unexpected{ancestor.error()};
+        }
+        if (*ancestor != ancestor->root_path() &&
+            ::access(ancestor->c_str(), W_OK) == 0) {
+            return util::unexpected{fmt::format(
+                "the mount point {} does not exist, and the mutable root would "
+                "hide what is written to {}: create it with `mkdir -p {}`",
+                path.string(), ancestor->string(), path.string())};
+        }
     }
     return {};
+}
+
+util::expected<std::filesystem::path, std::string>
+deepest_existing_ancestor(const std::filesystem::path& path) {
+    namespace fs = std::filesystem;
+    fs::path result = path.root_path();
+    for (const auto& component : path.relative_path()) {
+        const auto next = result / component;
+        std::error_code ec;
+        const auto status = fs::symlink_status(next, ec);
+        if (status.type() == fs::file_type::not_found) {
+            break;
+        }
+        if (ec) {
+            return util::unexpected{fmt::format("unable to stat {}: {}",
+                                                next.string(), ec.message())};
+        }
+        if (!fs::is_directory(status)) {
+            return util::unexpected{
+                fmt::format("the mount point {} can not be created: {} is not "
+                            "a directory",
+                            path.string(), next.string())};
+        }
+        result = next;
+    }
+    return result;
+}
+
+util::expected<std::set<std::filesystem::path>, std::string>
+mutable_root_shadow_dirs(const std::set<std::filesystem::path>& dsts) {
+    std::set<std::filesystem::path> result = {"/"};
+    for (const auto& dst : dsts) {
+        if (std::filesystem::is_directory(dst)) {
+            continue;
+        }
+        auto ancestor = deepest_existing_ancestor(dst);
+        if (!ancestor) {
+            return util::unexpected{ancestor.error()};
+        }
+        for (auto p = *ancestor; p != p.root_path(); p = p.parent_path()) {
+            result.insert(p);
+        }
+    }
+    return result;
 }
 
 util::expected<std::vector<uenv::mount_pair>, std::string>

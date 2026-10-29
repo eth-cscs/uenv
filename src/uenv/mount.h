@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <set>
 #include <string>
 #include <sys/types.h>
 #include <vector>
@@ -99,16 +100,36 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
     const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
     const std::vector<tmpfs_tuple>& tmpfs, const mount_order& order);
 
-// Check that the mount point of every --sqfs, --bind-mount and --tmpfs entry
-// exists on the host, unless it lies below another of the requested
-// destinations (it is provided by that mount, see mount_point_providers, and
-// can not be checked before it is mounted), or `mutable_root` is set (the
-// mount point is created on demand). Paths must be in canonical form
+// Check the mount point of every --sqfs, --bind-mount and --tmpfs entry that
+// is on the host: one below another of the requested destinations is
+// provided by that mount (see mount_point_providers), and can not be checked
+// before it is mounted. Paths must be in canonical form
 // (canonical_mount_path).
+//
+// Without `mutable_root`, a mount point on the host must exist. With it, a
+// missing one is created in the mutable root, on the tmpfs copy of the path
+// to it (see mutable_root_shadow_dirs). That is refused when its deepest
+// existing ancestor, other than "/", is writable by the caller: anything the
+// command wrote there would be lost when it exits, so the caller is asked to
+// create the mount point instead.
 util::expected<void, std::string>
 validate_mount_points(const mount_list& mounts,
                       const std::vector<bindmount_pair>& bind_mounts,
                       const std::vector<tmpfs_tuple>& tmpfs, bool mutable_root);
+
+// The deepest ancestor of `path` that exists (`path` itself if it exists).
+// Every existing component must be a directory, so a regular file or a
+// dangling symlink in the path is an error. `path` must be canonical.
+util::expected<std::filesystem::path, std::string>
+deepest_existing_ancestor(const std::filesystem::path& path);
+
+// The directories a mutable root rebuilds on its tmpfs ("shadows") so that
+// every missing mount point in `dsts` can be created there without writing to
+// the host: "/", and each directory from "/" down to the deepest existing
+// ancestor of a missing mount point. Everything else in the mutable root is a
+// bind mount of the host. `dsts` must be canonical.
+util::expected<std::set<std::filesystem::path>, std::string>
+mutable_root_shadow_dirs(const std::set<std::filesystem::path>& dsts);
 
 // one shot from string description to sorted and validated inputs
 //

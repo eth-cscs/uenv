@@ -1,9 +1,12 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
+
+#include <unistd.h>
 
 #include <catch2/catch_all.hpp>
 #include <fmt/core.h>
@@ -751,24 +754,57 @@ TEST_CASE("validate_mount_points", "[mount]") {
             {}, {{"/src", exists}}, {{base, std::nullopt}}, mutable_root));
     }
 
-    // a mount point missing on the host: an error, unless a mutable root
-    // creates it
+    // a mount point missing on the host: an error without a mutable root.
+    // With one, it is also an error when its parent is writable by the
+    // caller (base is), asking to create it
     {
         const std::vector<tmpfs_tuple> tmpfs = {{missing, std::nullopt}};
         REQUIRE(!uenv::validate_mount_points({}, {}, tmpfs, false));
-        REQUIRE(uenv::validate_mount_points({}, {}, tmpfs, true));
+        auto r = uenv::validate_mount_points({}, {}, tmpfs, true);
+        REQUIRE(!r);
+        REQUIRE_THAT(r.error(), Catch::Matchers::ContainsSubstring(fmt::format(
+                                    "mkdir -p {}", missing.string())));
     }
     {
         const std::vector<bindmount_pair> binds = {{"/src", missing}};
         REQUIRE(!uenv::validate_mount_points({}, binds, {}, false));
-        REQUIRE(uenv::validate_mount_points({}, binds, {}, true));
+        REQUIRE(!uenv::validate_mount_points({}, binds, {}, true));
     }
     {
         const uenv::mount_list mounts = {
             mount_pair{.sqfs = "/img.squashfs", .mount = missing}};
         REQUIRE(!uenv::validate_mount_points(mounts, {}, {}, false));
-        REQUIRE(uenv::validate_mount_points(mounts, {}, {}, true));
+        REQUIRE(!uenv::validate_mount_points(mounts, {}, {}, true));
     }
+
+    // with a mutable root, a missing mount point is accepted when its deepest
+    // existing ancestor is not writable (it is shadowed in tmpfs), or is "/"
+    {
+        REQUIRE(uenv::validate_mount_points(
+            {}, {}, {{"/uenv-unit-test-missing/a", std::nullopt}}, true));
+        if (::geteuid() != 0) {
+            const auto ro = base / "read-only";
+            std::filesystem::create_directories(ro);
+            std::filesystem::permissions(
+                ro, std::filesystem::perms::owner_read |
+                        std::filesystem::perms::owner_exec);
+            REQUIRE(uenv::validate_mount_points(
+                {}, {}, {{ro / "new/deeper", std::nullopt}}, true));
+            REQUIRE(!uenv::validate_mount_points(
+                {}, {}, {{ro / "new/deeper", std::nullopt}}, false));
+            std::filesystem::permissions(ro, std::filesystem::perms::owner_all);
+        }
+        // a file in the path can never become a directory
+        std::ofstream(base / "file").close();
+        REQUIRE(!uenv::validate_mount_points(
+            {}, {}, {{base / "file/new", std::nullopt}}, true));
+    }
+
+    // a mount point provided by another mount is not checked with a mutable
+    // root either
+    REQUIRE(uenv::validate_mount_points(
+        {}, {{"/src", exists / "new/x"}},
+        {{exists, std::nullopt}, {exists / "new", std::nullopt}}, true));
 
     // a missing mount point inside a --tmpfs, --sqfs or --bind-mount is
     // provided by that mount, and is not checked on the host
@@ -798,6 +834,80 @@ TEST_CASE("validate_mount_points", "[mount]") {
     // but the provider itself has to exist
     REQUIRE(!uenv::validate_mount_points({}, {{"/src", missing / "new"}},
                                          {{missing, std::nullopt}}, false));
+
+    std::filesystem::remove_all(base);
+}
+
+TEST_CASE("deepest_existing_ancestor", "[mount]") {
+    auto base =
+        std::filesystem::weakly_canonical(util::make_temp_dir().value());
+    std::filesystem::create_directories(base / "a/b");
+    std::ofstream(base / "a/file").close();
+    std::filesystem::create_symlink("does-not-exist", base / "a/dangling");
+
+    REQUIRE(uenv::deepest_existing_ancestor(base / "a/b").value() ==
+            base / "a/b");
+    REQUIRE(uenv::deepest_existing_ancestor(base / "a/b/c").value() ==
+            base / "a/b");
+    REQUIRE(uenv::deepest_existing_ancestor(base / "a/x/y/z").value() ==
+            base / "a");
+    REQUIRE(
+        uenv::deepest_existing_ancestor("/uenv-unit-test-missing/x").value() ==
+        "/");
+    REQUIRE(uenv::deepest_existing_ancestor("/").value() == "/");
+
+    // a file or a dangling symlink in the path
+    REQUIRE(!uenv::deepest_existing_ancestor(base / "a/file/x"));
+    REQUIRE(!uenv::deepest_existing_ancestor(base / "a/dangling/x"));
+
+    std::filesystem::remove_all(base);
+}
+
+TEST_CASE("mutable_root_shadow_dirs", "[mount]") {
+    using S = std::set<std::filesystem::path>;
+    auto base =
+        std::filesystem::weakly_canonical(util::make_temp_dir().value());
+    std::filesystem::create_directories(base / "a/b");
+    std::filesystem::create_directories(base / "c");
+    std::ofstream(base / "file").close();
+
+    // "/" and every ancestor of base
+    S base_path;
+    for (auto p = base; p != p.root_path(); p = p.parent_path()) {
+        base_path.insert(p);
+    }
+    auto with_base = [&](S s) {
+        s.insert(base_path.begin(), base_path.end());
+        s.insert("/");
+        return s;
+    };
+
+    // nothing to create: only "/"
+    REQUIRE(uenv::mutable_root_shadow_dirs({}).value() == S{"/"});
+    REQUIRE(
+        uenv::mutable_root_shadow_dirs({base / "a/b", base / "c"}).value() ==
+        S{"/"});
+
+    // a new top-level name only needs "/"
+    REQUIRE(
+        uenv::mutable_root_shadow_dirs({"/uenv-unit-test-missing/x"}).value() ==
+        S{"/"});
+
+    // a missing leaf: the path down to its parent
+    REQUIRE(uenv::mutable_root_shadow_dirs({base / "a/b/new"}).value() ==
+            with_base({base / "a", base / "a/b"}));
+
+    // missing several levels deep: down to the deepest existing ancestor
+    REQUIRE(uenv::mutable_root_shadow_dirs({base / "a/x/y"}).value() ==
+            with_base({base / "a"}));
+
+    // several mount points: the union, existing ones add nothing
+    REQUIRE(uenv::mutable_root_shadow_dirs(
+                {base / "a/b/new", base / "c/new", base / "c"})
+                .value() == with_base({base / "a", base / "a/b", base / "c"}));
+
+    // a file in the path
+    REQUIRE(!uenv::mutable_root_shadow_dirs({base / "file/new"}));
 
     std::filesystem::remove_all(base);
 }

@@ -3,6 +3,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <set>
 #include <string>
@@ -16,6 +17,8 @@
 #include <unistd.h>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
+#include <fmt/std.h>
 #include <libmount/libmount.h>
 #include <spdlog/spdlog.h>
 
@@ -58,18 +61,6 @@ unsigned long decode_mountoptions(std::string_view options) {
     return flags;
 }
 
-bool has_path_prefix(const std::filesystem::path& path,
-                     const std::filesystem::path& prefix) {
-    auto pit = path.begin(), pend = path.end();
-    auto qit = prefix.begin(), qend = prefix.end();
-    for (; qit != qend; ++pit, ++qit) {
-        if (pit == pend || *pit != *qit) {
-            return false;
-        }
-    }
-    return true;
-}
-
 struct mount_node {
     int id{-1};
     int parent_id{-1};
@@ -98,6 +89,7 @@ struct mount_entry {
     int id{-1};
     int parent_id{-1};
     std::filesystem::path mountpoint;
+    std::string fstype;
     unsigned long flags{0};
 };
 
@@ -128,6 +120,8 @@ util::expected<std::vector<mount_entry>, std::string> parse_mountinfo() {
         e.id = mnt_fs_get_id(fs);
         e.parent_id = mnt_fs_get_parent_id(fs);
         e.mountpoint = mnt_fs_get_target(fs);
+        const char* fstype = mnt_fs_get_fstype(fs);
+        e.fstype = fstype ? fstype : "";
         const char* vfs_options = mnt_fs_get_vfs_options(fs);
         e.flags = decode_mountoptions(vfs_options ? vfs_options : "");
         entries.push_back(std::move(e));
@@ -175,7 +169,7 @@ mounts_under(const std::vector<mount_entry>& entries,
 
     // find children
     for (std::size_t i = 0; i < nodes.size(); ++i) {
-        if (i == root_idx || !has_path_prefix(nodes[i].mountpoint, root)) {
+        if (i == root_idx || !uenv::is_nested_path(root, nodes[i].mountpoint)) {
             continue;
         }
         auto pit = id_to_index.find(nodes[i].parent_id);
@@ -193,15 +187,16 @@ mounts_under(const std::vector<mount_entry>& entries,
         const bool covered =
             std::any_of(parent.children.begin(), parent.children.end(),
                         [&](std::size_t sidx) {
-                            return has_path_prefix(nodes[i].mountpoint,
-                                                   nodes[sidx].mountpoint);
+                            return uenv::is_nested_path(nodes[sidx].mountpoint,
+                                                        nodes[i].mountpoint);
                         });
         if (covered) {
             continue;
         }
         // any sibling nested inside this mount is superseded by it.
         std::erase_if(parent.children, [&](std::size_t sidx) {
-            return has_path_prefix(nodes[sidx].mountpoint, nodes[i].mountpoint);
+            return uenv::is_nested_path(nodes[i].mountpoint,
+                                        nodes[sidx].mountpoint);
         });
         parent.children.push_back(i);
     }
@@ -245,101 +240,149 @@ apply_nosuid_recursive(const std::vector<mount_entry>& entries,
     return {};
 }
 
-// returns the first component of the path in absolute form
-std::filesystem::path get_top_component(const std::filesystem::path& p) {
+// Refuse to shadow a directory on an autofs mount: its entries are mounted
+// on demand, so a copy would only hold the ones that happen to be mounted
+// now. `entries` is the mount table read after the first pivot_root, where
+// the host's mounts are under /oldroot.
+util::expected<void, std::string>
+check_no_autofs(const std::vector<mount_entry>& entries,
+                const std::set<std::filesystem::path>& shadow) {
+    for (const auto& dir : shadow) {
+        if (dir == dir.root_path()) {
+            continue;
+        }
+        const auto host =
+            std::filesystem::path("/oldroot") / dir.relative_path();
+        // the mount that dir is on: the innermost one, and of several at the
+        // same path, the last one (the one the kernel exposes)
+        const mount_entry* mount = nullptr;
+        std::ptrdiff_t depth = 0;
+        for (const auto& e : entries) {
+            if (!uenv::is_nested_path(e.mountpoint, host)) {
+                continue;
+            }
+            const auto d =
+                std::distance(e.mountpoint.begin(), e.mountpoint.end());
+            if (!mount || d >= depth) {
+                mount = &e;
+                depth = d;
+            }
+        }
+        if (mount && mount->fstype == "autofs") {
+            return util::unexpected{fmt::format(
+                "the mutable root can not create a mount point in {}: it is "
+                "on an autofs mount",
+                dir.string())};
+        }
+    }
+    return {};
+}
+
+// Recreate the host directory `dir` (read through /oldroot) at /newroot/dir:
+// shadowed directories below it are recreated in turn, other directories are
+// bind mounted (appended to `bound`), symlinks are copied, and any other file
+// is bind mounted onto an empty file.
+util::expected<void, std::string>
+shadow_dir(const std::filesystem::path& dir,
+           const std::set<std::filesystem::path>& shadow,
+           std::vector<std::filesystem::path>& bound) {
     namespace fs = std::filesystem;
     std::error_code ec;
-    auto abs_p = fs::absolute(p, ec);
-    // ec is ignored
+    const auto src_dir = fs::path("/oldroot") / dir.relative_path();
+    const auto dst_dir = fs::path("/newroot") / dir.relative_path();
 
-    if (abs_p.begin() == abs_p.end())
-        return {}; // empty path
-
-    auto it = abs_p.begin();
-    fs::path result = *it; // root, e.g. "/"
-
-    ++it;
-    if (it == abs_p.end()) {
-        // path was just "/" — no component after root
-        return result;
+    if (dir != dir.root_path()) {
+        const auto perms = fs::status(src_dir, ec).permissions();
+        if (!ec) {
+            fs::create_directory(dst_dir, ec);
+        }
+        if (!ec) {
+            fs::permissions(dst_dir, perms, ec);
+        }
+        if (ec) {
+            return util::unexpected{fmt::format("unable to shadow {}: {}",
+                                                dir.string(), ec.message())};
+        }
     }
 
-    result /= *it; // "/foo"
-    return result;
+    std::size_t count = 0;
+    fs::directory_iterator it(src_dir, ec);
+    for (; !ec && it != fs::directory_iterator(); it.increment(ec)) {
+        if (++count > max_shadow_entries) {
+            return util::unexpected{fmt::format(
+                "the mutable root can not create a mount point in {}: it has "
+                "more than {} entries",
+                dir.string(), max_shadow_entries)};
+        }
+        const auto name = it->path().filename();
+        const auto src = src_dir / name;
+        const auto dst = dst_dir / name;
+        // symlink_status: a symlink is copied, never followed, so a dangling
+        // link or a link to a file needs no special handling
+        const auto type = it->symlink_status(ec).type();
+        if (ec) {
+            break;
+        }
+        if (type == fs::file_type::directory && shadow.contains(dir / name)) {
+            if (auto r = shadow_dir(dir / name, shadow, bound); !r) {
+                return r;
+            }
+        } else if (type == fs::file_type::symlink) {
+            const auto target = fs::read_symlink(src, ec);
+            if (!ec) {
+                fs::create_symlink(target, dst, ec);
+            }
+            if (ec) {
+                return util::unexpected{
+                    fmt::format("unable to recreate symlink {}: {}",
+                                (dir / name).string(), ec.message())};
+            }
+        } else if (type == fs::file_type::directory) {
+            fs::create_directory(dst, ec);
+            if (ec) {
+                return util::unexpected{
+                    fmt::format("fs::create_directory({}) failed with {}",
+                                dst.string(), ec.message())};
+            }
+            if (auto r = uenv::mount(src.string(), dst.string(), std::nullopt,
+                                     MS_BIND | MS_REC | MS_SILENT, nullptr);
+                !r) {
+                return r;
+            }
+            bound.push_back(dst);
+        } else {
+            // a regular file, fifo, socket or device node, e.g. the empty
+            // /.dockerenv marker file some container runtimes create
+            std::ofstream(dst).close();
+            if (auto r = uenv::mount(src.string(), dst.string(), std::nullopt,
+                                     MS_BIND | MS_SILENT, nullptr);
+                !r) {
+                return r;
+            }
+        }
+    }
+    if (ec) {
+        return util::unexpected{
+            fmt::format("unable to list {}: {}", dir.string(), ec.message())};
+    }
+    return {};
 }
 } // namespace
 
-// Rebuild "/" from bind mounts of everything currently under it, inspired by
-// bubblewrap:
+// Rebuild "/" on a tmpfs, shadowing the directories in `shadow` and bind
+// mounting everything else, inspired by bubblewrap:
 // https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L378
 util::expected<void, std::string>
-make_mutable_root(std::set<std::filesystem::path> dst_dirs) {
+make_mutable_root(const std::set<std::filesystem::path>& shadow) {
     namespace fs = std::filesystem;
     std::error_code ec;
-    // exlcude the uenv directories, we might want to create directories below
-    // them (created writable).
-    // destination directories (tmpfs, bind-mount, mount), which do not already
-    // exist are created with mkdir -p. That means their first component is
-    // excluded from the mutable root.
-    std::vector<fs::path> excluded_topdirs;
-    for (auto p : dst_dirs) {
-        auto d = get_top_component(p);
-        // skip directories which do not exist, but whose first component exists
-        // in / (root)
-        //
-        //  Example: --tmpfs /user-environment/foo/bar
-        //    the directory does not exist, but /user-environment does
-        //    --> exclude /user-environment from the mutable-root, the directory
-        //    will be created in the sandbox using mkdir -p
-        if (!fs::is_directory(p) && fs::is_directory(d)) {
-            spdlog::critical(fmt::format("mutable root: skipping {} and all of "
-                                         "it's contents run `mkdir -p {}`"
-                                         "to avoid that",
-                                         d.string(), p.string()));
-            excluded_topdirs.emplace_back(d);
-        }
-    }
 
     auto original_path = fs::current_path(ec);
     if (ec) {
         return util::unexpected(
             fmt::format("fs::current_path failed with {}", ec.message()));
     }
-    spdlog::info("make mutable root");
-    std::vector<fs::path> topdirs;
-    std::vector<fs::path> topfiles;
-    // (symlink, target), the target as stored in the link
-    std::vector<std::pair<fs::path, fs::path>> symlinks;
-    for (const auto& entry : fs::directory_iterator("/")) {
-        // Check is_symlink() first: it is lstat-based and never throws, even
-        // for a dangling target. is_directory() follows the link via
-        // status(), which throws ENOENT for exactly that case - so it must
-        // only be called once a symlink has already been ruled out.
-        // Symlinks are recreated in the new root rather than followed, so a
-        // dangling link or a link to a file needs no special handling.
-        if (entry.is_symlink()) {
-            auto target = fs::read_symlink(entry.path(), ec);
-            if (ec) {
-                return util::unexpected(
-                    fmt::format("unable to read symlink {}: {}",
-                                entry.path().string(), ec.message()));
-            }
-            symlinks.emplace_back(entry.path(), std::move(target));
-        } else if (entry.is_directory()) {
-            if (std::ranges::find(excluded_topdirs, entry.path()) !=
-                std::ranges::end(excluded_topdirs)) {
-                continue;
-            }
-            topdirs.push_back(entry.path());
-        } else {
-            // a regular file, fifo, socket, or device node living directly
-            // under "/" - e.g. the empty /.dockerenv marker file some
-            // container runtimes create. Not a directory and not a
-            // symlink, so it needs its own bind-onto-a-file handling below
-            // rather than falling through to read_symlink().
-            topfiles.push_back(entry.path());
-        }
-    }
+    spdlog::info("make mutable root, shadowing {}", fmt::join(shadow, ", "));
 
     // Recursively make "/" a slave mount so that none of the bind/remount
     // activity below propagates back into the host's mount namespace.
@@ -392,56 +435,26 @@ make_mutable_root(std::set<std::filesystem::path> dst_dirs) {
             fmt::format("fs::current_path(/) failed with {}", ec.message()));
     }
 
-    // top-level symlinks, with their target unchanged: a relative target
-    // resolves against the new "/", which has the same top-level entries
-    for (const auto& [link, target] : symlinks) {
-        auto dst = fs::path("/newroot") / link.relative_path();
-        spdlog::debug("symlink {} -> {}", dst.string(), target.string());
-        fs::create_symlink(target, dst, ec);
-        if (ec) {
-            return util::unexpected(fmt::format(
-                "unable to recreate symlink {} -> {}: {}", link.string(),
-                target.string(), ec.message()));
-        }
+    auto host_mounts = parse_mountinfo();
+    if (!host_mounts) {
+        return util::unexpected{host_mounts.error()};
+    }
+    if (auto r = check_no_autofs(*host_mounts, shadow); !r) {
+        return r;
     }
 
-    // top-level directories
-    std::vector<fs::path> topdir_dsts;
-    topdir_dsts.reserve(topdirs.size());
-    for (auto entry : topdirs) {
-        auto src = fs::path("/oldroot") / entry.relative_path();
-        auto dst = fs::path("/newroot") / entry.relative_path();
-        fs::create_directory(dst, ec);
-        if (ec) {
-            return util::unexpected(
-                fmt::format("fs::create_directory({}) failed with {}",
-                            dst.string(), ec.message()));
-        }
-        if (auto r = uenv::mount(src.string(), dst.string(), std::nullopt,
-                                 MS_BIND | MS_REC | MS_SILENT, nullptr);
-            !r) {
-            return r;
-        }
-        topdir_dsts.push_back(std::move(dst));
-    }
-
-    // regular files, fifos, sockets, device nodes directly under "/"
-    for (const auto& entry : topfiles) {
-        auto src = fs::path("/oldroot") / entry.relative_path();
-        auto dst = fs::path("/newroot") / entry.relative_path();
-        std::ofstream(dst).close();
-        if (auto r = uenv::mount(src.string(), dst.string(), std::nullopt,
-                                 MS_BIND | MS_SILENT, nullptr);
-            !r) {
-            return r;
-        }
+    // "/" and the shadowed directories below it; a relative symlink target
+    // resolves against the new "/", which has the same entries
+    std::vector<fs::path> bound;
+    if (auto r = shadow_dir("/", shadow, bound); !r) {
+        return r;
     }
 
     auto mountinfo = parse_mountinfo();
     if (!mountinfo) {
         return util::unexpected{mountinfo.error()};
     }
-    for (const auto& dst : topdir_dsts) {
+    for (const auto& dst : bound) {
         if (auto r = apply_nosuid_recursive(*mountinfo, dst); !r) {
             return r;
         }

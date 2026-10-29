@@ -554,10 +554,10 @@ fork_mount_supervisor(const mount_request& req) {
 
 // Called after unshare_mount_map_root(), inside the mount namespace the
 // mounts will live in, before apply_mounts(). With a mutable root, rebuild "/"
-// (see make_mutable_root()), since a mutable root starts out without any of
-// the mount points. Without one, every mount point outside a squashfs image
-// must already exist (see parse_and_validate_mounts's
-// mount_points_must_exist), and there is nothing to do.
+// (see make_mutable_root()), shadowing the path to each missing mount point
+// on the host so that apply_mounts() can create it in tmpfs. Without one,
+// every mount point on the host must already exist (validate_mount_points),
+// and there is nothing to do.
 util::expected<void, std::string> prepare_root(const mount_request& req) {
     if (!req.mutable_root) {
         return {};
@@ -574,7 +574,11 @@ util::expected<void, std::string> prepare_root(const mount_request& req) {
         dst_dirs.emplace(uenv::mount_destination(req.order[i], req.mounts,
                                                  req.bind_mounts, req.tmpfs));
     }
-    return make_mutable_root(dst_dirs);
+    auto shadow = uenv::mutable_root_shadow_dirs(dst_dirs);
+    if (!shadow) {
+        return util::unexpected{shadow.error()};
+    }
+    return make_mutable_root(*shadow);
 }
 
 util::expected<void, std::string> unshare_and_mount(const mount_request& req) {
