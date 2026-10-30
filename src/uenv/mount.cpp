@@ -25,6 +25,30 @@
 
 namespace uenv {
 
+namespace {
+// The one spelling every --sqfs, --tmpfs and --bind-mount path is compared in:
+// absolute (a relative path is resolved against the working directory),
+// lexically normal, with symlinks in the part that exists resolved, and
+// without a trailing separator. The mount order and its duplicate check
+// (build_mount_order) rely on every path having been through this.
+util::expected<std::filesystem::path, std::string>
+canonical_mount_path(const std::filesystem::path& p) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    auto result = fs::weakly_canonical(p, ec);
+    if (ec) {
+        return util::unexpected{ec.message()};
+    }
+    // weakly_canonical keeps a trailing separator when the end of the path
+    // does not exist: "/a/missing/" would not compare equal to "/a/missing"
+    // this matters for `build_mount_order`
+    if (!result.has_filename() && result != result.root_path()) {
+        result = result.parent_path();
+    }
+    return result;
+}
+} // namespace
+
 // A mount_description has string descriptions of the squashfs file path and
 // mount path taken from parsing a CLI argument or environment variable.
 // Convert this to a mount_pair by converting these to std::filesystem::path,
@@ -112,22 +136,7 @@ make_mount_pair(const mount_description& d) {
     return mount_pair{.sqfs = sqfs, .mount = *mount};
 }
 
-util::expected<std::filesystem::path, std::string>
-canonical_mount_path(const std::filesystem::path& p) {
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    auto result = fs::weakly_canonical(p, ec);
-    if (ec) {
-        return util::unexpected{ec.message()};
-    }
-    // weakly_canonical keeps a trailing separator when the end of the path
-    // does not exist: "/a/missing/" would not compare equal to "/a/missing"
-    if (!result.has_filename() && result != result.root_path()) {
-        result = result.parent_path();
-    }
-    return result;
-}
-
+namespace {
 util::expected<std::vector<tmpfs_tuple>, std::string>
 canonical_tmpfs_list(std::vector<tmpfs_tuple> tmpfs) {
     for (auto& t : tmpfs) {
@@ -161,6 +170,27 @@ canonical_bindmount_list(std::vector<bindmount_pair> bind_mounts) {
         b.dst = std::move(*dst);
     }
     return bind_mounts;
+}
+} // namespace
+
+util::expected<std::vector<tmpfs_tuple>, std::string>
+parse_and_canonical_tmpfs_list(const std::optional<std::string>& arg) {
+    auto parsed = parse_tmpfs_list(arg);
+    if (!parsed) {
+        return util::unexpected{
+            fmt::format("failed to parse tmpfs: {}", parsed.error().message())};
+    }
+    return canonical_tmpfs_list(std::move(*parsed));
+}
+
+util::expected<std::vector<bindmount_pair>, std::string>
+parse_and_canonical_bindmount_list(const std::optional<std::string>& arg) {
+    auto parsed = parse_bindmount_list(arg);
+    if (!parsed) {
+        return util::unexpected{fmt::format("failed to parse bind mounts: {}",
+                                            parsed.error().message())};
+    }
+    return canonical_bindmount_list(std::move(*parsed));
 }
 
 namespace {

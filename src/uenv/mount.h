@@ -53,23 +53,15 @@ make_mount_pair(const mount_description& description);
 
 using mount_list = std::vector<mount_pair>;
 
-// The one spelling every --sqfs, --tmpfs and --bind-mount path is compared in:
-// absolute (a relative path is resolved against the working directory),
-// lexically normal, with symlinks in the part that exists resolved, and
-// without a trailing separator. The mount order and its duplicate check
-// (build_mount_order) rely on every path having been through this.
-util::expected<std::filesystem::path, std::string>
-canonical_mount_path(const std::filesystem::path& p);
-
-// --tmpfs mount points, and --bind-mount sources and destinations, as parsed
-// by parse_tmpfs_list and parse_bindmount_list, in canonical form (see
-// canonical_mount_path), the same as --sqfs mount points (make_mount_pair).
-// Whether they exist is checked by validate_mount_points, once every --sqfs,
-// --bind-mount and --tmpfs entry is known.
+// Parse the value of --tmpfs or --bind-mount (parse_tmpfs_list and
+// parse_bindmount_list), and put the mount points, sources and destinations in
+// canonical form (see canonical_mount_path), the same as --sqfs mount points
+// (make_mount_pair). Whether they exist is checked by validate_mount_points,
+// once every --sqfs, --bind-mount and --tmpfs entry is known.
 util::expected<std::vector<tmpfs_tuple>, std::string>
-canonical_tmpfs_list(std::vector<tmpfs_tuple> tmpfs);
+parse_and_canonical_tmpfs_list(const std::optional<std::string>& arg);
 util::expected<std::vector<bindmount_pair>, std::string>
-canonical_bindmount_list(std::vector<bindmount_pair> bind_mounts);
+parse_and_canonical_bindmount_list(const std::optional<std::string>& arg);
 
 // Which CLI flag a mount_order_entry's payload came from.
 enum class mount_kind { sqfs, bind_mount, tmpfs };

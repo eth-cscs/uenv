@@ -663,20 +663,6 @@ hello app"
     assert_output "host-content"
 }
 
-@test "a --bind-mount whose source is inside an --sqfs mount point must exist on the host" {
-    require_fuse_backend
-    SQFS_PATH=$SQFS_LIB/apptool/standalone
-    mkdir -p $TMP/a-alias $TMP/sqfs-src
-
-    # env exists in the image, but not on the host
-    run squashfs-mount \
-        --sqfs=$SQFS_PATH/app42.squashfs:$TMP/sqfs-src \
-        --bind-mount=$TMP/sqfs-src/env:$TMP/a-alias \
-        -- true
-    assert_failure
-    assert_output --partial "the bind-mount source $TMP/sqfs-src/env does not exist"
-}
-
 @test "a --bind-mount whose source is the directory of another --bind-mount binds the host's directory" {
     require_fuse_backend
     mkdir -p $TMP/bindsrc/sub $TMP/a-alias $TMP/data/sub

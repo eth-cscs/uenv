@@ -417,8 +417,9 @@ TEST_CASE("parse tmpfs", "[parse]") {
         REQUIRE(!result);
     }
     {
-        // paths are returned as written: canonical_tmpfs_list (mount.cpp)
-        // normalises them, so the parser does not touch the file system
+        // paths are returned as written: parse_and_canonical_tmpfs_list
+        // (mount.cpp) normalises them, so the parser does not touch the file
+        // system
         auto result = uenv::parse_tmpfs_list({"/scratch/./sub/../"});
         REQUIRE(result);
         REQUIRE((*result)[0].mount == "/scratch/./sub/../");

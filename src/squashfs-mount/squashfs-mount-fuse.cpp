@@ -191,22 +191,12 @@ int main(int argc, char** argv, char** envp) {
     // validate the tmpfs and bind mount arguments
     //
 
-    auto parsed_tmpfs = uenv::parse_tmpfs_list(args.tmpfs);
-    if (!parsed_tmpfs) {
-        error_and_exit("failed to parse tmpfs: {}",
-                       parsed_tmpfs.error().message());
-    }
-    auto tmpfs = uenv::canonical_tmpfs_list(std::move(*parsed_tmpfs));
+    auto tmpfs = uenv::parse_and_canonical_tmpfs_list(args.tmpfs);
     if (!tmpfs) {
         error_and_exit("{}", tmpfs.error());
     }
-    auto parsed_bind_mounts = uenv::parse_bindmount_list(args.bind_mounts);
-    if (!parsed_bind_mounts) {
-        error_and_exit("failed to parse bind mounts: {}",
-                       parsed_bind_mounts.error().message());
-    }
     auto bind_mounts =
-        uenv::canonical_bindmount_list(std::move(*parsed_bind_mounts));
+        uenv::parse_and_canonical_bindmount_list(args.bind_mounts);
     if (!bind_mounts) {
         error_and_exit("{}", bind_mounts.error());
     }
