@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,7 @@ extern "C" {
 #include <util/ready_fork.h>
 #include <util/setns.h>
 #include <util/shell.h>
+#include <util/unique_fd.h>
 
 namespace {
 util::expected<int, std::string>
@@ -246,15 +248,73 @@ fuse_lowlevel_ops make_fuse_lowlevel_options() {
     return options;
 }
 
+// Every source of the requested mounts, taken from the host before anything
+// is mounted (see capture_sources): a squashfs image and a --bind-mount source
+// always refer to the host, never to another of the requested mounts or to
+// the mutable root.
+struct captured_sources {
+    // the open image of each --sqfs entry, in the order of the mounts
+    std::vector<util::unique_fd> images;
+    // a detached copy of each --bind-mount source, in the order of the binds
+    std::vector<util::unique_fd> binds;
+};
+
+// Close every fd in `sources` but `keep`, in a forked process that will never
+// return to where `sources` is owned (its unique_fds are not destroyed there).
+void close_sources(const captured_sources& sources, int keep = -1) {
+    for (const auto* fds : {&sources.images, &sources.binds}) {
+        for (const auto& fd : *fds) {
+            if (fd.get() != keep) {
+                ::close(fd.get());
+            }
+        }
+    }
+}
+
+// sqfs_ll_open(), but from an image that is already open: squashfuse would
+// open it by path, inside the mount namespace that is being built, where an
+// earlier --tmpfs or --bind-mount may hide it.
+util::expected<sqfs_ll*, std::string> sqfs_ll_open_fd(int fd) {
+    auto ll = static_cast<sqfs_ll*>(calloc(1, sizeof(sqfs_ll)));
+    if (ll == nullptr) {
+        return util::unexpected("unable to allocate memory");
+    }
+    // sqfs_init cleans up after itself on error
+    if (auto err = sqfs_init(&ll->fs, fd, 0); err != SQFS_OK) {
+        free(ll);
+        switch (err) {
+        case SQFS_BADFORMAT:
+            return util::unexpected("not a squashfs image");
+        case SQFS_BADVERSION:
+            return util::unexpected("unsupported squashfs version");
+        case SQFS_BADCOMP:
+            return util::unexpected("unsupported squashfs compression");
+        default:
+            return util::unexpected(
+                fmt::format("unable to read the image: {}", strerror(errno)));
+        }
+    }
+    if (sqfs_ll_init(ll) != SQFS_OK) {
+        sqfs_destroy(&ll->fs);
+        free(ll);
+        return util::unexpected("unable to initialise the file system");
+    }
+    return ll;
+}
+
 // Mount a squashfs image in the background (forked process), unmount the image
 // when the parent process exits (shell is closed).
 // Adapted from `squashfuse_ll` written by Dave Vasilevsky <dave@vasilevsky.ca>
 // Ref: https://github.com/vasi/squashfuse/blob/master/ll_main.c
 //
+// The image is `sources.images[index]`, opened before anything was mounted;
+// the daemon closes every other captured source.
+//
 // Returns the pid of the forked daemon, which is PDEATHSIG-tied to the
 // caller: the caller owns the mount's lifetime.
-util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
-                                                    bool fuse_single_threaded) {
+util::expected<pid_t, std::string>
+do_sqfs_ll_mount(const mount_pair& entry, const captured_sources& sources,
+                 std::size_t index, bool fuse_single_threaded) {
     spdlog::trace("do_sqfs_ll_mount");
 
     // the child process starts fuse, and informs this process via a pipe when
@@ -268,6 +328,10 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         // do not listen for SIGINT (ctrl+c)
         signal(SIGINT, SIG_IGN);
 
+        // hold no image or bind source other than this daemon's own
+        const int image = sources.images.at(index).get();
+        close_sources(sources, image);
+
         // setup dummy fuse_args to make sqfs_ll_open happy
         std::string dummy{"dummy"};
         std::vector<char*> dummy_args{const_cast<char*>(dummy.c_str()),
@@ -277,29 +341,13 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         // define squashfs file system operations
         auto sqfs_ll_ops = make_fuse_lowlevel_options();
 
-        // fuse_daemonize() will unconditionally clobber fds 0-2.
-        // If we get one of these file descriptors in sqfs_ll_open,
-        // we're going to have a bad time. Just make sure that all
-        // these fds are open before opening the image file, that way
-        // we must get a different fd.
-        while (true) {
-            int fd = open("/dev/null", O_RDONLY);
-            if (fd == -1) {
-                // Can't open /dev/null, how bizarre! However,
-                // fuse_deamonize won't clobber fds if it can't
-                // open /dev/null either, so we ought to be OK.
-                break;
-            }
-            if (fd > 2) {
-                // fds 0-2 are now guaranteed to be open.
-                close(fd);
-                break;
-            }
-        }
-
-        if (auto ll = sqfs_ll_open(entry.sqfs.c_str(), 0); ll == nullptr) {
-            child_fail("sqfs_ll_open_failed");
+        // fuse_daemonize() unconditionally clobbers fds 0-2: the image was
+        // opened at a descriptor above them (see capture_sources)
+        auto opened = sqfs_ll_open_fd(image);
+        if (!opened) {
+            child_fail(opened.error());
         } else {
+            auto ll = *opened;
             // startup fuse
             sqfs_ll_chan ch;
             sqfs_err sqfs_ret =
@@ -392,11 +440,182 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
     return pid;
 }
 
-// Fork one squashfuse daemon per image, report readiness to the task that
-// forked this process, then sleep until killed.
+// Everything the caller asked to be mounted, and the order to mount it in.
+struct mount_request {
+    const uenv::mount_list& mounts;
+    const std::vector<uenv::bindmount_pair>& bind_mounts;
+    const std::vector<uenv::tmpfs_tuple>& tmpfs;
+    // a lexical stable sort of the destinations across all three, see
+    // uenv::build_mount_order()
+    const uenv::mount_order& order;
+    bool mutable_root;
+    bool fuse_single_threaded;
+};
+
+// Take every source of `req` from the host, as it was before anything was
+// mounted, for apply_mounts():
+// - open each squashfs image, so that a --tmpfs or --bind-mount mounted
+//   before it can not hide it from the fuse daemon;
+// - make a detached, recursive copy of each --bind-mount source: the host's
+//   directory with its host submounts, but without any --sqfs, --tmpfs or
+//   --bind-mount, and without the mutable root's tmpfs copies. Each copy is
+//   made nosuid, recursively.
+// So this must be called after unshare_mount_map_root() and before
+// prepare_root() or any mount. Inside the user namespace this process has no
+// more access to the host's files than the calling user.
+util::expected<captured_sources, std::string>
+capture_sources(const mount_request& req) {
+    captured_sources sources;
+    sources.images.reserve(req.mounts.size());
+    for (const auto& m : req.mounts) {
+        util::unique_fd fd(::open(m.sqfs.c_str(), O_RDONLY | O_CLOEXEC));
+        if (fd.get() < 0) {
+            return util::unexpected(
+                fmt::format("unable to open the squashfs image {}: {}",
+                            m.sqfs.string(), strerror(errno)));
+        }
+        // keep it clear of fds 0-2, which fuse_daemonize() clobbers
+        if (fd.get() <= STDERR_FILENO) {
+            fd.reset(::fcntl(fd.get(), F_DUPFD_CLOEXEC, STDERR_FILENO + 1));
+            if (fd.get() < 0) {
+                return util::unexpected(
+                    fmt::format("unable to open the squashfs image {}: {}",
+                                m.sqfs.string(), strerror(errno)));
+            }
+        }
+        sources.images.push_back(std::move(fd));
+    }
+    sources.binds.reserve(req.bind_mounts.size());
+    for (const auto& b : req.bind_mounts) {
+        // AT_RECURSIVE: a mount inherited from the parent namespace is locked
+        // to its submounts, and can only be copied together with them
+        util::unique_fd fd(
+            ::open_tree(AT_FDCWD, b.src.c_str(),
+                        OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_RECURSIVE));
+        if (fd.get() < 0) {
+            const int err = errno;
+            return util::unexpected(fmt::format(
+                "unable to copy the bind-mount source {}: {}{}", b.src.string(),
+                strerror(err),
+                err == ENOSYS ? " (open_tree needs Linux 5.2 or later)" : ""));
+        }
+        mount_attr attr{};
+        attr.attr_set = MOUNT_ATTR_NOSUID;
+        if (::mount_setattr(fd.get(), "", AT_EMPTY_PATH | AT_RECURSIVE, &attr,
+                            sizeof(attr)) != 0) {
+            const int err = errno;
+            return util::unexpected(fmt::format(
+                "unable to make the bind-mount source {} nosuid: {}{}",
+                b.src.string(), strerror(err),
+                err == ENOSYS ? " (mount_setattr needs Linux 5.12 or later)"
+                              : ""));
+        }
+        sources.binds.push_back(std::move(fd));
+    }
+    return sources;
+}
+
+// Mount every --sqfs, --bind-mount and --tmpfs entry in `req.order`, so that a
+// parent destination is always mounted before anything nested under it,
+// whichever flag either came from: a --tmpfs or --bind-mount can land inside
+// a squashfs image, and a squashfs image inside a --tmpfs. Each squashfs image
+// is mounted by its own fuse daemon, PDEATHSIG-tied to this process, whose pid
+// is returned; the image is mounted by the time do_sqfs_ll_mount() returns, so
+// an entry nested inside it can be mounted straight after.
+//
+// A missing mount point is created just before it is mounted on, if the mount
+// that provides it allows (see uenv::mount_point_providers): one inside a
+// --tmpfs always, one on the host only with a mutable root. One inside a
+// squashfs image or a --bind-mount is never created: it must already exist
+// in the image, or in the bind mount's source.
+//
+// Every image and bind source comes from `sources` (see capture_sources),
+// taken from the host before anything was mounted.
+//
+// On failure the daemons started so far are killed: whoever waits on the
+// caller's readiness (see supervisor_main) would otherwise wait on them too.
+util::expected<std::vector<pid_t>, std::string>
+apply_mounts(const mount_request& req, const captured_sources& sources) {
+    std::vector<pid_t> daemons;
+    auto fail = [&daemons](std::string msg)
+        -> util::expected<std::vector<pid_t>, std::string> {
+        for (auto pid : daemons) {
+            ::kill(pid, SIGKILL);
+        }
+        return util::unexpected(std::move(msg));
+    };
+
+    if (req.order.size() !=
+        req.mounts.size() + req.bind_mounts.size() + req.tmpfs.size()) {
+        return fail(fmt::format(
+            "internal error: mount ordering has {} entries but there are {} "
+            "sqfs/bind-mount/tmpfs entries to apply",
+            req.order.size(),
+            req.mounts.size() + req.bind_mounts.size() + req.tmpfs.size()));
+    }
+
+    const auto providers = uenv::mount_point_providers(
+        req.mounts, req.bind_mounts, req.tmpfs, req.order);
+
+    for (std::size_t i = 0; i < req.order.size(); ++i) {
+        const auto& e = req.order[i];
+        const auto& dst =
+            uenv::mount_destination(e, req.mounts, req.bind_mounts, req.tmpfs);
+        const bool create = providers[i]
+                                ? *providers[i] == uenv::mount_kind::tmpfs
+                                : req.mutable_root;
+        if (create) {
+            std::error_code ec;
+            // in a --tmpfs, or on the host with a mutable root
+            // (see mount_point_providers)
+            std::filesystem::create_directories(dst, ec);
+            if (ec) {
+                return fail(fmt::format("failed to create mount point {}: {}",
+                                        dst.string(), ec.message()));
+            }
+        }
+
+        switch (e.kind) {
+        case uenv::mount_kind::sqfs: {
+            auto pid = do_sqfs_ll_mount(req.mounts.at(e.index), sources,
+                                        e.index, req.fuse_single_threaded);
+            if (!pid) {
+                return fail(pid.error());
+            }
+            daemons.push_back(*pid);
+            break;
+        }
+        case uenv::mount_kind::bind_mount: {
+            const auto& entry = req.bind_mounts.at(e.index);
+            spdlog::trace("move_mount({}, {})", entry.src.string(),
+                          entry.dst.string());
+            if (::move_mount(sources.binds.at(e.index).get(), "", AT_FDCWD,
+                             entry.dst.c_str(), MOVE_MOUNT_F_EMPTY_PATH) != 0) {
+                return fail(fmt::format("bind mount {} at {} failed: {}",
+                                        entry.src.string(), entry.dst.string(),
+                                        strerror(errno)));
+            }
+            break;
+        }
+        case uenv::mount_kind::tmpfs: {
+            const auto& entry = req.tmpfs.at(e.index);
+            if (auto r = uenv::mount_tmpfs(entry.mount, entry.size); !r) {
+                return fail(fmt::format("tmpfs mount at {} failed: {}",
+                                        entry.mount.string(), r.error()));
+            }
+            break;
+        }
+        }
+    }
+
+    return daemons;
+}
+
+// Mount everything in `req` (forking one squashfuse daemon per image), report
+// readiness to the task that forked this process, then sleep until killed.
 [[noreturn]] void supervisor_main(util::ready_fork& rf,
-                                  const uenv::mount_list& mounts,
-                                  bool fuse_single_threaded) {
+                                  const mount_request& req,
+                                  const captured_sources& sources) {
     // Deliberately no PR_SET_PDEATHSIG: this process must outlive the task
     // that forked it, which goes on to exec the user's command.
     //
@@ -414,27 +633,25 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
     signal(SIGTERM, SIG_IGN);
     signal(SIGHUP, SIG_IGN);
 
-    std::vector<pid_t> daemons;
+    auto daemons = apply_mounts(req, sources);
+    if (!daemons) {
+        child_fail(daemons.error());
+    }
+    // every bind source is attached and every daemon has its own image fd:
+    // this process, which lives as long as the step, needs none of them
+    close_sources(sources);
     auto abandon = [&daemons](const std::string& msg) {
         // the daemons hold a copy of rf's write end: leaving them running
         // would keep the task blocked in wait_ready() instead of seeing
         // this failure.
-        for (auto pid : daemons) {
+        for (auto pid : *daemons) {
             ::kill(pid, SIGKILL);
         }
         child_fail(msg);
     };
 
-    for (auto& entry : mounts) {
-        auto pid = do_sqfs_ll_mount(entry, fuse_single_threaded);
-        if (!pid) {
-            abandon(pid.error());
-        }
-        daemons.push_back(*pid);
-    }
-
     spdlog::info("mount supervisor {} owns {} mount(s) in cgroup {}", getpid(),
-                 daemons.size(), util::current_cgroup().value_or("<unknown>"));
+                 daemons->size(), util::current_cgroup().value_or("<unknown>"));
 
     // Point fds 0-2 at /dev/null: this process outlives the task that forked
     // it, and holding that task's stdout/stderr pipes open would stall
@@ -461,11 +678,10 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
 // image mounted. Must be called after unshare_mount_map_root(), so that the
 // supervisor and its daemons live in the namespaces the mounts belong to.
 util::expected<void, std::string>
-fork_mount_supervisor(const uenv::mount_list& mounts,
-                      bool fuse_single_threaded) {
-    auto pid = util::fork_and_wait_ready([&](util::ready_fork& rf) {
-        supervisor_main(rf, mounts, fuse_single_threaded);
-    });
+fork_mount_supervisor(const mount_request& req,
+                      const captured_sources& sources) {
+    auto pid = util::fork_and_wait_ready(
+        [&](util::ready_fork& rf) { supervisor_main(rf, req, sources); });
     if (!pid) {
         return util::unexpected(
             fmt::format("mount supervisor failed: {}", pid.error()));
@@ -474,23 +690,57 @@ fork_mount_supervisor(const uenv::mount_list& mounts,
     return {};
 }
 
-util::expected<void, std::string>
-unshare_and_mount(const uenv::mount_list& mounts, bool fuse_single_threaded) {
+// Called after unshare_mount_map_root() and capture_sources(), inside
+// the mount namespace the mounts will live in, before apply_mounts(). With a
+// mutable root, rebuild "/" (see make_mutable_root()), shadowing the path to
+// each missing mount point on the host so that apply_mounts() can create it in
+// tmpfs. Without one, every mount point on the host must already exist
+// (validate_mount_points), and there is nothing to do.
+util::expected<void, std::string> prepare_root(const mount_request& req) {
+    if (!req.mutable_root) {
+        return {};
+    }
+    // the mount points on the host's own file system: one inside another
+    // requested mount is provided by that mount, not by the rebuilt root
+    const auto providers = uenv::mount_point_providers(
+        req.mounts, req.bind_mounts, req.tmpfs, req.order);
+    std::set<std::filesystem::path> dst_dirs;
+    for (std::size_t i = 0; i < req.order.size(); ++i) {
+        if (providers[i]) {
+            continue;
+        }
+        dst_dirs.emplace(uenv::mount_destination(req.order[i], req.mounts,
+                                                 req.bind_mounts, req.tmpfs));
+    }
+    auto shadow = uenv::mutable_root_shadow_dirs(dst_dirs);
+    if (!shadow) {
+        return util::unexpected{shadow.error()};
+    }
+    return make_mutable_root(*shadow);
+}
+
+util::expected<void, std::string> unshare_and_mount(const mount_request& req) {
     if (auto r = unshare_mount_map_root(); !r) {
         return r;
     }
-    for (auto& entry : mounts) {
-        if (auto r = do_sqfs_ll_mount(entry, fuse_single_threaded); !r) {
-            return util::unexpected(r.error());
-        }
+    auto sources = capture_sources(req);
+    if (!sources) {
+        return util::unexpected(sources.error());
+    }
+    if (auto r = prepare_root(req); !r) {
+        return r;
+    }
+    if (auto r = apply_mounts(req, *sources); !r) {
+        return util::unexpected(r.error());
     }
     return {};
 }
 
-util::expected<void, std::string>
-mount_and_join_ns(const std::string& tag, int ntasks,
-                  const uenv::mount_list& mounts, bool fuse_single_threaded,
-                  uid_t uid, gid_t gid) {
+util::expected<void, std::string> mount_and_join_ns(
+    const std::string& tag, int ntasks, const uenv::mount_list& mounts,
+    const std::vector<uenv::bindmount_pair>& bind_mounts,
+    const std::vector<uenv::tmpfs_tuple>& tmpfs, const uenv::mount_order& order,
+    bool fuse_single_threaded, uid_t uid, gid_t gid, bool mutable_root) {
     // capture the caller's dumpable state before unshare_and_mount forces it
     // on, so that lock_down can restore it once the mounts are ready.
     // Any non-zero result (SUID_DUMP_USER or SUID_DUMP_ROOT) counts as
@@ -503,9 +753,16 @@ mount_and_join_ns(const std::string& tag, int ntasks,
     }
     const bool dumps_allowed = dumpable != 0;
 
+    const mount_request req{.mounts = mounts,
+                            .bind_mounts = bind_mounts,
+                            .tmpfs = tmpfs,
+                            .order = order,
+                            .mutable_root = mutable_root,
+                            .fuse_single_threaded = fuse_single_threaded};
+
     if (ntasks == 1) {
         // no peers to join, just mount and drop privileges
-        if (auto r = unshare_and_mount(mounts, fuse_single_threaded); !r) {
+        if (auto r = unshare_and_mount(req); !r) {
             return r;
         }
         if (auto r = map_effective_user(uid, gid); !r) {
@@ -523,6 +780,13 @@ mount_and_join_ns(const std::string& tag, int ntasks,
         if (auto r = unshare_mount_map_root(); !r) {
             return r;
         }
+        auto sources = capture_sources(req);
+        if (!sources) {
+            return util::unexpected(sources.error());
+        }
+        if (auto r = prepare_root(req); !r) {
+            return r;
+        }
 
         // A supervisor process owns the mounts, not this process: this
         // process execs the user's command, and the leader is an arbitrary
@@ -531,14 +795,10 @@ mount_and_join_ns(const std::string& tag, int ntasks,
         if (!daemon_process_will_cleanup()) {
             spdlog::warn(
                 "squashfuse daemon will not get cleaned up automatically.");
-            for (auto& entry : mounts) {
-                if (auto r = do_sqfs_ll_mount(entry, fuse_single_threaded);
-                    !r) {
-                    return util::unexpected(r.error());
-                }
+            if (auto r = apply_mounts(req, *sources); !r) {
+                return util::unexpected(r.error());
             }
-        } else if (auto r = fork_mount_supervisor(mounts, fuse_single_threaded);
-                   !r) {
+        } else if (auto r = fork_mount_supervisor(req, *sources); !r) {
             return r;
         }
 

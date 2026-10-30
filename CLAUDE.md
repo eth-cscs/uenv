@@ -296,6 +296,16 @@ There is no runtime switch between them.
   namespaces with `setns()` rather than each mounting independently. That
   rendezvous is what the next section documents.
 
+  `squashfs-mount` on this backend also takes `--tmpfs`, `--bind-mount` and
+  `-r` (mutable root). Every source is taken from the host before anything is
+  mounted (`capture_sources()`): each image is opened by fd, and each bind
+  source is a detached `open_tree(OPEN_TREE_CLONE)` copy. A bind source inside
+  an `--sqfs` destination is therefore the *host's* directory, not the
+  image's. Because of that, the mount order is just the lexical order of the
+  destinations (`uenv::build_mount_order()`), and a mount point inside a bind
+  can be checked on the host up front (`validate_mount_points()`). This needs
+  Linux 5.12 or later (`mount_setattr`).
+
 ### Who opens the image (kernel backend)
 
 Both privileged entry points — the setuid helper and the root SPANK hook —
@@ -563,6 +573,15 @@ Do not use banner-style section comments with trailing dashes
 //
 // section
 //
+```
+
+All C++ is formatted with clang-format, using `.clang-format` at the repository
+root (`subprojects/` and `extern/barkeep` are excluded by `.clang-format-ignore`).
+CI checks this (`.github/workflows/clang_format.yml`) and fails the PR on any
+difference, so format every changed file before committing:
+
+```bash
+clang-format -i <changed .cpp/.h files>
 ```
 
 ### Error Handling

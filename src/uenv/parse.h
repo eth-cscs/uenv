@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <util/expected.h>
@@ -32,6 +33,23 @@ parse_uenv_args(const std::string& arg);
 
 util::expected<std::vector<mount_description>, parse_error>
 parse_mount_list(const std::string& arg);
+
+// parse the value of the --tmpfs CLI option: a comma-separated list of
+// <mount>[:<size>] items, the same list syntax --sqfs uses. Mount points are
+// returned as written: see parse_and_canonical_tmpfs_list.
+util::expected<std::vector<tmpfs_tuple>, parse_error>
+parse_tmpfs_list(const std::optional<std::string>& arg);
+
+// parse the value of the --bind-mount CLI option: a comma-separated list of
+// <src>:<dst> items, the same list syntax --sqfs uses. Paths are returned as
+// written: see parse_and_canonical_bindmount_list.
+util::expected<std::vector<bindmount_pair>, parse_error>
+parse_bindmount_list(const std::optional<std::string>& arg);
+
+// parse the contents of /proc/self/mountinfo, one entry per line, in the
+// order of the file.
+util::expected<std::vector<mountinfo_entry>, parse_error>
+parse_mountinfo(std::string_view in);
 
 util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg);
 

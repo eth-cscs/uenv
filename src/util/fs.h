@@ -96,7 +96,9 @@ bool touch(const std::filesystem::path& path);
 bool modified_within(const std::filesystem::path& path,
                      std::filesystem::file_time_type::duration age);
 
-// return if a path is inside a directory, i.e. direct or indirect child
+// return if a path is inside a directory, i.e. direct or indirect child, or
+// the directory itself. Decided by path component (not string prefix)
+// comparison: "/data2" is not inside "/data".
 bool is_child(const std::filesystem::path& child,
               const std::filesystem::path& parent);
 

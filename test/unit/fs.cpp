@@ -198,6 +198,13 @@ TEST_CASE("is_child", "[fs]") {
         const std::filesystem::path parent = "/tmp";
         REQUIRE(!util::is_child(child, parent));
     }
+
+    // a path is inside itself
+    REQUIRE(util::is_child("/data", "/data"));
+    // sibling with a shared string prefix
+    REQUIRE(!util::is_child("/data2", "/data"));
+    // the parent is not inside the child
+    REQUIRE(!util::is_child("/data", "/data/foo"));
 }
 
 TEST_CASE("read_regular_file", "[fs]") {

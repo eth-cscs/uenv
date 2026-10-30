@@ -1,5 +1,8 @@
 #pragma once
 
+#include <filesystem>
+#include <set>
+
 #include "uenv/mount.h"
 
 namespace uenv {
@@ -26,10 +29,34 @@ namespace rootless {
 // once it is safe to do so, so a caller that started out non-dumpable ends
 // up non-dumpable again, and one that started out dumpable stays dumpable --
 // callers do not need their own policy for this.
+// `order` gives the application order across `mounts`, `bind_mounts` and
+// `tmpfs` (see uenv::build_mount_order()): a parent is always mounted before
+// anything nested under it. A bind mount's source is always the host's
+// directory, never another of the requested mounts.
+util::expected<void, std::string> mount_and_join_ns(
+    const std::string& tag, int ntasks, const uenv::mount_list& mounts,
+    const std::vector<uenv::bindmount_pair>& bind_mounts,
+    const std::vector<uenv::tmpfs_tuple>& tmpfs, const uenv::mount_order& order,
+    bool fuse_single_threaded, uid_t uid, gid_t gid, bool mutable_root);
+
+// Rebuild "/" on a tmpfs (inspired by bubblewrap), so that mount points which
+// do not exist on the host can be created before mounting onto them. Each
+// directory in `shadow` (see uenv::mutable_root_shadow_dirs(); it must
+// contain "/") is recreated on the tmpfs, holding a bind mount of each of the
+// host's entries, a copy of each symlink, and the shadowed directories below
+// it. Everything else is a bind mount of the host, so writes there reach the
+// host as usual. Must be called after unshare_mount_map_root(), inside the
+// mount namespace that owns the mounts being set up.
+//
+// Errors: a shadowed directory on an autofs mount (its entries are mounted
+// on demand, and a copy would only hold the ones mounted now), or with more
+// than max_shadow_entries entries.
+//
+// Only implemented for the rootless/fuse backend -- the setuid kernel
+// backend does not compile this file in.
+inline constexpr std::size_t max_shadow_entries = 4096;
 util::expected<void, std::string>
-mount_and_join_ns(const std::string& tag, int ntasks,
-                  const uenv::mount_list& mounts, bool fuse_single_threaded,
-                  uid_t uid, gid_t gid);
+make_mutable_root(const std::set<std::filesystem::path>& shadow);
 
 } // namespace rootless
 } // namespace uenv
