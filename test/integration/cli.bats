@@ -775,6 +775,17 @@ EOF
     assert_output --partial "not a directory"
 }
 
+@test "unusable temporary directory is not fatal" {
+    local recipe=$TMP/recipe
+    mkdir -p $recipe
+    touch $recipe/compilers.yaml $recipe/config.yaml $recipe/environments.yaml
+
+    TMPDIR=/nonexistent run uenv build $recipe app/1.0@arapiles%zen3
+
+    assert_failure 1
+    assert_output --partial "unable to find a temporary directory"
+}
+
 @test "malformed user config is reported, not fatal" {
     # a broken user config is a warning and uenv keeps working: a DEL where a
     # key is expected, a dotted key deeper than the parser's nesting limit, an
