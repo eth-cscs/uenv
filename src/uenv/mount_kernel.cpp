@@ -264,9 +264,13 @@ do_mount(const std::vector<opened_image>& images) {
 
         // Check the mount point exists inside the mount loop, because the
         // mount point may have been created inside a previous mount.
-        if (!std::filesystem::is_directory(mount_point)) {
-            return util::unexpected("the mount point is not a valid path: " +
-                                    mount_point);
+        // This runs in the Slurm plugin as well as the setuid helper, so it
+        // must not throw: an exception would terminate slurmstepd.
+        std::error_code ec;
+        if (!std::filesystem::is_directory(mount_point, ec)) {
+            return util::unexpected(fmt::format(
+                "the mount point {} is not a valid path: {}", mount_point,
+                ec ? ec.message() : "not a directory"));
         }
 
         auto loop = attach_loop_device(entry.fd.get(), squashfs_file);

@@ -125,6 +125,26 @@ TEST_CASE("open_images refuses an image that does not exist",
     REQUIRE(images.error().find("No such file") != std::string::npos);
 }
 
+TEST_CASE("do_mount reports a mount point that can't be examined",
+          "[mount][kernel]") {
+    auto root = util::make_temp_dir().value();
+    auto sqfs = root / "image.squashfs";
+    write_image(sqfs);
+    auto mount = util::make_temp_dir().value();
+
+    auto images = uenv::open_images(one_mount(sqfs, mount));
+    REQUIRE(images.has_value());
+
+    // a nested mount point is first examined in do_mount. The check comes
+    // before any privileged call, and must return an error rather than throw:
+    // in the Slurm plugin an exception would terminate slurmstepd.
+    images->front().mount = mount / std::string(300, 'a');
+
+    auto result = uenv::do_mount(*images);
+    REQUIRE(!result.has_value());
+    REQUIRE(result.error().find("File name too long") != std::string::npos);
+}
+
 TEST_CASE("parse_and_validate_mounts reports a permission error as such",
           "[mount]") {
     if (geteuid() == 0) {

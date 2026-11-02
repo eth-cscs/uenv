@@ -27,14 +27,12 @@ namespace util {
 struct temp_dir_wrap {
     std::filesystem::path path;
     ~temp_dir_wrap() {
-        if (std::filesystem::is_directory(path)) {
-            // ignore the error code - being unable to delete a temp path is not
-            // the end of the world.
-            std::error_code ec;
-            std::filesystem::remove_all(path, ec);
-            //  warning: this might be called after spdlog is deactivated, so no
-            //  logging!
-        }
+        // ignore the error code - being unable to delete a temp path is not
+        // the end of the world.
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+        //  warning: this might be called after spdlog is deactivated, so no
+        //  logging!
     }
 };
 
@@ -64,8 +62,13 @@ bool is_temp_dir(const std::filesystem::path& path) {
 
 util::expected<std::filesystem::path, std::string> make_temp_dir() {
     namespace fs = std::filesystem;
-    auto tmp_template =
-        fs::temp_directory_path().string() + "/uenv-XXXXXXXXXXXX";
+    std::error_code ec;
+    const auto tmp_root = fs::temp_directory_path(ec);
+    if (ec) {
+        return unexpected(fmt::format(
+            "unable to find a temporary directory: {}", ec.message()));
+    }
+    auto tmp_template = tmp_root.string() + "/uenv-XXXXXXXXXXXX";
     std::vector<char> base(tmp_template.data(),
                            tmp_template.data() + tmp_template.size() + 1);
 
@@ -76,8 +79,7 @@ util::expected<std::filesystem::path, std::string> make_temp_dir() {
     }
     fs::path tmp_path = base.data();
 
-    spdlog::debug("make_temp_dir: created {}", tmp_path.string(),
-                  fs::is_directory(tmp_path));
+    spdlog::debug("make_temp_dir: created {}", tmp_path.string());
 
     tmp_dir_cache.emplace_back(tmp_path);
 

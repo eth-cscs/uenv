@@ -11,6 +11,7 @@
 #include <util/color.h>
 #include <util/envvars.h>
 #include <util/expected.h>
+#include <util/fs.h>
 #include <util/lustre.h>
 #include <util/shell.h>
 #include <util/subprocess.h>
@@ -78,11 +79,7 @@ call_lfs(const std::vector<std::string>& args) {
 bool is_lustre(const std::filesystem::path& p) {
     constexpr std::size_t luster_magic = 0x0BD00BD0;
 
-    if (!exists(p)) {
-        return false;
-    }
-
-    if (is_regular_file(p) || is_directory(p)) {
+    if (util::path_is_file(p) || util::path_is_dir(p)) {
         struct statfs fsinfo;
         if (statfs(p.c_str(), &fsinfo) == -1) {
             return false;
@@ -158,13 +155,16 @@ util::expected<void, std::string> apply(const lpath& path, lpath_apply f,
                                             path.path.string(), ec.message())};
     }
 
-    for (const auto& it : dir_it) {
-        const auto p = it.path();
+    // Advance with increment(ec): the operator++ used by a range-based for
+    // throws if reading the next entry fails.
+    const std::filesystem::directory_iterator end;
+    for (; !ec && dir_it != end; dir_it.increment(ec)) {
+        const auto p = dir_it->path();
         // Only apply to directories not named meta and regular files
         // This will stop recursion into meta paths, that do not contain
         // contents that require striping.
-        if ((is_directory(p) && p.stem().string() != "meta") ||
-            is_regular_file(p)) {
+        if ((util::path_is_dir(p) && p.stem().string() != "meta") ||
+            util::path_is_file(p)) {
             const auto config = getstripe(p, path.lfs);
             if (!config) {
                 return util::unexpected{fmt::format("{}", config.error())};
@@ -175,6 +175,10 @@ util::expected<void, std::string> apply(const lpath& path, lpath_apply f,
                 return result;
             }
         }
+    }
+    if (ec) {
+        return util::unexpected{fmt::format("file system error {}:{}",
+                                            path.path.string(), ec.message())};
     }
 
     return {};

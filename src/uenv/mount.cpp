@@ -161,8 +161,7 @@ validate_mount_list(const mount_list& input) {
         [](const fs::path& p) -> util::expected<void, std::string> {
         std::error_code ec;
         const auto status = fs::status(p, ec);
-        // test not_found before ec: fs::status sets ec to ENOENT/ENOTDIR when
-        // the path does not exist
+        // ec is also set when the path does not exist, so test for that first
         if (status.type() == fs::file_type::not_found) {
             return util::unexpected{
                 fmt::format("the mount path {} does not exist", p.string())};

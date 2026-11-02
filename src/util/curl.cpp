@@ -1,4 +1,3 @@
-#include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -14,6 +13,7 @@
 #include <util/defer.h>
 #include <util/envvars.h>
 #include <util/expected.h>
+#include <util/fs.h>
 #include <util/strings.h>
 
 namespace util {
@@ -155,12 +155,14 @@ ca_locations resolve_ca_locations(const envvars::state* env) {
     ca_locations ca;
 
     if (env) {
+        // util::path_* log a warning if the path can't be examined. Fall
+        // through to the probes below in that case, as for a missing path.
         if (auto f = env->get("SSL_CERT_FILE");
-            f && !f->empty() && fs::exists(*f)) {
+            f && !f->empty() && util::path_exists(*f)) {
             ca.cainfo = *f;
         }
         if (auto d = env->get("SSL_CERT_DIR");
-            d && !d->empty() && fs::is_directory(*d)) {
+            d && !d->empty() && util::path_is_dir(*d)) {
             ca.capath = *d;
         }
     }
@@ -175,7 +177,8 @@ ca_locations resolve_ca_locations(const envvars::state* env) {
     };
     if (!ca.cainfo) {
         for (const char* p : bundle_files) {
-            if (fs::exists(p)) {
+            std::error_code ec;
+            if (fs::exists(p, ec)) {
                 ca.cainfo = p;
                 break;
             }
@@ -189,7 +192,7 @@ ca_locations resolve_ca_locations(const envvars::state* env) {
     };
     if (!ca.cainfo && !ca.capath) {
         for (const char* p : bundle_dirs) {
-            if (fs::is_directory(p)) {
+            if (util::path_is_dir(p)) {
                 ca.capath = p;
                 break;
             }
