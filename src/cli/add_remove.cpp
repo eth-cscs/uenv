@@ -491,27 +491,37 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
         }
         spdlog::info("image_rm: label {}", *label);
 
-        if (auto r = store->query(*label)) {
-            if (r->empty()) {
-                spdlog::error("no uenv matches {}", U);
-                term::error("no uenv matches {}", U);
-                return 1;
-            } else if (r->size() > 1) {
-                term::error("the pattern {} matches more than one "
-                            "uenv:\n{}use a more specific version",
-                            U,
-                            format_record_set_format(
-                                *r, "{name}/{version}:{tag}@{system}%{uarch}"));
-                return 1;
-            } else {
-                // check whether there are more than one tag attached to sha
-                if (store->query({.name = r->begin()->sha.string()})->size() >
-                    1) {
-                    record = *r->begin();
-                } else {
-                    sha = r->begin()->sha;
-                }
-            }
+        const auto r = store->query(*label);
+        if (!r) {
+            spdlog::error("image_rm: {}", r.error());
+            term::error("unable to query the repository: {}", r.error());
+            return 1;
+        }
+        if (r->empty()) {
+            spdlog::error("no uenv matches {}", U);
+            term::error("no uenv matches {}", U);
+            return 1;
+        }
+        if (r->size() > 1) {
+            term::error("the pattern {} matches more than one "
+                        "uenv:\n{}use a more specific version",
+                        U,
+                        format_record_set_format(
+                            *r, "{name}/{version}:{tag}@{system}%{uarch}"));
+            return 1;
+        }
+
+        // check whether more than one tag is attached to the sha
+        const auto tags = store->query({.name = r->begin()->sha.string()});
+        if (!tags) {
+            spdlog::error("image_rm: {}", tags.error());
+            term::error("unable to query the repository: {}", tags.error());
+            return 1;
+        }
+        if (tags->size() > 1) {
+            record = *r->begin();
+        } else {
+            sha = r->begin()->sha;
         }
     }
 
