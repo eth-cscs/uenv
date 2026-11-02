@@ -744,6 +744,23 @@ EOF
     assert_output --partial "unable to get a listing"
 }
 
+@test "user config that can't be examined is not fatal" {
+    [ "$(id -u)" -ne 0 ] || skip "root ignores file permissions"
+
+    local config_home=$TMP/noaccess
+    mkdir -p $config_home/uenv
+    echo "color = false" > $config_home/uenv/config.toml
+    chmod 000 $config_home
+
+    XDG_CONFIG_HOME=$config_home run uenv status
+    chmod 700 $config_home
+
+    assert_success
+    assert_output --partial "unable to examine"
+    # the existing configuration must not have been replaced by the default
+    assert_equal "$(cat $config_home/uenv/config.toml)" "color = false"
+}
+
 @test "malformed user config is reported, not fatal" {
     # a broken user config is a warning and uenv keeps working: a DEL where a
     # key is expected, a dotted key deeper than the parser's nesting limit, an
