@@ -4,6 +4,7 @@
 
 #include <unistd.h>
 
+#include <fmt/core.h>
 #include <spdlog/spdlog.h>
 
 #include <uenv/log.h>
@@ -76,7 +77,11 @@ util::expected<util::user_ids, std::string> job_ids(spank_t sp) {
 // * check that each image:mountpoint is valid, and that the job user may read
 //   the images, by opening them as the job user
 // * perform mount, as root, on the descriptors that were opened above
-int init_post_opt_remote(spank_t sp) {
+//
+// Errors are returned to the caller instead of being reported to Slurm here:
+// see "Error policy" in plugin.cpp for why a failure in this hook must never
+// reach Slurm as a hook error.
+util::expected<void, std::string> init_post_opt_remote(spank_t sp) {
     // initialise logging to be completely disabled
     uenv::init_log(spdlog::level::off);
 
@@ -86,7 +91,7 @@ int init_post_opt_remote(spank_t sp) {
 
     // variable is not set - nothing to do here
     if (!mount_var) {
-        return ESPANK_SUCCESS;
+        return {};
     }
 
     // The identity the images are opened with: the same uid, gid and groups
@@ -96,8 +101,7 @@ int init_post_opt_remote(spank_t sp) {
     // groups of this process, which are root's.
     auto job = job_ids(sp);
     if (!job) {
-        slurm_error("uenv: %s", job.error().c_str());
-        return -ESPANK_ERROR;
+        return util::unexpected(job.error());
     }
 
     // Validate the mount list and open the images as the job user.
@@ -125,26 +129,29 @@ int init_post_opt_remote(spank_t sp) {
                                   images = uenv::open_images(mounts.value());
                               });
         !result) {
-        slurm_error("uenv: unable to open the uenv images as the job user: %s",
-                    result.error().c_str());
-        return -ESPANK_ERROR;
+        return util::unexpected(
+            fmt::format("unable to open the uenv images as the job user: {}",
+                        result.error()));
     }
     if (!images) {
-        slurm_error("%s", images.error().c_str());
-        return -ESPANK_ERROR;
+        return util::unexpected(images.error());
     }
 
     if (auto result = uenv::unshare_mount_namespace(); !result) {
-        slurm_error("%s", result.error().c_str());
-        return -ESPANK_ERROR;
+        return util::unexpected(result.error());
     }
 
     if (auto result = uenv::do_mount(images.value()); !result) {
-        slurm_error("error mounting the requested uenv image: %s",
-                    result.error().c_str());
-        return -ESPANK_ERROR;
+        return util::unexpected(fmt::format(
+            "error mounting the requested uenv image: {}", result.error()));
     }
 
+    return {};
+}
+
+// The kernel backend mounts in slurm_spank_init_post_opt, before the tasks are
+// forked, so there is nothing left to do per task.
+int task_init(spank_t) {
     return ESPANK_SUCCESS;
 }
 

@@ -477,18 +477,65 @@ EOF
 # requested and none loaded, the local context unsets it before the step is
 # launched.
 #
-# The remote hook reports its errors through Slurm, which surfaces them to the
-# user only as a launch failure, so these assert on the step failing and on
-# nothing being mounted rather than on the message.
+# A refused image must fail the job, never the node: the plugin does not return
+# the error from the hook that mounts (Slurm can drain the node for that), but
+# fails each task before its command is exec'd, and prints the error to the
+# task's stderr. See "Error policy" in src/slurm/plugin.cpp.
 #
+
+# The name of a node to run on, so that a test can check that node's state
+# after running a job that fails on it.
+function test_node() {
+    srun -n1 --oversubscribe printenv SLURMD_NODENAME
+}
+
+function assert_node_not_drained() {
+    run scontrol show node "$1"
+    assert_success
+    refute_output --partial "DRAIN"
+}
 
 @test "unreadable image is refused" {
     SQFS_PATH=$SQFS_LIB/apptool/standalone
     cp $SQFS_PATH/app42.squashfs $TMP/unreadable.squashfs
     chmod 000 $TMP/unreadable.squashfs
 
-    run_srun_unchecked --uenv=$TMP/unreadable.squashfs:/user-environment true
+    run_srun_unchecked --uenv=$TMP/unreadable.squashfs:/user-environment echo should-not-run
     assert_failure
+    # the user sees why, and the command never ran
+    assert_output --partial "unreadable.squashfs"
+    refute_output --partial "should-not-run"
+}
+
+@test "a refused image in sbatch fails the job without draining the node" {
+    # A failed batch step is the case where slurmctld drains the node ("batch
+    # job complete failure") if the plugin returns an error from its hook. A
+    # failed srun step does not drain the node either way, so there is no srun
+    # version of this test.
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    cp $SQFS_PATH/app42.squashfs $TMP/unreadable.squashfs
+    chmod 000 $TMP/unreadable.squashfs
+
+    node=$(test_node)
+    [ -n "$node" ]
+
+    # --no-requeue: if the plugin regresses, Slurm blames the node and
+    # requeues the job, which would then drain the node again as soon as it
+    # was resumed.
+    run_sbatch_unchecked -w "$node" --no-requeue \
+        --uenv=$TMP/unreadable.squashfs:/user-environment \
+        --wrap 'echo should-not-run'
+    local sbatch_status=$status
+
+    # checked first, so that a regression is reported as the drain itself,
+    # rather than as one of its side effects on the job
+    assert_node_not_drained "$node"
+
+    # the job failed, the error is in its output, and the script never ran
+    [ "$sbatch_status" -ne 0 ]
+    run cat "$slurm_log"
+    assert_output --partial "unreadable.squashfs"
+    refute_output --partial "should-not-run"
 }
 
 @test "root-owned image is refused" {
