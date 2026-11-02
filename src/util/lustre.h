@@ -4,7 +4,7 @@
 
 #include <util/envvars.h>
 #include <util/expected.h>
-#include <util/lustre.h>
+#include <util/fs.h>
 
 namespace lustre {
 
@@ -34,10 +34,10 @@ struct lpath {
     std::filesystem::path lfs;
 
     bool is_regular_file() const {
-        return std::filesystem::is_regular_file(path);
+        return util::path_is_file(path);
     }
     bool is_directory() const {
-        return std::filesystem::is_directory(path);
+        return util::path_is_dir(path);
     }
 };
 
