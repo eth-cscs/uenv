@@ -9,6 +9,7 @@
 #include <catch2/catch_all.hpp>
 #include <fmt/core.h>
 
+#include <util/defer.h>
 #include <util/fs.h>
 #include <util/subprocess.h>
 
@@ -268,4 +269,128 @@ TEST_CASE("touch and modified_within", "[fs]") {
     REQUIRE(!fs::exists(dir / "target"));
 
     fs::remove_all(dir);
+}
+
+TEST_CASE("path_exists, path_is_file and path_is_dir", "[fs]") {
+    const auto root = util::make_temp_dir().value();
+    const auto file = root / "file";
+    std::ofstream{file} << "x";
+    const auto dir = root / "dir";
+    fs::create_directory(dir);
+    const auto link_file = root / "link-file";
+    fs::create_symlink(file, link_file);
+    const auto link_dir = root / "link-dir";
+    fs::create_symlink(dir, link_dir);
+    const auto dangling = root / "dangling";
+    fs::create_symlink(root / "missing", dangling);
+
+    struct expect {
+        fs::path path;
+        bool exists;
+        bool is_file;
+        bool is_dir;
+    };
+    const std::vector<expect> cases{
+        {file, true, true, false},
+        {dir, true, false, true},
+        // symlinks are followed
+        {link_file, true, true, false},
+        {link_dir, true, false, true},
+        {dangling, false, false, false},
+        {root / "missing", false, false, false},
+        // ENOTDIR: a path through a regular file
+        {file / "x", false, false, false},
+        // ENAMETOOLONG: the throwing std::filesystem overloads throw here
+        {root / std::string(300, 'a'), false, false, false},
+        {fs::path("/") / std::string(5000, 'a'), false, false, false},
+    };
+    for (const auto& c : cases) {
+        INFO(c.path.string().substr(0, 100));
+        bool exists{}, is_file{}, is_dir{};
+        REQUIRE_NOTHROW(exists = util::path_exists(c.path));
+        REQUIRE_NOTHROW(is_file = util::path_is_file(c.path));
+        REQUIRE_NOTHROW(is_dir = util::path_is_dir(c.path));
+        REQUIRE(exists == c.exists);
+        REQUIRE(is_file == c.is_file);
+        REQUIRE(is_dir == c.is_dir);
+    }
+
+    // EACCES: a file in a directory that can't be searched
+    if (geteuid() != 0) {
+        const auto locked = root / "locked";
+        fs::create_directory(locked);
+        std::ofstream{locked / "file"} << "x";
+        fs::permissions(locked, fs::perms::none);
+        auto restore = util::defer(
+            [&locked]() { fs::permissions(locked, fs::perms::owner_all); });
+
+        bool exists{}, is_file{};
+        REQUIRE_NOTHROW(exists = util::path_exists(locked / "file"));
+        REQUIRE_NOTHROW(is_file = util::path_is_file(locked / "file"));
+        REQUIRE(!exists);
+        REQUIRE(!is_file);
+    }
+}
+
+TEST_CASE("absolute_path", "[fs]") {
+    const auto cwd = fs::current_path();
+
+    {
+        auto p = util::absolute_path("/wombat/soup");
+        REQUIRE(p);
+        REQUIRE(*p == "/wombat/soup");
+    }
+    {
+        auto p = util::absolute_path("wombat");
+        REQUIRE(p);
+        REQUIRE(*p == cwd / "wombat");
+    }
+
+    // a relative path can't be made absolute when the current directory has
+    // been deleted: getcwd fails with ENOENT
+    {
+        const auto gone = util::make_temp_dir().value();
+        fs::current_path(gone);
+        auto restore = util::defer([&cwd]() { fs::current_path(cwd); });
+        fs::remove(gone);
+
+        util::expected<fs::path, std::string> p = fs::path{};
+        REQUIRE_NOTHROW(p = util::absolute_path("wombat"));
+        REQUIRE(!p);
+        // an absolute path does not need the current directory
+        REQUIRE(util::absolute_path("/wombat"));
+    }
+}
+
+TEST_CASE("file_creation_date", "[fs]") {
+    const auto root = util::make_temp_dir().value();
+    const auto file = root / "file";
+    std::ofstream{file} << "x";
+
+    REQUIRE(util::file_creation_date(file));
+
+    auto missing = util::file_creation_date(root / "missing");
+    REQUIRE(!missing);
+    REQUIRE_THAT(missing.error(), Catch::Matchers::ContainsSubstring(
+                                      "No such file or directory"));
+}
+
+TEST_CASE("unsquashfs_tmp invalid input", "[fs]") {
+    const auto root = util::make_temp_dir().value();
+
+    // the input is checked before unsquashfs is run
+    auto missing = util::unsquashfs_tmp(root / "missing.squashfs", "meta");
+    REQUIRE(!missing);
+    REQUIRE_THAT(missing.error(), Catch::Matchers::ContainsSubstring(
+                                      "No such file or directory"));
+
+    auto dir = util::unsquashfs_tmp(root, "meta");
+    REQUIRE(!dir);
+    REQUIRE_THAT(dir.error(),
+                 Catch::Matchers::ContainsSubstring("not a regular file"));
+
+    auto too_long = util::unsquashfs_tmp(root / std::string(300, 'a'), "meta");
+    REQUIRE(!too_long);
+    REQUIRE_THAT(too_long.error(),
+                 Catch::Matchers::ContainsSubstring("File name too long"));
 }
