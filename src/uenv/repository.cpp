@@ -131,8 +131,17 @@ validate_repo_path(const std::filesystem::path& path, bool is_absolute,
         return unexpected(
             fmt::format("'{}' is not an absolute path.", path.string()));
     }
-    if (exists && !util::path_exists(path)) {
-        return unexpected(fmt::format("'{}' does not exist.", path.string()));
+    if (exists) {
+        const auto type = util::path_type(path);
+        if (!type) {
+            return unexpected(fmt::format("'{}' can't be accessed: {}.",
+                                          path.string(),
+                                          type.error().message()));
+        }
+        if (*type == fs::file_type::not_found) {
+            return unexpected(
+                fmt::format("'{}' does not exist.", path.string()));
+        }
     }
     return util::absolute_path(path);
 }

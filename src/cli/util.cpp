@@ -202,9 +202,9 @@ util::expected<squashfs_image, std::string> validate_squashfs_image(
                                             path, file.error().message())};
     }
     img.sqfs = *file;
-    if (!util::path_is_file(img.sqfs)) {
+    if (auto r = util::check_file(img.sqfs); !r) {
         return util::unexpected{
-            fmt::format("invalid squashfs: {} is not a file", path)};
+            fmt::format("invalid squashfs: {} {}", path, r.error())};
     }
     if (auto abs = util::absolute_path(img.sqfs)) {
         img.sqfs = *abs;

@@ -18,6 +18,7 @@
 #include <uenv/mount.h>
 #include <uenv/parse.h>
 #include <util/expected.h>
+#include <util/fs.h>
 
 namespace uenv {
 
@@ -159,21 +160,9 @@ validate_mount_list(const mount_list& input) {
     // network file system) would terminate the process.
     auto check_mount_point =
         [](const fs::path& p) -> util::expected<void, std::string> {
-        std::error_code ec;
-        const auto status = fs::status(p, ec);
-        // ec is also set when the path does not exist, so test for that first
-        if (status.type() == fs::file_type::not_found) {
+        if (auto r = util::check_dir(p); !r) {
             return util::unexpected{
-                fmt::format("the mount path {} does not exist", p.string())};
-        }
-        if (ec) {
-            return util::unexpected{
-                fmt::format("unable to access the mount path {} ({})",
-                            p.string(), ec.message())};
-        }
-        if (!fs::is_directory(status)) {
-            return util::unexpected{fmt::format(
-                "the mount path {} is not a directory", p.string())};
+                fmt::format("the mount path {} {}", p.string(), r.error())};
         }
         return {};
     };

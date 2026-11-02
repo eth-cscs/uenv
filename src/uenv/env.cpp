@@ -98,8 +98,6 @@ struct meta_info {
 };
 
 meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
-    namespace fs = std::filesystem;
-
     // this test checks whether the meta path contains env.json.
     // extend in the future to check for other required files, as needed.
     auto is_valid_meta_path = [](const std::filesystem::path& path) -> bool {
@@ -141,8 +139,6 @@ meta_info find_meta_path(const std::filesystem::path& sqfs_path) {
 // resolves the squashfs path, meta data and record
 util::expected<uenv_info, std::string>
 resolve_uenv_info(const uenv_record& record, const repository& store) {
-    namespace fs = std::filesystem;
-
     if (store.is_in_memory()) {
         throw std::runtime_error(
             "(internal error) the store is not from an on-disk repository");
@@ -159,11 +155,11 @@ resolve_uenv_info(const uenv_record& record, const repository& store) {
         return unexpected(abs.error());
     }
     info.manifest_path = paths.manifest;
-    if (!util::path_is_file(info.sqfs_path)) {
-        return unexpected(fmt::format(
-            "the uenv image {} does not exist or is not a file. Run "
-            "'uenv repo status' to check the health of the repo.",
-            info.sqfs_path));
+    if (auto r = util::check_file(info.sqfs_path); !r) {
+        return unexpected(fmt::format("the uenv image {} {}. Run "
+                                      "'uenv repo status' to check the health "
+                                      "of the repo.",
+                                      info.sqfs_path, r.error()));
     }
     spdlog::info("{} squashfs image {}", record, info.sqfs_path.string());
 
@@ -190,8 +186,6 @@ resolve_uenv_info(const uenv_record& record, const repository& store) {
 // resolve uenv_info for a uenv image defined by the path of a squashfs file
 util::expected<uenv_info, std::string>
 resolve_uenv_info(const std::filesystem::path& sqfs_path) {
-    namespace fs = std::filesystem;
-
     uenv_info info;
 
     // set sqfs_path and digest
@@ -200,11 +194,11 @@ resolve_uenv_info(const std::filesystem::path& sqfs_path) {
     } else {
         return unexpected(abs.error());
     }
-    if (!util::path_is_file(info.sqfs_path)) {
-        return unexpected(fmt::format(
-            "the uenv image {} does not exist or is not a file. Run "
-            "'uenv repo status' to check the health of the repo.",
-            info.sqfs_path));
+    // this image was given as a file, not found in a repository, so there is
+    // no repository to check the health of
+    if (auto r = util::check_file(info.sqfs_path); !r) {
+        return unexpected(
+            fmt::format("the uenv image {} {}", info.sqfs_path, r.error()));
     }
 
     // if meta/env.json exists, parse the json therein
@@ -379,10 +373,9 @@ concretise_env(const std::vector<resolved_uenv>& input_uenvs,
         fs::path mount;
         if (auto p = parse_path(mount_string)) {
             mount = p.value();
-            if (!util::path_is_dir(mount)) {
-                return unexpected(
-                    fmt::format("the mount point {} for {} is not a directory",
-                                mount, label_str));
+            if (auto r = util::check_dir(mount); !r) {
+                return unexpected(fmt::format("the mount point {} for {} {}",
+                                              mount, label_str, r.error()));
             }
             if (!mount.is_absolute()) {
                 return unexpected(fmt::format(

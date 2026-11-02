@@ -772,7 +772,9 @@ EOF
     chmod 700 $noaccess
 
     assert_failure 1
-    assert_output --partial "not a directory"
+    # the reason is reported: the recipe is not "not a directory"
+    assert_output --partial "can't be accessed: Permission denied"
+    refute_output --partial "not a directory"
 }
 
 @test "unusable temporary directory is not fatal" {
@@ -835,7 +837,11 @@ EOF
 
     assert_success
     assert_output --partial "removing stale ref $stale"
-    refute_output --partial "$locked"
+    refute_output --partial "removing stale ref $locked"
+    if [ $can_lock = yes ]; then
+        # the user is told why the record was left alone
+        assert_output --partial "unable to examine $RP/images/$locked/store.squashfs: Permission denied"
+    fi
 
     run uenv --repo=$RP image ls --no-header
     refute_output --partial "wombat/24:v1"

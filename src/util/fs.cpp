@@ -5,6 +5,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <fcntl.h>
@@ -183,27 +184,73 @@ file_creation_date(const std::filesystem::path& path) {
     return *std::gmtime(&cftime);
 }
 
-namespace {
-std::filesystem::file_status status_or_log(const std::filesystem::path& path) {
+util::expected<std::filesystem::file_type, std::error_code>
+path_type(const std::filesystem::path& path) {
+    using std::filesystem::file_type;
+
     std::error_code ec;
     const auto status = std::filesystem::status(path, ec);
-    if (ec && status.type() != std::filesystem::file_type::not_found) {
-        spdlog::warn("unable to examine {}: {}", path.string(), ec.message());
+    // test not_found first: ec is also set when the path does not exist
+    if (status.type() == file_type::not_found) {
+        return file_type::not_found;
     }
-    return status;
+    if (ec) {
+        return util::unexpected{ec};
+    }
+    return status.type();
+}
+
+namespace {
+util::expected<void, std::string>
+check_type(const std::filesystem::path& path,
+           std::filesystem::file_type expected, std::string_view not_expected) {
+    const auto type = path_type(path);
+    if (!type) {
+        return util::unexpected{
+            fmt::format("can't be accessed: {}", type.error().message())};
+    }
+    if (*type == std::filesystem::file_type::not_found) {
+        return util::unexpected{std::string{"does not exist"}};
+    }
+    if (*type != expected) {
+        return util::unexpected{std::string{not_expected}};
+    }
+    return {};
+}
+
+std::filesystem::file_type type_or_log(const std::filesystem::path& path) {
+    const auto type = path_type(path);
+    if (!type) {
+        spdlog::warn("unable to examine {}: {}", path.string(),
+                     type.error().message());
+        return std::filesystem::file_type::none;
+    }
+    return *type;
 }
 } // namespace
 
+util::expected<void, std::string> check_file(const std::filesystem::path& path) {
+    return check_type(path, std::filesystem::file_type::regular,
+                      "is not a regular file");
+}
+
+util::expected<void, std::string> check_dir(const std::filesystem::path& path) {
+    return check_type(path, std::filesystem::file_type::directory,
+                      "is not a directory");
+}
+
 bool path_exists(const std::filesystem::path& path) {
-    return std::filesystem::exists(status_or_log(path));
+    const auto type = type_or_log(path);
+    return type != std::filesystem::file_type::none &&
+           type != std::filesystem::file_type::not_found;
 }
 
 bool path_is_file(const std::filesystem::path& path) {
-    return std::filesystem::is_regular_file(status_or_log(path));
+    return type_or_log(path) == std::filesystem::file_type::regular;
 }
 
 bool path_is_dir(const std::filesystem::path& path) {
-    return std::filesystem::is_directory(status_or_log(path));
+    return type_or_log(path) == std::filesystem::file_type::directory;
 }
 
 util::expected<std::filesystem::path, std::string>

@@ -14,6 +14,7 @@
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
+#include <util/fs.h>
 #include <util/lustre.h>
 
 #include "help.h"
@@ -201,6 +202,20 @@ repo_consistency check_repo_consistency(const uenv::repository& store) {
 
     repo_consistency R{};
 
+    // Only a definite "not found" or a path of the wrong type marks the
+    // storage as missing, because the stale record is then deleted. A path
+    // that can't be examined (EACCES, EIO on a network file system) must not
+    // cost the user their records.
+    auto is_missing = [](const fs::path& path, fs::file_type expected) {
+        const auto type = util::path_type(path);
+        if (!type) {
+            term::warn("unable to examine {}: {}", path.string(),
+                       type.error().message());
+            return false;
+        }
+        return *type != expected;
+    };
+
     // for recording visited digests
     std::set<uenv::sha256> shas;
     for (auto& r : *query) {
@@ -212,27 +227,9 @@ repo_consistency check_repo_consistency(const uenv::repository& store) {
 
             auto p = store.uenv_paths(digest);
 
-            // Only a definite "not found" marks the storage as missing, because
-            // the stale record is then deleted. A path that can't be examined
-            // (EACCES, EIO on a network file system) must not cost the user
-            // their records.
-            auto is_missing = [](const fs::path& path, bool directory) {
-                std::error_code ec;
-                const auto status = fs::status(path, ec);
-                if (status.type() == fs::file_type::not_found) {
-                    return true;
-                }
-                if (ec) {
-                    spdlog::warn("unable to examine {}: {}", path.string(),
-                                 ec.message());
-                    return false;
-                }
-                return directory ? !fs::is_directory(status)
-                                 : !fs::is_regular_file(status);
-            };
-
             // record the digest if the storage path or squashfs file is missing
-            if (is_missing(p.store, true) || is_missing(p.squashfs, false)) {
+            if (is_missing(p.store, fs::file_type::directory) ||
+                is_missing(p.squashfs, fs::file_type::regular)) {
                 spdlog::trace("check_repo_consistency:: {} does not exist",
                               p.squashfs);
                 R.no_storage[digest].push_back(r);

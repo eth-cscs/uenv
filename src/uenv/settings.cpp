@@ -416,8 +416,8 @@ namespace impl::v1 {
 util::expected<config_base, std::string>
 read_config_file(const std::filesystem::path& path,
                  const envvars::state& calling_env) {
-    if (!util::path_is_file(path)) {
-        return util::unexpected{"file does not exist or is not a regular file"};
+    if (auto r = util::check_file(path); !r) {
+        return util::unexpected{fmt::format("the file {}", r.error())};
     }
 
     // open the configuration file
@@ -769,8 +769,8 @@ parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
 util::expected<config_base, std::string>
 read_config_file(const std::filesystem::path& path,
                  [[maybe_unused]] const envvars::state& calling_env) {
-    if (!util::path_is_file(path)) {
-        return util::unexpected{"file does not exist or is not a regular file"};
+    if (auto r = util::check_file(path); !r) {
+        return util::unexpected{fmt::format("the file {}", r.error())};
     }
 
     const auto result = toml::parse_file(path.string());

@@ -2,11 +2,14 @@
 #include <fstream>
 #include <optional>
 
+#include <unistd.h>
+
 #include <catch2/catch_all.hpp>
 #include <fmt/core.h>
 #include <fmt/std.h>
 
 #include <uenv/mount.h>
+#include <util/defer.h>
 #include <util/fs.h>
 
 // namespace fs = std::filesystem;
@@ -86,11 +89,25 @@ TEST_CASE("validate_mounts error messages", "[mount]") {
                      Catch::Matchers::ContainsSubstring("is not a directory"));
     }
 
-    // a path component longer than NAME_MAX can't be examined: this must be
-    // an error, not an exception
+    // a mount point that can't be examined must be an error, not an
+    // exception, and the error must give the reason. (It is caught when the
+    // path is resolved, before validate_mount_list examines it. A path
+    // component longer than NAME_MAX can't be used here: the parser of the
+    // mount list rejects it before the file system is touched.)
     SECTION("mount point that can't be examined") {
+        if (geteuid() == 0) {
+            SKIP("root ignores file permissions");
+        }
+        const auto locked = mount / "locked";
+        fs::create_directories(locked / "mnt");
+        fs::permissions(locked, fs::perms::none);
+        auto restore = util::defer(
+            [&locked]() { fs::permissions(locked, fs::perms::owner_all); });
+
         std::optional<decltype(validate(mount))> result;
-        REQUIRE_NOTHROW(result = validate(mount / std::string(300, 'a')));
+        REQUIRE_NOTHROW(result = validate(locked / "mnt"));
         REQUIRE(!*result);
+        REQUIRE_THAT((*result).error(),
+                     Catch::Matchers::ContainsSubstring("Permission denied"));
     }
 }

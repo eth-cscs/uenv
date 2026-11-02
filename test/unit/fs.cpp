@@ -394,3 +394,51 @@ TEST_CASE("unsquashfs_tmp invalid input", "[fs]") {
     REQUIRE_THAT(too_long.error(),
                  Catch::Matchers::ContainsSubstring("File name too long"));
 }
+
+TEST_CASE("path_type, check_file and check_dir", "[fs]") {
+    using fs::file_type;
+    using Catch::Matchers::ContainsSubstring;
+
+    const auto root = util::make_temp_dir().value();
+    const auto file = root / "file";
+    std::ofstream{file} << "x";
+    const auto dir = root / "dir";
+    fs::create_directory(dir);
+    const auto too_long = root / std::string(300, 'a');
+
+    // a path that does not exist is not an error
+    REQUIRE(util::path_type(root / "missing") == file_type::not_found);
+    REQUIRE(util::path_type(file / "x") == file_type::not_found); // ENOTDIR
+    REQUIRE(util::path_type(file) == file_type::regular);
+    REQUIRE(util::path_type(dir) == file_type::directory);
+    // a path that can't be examined is
+    {
+        auto t = util::path_type(too_long);
+        REQUIRE(!t);
+        REQUIRE(t.error() == std::errc::filename_too_long);
+    }
+
+    REQUIRE(util::check_file(file));
+    REQUIRE(util::check_dir(dir));
+    REQUIRE(util::check_file(root / "missing").error() == "does not exist");
+    REQUIRE(util::check_dir(root / "missing").error() == "does not exist");
+    REQUIRE(util::check_file(dir).error() == "is not a regular file");
+    REQUIRE(util::check_dir(file).error() == "is not a directory");
+    REQUIRE_THAT(util::check_dir(too_long).error(),
+                 ContainsSubstring("can't be accessed: File name too long"));
+
+    if (geteuid() != 0) {
+        const auto locked = root / "locked";
+        fs::create_directory(locked);
+        std::ofstream{locked / "file"} << "x";
+        fs::permissions(locked, fs::perms::none);
+        auto restore = util::defer(
+            [&locked]() { fs::permissions(locked, fs::perms::owner_all); });
+
+        auto t = util::path_type(locked / "file");
+        REQUIRE(!t);
+        REQUIRE(t.error() == std::errc::permission_denied);
+        REQUIRE_THAT(util::check_file(locked / "file").error(),
+                     ContainsSubstring("can't be accessed: Permission denied"));
+    }
+}
