@@ -525,9 +525,15 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
         // delete the files before the database record, so that if the
         // deletion fails the record survives and `image rm` can be retried.
         auto store_path = store->uenv_paths(*sha).store;
-        if (std::filesystem::exists(store_path)) {
+        std::error_code ec;
+        const bool found = std::filesystem::exists(store_path, ec);
+        if (ec) {
+            term::error("image_rm: fs::exists({}) failed with {}", store_path,
+                        ec.message());
+            return 1;
+        }
+        if (found) {
             spdlog::info("image_rm: deleting path {}", store_path.string());
-            std::error_code ec;
             std::filesystem::remove_all(store_path, ec);
             if (ec) {
                 term::error("unable to delete {}: {}", store_path.string(),
