@@ -115,9 +115,11 @@ unsquashfs_tmp(const std::filesystem::path& sqfs,
                const std::filesystem::path& contents) {
     namespace fs = std::filesystem;
 
-    if (!fs::is_regular_file(sqfs)) {
-        return unexpected(fmt::format("unsquashfs_tmp: {} file does not exist",
-                                      sqfs.string()));
+    std::error_code ec;
+    if (!fs::is_regular_file(sqfs, ec)) {
+        return unexpected(
+            fmt::format("unsquashfs_tmp: invalid file {}: {}", sqfs.string(),
+                        ec ? ec.message() : "not a regular file"));
     }
 
     auto base = make_temp_dir();

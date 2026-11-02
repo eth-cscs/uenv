@@ -473,18 +473,26 @@ int repo_update(const repo_update_args& args, const global_settings& settings) {
                       repo->path);
             for (auto& [digest, records] : C.no_storage) {
                 term::msg("  removing stale ref {}", digest);
-                const auto store_path = store->uenv_paths(digest).store;
-                if (std::filesystem::is_directory(store_path)) {
-                    try {
-                        std::filesystem::remove_all(store_path);
-                        spdlog::debug("removed path {}", store_path);
-                    } catch (const std::exception& e) {
-                        term::error("unable to delete {}: {}", store_path,
-                                    e.what());
-                    }
+                // remove the record before the files, as `image rm` does: a
+                // record must never outlive its files.
+                if (auto r = store->remove(digest); !r) {
+                    term::error("unable to remove the record {}: {}", digest,
+                                r.error());
+                    continue;
                 }
-                store->remove(digest);
                 spdlog::debug("removed record {}", digest);
+
+                // the storage is incomplete: remove what is left of it.
+                // remove_all returns 0, without an error, if there is nothing.
+                const auto store_path = store->uenv_paths(digest).store;
+                std::error_code ec;
+                std::filesystem::remove_all(store_path, ec);
+                if (ec) {
+                    term::warn("unable to delete {}: {}", store_path,
+                               ec.message());
+                } else {
+                    spdlog::debug("removed path {}", store_path);
+                }
             }
         }
     } else {

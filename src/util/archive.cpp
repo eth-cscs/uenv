@@ -247,7 +247,13 @@ pack_directory_targz(const fs::path& dir, const fs::path& work_dir,
 
 util::expected<void, std::string> extract_targz(const fs::path& archive_path,
                                                 const fs::path& dest) {
-    const auto dest_norm = fs::weakly_canonical(dest).lexically_normal();
+    std::error_code canon_ec;
+    const auto dest_canonical = fs::weakly_canonical(dest, canon_ec);
+    if (canon_ec) {
+        return util::unexpected{fmt::format("unable to resolve {}: {}", dest,
+                                            canon_ec.message())};
+    }
+    const auto dest_norm = dest_canonical.lexically_normal();
 
     archive* r = archive_read_new();
     if (r == nullptr) {
