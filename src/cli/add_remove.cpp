@@ -522,34 +522,42 @@ int image_rm([[maybe_unused]] const image_rm_args& args,
     if (sha) {
         spdlog::info("removing sha {}", *sha);
 
-        // delete the files before the database record, so that if the
-        // deletion fails the record survives and `image rm` can be retried.
-        auto store_path = store->uenv_paths(*sha).store;
-        std::error_code ec;
-        const bool found = std::filesystem::exists(store_path, ec);
-        if (ec) {
-            term::error("image_rm: fs::exists({}) failed with {}", store_path,
-                        ec.message());
+        // delete the database record before the files, so that a uenv whose
+        // files could not be (fully) deleted is never listed: leftover files
+        // with no record are preferable to a record with no files.
+        // If the record can't be deleted, leave the files in place too.
+        auto result = store->remove(*sha);
+        if (!result) {
+            spdlog::error("image_rm: {}", result.error());
+            term::error("unable to remove {}: {}", U, result.error());
             return 1;
         }
-        if (found) {
-            spdlog::info("image_rm: deleting path {}", store_path.string());
-            std::filesystem::remove_all(store_path, ec);
-            if (ec) {
-                term::error("unable to delete {}: {}", store_path.string(),
-                            ec.message());
-                return 1;
-            }
-        } else {
+        removed = std::move(*result);
+
+        // remove_all returns 0, without an error, if the path does not exist
+        const auto store_path = store->uenv_paths(*sha).store;
+        spdlog::info("image_rm: deleting path {}", store_path.string());
+        std::error_code ec;
+        const auto count = std::filesystem::remove_all(store_path, ec);
+        if (ec) {
+            // the uenv has been removed from the repository: report the
+            // leftover files, which can be deleted by hand, but don't fail.
+            term::warn("unable to delete the files of the uenv in {}: {}",
+                       store_path.string(), ec.message());
+        } else if (count == 0) {
             spdlog::warn("image_rm: the path {} does not exist - skipping",
                          store_path.string());
         }
-
-        removed = *store->remove(*sha);
     } else if (record) {
         spdlog::info("removing record {}", *record);
 
-        removed = *store->remove(*record);
+        auto result = store->remove(*record);
+        if (!result) {
+            spdlog::error("image_rm: {}", result.error());
+            term::error("unable to remove {}: {}", U, result.error());
+            return 1;
+        }
+        removed = std::move(*result);
     }
 
     if (removed.empty()) {
