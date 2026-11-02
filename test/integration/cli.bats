@@ -761,6 +761,20 @@ EOF
     assert_equal "$(cat $config_home/uenv/config.toml)" "color = false"
 }
 
+@test "build recipe that can't be examined is not fatal" {
+    [ "$(id -u)" -ne 0 ] || skip "root ignores file permissions"
+
+    local noaccess=$TMP/noaccess
+    mkdir -p $noaccess/recipe
+    chmod 000 $noaccess
+
+    run uenv build $noaccess/recipe app/1.0@arapiles%zen3
+    chmod 700 $noaccess
+
+    assert_failure 1
+    assert_output --partial "not a directory"
+}
+
 @test "malformed user config is reported, not fatal" {
     # a broken user config is a warning and uenv keeps working: a DEL where a
     # key is expected, a dotted key deeper than the parser's nesting limit, an
