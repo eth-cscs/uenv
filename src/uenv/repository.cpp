@@ -146,18 +146,26 @@ validate_repo_path(const std::filesystem::path& path, bool is_absolute,
     return util::absolute_path(path);
 }
 
+namespace {
+
+// The form of a repository path used to decide whether two repositories are
+// the same: symlinks are resolved, so that two paths to the same directory
+// compare equal. A path that can't be resolved (too long for the file system,
+// a component that can't be read) is compared in its lexically normal form.
+fs::path comparable_path(const fs::path& p) {
+    std::error_code ec;
+    auto c = fs::weakly_canonical(p, ec);
+    return ec ? p.lexically_normal() : c;
+}
+
+} // namespace
+
 bool operator<(const repo_description& lhs, const repo_description& rhs) {
     return lhs.priority < rhs.priority;
 }
 
 bool operator==(const repo_description& lhs, const repo_description& rhs) {
-    // a path that can't be resolved is compared as given
-    auto canonical = [](const std::filesystem::path& p) {
-        std::error_code ec;
-        auto c = std::filesystem::weakly_canonical(p, ec);
-        return ec ? p.lexically_normal() : c;
-    };
-    return canonical(lhs.path) == canonical(rhs.path);
+    return comparable_path(lhs.path) == comparable_path(rhs.path);
 }
 
 //
@@ -205,21 +213,14 @@ std::string make_unique_name(const std::filesystem::path& path,
 
 void repo_list::accumulate(const std::vector<repo_description>& incoming) {
     // Remove existing entries that conflict with any incoming entry.
-    // Incoming wins: same name → update path; same canonical path → rename.
-    // a path that cannot be canonicalised (too long for the filesystem, an
-    // unreadable component) is compared as written.
-    auto canonicalise = [](const fs::path& p) {
-        std::error_code ec;
-        auto c = fs::weakly_canonical(p, ec);
-        return ec ? p : c;
-    };
+    // Incoming wins: same name → update path; same path → rename.
     for (const auto& inc : incoming) {
-        auto canonical = canonicalise(inc.path);
+        const auto path = comparable_path(inc.path);
         repos_.erase(std::remove_if(repos_.begin(), repos_.end(),
                                     [&](const auto& existing) {
                                         return existing.name == inc.name ||
-                                               canonicalise(existing.path) ==
-                                                   canonical;
+                                               comparable_path(existing.path) ==
+                                                   path;
                                     }),
                      repos_.end());
     }
