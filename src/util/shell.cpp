@@ -75,13 +75,10 @@ std::optional<std::filesystem::path> which(std::string const& name,
     };
 
     // resolve symlinks, falling back to the path as given
-    auto resolve = [](const fs::path& p) -> std::optional<fs::path> {
+    auto resolve = [](const fs::path& p) -> fs::path {
         std::error_code ec;
         auto c = fs::canonical(p, ec);
-        if (ec) {
-            return std::nullopt;
-        }
-        return c;
+        return ec ? p : c;
     };
 
     if (name.find('/') != std::string::npos) {
