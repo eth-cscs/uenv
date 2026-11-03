@@ -1,11 +1,15 @@
 #include <filesystem>
 #include <fstream>
+#include <optional>
+
+#include <unistd.h>
 
 #include <catch2/catch_all.hpp>
 #include <fmt/core.h>
 #include <fmt/std.h>
 
 #include <uenv/mount.h>
+#include <util/defer.h>
 #include <util/fs.h>
 
 // namespace fs = std::filesystem;
@@ -52,5 +56,58 @@ TEST_CASE("validate_mounts", "[mount]") {
              fmt::format("{}:{},{}:{}", sqfs_1, mount_other, sqfs_2, mount_a),
          }) {
         REQUIRE(!uenv::parse_and_validate_mounts(input));
+    }
+}
+
+TEST_CASE("validate_mounts error messages", "[mount]") {
+    namespace fs = std::filesystem;
+
+    auto root = util::make_temp_dir().value();
+    auto sqfs = root / "image.squashfs";
+    std::ofstream{sqfs} << "hsqsx";
+    auto mount = util::make_temp_dir().value();
+
+    auto validate = [&sqfs](const fs::path& m) {
+        return uenv::parse_and_validate_mounts(fmt::format("{}:{}", sqfs, m));
+    };
+
+    // fs::status sets its error code for a path that does not exist: that
+    // must be reported as a missing path, not as a path that can't be examined
+    SECTION("missing mount point") {
+        auto result = validate(mount / "missing");
+        REQUIRE(!result);
+        REQUIRE_THAT(result.error(),
+                     Catch::Matchers::ContainsSubstring("does not exist"));
+        REQUIRE_THAT(result.error(),
+                     !Catch::Matchers::ContainsSubstring("unable to access"));
+    }
+
+    SECTION("mount point is a file") {
+        auto result = validate(sqfs);
+        REQUIRE(!result);
+        REQUIRE_THAT(result.error(),
+                     Catch::Matchers::ContainsSubstring("is not a directory"));
+    }
+
+    // a mount point that can't be examined must be an error, not an
+    // exception, and the error must give the reason. (It is caught when the
+    // path is resolved, before validate_mount_list examines it. A path
+    // component longer than NAME_MAX can't be used here: the parser of the
+    // mount list rejects it before the file system is touched.)
+    SECTION("mount point that can't be examined") {
+        if (geteuid() == 0) {
+            SKIP("root ignores file permissions");
+        }
+        const auto locked = mount / "locked";
+        fs::create_directories(locked / "mnt");
+        fs::permissions(locked, fs::perms::none);
+        auto restore = util::defer(
+            [&locked]() { fs::permissions(locked, fs::perms::owner_all); });
+
+        std::optional<decltype(validate(mount))> result;
+        REQUIRE_NOTHROW(result = validate(locked / "mnt"));
+        REQUIRE(!*result);
+        REQUIRE_THAT((*result).error(),
+                     Catch::Matchers::ContainsSubstring("Permission denied"));
     }
 }

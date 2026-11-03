@@ -5,6 +5,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <fcntl.h>
@@ -27,14 +28,12 @@ namespace util {
 struct temp_dir_wrap {
     std::filesystem::path path;
     ~temp_dir_wrap() {
-        if (std::filesystem::is_directory(path)) {
-            // ignore the error code - being unable to delete a temp path is not
-            // the end of the world.
-            std::error_code ec;
-            std::filesystem::remove_all(path, ec);
-            //  warning: this might be called after spdlog is deactivated, so no
-            //  logging!
-        }
+        // ignore the error code - being unable to delete a temp path is not
+        // the end of the world.
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+        //  warning: this might be called after spdlog is deactivated, so no
+        //  logging!
     }
 };
 
@@ -64,8 +63,13 @@ bool is_temp_dir(const std::filesystem::path& path) {
 
 util::expected<std::filesystem::path, std::string> make_temp_dir() {
     namespace fs = std::filesystem;
-    auto tmp_template =
-        fs::temp_directory_path().string() + "/uenv-XXXXXXXXXXXX";
+    std::error_code ec;
+    const auto tmp_root = fs::temp_directory_path(ec);
+    if (ec) {
+        return unexpected(fmt::format(
+            "unable to find a temporary directory: {}", ec.message()));
+    }
+    auto tmp_template = tmp_root.string() + "/uenv-XXXXXXXXXXXX";
     std::vector<char> base(tmp_template.data(),
                            tmp_template.data() + tmp_template.size() + 1);
 
@@ -76,8 +80,7 @@ util::expected<std::filesystem::path, std::string> make_temp_dir() {
     }
     fs::path tmp_path = base.data();
 
-    spdlog::debug("make_temp_dir: created {}", tmp_path.string(),
-                  fs::is_directory(tmp_path));
+    spdlog::debug("make_temp_dir: created {}", tmp_path.string());
 
     tmp_dir_cache.emplace_back(tmp_path);
 
@@ -113,9 +116,11 @@ unsquashfs_tmp(const std::filesystem::path& sqfs,
                const std::filesystem::path& contents) {
     namespace fs = std::filesystem;
 
-    if (!fs::is_regular_file(sqfs)) {
-        return unexpected(fmt::format("unsquashfs_tmp: {} file does not exist",
-                                      sqfs.string()));
+    std::error_code ec;
+    if (!fs::is_regular_file(sqfs, ec)) {
+        return unexpected(
+            fmt::format("unsquashfs_tmp: invalid file {}: {}", sqfs.string(),
+                        ec ? ec.message() : "not a regular file"));
     }
 
     auto base = make_temp_dir();
@@ -159,7 +164,13 @@ file_creation_date(const std::filesystem::path& path) {
     namespace fs = std::filesystem;
     namespace cr = std::chrono;
 
-    const auto creation_time = fs::last_write_time(path);
+    std::error_code ec;
+    const auto creation_time = fs::last_write_time(path, ec);
+    if (ec) {
+        return util::unexpected{
+            fmt::format("unable to read the modification time of {}: {}",
+                        path.string(), ec.message())};
+    }
 
     // convert file_time_type to system clock time_point
     const auto sctp = cr::time_point_cast<cr::system_clock::duration>(
@@ -171,6 +182,87 @@ file_creation_date(const std::filesystem::path& path) {
 
     // extract the date components
     return *std::gmtime(&cftime);
+}
+
+util::expected<std::filesystem::file_type, std::error_code>
+path_type(const std::filesystem::path& path) {
+    using std::filesystem::file_type;
+
+    std::error_code ec;
+    const auto status = std::filesystem::status(path, ec);
+    // test not_found first: ec is also set when the path does not exist
+    if (status.type() == file_type::not_found) {
+        return file_type::not_found;
+    }
+    if (ec) {
+        return util::unexpected{ec};
+    }
+    return status.type();
+}
+
+namespace {
+util::expected<void, std::string>
+check_type(const std::filesystem::path& path,
+           std::filesystem::file_type expected, std::string_view not_expected) {
+    const auto type = path_type(path);
+    if (!type) {
+        return util::unexpected{
+            fmt::format("can't be accessed: {}", type.error().message())};
+    }
+    if (*type == std::filesystem::file_type::not_found) {
+        return util::unexpected{std::string{"does not exist"}};
+    }
+    if (*type != expected) {
+        return util::unexpected{std::string{not_expected}};
+    }
+    return {};
+}
+
+std::filesystem::file_type type_or_log(const std::filesystem::path& path) {
+    const auto type = path_type(path);
+    if (!type) {
+        spdlog::warn("unable to examine {}: {}", path.string(),
+                     type.error().message());
+        return std::filesystem::file_type::none;
+    }
+    return *type;
+}
+} // namespace
+
+util::expected<void, std::string>
+check_file(const std::filesystem::path& path) {
+    return check_type(path, std::filesystem::file_type::regular,
+                      "is not a regular file");
+}
+
+util::expected<void, std::string> check_dir(const std::filesystem::path& path) {
+    return check_type(path, std::filesystem::file_type::directory,
+                      "is not a directory");
+}
+
+bool path_exists(const std::filesystem::path& path) {
+    const auto type = type_or_log(path);
+    return type != std::filesystem::file_type::none &&
+           type != std::filesystem::file_type::not_found;
+}
+
+bool path_is_file(const std::filesystem::path& path) {
+    return type_or_log(path) == std::filesystem::file_type::regular;
+}
+
+bool path_is_dir(const std::filesystem::path& path) {
+    return type_or_log(path) == std::filesystem::file_type::directory;
+}
+
+util::expected<std::filesystem::path, std::string>
+absolute_path(const std::filesystem::path& path) {
+    std::error_code ec;
+    auto abs = std::filesystem::absolute(path, ec);
+    if (ec) {
+        return util::unexpected{fmt::format("unable to make {} absolute: {}",
+                                            path.string(), ec.message())};
+    }
+    return abs;
 }
 
 util::expected<file_lock, std::string>
@@ -262,12 +354,10 @@ file_level file_access_level(const std::filesystem::path& path) {
 
 std::optional<std::string>
 read_single_line_file(const std::filesystem::path& path) {
-    if (std::filesystem::exists(path)) {
-        if (auto file = std::ifstream{path}) {
-            std::string line;
-            if (std::getline(file, line)) {
-                return line;
-            }
+    if (auto file = std::ifstream{path}) {
+        std::string line;
+        if (std::getline(file, line)) {
+            return line;
         }
     }
     return std::nullopt;

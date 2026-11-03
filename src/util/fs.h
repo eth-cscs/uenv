@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 #include <util/expected.h>
 
@@ -28,6 +29,42 @@ void clear_temp_dirs();
 
 util::expected<std::tm, std::string>
 file_creation_date(const std::filesystem::path& path);
+
+// Non-throwing tests on a path, which follow symlinks.
+//
+// The std::filesystem functions without an std::error_code throw when a path
+// can't be examined (EACCES on a parent directory, ENAMETOOLONG, a stale
+// network file system), which terminates the program.
+//
+// fs::status with an std::error_code is easy to get wrong: it sets the error
+// code for a path that does not exist (ENOENT, ENOTDIR) as well as for one
+// that can't be examined. path_type separates the two: a path that does not
+// exist has the type file_type::not_found, and only a path that can't be
+// examined is an error.
+util::expected<std::filesystem::file_type, std::error_code>
+path_type(const std::filesystem::path& path);
+
+// Check that a path is a regular file or a directory. The error says why it
+// isn't, as the end of a sentence about the path, for example
+// fmt::format("the mount point {} {}", path, r.error()):
+//   "does not exist"
+//   "is not a regular file" or "is not a directory"
+//   "can't be accessed: Permission denied" (the reason given by the system)
+// Use these where the reason is reported to the user.
+util::expected<void, std::string> check_file(const std::filesystem::path& path);
+util::expected<void, std::string> check_dir(const std::filesystem::path& path);
+
+// Return false for a path that can't be examined, and log the reason with
+// spdlog::warn. Logging is off by default, so the reason is not seen by the
+// user: use check_file/check_dir where it should be.
+bool path_exists(const std::filesystem::path& path);
+bool path_is_file(const std::filesystem::path& path);
+bool path_is_dir(const std::filesystem::path& path);
+
+// std::filesystem::absolute, reporting a failure (the current directory
+// can't be determined) as an error instead of throwing.
+util::expected<std::filesystem::path, std::string>
+absolute_path(const std::filesystem::path& path);
 
 class file_lock {
   public:

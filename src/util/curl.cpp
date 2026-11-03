@@ -1,9 +1,12 @@
-#include <cctype>
+#include <cerrno>
+#include <cstring>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+
+#include <sys/stat.h>
 
 #include <curl/curl.h>
 #include <curl/easy.h>
@@ -14,6 +17,7 @@
 #include <util/defer.h>
 #include <util/envvars.h>
 #include <util/expected.h>
+#include <util/fs.h>
 #include <util/strings.h>
 
 namespace util {
@@ -155,12 +159,14 @@ ca_locations resolve_ca_locations(const envvars::state* env) {
     ca_locations ca;
 
     if (env) {
+        // util::path_* log a warning if the path can't be examined. Fall
+        // through to the probes below in that case, as for a missing path.
         if (auto f = env->get("SSL_CERT_FILE");
-            f && !f->empty() && fs::exists(*f)) {
+            f && !f->empty() && util::path_exists(*f)) {
             ca.cainfo = *f;
         }
         if (auto d = env->get("SSL_CERT_DIR");
-            d && !d->empty() && fs::is_directory(*d)) {
+            d && !d->empty() && util::path_is_dir(*d)) {
             ca.capath = *d;
         }
     }
@@ -175,7 +181,8 @@ ca_locations resolve_ca_locations(const envvars::state* env) {
     };
     if (!ca.cainfo) {
         for (const char* p : bundle_files) {
-            if (fs::exists(p)) {
+            std::error_code ec;
+            if (fs::exists(p, ec)) {
                 ca.cainfo = p;
                 break;
             }
@@ -189,7 +196,9 @@ ca_locations resolve_ca_locations(const envvars::state* env) {
     };
     if (!ca.cainfo && !ca.capath) {
         for (const char* p : bundle_dirs) {
-            if (fs::is_directory(p)) {
+            // a fixed probe, like the bundle files above: no warning
+            std::error_code ec;
+            if (fs::is_directory(p, ec)) {
                 ca.capath = p;
                 break;
             }
@@ -450,7 +459,16 @@ expected<response, error> perform(const request& req) {
                                     fmt::format("unable to open {} for upload",
                                                 req.upload_file->string())}};
         }
-        curl_off_t file_size = std::filesystem::file_size(*req.upload_file);
+        // the size of the file that was opened, not of whatever the path
+        // refers to by now
+        struct stat st{};
+        if (fstat(fileno(upload), &st) != 0) {
+            return unexpected{
+                error{CURLE_READ_ERROR,
+                      fmt::format("unable to read the size of {}: {}",
+                                  req.upload_file->string(), strerror(errno))}};
+        }
+        const curl_off_t file_size = st.st_size;
         CURL_EASY(curl_easy_setopt(h, CURLOPT_UPLOAD, 1L));
         CURL_EASY(curl_easy_setopt(h, CURLOPT_READDATA, upload));
         CURL_EASY(curl_easy_setopt(h, CURLOPT_INFILESIZE_LARGE, file_size));

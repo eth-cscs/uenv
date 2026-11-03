@@ -595,11 +595,11 @@ mount_and_join_ns(const std::string& tag, int ntasks,
             spdlog::warn("unable to determine the working directory to "
                          "restore after joining the mount namespace");
         } else {
-            try {
-                std::filesystem::current_path(*cwd);
-            } catch (...) {
-                spdlog::warn("unable to restore the working directory {}",
-                             cwd->string());
+            std::error_code ec;
+            std::filesystem::current_path(*cwd, ec);
+            if (ec) {
+                spdlog::warn("unable to restore the working directory {}: {}",
+                             cwd->string(), ec.message());
             }
         }
     }

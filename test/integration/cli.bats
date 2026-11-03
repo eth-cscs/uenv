@@ -744,6 +744,114 @@ EOF
     assert_output --partial "unable to get a listing"
 }
 
+@test "user config that can't be examined is not fatal" {
+    [ "$(id -u)" -ne 0 ] || skip "root ignores file permissions"
+
+    local config_home=$TMP/noaccess
+    mkdir -p $config_home/uenv
+    echo "color = false" > $config_home/uenv/config.toml
+    chmod 000 $config_home
+
+    XDG_CONFIG_HOME=$config_home run uenv status
+    chmod 700 $config_home
+
+    assert_success
+    assert_output --partial "unable to examine"
+    # the existing configuration must not have been replaced by the default
+    assert_equal "$(cat $config_home/uenv/config.toml)" "color = false"
+}
+
+@test "build recipe that can't be examined is not fatal" {
+    [ "$(id -u)" -ne 0 ] || skip "root ignores file permissions"
+
+    local noaccess=$TMP/noaccess
+    mkdir -p $noaccess/recipe
+    chmod 000 $noaccess
+
+    run uenv build $noaccess/recipe app/1.0@arapiles%zen3
+    chmod 700 $noaccess
+
+    assert_failure 1
+    # the reason is reported: the recipe is not "not a directory"
+    assert_output --partial "can't be accessed: Permission denied"
+    refute_output --partial "not a directory"
+}
+
+@test "unusable temporary directory is not fatal" {
+    local recipe=$TMP/recipe
+    mkdir -p $recipe
+    touch $recipe/compilers.yaml $recipe/config.yaml $recipe/environments.yaml
+
+    TMPDIR=/nonexistent run uenv build $recipe app/1.0@arapiles%zen3
+
+    assert_failure 1
+    assert_output --partial "unable to find a temporary directory"
+}
+
+@test "image rm with files that can't be deleted" {
+    [ "$(id -u)" -ne 0 ] || skip "root ignores file permissions"
+
+    local RP=$(mktemp -d $TMP/create-XXXXXX)
+    uenv repo create $RP > /dev/null
+    uenv --repo=$RP image add wombat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs > /dev/null
+    local sha=$(uenv --repo=$RP image inspect wombat/24:v1 --format={sha256})
+
+    # the files can't be deleted from a read-only images path
+    chmod 555 $RP/images
+    run uenv --repo=$RP image rm wombat/24:v1
+    chmod 755 $RP/images
+
+    # the record is removed before the files, so the uenv is no longer listed,
+    # and the leftover files are reported
+    assert_success
+    assert_output --partial "unable to delete the files of the uenv"
+    assert_output --partial "the following uenv was removed"
+    run uenv --repo=$RP image ls --no-header wombat
+    assert_output ""
+    [ -d $RP/images/$sha ]
+}
+
+@test "repo update removes stale records" {
+    local RP=$(mktemp -d $TMP/create-XXXXXX)
+    uenv repo create $RP > /dev/null
+    uenv --repo=$RP image add wombat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/tool.squashfs > /dev/null
+    uenv --repo=$RP image add bilby/24:v1@arapiles%zen3  $SQFS_LIB/apptool/standalone/app42.squashfs > /dev/null
+    uenv --repo=$RP image add numbat/24:v1@arapiles%zen3 $SQFS_LIB/apptool/standalone/app43.squashfs > /dev/null
+    local stale=$(uenv --repo=$RP image inspect wombat/24:v1 --format={sha256})
+    local locked=$(uenv --repo=$RP image inspect numbat/24:v1 --format={sha256})
+
+    # the squashfs file of wombat is missing: the record is stale
+    rm $RP/images/$stale/store.squashfs
+
+    # the squashfs file of numbat can't be examined: the record must be kept,
+    # because the file may well be there
+    local can_lock=$([ "$(id -u)" -ne 0 ] && echo yes || echo no)
+    if [ $can_lock = yes ]; then
+        chmod 000 $RP/images/$locked
+    fi
+
+    run uenv repo update $RP
+    if [ $can_lock = yes ]; then
+        chmod 755 $RP/images/$locked
+    fi
+
+    assert_success
+    assert_output --partial "removing stale ref $stale"
+    refute_output --partial "removing stale ref $locked"
+    if [ $can_lock = yes ]; then
+        # the user is told why the record was left alone
+        assert_output --partial "unable to examine $RP/images/$locked/store.squashfs: Permission denied"
+    fi
+
+    run uenv --repo=$RP image ls --no-header
+    refute_output --partial "wombat/24:v1"
+    assert_output --partial "bilby/24:v1"
+    assert_output --partial "numbat/24:v1"
+
+    # what was left of the stale image's storage is removed
+    [ ! -e $RP/images/$stale ]
+}
+
 @test "malformed user config is reported, not fatal" {
     # a broken user config is a warning and uenv keeps working: a DEL where a
     # key is expected, a dotted key deeper than the parser's nesting limit, an

@@ -1,8 +1,11 @@
+#include <filesystem>
+
 #include <unistd.h>
 
 #include <catch2/catch_all.hpp>
 #include <fmt/core.h>
 
+#include <util/fs.h>
 #include <util/subprocess.h>
 
 namespace matchers = Catch::Matchers;
@@ -63,6 +66,25 @@ TEST_CASE("invalid runpath", "[subprocess]") {
     REQUIRE(getpid() == pid);
     REQUIRE(!proc);
     REQUIRE_THAT(proc.error(), matchers::ContainsSubstring("/wombat/soup"));
+}
+
+TEST_CASE("runpath that can't be examined", "[subprocess]") {
+    if (geteuid() == 0) {
+        SKIP("root ignores file permissions");
+    }
+    namespace fs = std::filesystem;
+
+    auto dir = util::make_temp_dir();
+    REQUIRE(dir);
+    const auto runpath = *dir / "wombat";
+    fs::create_directory(runpath);
+    fs::permissions(*dir, fs::perms::none);
+
+    auto proc = util::run({"pwd"}, runpath);
+    fs::permissions(*dir, fs::perms::owner_all);
+
+    REQUIRE(!proc);
+    REQUIRE_THAT(proc.error(), matchers::ContainsSubstring("denied"));
 }
 
 TEST_CASE("kill", "[subprocess]") {

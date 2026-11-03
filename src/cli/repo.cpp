@@ -14,6 +14,7 @@
 #include <uenv/parse.h>
 #include <uenv/repository.h>
 #include <util/expected.h>
+#include <util/fs.h>
 #include <util/lustre.h>
 
 #include "help.h"
@@ -201,6 +202,20 @@ repo_consistency check_repo_consistency(const uenv::repository& store) {
 
     repo_consistency R{};
 
+    // Only a definite "not found" or a path of the wrong type marks the
+    // storage as missing, because the stale record is then deleted. A path
+    // that can't be examined (EACCES, EIO on a network file system) must not
+    // cost the user their records.
+    auto is_missing = [](const fs::path& path, fs::file_type expected) {
+        const auto type = util::path_type(path);
+        if (!type) {
+            term::warn("unable to examine {}: {}", path.string(),
+                       type.error().message());
+            return false;
+        }
+        return *type != expected;
+    };
+
     // for recording visited digests
     std::set<uenv::sha256> shas;
     for (auto& r : *query) {
@@ -213,8 +228,8 @@ repo_consistency check_repo_consistency(const uenv::repository& store) {
             auto p = store.uenv_paths(digest);
 
             // record the digest if the storage path or squashfs file is missing
-            if (!fs::is_directory(p.store) ||
-                !fs::is_regular_file(p.squashfs)) {
+            if (is_missing(p.store, fs::file_type::directory) ||
+                is_missing(p.squashfs, fs::file_type::regular)) {
                 spdlog::trace("check_repo_consistency:: {} does not exist",
                               p.squashfs);
                 R.no_storage[digest].push_back(r);
@@ -455,18 +470,26 @@ int repo_update(const repo_update_args& args, const global_settings& settings) {
                       repo->path);
             for (auto& [digest, records] : C.no_storage) {
                 term::msg("  removing stale ref {}", digest);
-                const auto store_path = store->uenv_paths(digest).store;
-                if (std::filesystem::is_directory(store_path)) {
-                    try {
-                        std::filesystem::remove_all(store_path);
-                        spdlog::debug("removed path {}", store_path);
-                    } catch (const std::exception& e) {
-                        term::error("unable to delete {}: {}", store_path,
-                                    e.what());
-                    }
+                // remove the record before the files, as `image rm` does: a
+                // record must never outlive its files.
+                if (auto r = store->remove(digest); !r) {
+                    term::error("unable to remove the record {}: {}", digest,
+                                r.error());
+                    continue;
                 }
-                store->remove(digest);
                 spdlog::debug("removed record {}", digest);
+
+                // the storage is incomplete: remove what is left of it.
+                // remove_all returns 0, without an error, if there is nothing.
+                const auto store_path = store->uenv_paths(digest).store;
+                std::error_code ec;
+                std::filesystem::remove_all(store_path, ec);
+                if (ec) {
+                    term::warn("unable to delete {}: {}", store_path,
+                               ec.message());
+                } else {
+                    spdlog::debug("removed path {}", store_path);
+                }
             }
         }
     } else {

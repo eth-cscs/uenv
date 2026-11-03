@@ -15,6 +15,7 @@
 #include <util/color.h>
 #include <util/envvars.h>
 #include <util/expected.h>
+#include <util/fs.h>
 #include <util/strings.h>
 
 namespace uenv {
@@ -235,8 +236,6 @@ read_config_file(const std::filesystem::path& path,
 
 std::optional<std::filesystem::path>
 user_config_path(const envvars::state& calling_env) {
-    namespace fs = std::filesystem;
-
     const auto config_home =
         envvars::xdg_dir(calling_env, "XDG_CONFIG_HOME", ".config");
     // return an null if no path available
@@ -246,7 +245,7 @@ user_config_path(const envvars::state& calling_env) {
 
     const auto config_file = *config_home / "uenv" / "config.toml";
 
-    if (fs::exists(config_file)) {
+    if (util::path_exists(config_file)) {
         return config_file;
     }
 
@@ -284,24 +283,28 @@ load_user_config(const envvars::state& calling_env, user_config_mode mode) {
         auto fid = std::ofstream(path);
         fid << config_file_default << std::endl;
     };
-    if (mode == user_config_mode::read_only && !fs::exists(config_file)) {
-        return config_base{};
+
+    // Don't use util::path_exists here: creating the default configuration
+    // truncates the file, so a config file that can't be examined must not be
+    // mistaken for one that does not exist.
+    std::error_code ec;
+    const bool config_exists = fs::exists(config_file, ec);
+    if (ec) {
+        return util::unexpected{fmt::format(
+            "unable to examine {}: {}", config_file.string(), ec.message())};
     }
-    if (!fs::exists(config_path)) {
+    if (!config_exists) {
+        if (mode == user_config_mode::read_only) {
+            return config_base{};
+        }
         spdlog::debug("load_user_config:: creating configuration path {}",
                       config_path);
-        std::error_code ec;
         fs::create_directories(config_path, ec);
         if (ec) {
             spdlog::error("load_user_config::unable to create config path: {}",
                           ec.message());
             return config_base{};
         }
-        spdlog::debug("load_user_config::creating configuration file {}",
-                      config_file);
-        create_config_file(config_file);
-        return config_base{};
-    } else if (!fs::exists(config_file)) {
         spdlog::debug("load_user_config::creating configuration file {}",
                       config_file);
         create_config_file(config_file);
@@ -324,10 +327,10 @@ load_user_config(const envvars::state& calling_env, user_config_mode mode) {
 std::optional<std::filesystem::path> system_config_path() {
     namespace fs = std::filesystem;
     const auto base = fs::path{"/etc/uenv"};
-    if (auto p = base / "config.toml"; fs::exists(p)) {
+    if (auto p = base / "config.toml"; util::path_exists(p)) {
         return p;
     }
-    if (auto p = base / "config"; fs::exists(p)) {
+    if (auto p = base / "config"; util::path_exists(p)) {
         return p;
     }
     return std::nullopt;
@@ -413,10 +416,8 @@ namespace impl::v1 {
 util::expected<config_base, std::string>
 read_config_file(const std::filesystem::path& path,
                  const envvars::state& calling_env) {
-    namespace fs = std::filesystem;
-
-    if (!fs::exists(path) || !std::filesystem::is_regular_file(path)) {
-        return util::unexpected{"file does not exist or is not a regular file"};
+    if (auto r = util::check_file(path); !r) {
+        return util::unexpected{fmt::format("the file {}", r.error())};
     }
 
     // open the configuration file
@@ -768,10 +769,8 @@ parse_config_toml(const toml::table& input, const envvars::state& calling_env) {
 util::expected<config_base, std::string>
 read_config_file(const std::filesystem::path& path,
                  [[maybe_unused]] const envvars::state& calling_env) {
-    namespace fs = std::filesystem;
-
-    if (!fs::exists(path) || !std::filesystem::is_regular_file(path)) {
-        return util::unexpected{"file does not exist or is not a regular file"};
+    if (auto r = util::check_file(path); !r) {
+        return util::unexpected{fmt::format("the file {}", r.error())};
     }
 
     const auto result = toml::parse_file(path.string());
