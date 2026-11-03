@@ -1,10 +1,12 @@
 #include <optional>
+#include <string>
 
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
 #include <uenv/log.h>
 #include <uenv/mount_rootless.h>
+#include <util/expected.h>
 
 #include "environ.h"
 
@@ -13,34 +15,21 @@ extern "C" {
 #include <slurm/spank.h>
 }
 
-//
-// Forward declare the implementation of the plugin callbacks.
-//
-namespace impl {
-int slurm_spank_task_init_sqfs_ll(spank_t sp);
-} // namespace impl
-
-extern "C" {
-
-int slurm_spank_task_init(spank_t sp, [[maybe_unused]] int ac,
-                          [[maybe_unused]] char** av) {
-    return impl::slurm_spank_task_init_sqfs_ll(sp);
-}
-
-} // extern "C"
-
 namespace impl {
 
-// The FUSE backend mounts per task in slurm_spank_task_init, so there is
-// nothing to do in the remote context. This no-op satisfies the shared
-// dispatcher in plugin.cpp (the kernel backend provides the real
-// implementation in plugin_kernel.cpp).
-int init_post_opt_remote(spank_t) {
-    return ESPANK_SUCCESS;
+// The FUSE backend mounts per task in task_init, so there is nothing to do in
+// the remote context. This no-op satisfies the shared dispatcher in plugin.cpp
+// (the kernel backend provides the real implementation in plugin_kernel.cpp).
+util::expected<void, std::string> init_post_opt_remote(spank_t) {
+    return {};
 }
 
-// use the squashfuse_ll interface
-int slurm_spank_task_init_sqfs_ll(spank_t sp) {
+// Called from slurm_spank_task_init in plugin.cpp: mounts the images using the
+// squashfuse_ll interface.
+//
+// A failure here fails only the task (Slurm makes it _exit(1) before execve),
+// never the node, so it is returned to Slurm directly.
+int task_init(spank_t sp) {
     uenv::init_log(spdlog::level::off);
 
     // parse environment variables to test whether there is anything to
