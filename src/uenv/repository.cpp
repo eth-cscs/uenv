@@ -30,97 +30,24 @@ template <typename T> using hopefully = util::expected<T, std::string>;
 
 using util::unexpected;
 
-// Returns the default location for the uenv repository
+// Returns the built-in fallback location for the uenv repository.
 //
-// searches through scratch locations, then in home.
-//
-// The exists parameter controls how the search is performed
-// - exists==true  -> find the first "default location" that exists.
-// - exists==false -> find the first "default location" where it is possible to
-//                    create a repository.
+// Site-specific locations are not chosen here: they are set by a
+// [[repositories]] entry named "default" in a configuration file, which
+// replaces this fallback when the configuration layers are merged.
 std::optional<std::filesystem::path>
-default_repo_path(const envvars::state& env, bool exists) {
-    namespace fs = std::filesystem;
-    struct path_pair {
-        fs::path base;
-        fs::path repo;
-        fs::path join() const {
-            return base / repo;
-        };
-        bool exists() const {
-            return util::path_is_dir(join()) &&
-                   util::path_is_file(join() / "index.db");
-        }
-        bool writeable() const {
-            auto canwrite = [](const fs::path& path) -> bool {
-                std::error_code ec;
-                auto p = fs::status(path, ec).permissions();
-                return !ec &&
-                       ((p & fs::perms::owner_write) != fs::perms::none ||
-                        (p & fs::perms::group_write) != fs::perms::none ||
-                        (p & fs::perms::others_write) != fs::perms::none);
-            };
-            return canwrite(base) && (exists() ? canwrite(join()) : true);
-        }
-    };
-    std::vector<path_pair> search_paths;
-
-    // Where to look first? That depends on the platform.
-    // This is a bit ugly, and ideally would be in per-cluster/platform config.
-    if (const auto user = env.get("USER")) {
-        const path_pair ritom{fs::path("/ritom/scratch/cscs") / *user,
-                              ".uenv-images"};
-        const path_pair capstor{fs::path("/capstor/scratch/cscs") / *user,
-                                ".uenv-images"};
-        const path_pair iopstor{fs::path("/iopsstor/scratch/cscs") / *user,
-                                ".uenv-images"};
-
-        const auto cluster = env.get("CLUSTER_NAME").value_or("");
-        // HPCP
-        if (cluster == "daint" || cluster == "eiger" || cluster == "pilatus") {
-            search_paths = {ritom, capstor, iopstor};
-            spdlog::debug("default_repo_path: using HPCP search");
-        }
-        // MLP
-        else if (cluster == "clariden" || cluster == "bristen") {
-            search_paths = {iopstor, capstor};
-            spdlog::debug("default_repo_path: using MLP search");
-        }
-        // CWP
-        else if (cluster == "santis") {
-            search_paths = {capstor, iopstor};
-            spdlog::debug("default_repo_path: using CWP search");
-        }
-        // use default search location
-        else {
-            spdlog::debug("default_repo_path: using default search");
-            search_paths = {ritom, capstor, iopstor};
-            // grab SCRATCH and append it: catch the MCH systems and other
-            // systems that have a scratch path outside of the "big 3" storage.
-            if (auto scratch = env.get("SCRATCH")) {
-                search_paths.insert(search_paths.end(),
-                                    {*scratch, ".uenv-images"});
-            }
-        }
-    };
-    if (auto home = env.get("HOME")) {
-        search_paths.push_back({*home, ".uenv/repo"});
+default_repo_path(const envvars::state& env) {
+    if (const auto scratch = env.get("SCRATCH")) {
+        const auto p = fs::path(*scratch) / ".uenv-images";
+        spdlog::debug("default_repo_path: using $SCRATCH {}", p);
+        return p;
     }
-
-    for (const auto& p : search_paths) {
-        spdlog::trace("default_repo_path: checking {}", p.join());
-        if (p.exists() && p.writeable()) {
-            spdlog::debug("default_repo_path: found existing repo {}",
-                          p.join());
-            return p.join();
-        } else if (!exists && p.writeable()) {
-            spdlog::debug("default_repo_path: found writeable repo location {}",
-                          p.join());
-            return p.join();
-        }
+    if (const auto home = env.get("HOME")) {
+        const auto p = fs::path(*home) / ".uenv" / "repo";
+        spdlog::debug("default_repo_path: using $HOME {}", p);
+        return p;
     }
-
-    spdlog::trace("default_repo_path: no default location found");
+    spdlog::debug("default_repo_path: neither SCRATCH nor HOME is set");
     return std::nullopt;
 }
 

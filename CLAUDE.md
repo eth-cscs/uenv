@@ -247,6 +247,17 @@ changing that code path, check they are actually running rather than skipping.
 
 **repository**: SQLite-backed database tracking available uenvs. Operations: query, add, remove, contains.
 
+**default repository**: uenv has no site-specific knowledge of where repositories
+live. The default is the `[[repositories]]` entry named `default` in a config
+layer, which a site sets in `/etc/uenv/config.toml`, e.g.
+`path = "/ritom/scratch/cscs/${USER}/.uenv-images"` with `priority = 9`.
+Repository paths expand `${VAR}` (not bare `$VAR`) and are then validated with
+`parse_path`. With no such entry, `default_repo_path()`
+(`src/uenv/repository.cpp`) falls back to `$SCRATCH/.uenv-images`, then
+`$HOME/.uenv/repo`. The name matters: `repo_list::accumulate` lets an entry from
+a more specific layer replace one with the same name, so the configured
+`default` entry replaces the built-in fallback.
+
 **view**: Named environment configurations within a uenv (stored in env.json metadata).
 
 ### Data Flow

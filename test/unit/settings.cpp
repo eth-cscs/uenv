@@ -23,6 +23,11 @@ util::expected<config_base, uenv::config_error>
 parse_config_toml(const toml::table& input, const envvars::state& calling_env);
 } // namespace uenv::impl::v2
 
+namespace uenv {
+config_base default_config(const envvars::state& env);
+config_base merge(const config_base& lhs, const config_base& rhs);
+} // namespace uenv
+
 TEST_CASE("read config files v1", "[settings]") {
     auto exe = util::exe_path();
     if (!exe) {
@@ -434,6 +439,121 @@ TEST_CASE("read config files v2 malformed", "[settings]") {
             REQUIRE(!result);
             REQUIRE(!result.error().empty());
         }
+    }
+}
+
+TEST_CASE("repository priority", "[settings]") {
+    using namespace uenv::impl::v2;
+    using uenv::repo_description;
+
+    auto parse = [](const std::string& body) {
+        return parse_config_toml(
+            toml::parse("[[repositories]]\nname = 'a'\npath = '/x'\n" + body),
+            {});
+    };
+
+    {
+        auto result = parse("priority = 9\n");
+        REQUIRE(result);
+        REQUIRE(result->repos.size() == 1u);
+        REQUIRE(result->repos[0].priority == 9u);
+    }
+    {
+        auto result = parse("priority = 0\n");
+        REQUIRE(result);
+        REQUIRE(result->repos[0].priority == 0u);
+    }
+    {
+        auto result = parse("");
+        REQUIRE(result);
+        REQUIRE(result->repos[0].priority ==
+                repo_description::default_priority);
+    }
+    for (const auto& body :
+         {"priority = -1\n", "priority = '9'\n", "priority = 1.5\n",
+          "priority = true\n", "priority = 4294967296\n"}) {
+        INFO(body);
+        auto result = parse(body);
+        REQUIRE(!result);
+        REQUIRE(result.error().message.find("repository.priority") !=
+                std::string::npos);
+    }
+}
+
+TEST_CASE("default repository", "[settings]") {
+    using uenv::repo_description;
+    constexpr auto default_priority = repo_description::default_priority - 1;
+
+    // the fallback: $SCRATCH/.uenv-images, then $HOME/.uenv/repo
+    {
+        envvars::state env{};
+        env.set("SCRATCH", "/s");
+        env.set("HOME", "/h");
+        auto cfg = uenv::default_config(env);
+        REQUIRE(cfg.repos.size() == 1u);
+        REQUIRE(cfg.repos[0].name == "default");
+        REQUIRE(cfg.repos[0].path == "/s/.uenv-images");
+        REQUIRE(cfg.repos[0].priority == default_priority);
+    }
+    {
+        envvars::state env{};
+        env.set("HOME", "/h");
+        auto cfg = uenv::default_config(env);
+        REQUIRE(cfg.repos.size() == 1u);
+        REQUIRE(cfg.repos[0].name == "default");
+        REQUIRE(cfg.repos[0].path == "/h/.uenv/repo");
+    }
+    {
+        auto cfg = uenv::default_config(envvars::state{});
+        REQUIRE(cfg.repos.empty());
+    }
+    // no site-specific locations are chosen from the user or cluster name
+    {
+        envvars::state env{};
+        env.set("USER", "wombat");
+        env.set("CLUSTER_NAME", "daint");
+        env.set("SCRATCH", "/s");
+        auto cfg = uenv::default_config(env);
+        REQUIRE(cfg.repos.size() == 1u);
+        REQUIRE(cfg.repos[0].path == "/s/.uenv-images");
+    }
+
+    // a repository named "default" in a configuration file, with environment
+    // variables interpolated, replaces the fallback
+    {
+        envvars::state env{};
+        env.set("USER", "wombat");
+        env.set("SCRATCH", "/s");
+        const std::string_view input = R"(
+[[repositories]]
+name = "default"
+path = "/ritom/scratch/cscs/${USER}/.uenv-images"
+priority = 9
+)";
+        auto sys = uenv::impl::v2::parse_config_toml(toml::parse(input), env);
+        REQUIRE(sys);
+        auto cfg = uenv::merge(*sys, uenv::default_config(env));
+        REQUIRE(cfg.repos.size() == 1u);
+        REQUIRE(cfg.repos[0].name == "default");
+        REQUIRE(cfg.repos[0].path == "/ritom/scratch/cscs/wombat/.uenv-images");
+        REQUIRE(cfg.repos[0].priority == 9u);
+    }
+    // a repository with another name is added alongside the default
+    {
+        envvars::state env{};
+        env.set("SCRATCH", "/s");
+        const std::string_view input = R"(
+[[repositories]]
+name = "team"
+path = "/store/team"
+)";
+        auto sys = uenv::impl::v2::parse_config_toml(toml::parse(input), env);
+        REQUIRE(sys);
+        auto cfg = uenv::merge(*sys, uenv::default_config(env));
+        REQUIRE(cfg.repos.size() == 2u);
+        REQUIRE(cfg.repos[0].name == "default");
+        REQUIRE(cfg.repos[0].path == "/s/.uenv-images");
+        REQUIRE(cfg.repos[1].name == "team");
     }
 }
 

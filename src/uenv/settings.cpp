@@ -1,5 +1,7 @@
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 
 #include <fmt/format.h>
@@ -29,9 +31,11 @@ const std::string config_file_default =
 #color = false
 
 # set the path to the local uenv repository
+# environment variables in the path are expanded using the ${VAR} syntax.
+# a repository named 'default' replaces the default repository.
 #[[repositories]]
 #name = 'team'
-#path = '/store/g123/uenv/repo'
+#path = '${STORE}/uenv/repo'
 )";
 
 util::unexpected<config_error> make_config_error(std::string message,
@@ -115,51 +119,19 @@ config_base merge(const config_base& lhs, const config_base& rhs) {
 }
 
 config_base default_config(const envvars::state& env) {
-    // find whether a repo exists in the list of possible default repo
-    // loations
-    auto rexist = default_repo_path(env, true);
-    // find the recommended repo location (if one is available)
-    auto ravail = default_repo_path(env, false);
-
-    // if the default repository is not at the recommended location, print a
-    // warning and suggestion that the user upgrade to a new uenv
-    // NOTE: the backend library code is not supposed to print to the
-    // terminal, but we make an exception in this case to get this feature
-    // in place.
-    if (rexist && (rexist != ravail) && !env.get("UENV_WARN_MIGRATE")) {
-        // clang-format off
-        fmt::print(
-            stderr,
-            "--------------------------------------------------------------------------------\n"
-            "{}: the default uenv repo on this system has moved to a new location:\n"
-            "  {}\n"
-            "Migrate your repo, while the old location is still available, with this command:\n"
-            "  {}\n"
-            "  {}\n"
-            "Migration can take over 30 minutes, and must be completed fully after it has\n"
-            "been started for all of the original images to be available. If interrupted,\n"
-            "migration can be resumed using the same command.\n"
-            "{}: uenv will continue using the old location and printing this warning until\n"
-            "the migration is performed.\n"
-            "Set the environment variable UENV_WARN_MIGRATE to silence this warning.\n"
-            "--------------------------------------------------------------------------------\n",
-            color::yellow("warning"),
-            color::cyan(ravail->string()),
-            color::cyan(fmt::format("uenv repo migrate {} \\", *rexist)),
-            color::cyan(fmt::format("                  {}",  *ravail)),
-            color::yellow("note"));
-        // clang-format on
-    }
-
     config_base cfg;
     cfg.color = color::default_color(env);
-    if (rexist || ravail) {
+    // the built-in fallback for the default repo. A [[repositories]] entry
+    // named "default" in a configuration file replaces it when the layers are
+    // merged, because repo_list::accumulate lets an incoming entry with the
+    // same name win.
+    if (auto path = default_repo_path(env)) {
         // priority of the default repo is default_priority-1
         // which will give it higher priority than other repos with default
         // priority
         cfg.repos.accumulate(std::vector<repo_description>{
             {.name = "default",
-             .path = (rexist ? *rexist : *ravail),
+             .path = std::move(*path),
              .priority = repo_description::default_priority - 1}});
     }
     cfg.system_name = site::get_system_name(env);
@@ -532,6 +504,18 @@ parse_repository_array(const toml::node& input,
                         return make_config_error("repository.name is not valid",
                                                  value.source().begin.line);
                     }
+                } else if (key == "priority") {
+                    // lower values have higher priority; the built-in
+                    // default repo has default_priority-1
+                    const auto v = value.as_integer();
+                    if (!v || v->get() < 0 ||
+                        v->get() > std::numeric_limits<std::uint32_t>::max()) {
+                        return make_config_error(
+                            "repository.priority must be a non-negative "
+                            "integer",
+                            value.source().begin.line);
+                    }
+                    priority = static_cast<std::uint32_t>(v->get());
                 } else {
                     return make_config_error(
                         fmt::format("unexpected key '{}'", key),
