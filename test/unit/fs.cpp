@@ -396,8 +396,8 @@ TEST_CASE("unsquashfs_tmp invalid input", "[fs]") {
 }
 
 TEST_CASE("path_type, check_file and check_dir", "[fs]") {
-    using fs::file_type;
     using Catch::Matchers::ContainsSubstring;
+    using fs::file_type;
 
     const auto root = util::make_temp_dir().value();
     const auto file = root / "file";

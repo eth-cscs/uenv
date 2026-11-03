@@ -229,7 +229,8 @@ std::filesystem::file_type type_or_log(const std::filesystem::path& path) {
 }
 } // namespace
 
-util::expected<void, std::string> check_file(const std::filesystem::path& path) {
+util::expected<void, std::string>
+check_file(const std::filesystem::path& path) {
     return check_type(path, std::filesystem::file_type::regular,
                       "is not a regular file");
 }

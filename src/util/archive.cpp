@@ -250,8 +250,8 @@ util::expected<void, std::string> extract_targz(const fs::path& archive_path,
     std::error_code canon_ec;
     const auto dest_canonical = fs::weakly_canonical(dest, canon_ec);
     if (canon_ec) {
-        return util::unexpected{fmt::format("unable to resolve {}: {}", dest,
-                                            canon_ec.message())};
+        return util::unexpected{
+            fmt::format("unable to resolve {}: {}", dest, canon_ec.message())};
     }
     const auto dest_norm = dest_canonical.lexically_normal();
 
