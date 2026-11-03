@@ -1,5 +1,13 @@
 # Changelog
 
+## 10.2.1
+
+- #198 [improvement] remove cscs site-specific default repo location
+- #197 [fix] slurm: do not drain nodes when a uenv can't be mounted
+- #197 [fix] slurm: do not drain nodes when a uenv can't be mounted
+- #193 [improvement] update list of unsecure env vars that are removed by setuid
+- #192 [fix] improve robustness of file system error handling
+
 ## 10.2.0
 
 - #190 [improvement] `uenv image delete` deletes through the native OCI client instead of the JFrog Artifactory REST API; the `registry.artifactory_url` config key is removed (still accepted and ignored, so it can be dropped from deployed configs at leisure)
