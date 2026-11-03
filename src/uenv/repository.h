@@ -139,12 +139,14 @@ class record_set {
     const_iterator cend() const;
 };
 
-/// get the default location for the user's repository.
-/// - use $SCRATCH/.uenv-images if $SCRATCH is set
-/// - use $HOME/.uenv/images
-// std::optional<std::string> default_repo_path(const envvars::state&);
+/// get the built-in fallback location for the user's repository, used when no
+/// configuration file defines a repository named "default":
+/// - $SCRATCH/.uenv-images if SCRATCH is set
+/// - else $HOME/.uenv/repo if HOME is set
+/// - else nothing
+/// The path is not checked: it may not exist.
 std::optional<std::filesystem::path>
-default_repo_path(const envvars::state& env, bool exists = false);
+default_repo_path(const envvars::state& env);
 
 // used to validate whether a string represents a valid path for a repo.
 // parses the string, then performs additional optional checks for whether
