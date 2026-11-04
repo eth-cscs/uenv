@@ -520,8 +520,7 @@ capture_sources(const mount_request& req) {
 // whichever flag either came from: a --tmpfs or --bind-mount can land inside
 // a squashfs image, and a squashfs image inside a --tmpfs. Each squashfs image
 // is mounted by its own fuse daemon, PDEATHSIG-tied to this process, whose pid
-// is returned; the image is mounted by the time do_sqfs_ll_mount() returns, so
-// an entry nested inside it can be mounted straight after.
+// is returned.
 //
 // A missing mount point is created just before it is mounted on, if the mount
 // that provides it allows (see uenv::mount_point_providers): one inside a
@@ -723,6 +722,7 @@ util::expected<void, std::string> unshare_and_mount(const mount_request& req) {
     if (auto r = unshare_mount_map_root(); !r) {
         return r;
     }
+    // open fd to sqfs, open_tree for bind-mounts
     auto sources = capture_sources(req);
     if (!sources) {
         return util::unexpected(sources.error());
