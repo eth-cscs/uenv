@@ -100,16 +100,21 @@ int build(const build_args& args,
 
     std::filesystem::path recipe_path{args.uenv_recipe_path};
 
-    if (!std::filesystem::is_directory(recipe_path)) {
-        term::error("{} not a directory", recipe_path);
+    if (auto r = util::check_dir(recipe_path); !r) {
+        term::error("the recipe path {} {}", recipe_path, r.error());
         return 1;
     }
 
     // check the directory contains the expected files
     for (std::string f :
          {"compilers.yaml", "config.yaml", "environments.yaml"}) {
-        if (!std::filesystem::is_regular_file(recipe_path / f)) {
+        const auto type = util::path_type(recipe_path / f);
+        if (type && *type == std::filesystem::file_type::not_found) {
             term::error("{} doesn't contain {}", recipe_path, f);
+            return 1;
+        }
+        if (auto r = util::check_file(recipe_path / f); !r) {
+            term::error("{} {}", recipe_path / f, r.error());
             return 1;
         }
     }

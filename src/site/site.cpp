@@ -152,8 +152,8 @@ void save_registry_listing(const std::filesystem::path& dir,
     auto written = util::write_file_atomic(file, body);
     // only a directory in the way stops the rename: replace it, so that no
     // state of the cache needs to be repaired by hand
-    if (!written && fs::is_directory(fs::symlink_status(file))) {
-        std::error_code ec;
+    std::error_code ec;
+    if (!written && fs::is_directory(fs::symlink_status(file, ec))) {
         fs::remove_all(file, ec);
         written = util::write_file_atomic(file, body);
     }

@@ -1,4 +1,5 @@
 #include <charconv>
+#include <cstdio>
 #include <optional>
 #include <string>
 
@@ -17,6 +18,7 @@
 #include <uenv/repository.h>
 #include <uenv/telemetry.h>
 #include <util/envvars.h>
+#include <util/expected.h>
 
 #include "elastic.h"
 #include "environ.h"
@@ -35,13 +37,74 @@ namespace impl {
 int slurm_spank_init(spank_t sp, int ac, char** av);
 int slurm_spank_init_post_opt(spank_t sp, int ac, char** av);
 int slurm_spank_local_user_init(spank_t sp, int ac, char** av);
+int slurm_spank_task_init(spank_t sp, int ac, char** av);
 
-// Mounts the squashfs images in the remote context. Defined in the backend
-// source selected at build time: plugin_kernel.cpp (kernel squashfs driver)
-// or plugin_fuse.cpp (a no-op, because the FUSE backend mounts per task in
-// slurm_spank_task_init instead).
-int init_post_opt_remote(spank_t sp);
+// The backend hooks below are defined in the backend source selected at build
+// time: plugin_kernel.cpp (kernel squashfs driver) or plugin_fuse.cpp.
+
+// Mounts the squashfs images in the remote context (kernel backend; a no-op in
+// the FUSE backend). Returns an error instead of reporting it to Slurm: see
+// "Error policy" below.
+util::expected<void, std::string> init_post_opt_remote(spank_t sp);
+
+// Called in each task, as the job user, just before the task's command is
+// exec'd (FUSE backend: mounts the images; a no-op in the kernel backend).
+// It is only called if nothing failed earlier in the remote context.
+int task_init(spank_t sp);
 } // namespace impl
+
+//
+// Error policy
+//
+// The plugin must never cause Slurm to drain a node.
+//
+// When a SPANK hook that runs on the compute node (in slurmstepd) returns an
+// error, Slurm may treat the node as faulty: a failed batch step drains the
+// node ("batch job complete failure" in slurmctld). Nearly every error this
+// plugin can meet on the node is caused by the job (a mount list naming an
+// image that the user cannot read, a corrupt image), and even the ones that
+// might not be are not worth losing a node to.
+//
+// The rule, hook by hook:
+//
+// * slurm_spank_init_post_opt, on the submit side (srun, sbatch, salloc):
+//   errors and exceptions are returned to Slurm. They abort the user's
+//   command, and no node is involved.
+// * slurm_spank_init_post_opt, on the compute node (slurmstepd, before the
+//   tasks are forked): errors and exceptions are never returned to Slurm.
+//   defer_remote_error() logs and records them, and slurm_spank_task_init
+//   then fails every task of the step on this node before its command is
+//   exec'd, so that the command never runs without the uenv it asked for.
+// * slurm_spank_task_init: errors and exceptions fail the task.
+// * slurm_spank_local_user_init (srun only): an exception is logged and srun
+//   continues, because the telemetry posted there is optional.
+// * slurm_spank_init and the option callbacks have no try/catch. They only
+//   register options and copy their arguments, so nothing but bad_alloc can
+//   come out of them. A failure of spank_option_register is still returned:
+//   it can only be caused by the plugin's own option table, so it would fail
+//   every srun and sbatch on the submit side too, and could not go unnoticed.
+//
+// The handling is written out in each hook, deliberately, instead of in one
+// helper that chooses by spank_context(): the context is S_CTX_REMOTE both in
+// slurmstepd before the tasks are forked and inside each task, where returning
+// success would exec the command without its uenv.
+//
+// A failing slurm_spank_task_init makes Slurm _exit(1) the task before execve
+// (exec_task() in src/slurmd/slurmstepd/task.c, unchanged from at least 23.02
+// to 25.11). To Slurm that is an ordinary task failure: the job fails and the
+// node stays up. The task's stdio is already connected at that point, so the
+// error reaches the user's terminal or batch output, whereas an error logged
+// from slurm_spank_init_post_opt on the compute node only reaches the slurmd
+// log.
+//
+// Do not replace this with ESPANK_JOB_FAILURE returned from init_post_opt.
+// That code exists only from Slurm 25.05, and it is only documented for
+// slurm_spank_init, via slurm_spank_init_failure_mode.
+//
+// A task_init error is ignored if the plugin is configured as optional in
+// plugstack.conf, so the plugin must be configured as required (as it already
+// had to be for any of its errors to have effect).
+//
 
 //
 // Implement the SPANK plugin C interface.
@@ -69,6 +132,10 @@ int slurm_spank_init_post_opt(spank_t sp, int ac, char** av) {
     return impl::slurm_spank_init_post_opt(sp, ac, av);
 }
 
+int slurm_spank_task_init(spank_t sp, int ac, char** av) {
+    return impl::slurm_spank_task_init(sp, ac, av);
+}
+
 } // extern "C"
 
 //
@@ -87,6 +154,38 @@ static std::vector<uenv::telemetry_data> telemetry_g;
 
 // configuration loaded from file
 static uenv::configuration config_g;
+
+// Set when slurm_spank_init_post_opt fails on the compute node, so that
+// slurm_spank_task_init fails the tasks: see "Error policy" above. The tasks
+// are forked from slurmstepd after that hook, so each of them inherits both.
+// The flag is a plain bool so that recording a failure can not itself fail;
+// the message is only for reporting, and may be missing if copying it failed.
+static bool remote_failed_g = false;
+static std::optional<std::string> remote_error_g;
+
+// Record a failure on the compute node, instead of returning it to Slurm.
+// It is logged here, where it reaches the slurmd log for the admin: the copy
+// that slurm_spank_task_init prints is what the user sees.
+void defer_remote_error(const char* msg) noexcept {
+    remote_failed_g = true;
+    slurm_error("uenv: %s", msg);
+    if (!remote_error_g) {
+        try {
+            remote_error_g = msg;
+        } catch (...) {
+            // slurm_spank_task_init prints a generic message instead
+        }
+    }
+}
+
+// Print an error from inside a task, where stderr is the task's stderr: the
+// user's terminal, or the output file of a batch job. This is used instead of
+// slurm_error, because slurmstepd's log is buffered and the task leaves with
+// _exit(1), which could lose a buffered line.
+void print_task_error(const char* msg) noexcept {
+    std::fprintf(stderr, "uenv: error: %s\n", msg);
+    std::fflush(stderr);
+}
 
 static spank_option uenv_arg{
     (char*)"uenv",
@@ -214,22 +313,31 @@ void set_log_level(const envvars::state& env) {
 // Called in the local context (srun) after resources have been allocated, when
 // the job id and step id are known. This information is required to create
 // elastic logs that can be correlated with Slurm logs.
+//
+// The telemetry is optional, so an exception is logged and srun continues.
 int slurm_spank_local_user_init(spank_t sp [[maybe_unused]],
                                 int ac [[maybe_unused]],
                                 char** av [[maybe_unused]]) {
-    const bool log_in_subprocess = true;
+    try {
+        const bool log_in_subprocess = true;
 
-    const auto calling_environment = envvars::state(environ);
-    set_log_level(calling_environment);
+        const auto calling_environment = envvars::state(environ);
+        set_log_level(calling_environment);
 
-    // only log to elastic if both telemetry data and the elastic target were
-    // set
-    if (!telemetry_g.empty() && config_g.elastic_config) {
-        if (auto payload =
-                uenv::slurm_elastic_payload(telemetry_g, calling_environment)) {
-            uenv::post_elastic(payload.value(), config_g.elastic_config.value(),
-                               log_in_subprocess);
+        // only log to elastic if both telemetry data and the elastic target
+        // were set
+        if (!telemetry_g.empty() && config_g.elastic_config) {
+            if (auto payload = uenv::slurm_elastic_payload(
+                    telemetry_g, calling_environment)) {
+                uenv::post_elastic(payload.value(),
+                                   config_g.elastic_config.value(),
+                                   log_in_subprocess);
+            }
         }
+    } catch (const std::exception& e) {
+        slurm_error("uenv: unable to post telemetry: %s", e.what());
+    } catch (...) {
+        slurm_error("uenv: unable to post telemetry: unknown exception");
     }
 
     return ESPANK_SUCCESS;
@@ -470,24 +578,67 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
 
 int slurm_spank_init_post_opt(spank_t sp, int ac [[maybe_unused]],
                               char** av [[maybe_unused]]) {
-    try {
-        switch (spank_context()) {
-        case spank_context_t::S_CTX_REMOTE: {
-            return init_post_opt_remote(sp);
+    switch (spank_context()) {
+    // On the compute node: never return an error, defer it to
+    // slurm_spank_task_init instead (see "Error policy" above).
+    case spank_context_t::S_CTX_REMOTE: {
+        try {
+            if (auto result = init_post_opt_remote(sp); !result) {
+                defer_remote_error(result.error().c_str());
+            }
+        } catch (const std::exception& e) {
+            defer_remote_error(e.what());
+        } catch (...) {
+            defer_remote_error("unknown exception while mounting the uenv");
         }
-        case spank_context_t::S_CTX_LOCAL:
-        case spank_context_t::S_CTX_ALLOCATOR: {
+        return ESPANK_SUCCESS;
+    }
+    // On the submit side: an error fails the srun, sbatch or salloc command.
+    case spank_context_t::S_CTX_LOCAL:
+    case spank_context_t::S_CTX_ALLOCATOR: {
+        try {
             return init_post_opt_local_allocator(sp);
+        } catch (const std::exception& e) {
+            slurm_error("uenv: %s", e.what());
+        } catch (...) {
+            slurm_error("uenv: unknown exception");
         }
-        default:
-            break;
-        }
-    } catch (const std::exception& e) {
-        slurm_error("uenv: %s", e.what());
         return -ESPANK_ERROR;
+    }
+    default:
+        break;
     }
 
     return ESPANK_SUCCESS;
+}
+
+// Called in each task on the compute node, as the job user, just before the
+// task's command is exec'd. Any error here, and any exception, fails the task:
+// Slurm then _exit(1)s it, which fails the job but not the node.
+int slurm_spank_task_init(spank_t sp, int ac [[maybe_unused]],
+                          char** av [[maybe_unused]]) {
+    if (remote_failed_g) {
+        // every task of the step on this node fails with the same error:
+        // print it once per node, from local task 0
+        int task_id = 0;
+        if (spank_get_item(sp, S_TASK_ID, &task_id) != ESPANK_SUCCESS ||
+            task_id == 0) {
+            print_task_error(remote_error_g
+                                 ? remote_error_g->c_str()
+                                 : "unable to mount the uenv (the reason is "
+                                   "in the slurmd log of this node)");
+        }
+        return -ESPANK_ERROR;
+    }
+
+    try {
+        return task_init(sp);
+    } catch (const std::exception& e) {
+        print_task_error(e.what());
+    } catch (...) {
+        print_task_error("unknown exception while mounting the uenv");
+    }
+    return -ESPANK_ERROR;
 }
 
 } // namespace impl

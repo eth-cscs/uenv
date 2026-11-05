@@ -247,6 +247,17 @@ changing that code path, check they are actually running rather than skipping.
 
 **repository**: SQLite-backed database tracking available uenvs. Operations: query, add, remove, contains.
 
+**default repository**: uenv has no site-specific knowledge of where repositories
+live. The default is the `[[repositories]]` entry named `default` in a config
+layer, which a site sets in `/etc/uenv/config.toml`, e.g.
+`path = "/ritom/scratch/cscs/${USER}/.uenv-images"` with `priority = 9`.
+Repository paths expand `${VAR}` (not bare `$VAR`) and are then validated with
+`parse_path`. With no such entry, `default_repo_path()`
+(`src/uenv/repository.cpp`) falls back to `$SCRATCH/.uenv-images`, then
+`$HOME/.uenv/repo`. The name matters: `repo_list::accumulate` lets an entry from
+a more specific layer replace one with the same name, so the configured
+`default` entry replaces the built-in fallback.
+
 **view**: Named environment configurations within a uenv (stored in env.json metadata).
 
 ### Data Flow
@@ -370,6 +381,34 @@ A consequence worth knowing when debugging a site: an image that only root can
 read, or one under a directory the user cannot traverse, is now refused. That is
 the point of the check, but it does mean an image store deployed with
 restrictive modes will stop working where it used to.
+
+### Slurm plugin error policy
+
+**The plugin must never cause Slurm to drain a node.** A SPANK hook that
+returns an error on the compute node can make Slurm treat the node as faulty (a
+failed batch step drains it), and nearly every error the plugin meets there is
+the job's fault: an image the user cannot read, a bad mount list.
+
+So `slurm_spank_init_post_opt` never returns an error in the remote context
+(slurmstepd). It records the error with `defer_remote_error()` and returns
+success, and `slurm_spank_task_init` then fails each task before its command is
+exec'd. Slurm `_exit(1)`s a task whose `task_init` fails (`exec_task()` in
+slurmstepd's `task.c`, the same from at least 23.02 to 25.11): an ordinary
+job failure, and the error printed there reaches the user's stderr or batch
+output. On the submit side (srun, sbatch, salloc) errors are returned as usual,
+since they can only fail the user's command. The full rule, hook by hook,
+including exceptions, is the "Error policy" comment in `src/slurm/plugin.cpp`.
+
+Do not "fix" this back into returning errors from the remote hook, and do not
+use `ESPANK_JOB_FAILURE` instead: it exists only from Slurm 25.05, and is only
+documented for `slurm_spank_init` (via `slurm_spank_init_failure_mode`). Do not
+handle exceptions with a single helper that chooses what to return from
+`spank_context()` either: the context is `S_CTX_REMOTE` both in slurmstepd
+before the tasks fork and inside each task, where returning success would run
+the command without its uenv.
+
+The plugin has to be `required` in `plugstack.conf`, because Slurm ignores a
+`task_init` error from an optional plugin.
 
 ### Mount lifetime (FUSE backend)
 

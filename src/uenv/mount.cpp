@@ -497,19 +497,34 @@ validate_mount_list(const mount_list& input, bool mount_points_must_exist) {
     const auto b = std::begin(mview);
     const auto e = std::cend(mview);
 
+    // Check that a mount point is an existing directory. The throwing
+    // overloads of std::filesystem must not be used here: a mount point
+    // that cannot be examined (EACCES on a parent, ENAMETOOLONG, a stale
+    // network file system) would terminate the process.
+    auto check_mount_point =
+        [](const fs::path& p) -> util::expected<void, std::string> {
+        if (auto r = util::check_dir(p); !r) {
+            return util::unexpected{
+                fmt::format("the mount path {} {}", p.string(), r.error())};
+        }
+        return {};
+    };
+
     // check whether the first mount point exists
-    if (!fs::is_directory(*b) && mount_points_must_exist) {
-        return util::unexpected{
-            fmt::format("the mount path {} does not exist", (*b).string())};
+    if (mount_points_must_exist) {
+        if (auto ok = check_mount_point(*b); !ok) {
+            return util::unexpected{ok.error()};
+        }
     }
     // iterate over the remaining mounts
     for (auto c = b + 1; c != e; ++c) {
         auto parent = std::find_if(
             b, c, [&c](const auto& it) { return util::is_child(*c, it); });
         if (parent == c) { // there is no parent
-            if (!fs::is_directory(*c) && mount_points_must_exist) {
-                return util::unexpected{
-                    fmt::format("the mount path {} does not exist", *c)};
+            if (mount_points_must_exist) {
+                if (auto ok = check_mount_point(*c); !ok) {
+                    return util::unexpected{ok.error()};
+                }
             }
         } else {
             spdlog::warn("the mount {} is inside another mount {}", *c,

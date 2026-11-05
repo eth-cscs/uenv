@@ -30,97 +30,24 @@ template <typename T> using hopefully = util::expected<T, std::string>;
 
 using util::unexpected;
 
-// Returns the default location for the uenv repository
+// Returns the built-in fallback location for the uenv repository.
 //
-// searches through scratch locations, then in home.
-//
-// The exists parameter controls how the search is performed
-// - exists==true  -> find the first "default location" that exists.
-// - exists==false -> find the first "default location" where it is possible to
-//                    create a repository.
+// Site-specific locations are not chosen here: they are set by a
+// [[repositories]] entry named "default" in a configuration file, which
+// replaces this fallback when the configuration layers are merged.
 std::optional<std::filesystem::path>
-default_repo_path(const envvars::state& env, bool exists) {
-    namespace fs = std::filesystem;
-    struct path_pair {
-        fs::path base;
-        fs::path repo;
-        fs::path join() const {
-            return base / repo;
-        };
-        bool exists() const {
-            return fs::is_directory(join()) &&
-                   fs::is_regular_file(join() / "index.db");
-        }
-        bool writeable() const {
-            auto canwrite = [](const fs::path& path) -> bool {
-                std::error_code ec;
-                auto p = fs::status(path, ec).permissions();
-                return !ec &&
-                       ((p & fs::perms::owner_write) != fs::perms::none ||
-                        (p & fs::perms::group_write) != fs::perms::none ||
-                        (p & fs::perms::others_write) != fs::perms::none);
-            };
-            return canwrite(base) && (exists() ? canwrite(join()) : true);
-        }
-    };
-    std::vector<path_pair> search_paths;
-
-    // Where to look first? That depends on the platform.
-    // This is a bit ugly, and ideally would be in per-cluster/platform config.
-    if (const auto user = env.get("USER")) {
-        const path_pair ritom{fs::path("/ritom/scratch/cscs") / *user,
-                              ".uenv-images"};
-        const path_pair capstor{fs::path("/capstor/scratch/cscs") / *user,
-                                ".uenv-images"};
-        const path_pair iopstor{fs::path("/iopsstor/scratch/cscs") / *user,
-                                ".uenv-images"};
-
-        const auto cluster = env.get("CLUSTER_NAME").value_or("");
-        // HPCP
-        if (cluster == "daint" || cluster == "eiger" || cluster == "pilatus") {
-            search_paths = {ritom, capstor, iopstor};
-            spdlog::debug("default_repo_path: using HPCP search");
-        }
-        // MLP
-        else if (cluster == "clariden" || cluster == "bristen") {
-            search_paths = {iopstor, capstor};
-            spdlog::debug("default_repo_path: using MLP search");
-        }
-        // CWP
-        else if (cluster == "santis") {
-            search_paths = {capstor, iopstor};
-            spdlog::debug("default_repo_path: using CWP search");
-        }
-        // use default search location
-        else {
-            spdlog::debug("default_repo_path: using default search");
-            search_paths = {ritom, capstor, iopstor};
-            // grab SCRATCH and append it: catch the MCH systems and other
-            // systems that have a scratch path outside of the "big 3" storage.
-            if (auto scratch = env.get("SCRATCH")) {
-                search_paths.insert(search_paths.end(),
-                                    {*scratch, ".uenv-images"});
-            }
-        }
-    };
-    if (auto home = env.get("HOME")) {
-        search_paths.push_back({*home, ".uenv/repo"});
+default_repo_path(const envvars::state& env) {
+    if (const auto scratch = env.get("SCRATCH")) {
+        const auto p = fs::path(*scratch) / ".uenv-images";
+        spdlog::debug("default_repo_path: using $SCRATCH {}", p);
+        return p;
     }
-
-    for (const auto& p : search_paths) {
-        spdlog::trace("default_repo_path: checking {}", p.join());
-        if (p.exists() && p.writeable()) {
-            spdlog::debug("default_repo_path: found existing repo {}",
-                          p.join());
-            return p.join();
-        } else if (!exists && p.writeable()) {
-            spdlog::debug("default_repo_path: found writeable repo location {}",
-                          p.join());
-            return p.join();
-        }
+    if (const auto home = env.get("HOME")) {
+        const auto p = fs::path(*home) / ".uenv" / "repo";
+        spdlog::debug("default_repo_path: using $HOME {}", p);
+        return p;
     }
-
-    spdlog::trace("default_repo_path: no default location found");
+    spdlog::debug("default_repo_path: neither SCRATCH nor HOME is set");
     return std::nullopt;
 }
 
@@ -131,19 +58,41 @@ validate_repo_path(const std::filesystem::path& path, bool is_absolute,
         return unexpected(
             fmt::format("'{}' is not an absolute path.", path.string()));
     }
-    if (exists && !fs::exists(path)) {
-        return unexpected(fmt::format("'{}' does not exist.", path.string()));
+    if (exists) {
+        const auto type = util::path_type(path);
+        if (!type) {
+            return unexpected(fmt::format("'{}' can't be accessed: {}.",
+                                          path.string(),
+                                          type.error().message()));
+        }
+        if (*type == fs::file_type::not_found) {
+            return unexpected(
+                fmt::format("'{}' does not exist.", path.string()));
+        }
     }
-    return fs::absolute(path);
+    return util::absolute_path(path);
 }
+
+namespace {
+
+// The form of a repository path used to decide whether two repositories are
+// the same: symlinks are resolved, so that two paths to the same directory
+// compare equal. A path that can't be resolved (too long for the file system,
+// a component that can't be read) is compared in its lexically normal form.
+fs::path comparable_path(const fs::path& p) {
+    std::error_code ec;
+    auto c = fs::weakly_canonical(p, ec);
+    return ec ? p.lexically_normal() : c;
+}
+
+} // namespace
 
 bool operator<(const repo_description& lhs, const repo_description& rhs) {
     return lhs.priority < rhs.priority;
 }
 
 bool operator==(const repo_description& lhs, const repo_description& rhs) {
-    return std::filesystem::weakly_canonical(lhs.path) ==
-           std::filesystem::weakly_canonical(rhs.path);
+    return comparable_path(lhs.path) == comparable_path(rhs.path);
 }
 
 //
@@ -191,21 +140,14 @@ std::string make_unique_name(const std::filesystem::path& path,
 
 void repo_list::accumulate(const std::vector<repo_description>& incoming) {
     // Remove existing entries that conflict with any incoming entry.
-    // Incoming wins: same name → update path; same canonical path → rename.
-    // a path that cannot be canonicalised (too long for the filesystem, an
-    // unreadable component) is compared as written.
-    auto canonicalise = [](const fs::path& p) {
-        std::error_code ec;
-        auto c = fs::weakly_canonical(p, ec);
-        return ec ? p : c;
-    };
+    // Incoming wins: same name → update path; same path → rename.
     for (const auto& inc : incoming) {
-        auto canonical = canonicalise(inc.path);
+        const auto path = comparable_path(inc.path);
         repos_.erase(std::remove_if(repos_.begin(), repos_.end(),
                                     [&](const auto& existing) {
                                         return existing.name == inc.name ||
-                                               canonicalise(existing.path) ==
-                                                   canonical;
+                                               comparable_path(existing.path) ==
+                                                   path;
                                     }),
                      repos_.end());
     }
@@ -365,7 +307,7 @@ hopefully<sqlite_database> open_sqlite_database(const fs::path path,
                                                 repo_open_mode mode) {
     using enum repo_open_mode;
 
-    if (!fs::exists(path)) {
+    if (!util::path_exists(path)) {
         return unexpected(
             fmt::format("database file {} does not exist", path.string()));
     }
@@ -400,11 +342,11 @@ hopefully<sqlite_database>
 create_sqlite_database(const std::optional<fs::path> path = {}) {
     using enum repo_open_mode;
 
-    if (path && fs::exists(*path)) {
+    if (path && util::path_exists(*path)) {
         return unexpected(
             fmt::format("database file {} already exists", path->string()));
     }
-    if (path && !fs::exists(path->parent_path())) {
+    if (path && !util::path_exists(path->parent_path())) {
         return unexpected(fmt::format("the path {} needs to be crated first",
                                       path->parent_path().string()));
     }
@@ -607,7 +549,7 @@ repository::repository(std::unique_ptr<repository_impl> impl)
 repo_state validate_repository(const fs::path& repo_path) {
     using enum repo_state;
 
-    if (!fs::is_directory(repo_path)) {
+    if (!util::path_is_dir(repo_path)) {
         spdlog::debug("validate_repository: repository path {} does not exist",
                       repo_path);
         return no_exist;
@@ -615,7 +557,7 @@ repo_state validate_repository(const fs::path& repo_path) {
     spdlog::debug("validate_repository: repository path {} exists", repo_path);
 
     auto db_path = repo_path / "index.db";
-    if (!fs::is_regular_file(db_path)) {
+    if (!util::path_is_file(db_path)) {
         spdlog::debug("validate_repository: database {} does not exist",
                       db_path);
         // the path exists, but there is no database file
@@ -690,7 +632,11 @@ create_repository(const fs::path& repo_path, repo_create_mode mode) {
     using enum repo_state;
     using enum repo_create_mode;
 
-    auto abs_repo_path = fs::absolute(repo_path);
+    const auto abs = util::absolute_path(repo_path);
+    if (!abs) {
+        return unexpected(abs.error());
+    }
+    const auto abs_repo_path = *abs;
 
     const auto initial_state = validate_repository(abs_repo_path);
     switch (initial_state) {

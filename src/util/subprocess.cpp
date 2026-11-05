@@ -34,9 +34,13 @@ run(const std::vector<std::string>& argv,
     }
 
     // check the run path here: an error can't be returned from the child
-    if (runpath && !std::filesystem::is_directory(*runpath)) {
-        return unexpected(
-            fmt::format("the run path {} does not exist", runpath->string()));
+    if (runpath) {
+        std::error_code ec;
+        if (!std::filesystem::is_directory(*runpath, ec)) {
+            return unexpected(
+                fmt::format("invalid run path {}: {}", runpath->string(),
+                            ec ? ec.message() : "not a directory"));
+        }
     }
 
     auto inpipe = make_pipe();
