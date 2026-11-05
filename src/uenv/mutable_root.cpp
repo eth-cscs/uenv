@@ -403,9 +403,8 @@ make_mutable_root(const std::set<std::filesystem::path>& shadow) {
             "fs::create_directory(newroot) failed with {}", ec.message()));
     }
 
-    if (auto r =
-            uenv::mount("newroot", "newroot", std::nullopt,
-                        MS_MGC_VAL | MS_BIND | MS_REC | MS_SILENT, nullptr);
+    if (auto r = uenv::mount("newroot", "newroot", std::nullopt,
+                             MS_BIND | MS_REC | MS_SILENT, nullptr);
         !r) {
         return r;
     }
