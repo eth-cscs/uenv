@@ -361,8 +361,7 @@ shadow_dir(const std::filesystem::path& dir,
 } // namespace
 
 // Rebuild "/" on a tmpfs, shadowing the directories in `shadow` and bind
-// mounting everything else, inspired by bubblewrap:
-// https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L378
+// mounting everything else.
 util::expected<void, std::string>
 make_mutable_root(const std::set<std::filesystem::path>& shadow) {
     namespace fs = std::filesystem;

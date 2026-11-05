@@ -188,9 +188,8 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
 
     //
-    // validate the tmpfs and bind mount arguments
+    // parse tmpfs and bind-mount args, convert to canonical form
     //
-
     auto tmpfs = uenv::parse_and_canonical_tmpfs_list(args.tmpfs);
     if (!tmpfs) {
         error_and_exit("{}", tmpfs.error());

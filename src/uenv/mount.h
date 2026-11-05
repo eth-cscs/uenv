@@ -137,7 +137,12 @@ validate_mount_points(const mount_list& mounts,
 
 // The deepest ancestor of `path` that exists (`path` itself if it exists).
 // Every existing component must be a directory, so a regular file or a
-// dangling symlink in the path is an error. `path` must be canonical.
+// dangling symlink in the path is an error. `path` must be in the form given
+// by canonical_mount_path (weakly_canonical): its existing prefix then has no
+// symlinks, and the only one left is a dangling symlink, which
+// weakly_canonical can't resolve. Components are read with symlink_status so
+// that this symlink is reported, rather than treated as missing. A symlink to
+// a directory in a non-canonical path is rejected.
 util::expected<std::filesystem::path, std::string>
 deepest_existing_ancestor(const std::filesystem::path& path);
 
