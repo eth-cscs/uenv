@@ -39,9 +39,10 @@ util::expected<void, std::string> mount_and_join_ns(
     const std::vector<uenv::tmpfs_tuple>& tmpfs, const uenv::mount_order& order,
     bool fuse_single_threaded, uid_t uid, gid_t gid, bool mutable_root);
 
-// Rebuild "/" on a tmpfs (inspired by bubblewrap), so that mount points which
-// do not exist on the host can be created before mounting onto them. Each
-// directory in `shadow` (see uenv::mutable_root_shadow_dirs(); it must
+// Rebuild "/" on a tmpfs, so that mount points which do not exist on the host
+// can be created before mounting onto them. The approach (a tmpfs root
+// assembled from bind mounts, then pivot_root) is the one bubblewrap uses;
+// Each directory in `shadow` (see uenv::mutable_root_shadow_dirs(); it must
 // contain "/") is recreated on the tmpfs, holding a bind mount of each of the
 // host's entries, a copy of each symlink, and the shadowed directories below
 // it. Everything else is a bind mount of the host, so writes there reach the

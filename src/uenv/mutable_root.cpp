@@ -34,9 +34,8 @@ namespace {
 
 // Decode a comma separated VFS options string - the 4th field of a
 // /proc/self/mountinfo line, e.g. "rw,nosuid,nodev,relatime" - into MS_*
-// flags. Mirrors bwrap's decode_mountoptions():
-// https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L82
-unsigned long decode_mountoptions(std::string_view options) {
+// flags.
+unsigned long parse_vfs_flags(std::string_view options) {
     static const std::pair<std::string_view, unsigned long> flags_data[] = {
         {"ro", MS_RDONLY},         {"nosuid", MS_NOSUID},
         {"nodev", MS_NODEV},       {"noexec", MS_NOEXEC},
@@ -115,7 +114,7 @@ util::expected<std::vector<mount_entry>, std::string> read_mountinfo() {
         e.parent_id = static_cast<int>(m.parent_id);
         e.mountpoint = std::move(m.mountpoint);
         e.fstype = std::move(m.fstype);
-        e.flags = decode_mountoptions(m.vfs_options);
+        e.flags = parse_vfs_flags(m.vfs_options);
         entries.push_back(std::move(e));
     }
     return entries;
@@ -126,9 +125,7 @@ util::expected<std::vector<mount_entry>, std::string> read_mountinfo() {
 // (`read_mountinfo()`). Mounts are attached to their real kernel parent
 // mount, and a mount stacked directly on top of another mount at the exact
 // same path "covers" (hides) the one underneath, mirroring what the kernel
-// itself exposes. This is the C++ equivalent of bwrap's
-// parse_mountinfo()/collect_mounts():
-// https://github.com/containers/bubblewrap/blob/main/bind-mount.c#L207
+// itself exposes.
 util::expected<std::vector<std::pair<std::filesystem::path, unsigned long>>,
                std::string>
 mounts_under(const std::vector<mount_entry>& entries,
@@ -146,8 +143,8 @@ mounts_under(const std::vector<mount_entry>& entries,
         nodes.push_back(std::move(n));
     }
 
-    // As in bwrap: if the same path is mounted more than once, the last one
-    // in mountinfo order is the one the kernel currently exposes there.
+    // If the same path is mounted more than once, the last one in mountinfo
+    // order is the one the kernel currently exposes there.
     std::size_t root_idx = nodes.size();
     for (std::size_t i = 0; i < nodes.size(); ++i) {
         if (nodes[i].mountpoint == root) {
@@ -206,8 +203,7 @@ mounts_under(const std::vector<mount_entry>& entries,
 // Re-apply MS_NOSUID to `dst` and every mount stacked below it, preserving each
 // mount's own other flags (ro/nodev/noexec/atime...). A remount is skipped when
 // it would be a no-op. Remount failure is logged and skipped rather than
-// aborting make_mutable_root. This is equivalent to what bwrap bind-mount.c is
-// doing
+// aborting make_mutable_root.
 util::expected<void, std::string>
 apply_nosuid_recursive(const std::vector<mount_entry>& entries,
                        const std::filesystem::path& dst) {
@@ -384,7 +380,7 @@ make_mutable_root(const std::set<std::filesystem::path>& shadow) {
 
     // Stage the new root inside a fresh tmpfs mounted over the *original*
     // /tmp. "newroot" is bind-mounted onto itself so that it is a distinct
-    // mount point from its parent tmpfs. This mirrors bwrap's setup_newroot().
+    // mount point from its parent tmpfs.
     if (auto r = uenv::mount("tmpfs", "/tmp", "tmpfs", MS_NOSUID | MS_NODEV,
                              nullptr);
         !r) {
@@ -449,7 +445,7 @@ make_mutable_root(const std::set<std::filesystem::path>& shadow) {
         }
     }
 
-    // Teardown, mirroring bwrap's two-step detach of the old root:
+    // Teardown, detaching the old root in two steps:
     // 1. make "oldroot" (still reachable at "/oldroot") private and
     //    recursively lazy-unmount it while still chdir'd at "/", so the old
     //    root's mounts are dropped without affecting the host namespace.
