@@ -92,17 +92,19 @@ int main(int argc, char** argv, char** envp) {
                      "join namespaces of tasks on the same node");
     builder
         .add_option("sqfs", &squashfs_mount_args::raw_mounts,
-                    "comma separated list of squashfs files to mount")
+                    "squashfs images to mount at DST")
+        .metavar("IMG:DST,...")
         .complete(argparse::completion::custom("mount_list"));
     builder
         .add_option("tmpfs", &squashfs_mount_args::tmpfs,
-                    "comma separated list of tmpfs mounts, <mount>[:<size>] "
-                    "(size in bytes)")
+                    "tmpfs mounts at DST (SIZE in bytes)")
+        .metavar("DST[:SIZE],...")
         .complete(argparse::completion::directory());
     builder
         .add_option("bind-mount", &squashfs_mount_args::bind_mounts,
-                    "comma separated list of bind mounts, <src>:<dst> (src "
-                    "is always the host's directory, not another mount)")
+                    "bind mount host directory SRC at DST (SRC is never "
+                    "another mount)")
+        .metavar("SRC:DST,...")
         .complete(argparse::completion::path());
     builder
         .add_rest("commands", &squashfs_mount_args::commands,
