@@ -216,6 +216,41 @@ function require_overlay() {
     assert_success
 }
 
+# two mount points, each with its own overlay: the staging directory is reused
+# for the second overlay once the first is mounted and its staging detached
+@test "two shared mount points" {
+    require_overlay
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    APP42=$SQFS_PATH/app42.squashfs
+    APP43=$SQFS_PATH/app43.squashfs
+    TOOL=$SQFS_PATH/tool.squashfs
+    SQFS_MOUNTS=$APP42:/user-environment,$TOOL:/user-environment,$TOOL:/user-tools,$APP43:/user-tools
+
+    # each overlay has the files of its own two images
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- ls /user-environment/modules/app /user-tools/modules/app
+    assert_line "42.0"
+    assert_line "43.0"
+    assert_success
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- ls /user-environment/modules /user-tools/modules
+    assert_line "tool"
+    assert_success
+
+    # the image given last is on top, per mount point
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- cat /user-environment/meta/env.json
+    assert_output --partial "A tool uenv for testing"
+    assert_success
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- cat /user-tools/meta/env.json
+    assert_output --partial "A simple app uenv for testing"
+    assert_success
+
+    # two read-only overlays, and nothing left of either staging tmpfs
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- findmnt --noheadings --raw --output TARGET,FSTYPE,OPTIONS
+    assert_line --regexp "^/user-environment overlay ro,nosuid,nodev"
+    assert_line --regexp "^/user-tools overlay ro,nosuid,nodev"
+    refute_line --regexp "^/\\.squashfs-mount-scratch"
+    assert_success
+}
+
 # without the staging directory, a shared mount point is a clear error
 @test "shared mount point without staging directory" {
     if [[ ! -u "$(command -v squashfs-mount)" ]]; then
