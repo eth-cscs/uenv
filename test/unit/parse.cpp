@@ -1,9 +1,13 @@
+#include <algorithm>
+#include <filesystem>
+
 #include <catch2/catch_all.hpp>
 #include <fmt/format.h>
 
 #include <uenv/env.h>
 #include <uenv/mount.h>
 #include <uenv/parse.h>
+#include <util/fs.h>
 #include <util/lex.h>
 
 // forward declare private parsers
@@ -367,6 +371,146 @@ TEST_CASE("parse mount", "[parse]") {
         auto in = "";
         auto result = uenv::parse_mount_list(in);
         REQUIRE(!result);
+    }
+}
+
+// whether the mount points exist is not checked by the parsers: see
+// "validate_mount_points" in mount.cpp
+TEST_CASE("parse tmpfs", "[parse]") {
+    {
+        // no arguments: nothing to mount, not an error
+        auto result = uenv::parse_tmpfs_list({});
+        REQUIRE(result);
+        REQUIRE(result->empty());
+    }
+    {
+        // size is optional
+        auto result = uenv::parse_tmpfs_list({"/scratch"});
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        auto t = (*result)[0];
+        REQUIRE(t.mount == "/scratch");
+        REQUIRE(!t.size);
+    }
+    {
+        auto result = uenv::parse_tmpfs_list({"/scratch:1024"});
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        auto t = (*result)[0];
+        REQUIRE(t.mount == "/scratch");
+        REQUIRE(t.size == 1024u);
+    }
+    {
+        // a path has to start with '/' or '.'
+        auto result = uenv::parse_tmpfs_list({"scratch"});
+        REQUIRE(!result);
+    }
+    {
+        // size must be an integer
+        auto result = uenv::parse_tmpfs_list({"/scratch:big"});
+        REQUIRE(!result);
+        REQUIRE(result.error().loc == 9u);
+    }
+    {
+        // trailing input after the size is rejected
+        auto result = uenv::parse_tmpfs_list({"/scratch:1024:extra"});
+        REQUIRE(!result);
+    }
+    {
+        // paths are returned as written: parse_and_canonical_tmpfs_list
+        // (mount.cpp) normalises them, so the parser does not touch the file
+        // system
+        auto result = uenv::parse_tmpfs_list({"/scratch/./sub/../"});
+        REQUIRE(result);
+        REQUIRE((*result)[0].mount == "/scratch/./sub/../");
+    }
+    {
+        // a mount point that does not exist is not an error here
+        auto result = uenv::parse_tmpfs_list(
+            {"/this-uenv-test-top-does-not-exist/sub/dir"});
+        REQUIRE(result);
+        REQUIRE((*result)[0].mount ==
+                "/this-uenv-test-top-does-not-exist/sub/dir");
+    }
+    {
+        // --tmpfs takes a comma-separated list, the same list syntax --sqfs
+        // uses
+        auto result = uenv::parse_tmpfs_list({"/scratch:1024,/data"});
+        REQUIRE(result);
+        REQUIRE(result->size() == 2);
+        REQUIRE((*result)[0].mount == "/scratch");
+        REQUIRE((*result)[0].size == 1024u);
+        REQUIRE((*result)[1].mount == "/data");
+        REQUIRE(!(*result)[1].size);
+    }
+    {
+        // a trailing comma is tolerated, as with --sqfs
+        auto result = uenv::parse_tmpfs_list({"/scratch,"});
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        REQUIRE((*result)[0].mount == "/scratch");
+    }
+}
+
+TEST_CASE("parse bind mounts", "[parse]") {
+    {
+        // no arguments: nothing to mount, not an error
+        auto result = uenv::parse_bindmount_list({});
+        REQUIRE(result);
+        REQUIRE(result->empty());
+    }
+    {
+        auto result = uenv::parse_bindmount_list({"/host/dir:/container"});
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        auto b = (*result)[0];
+        REQUIRE(b.src == "/host/dir");
+        REQUIRE(b.dst == "/container");
+    }
+    {
+        // the ':' separating src and dst is required
+        auto result = uenv::parse_bindmount_list({"/host/dir"});
+        REQUIRE(!result);
+        // the error points at the end of the input, where ':' was expected
+        REQUIRE(result.error().loc == 9u);
+    }
+    {
+        auto result = uenv::parse_bindmount_list({"/host/dir,"});
+        REQUIRE(!result);
+        REQUIRE(result.error().detail ==
+                "expected a ':' separating the bind-mount src and dest, "
+                "found ','");
+    }
+    {
+        // a path has to start with '/' or '.'
+        auto result = uenv::parse_bindmount_list({"host/dir:/container"});
+        REQUIRE(!result);
+    }
+    {
+        // trailing input after dst is rejected
+        auto result =
+            uenv::parse_bindmount_list({"/host/dir:/container:extra"});
+        REQUIRE(!result);
+    }
+    {
+        // --bind-mount takes a comma-separated list, the same list syntax
+        // --sqfs uses
+        auto result = uenv::parse_bindmount_list(
+            {"/host/a:/container-a,/host/b:/container-b"});
+        REQUIRE(result);
+        REQUIRE(result->size() == 2);
+        REQUIRE((*result)[0].src == "/host/a");
+        REQUIRE((*result)[0].dst == "/container-a");
+        REQUIRE((*result)[1].src == "/host/b");
+        REQUIRE((*result)[1].dst == "/container-b");
+    }
+    {
+        // a trailing comma is tolerated, as with --sqfs
+        auto result = uenv::parse_bindmount_list({"/host/a:/container-a,"});
+        REQUIRE(result);
+        REQUIRE(result->size() == 1);
+        REQUIRE((*result)[0].src == "/host/a");
+        REQUIRE((*result)[0].dst == "/container-a");
     }
 }
 
@@ -867,4 +1011,96 @@ TEST_CASE("parse namespace uenv label long input", "[parse]") {
         REQUIRE(r);
         REQUIRE(r->nspace == dashed);
     }
+}
+
+TEST_CASE("parse mountinfo", "[parse]") {
+    {
+        auto r = uenv::parse_mountinfo("");
+        REQUIRE(r);
+        REQUIRE(r->empty());
+    }
+    {
+        // no optional fields, one optional field, several, and a trailing
+        // newline
+        auto r = uenv::parse_mountinfo(
+            "22 1 0:21 / / rw,relatime - ext4 /dev/sda1 rw\n"
+            "36 22 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root "
+            "rw,errors=continue\n"
+            "40 36 0:44 / /user-environment ro,nosuid,nodev shared:5 "
+            "master:2 propagate_from:3 unbindable - fuse.squashfuse_ll "
+            "squashfuse_ll ro,user_id=1000\n");
+        REQUIRE(r);
+        REQUIRE(r->size() == 3);
+        auto& a = (*r)[0];
+        REQUIRE(a.id == 22);
+        REQUIRE(a.parent_id == 1);
+        REQUIRE(a.mountpoint == "/");
+        REQUIRE(a.vfs_options == "rw,relatime");
+        REQUIRE(a.fstype == "ext4");
+        auto& b = (*r)[1];
+        REQUIRE(b.id == 36);
+        REQUIRE(b.parent_id == 22);
+        REQUIRE(b.mountpoint == "/mnt2");
+        REQUIRE(b.vfs_options == "rw,noatime");
+        REQUIRE(b.fstype == "ext3");
+        auto& c = (*r)[2];
+        REQUIRE(c.mountpoint == "/user-environment");
+        REQUIRE(c.vfs_options == "ro,nosuid,nodev");
+        REQUIRE(c.fstype == "fuse.squashfuse_ll");
+    }
+    {
+        // the kernel escapes space, tab, newline and backslash as \ooo; an
+        // escape followed by digits must not swallow them
+        auto r = uenv::parse_mountinfo(
+            "50 22 0:50 / /mnt/a\\040b\\011c\\012d\\134e\\0401 rw - tmpfs "
+            "tmpfs rw\n");
+        REQUIRE(r);
+        REQUIRE(r->size() == 1);
+        REQUIRE((*r)[0].mountpoint == "/mnt/a b\tc\nd\\e 1");
+    }
+    {
+        // any other byte is kept as is: non-ascii and characters the lexer
+        // has no token for
+        auto r = uenv::parse_mountinfo(
+            "51 22 0:51 / /scratch/\xc3\xa9t\xc3\xa9<x>|{y} rw - tmpfs t rw");
+        REQUIRE(r);
+        REQUIRE((*r)[0].mountpoint == "/scratch/\xc3\xa9t\xc3\xa9<x>|{y}");
+    }
+    {
+        // an empty source leaves two spaces in a row after the fstype
+        auto r = uenv::parse_mountinfo("52 22 0:52 / /x rw - tmpfs  rw\n");
+        REQUIRE(r);
+        REQUIRE((*r)[0].fstype == "tmpfs");
+    }
+    for (const auto& in : {
+             "22 1 0:21 / / rw,relatime ext4 /dev/sda1 rw", // no separator
+             "22 1 0:21 / / rw,relatime -",                 // no fstype
+             "x 1 0:21 / / rw - ext4 /dev/sda1 rw",         // bad id
+             "22x 1 0:21 / / rw - ext4 /dev/sda1 rw",       // bad id
+             "22 -1 0:21 / / rw - ext4 /dev/sda1 rw",       // bad parent
+             "22 1 0:21 / /a\\04 rw - ext4 /dev/sda1 rw",   // short escape
+             "22 1 0:21 / /a\\089 rw - ext4 /dev/sda1 rw",  // not octal
+             "22 1 0:21 / /a\\ rw - ext4 /dev/sda1 rw",     // lone backslash
+             "22 1 0:21 / /",                               // truncated
+         }) {
+        CAPTURE(in);
+        REQUIRE(!uenv::parse_mountinfo(in));
+    }
+    {
+        // the error names the line
+        auto r = uenv::parse_mountinfo(
+            "22 1 0:21 / / rw - ext4 /dev/sda1 rw\nbroken\n");
+        REQUIRE(!r);
+        REQUIRE(r.error().message().starts_with("line 2:"));
+    }
+}
+
+TEST_CASE("parse /proc/self/mountinfo", "[parse]") {
+    const auto contents = util::read_file("/proc/self/mountinfo");
+    REQUIRE(contents);
+    auto r = uenv::parse_mountinfo(*contents);
+    REQUIRE(r);
+    REQUIRE(!r->empty());
+    REQUIRE(std::any_of(r->begin(), r->end(),
+                        [](const auto& e) { return e.mountpoint == "/"; }));
 }
