@@ -335,7 +335,7 @@ missing_host_mount_points(const mount_list& mounts,
             std::ranges::any_of(destinations, [&path](const auto& other) {
                 return other != path && util::is_child(path, other);
             });
-        if (!provided && !std::filesystem::is_directory(path)) {
+        if (!provided && !util::path_is_dir(path)) {
             result.push_back(path);
         }
     }
@@ -381,7 +381,7 @@ validate_mount_points(const mount_list& mounts,
         }
         const auto& b = bind_mounts[*k - first_bind];
         const auto host = b.src / destinations[i].lexically_relative(b.dst);
-        if (!std::filesystem::is_directory(host)) {
+        if (!util::path_is_dir(host)) {
             return util::unexpected{fmt::format(
                 "the mount point {} does not exist: it is inside the "
                 "--bind-mount {}:{}, where {} is not a directory",
