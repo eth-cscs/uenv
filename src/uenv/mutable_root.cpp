@@ -220,8 +220,8 @@ apply_nosuid_recursive(const std::vector<mount_entry>& entries,
                                  MS_SILENT | MS_BIND | MS_REMOUNT | new_flags,
                                  nullptr);
             !r) {
-            spdlog::warn("make_mutable_root: unable to remount {} nosuid: {}",
-                         path.string(), r.error());
+            spdlog::trace("make_mutable_root: unable to remount {} nosuid: {}",
+                          path.string(), r.error());
         }
     }
     return {};
