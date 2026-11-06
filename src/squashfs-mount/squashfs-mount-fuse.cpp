@@ -242,7 +242,7 @@ int main(int argc, char** argv, char** envp) {
                 join_ctx->tag, join_ctx->ntasks, mounts, *bind_mounts, *tmpfs,
                 *mount_order, fuse_single_threaded, uid, gid, mutable_root);
             !r) {
-            error_and_exit("mount failed {}", r.error());
+            error_and_exit("mount failed: {}", r.error());
         }
     } else {
         spdlog::warn("nothing mounted (no --sqfs, --tmpfs or --bind-mount flag "

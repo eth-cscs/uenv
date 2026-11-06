@@ -450,9 +450,7 @@ mutable_root_shadow_dirs(const std::set<std::filesystem::path>& dsts) {
         if (!ancestor) {
             return util::unexpected{ancestor.error()};
         }
-        for (auto p = *ancestor; p != p.root_path(); p = p.parent_path()) {
-            result.insert(p);
-        }
+        result.insert(*ancestor);
     }
     return result;
 }

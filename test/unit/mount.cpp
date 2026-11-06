@@ -904,17 +904,6 @@ TEST_CASE("mutable_root_shadow_dirs", "[mount]") {
     std::filesystem::create_directories(base / "c");
     std::ofstream(base / "file").close();
 
-    // "/" and every ancestor of base
-    S base_path;
-    for (auto p = base; p != p.root_path(); p = p.parent_path()) {
-        base_path.insert(p);
-    }
-    auto with_base = [&](S s) {
-        s.insert(base_path.begin(), base_path.end());
-        s.insert("/");
-        return s;
-    };
-
     // nothing to create: only "/"
     REQUIRE(uenv::mutable_root_shadow_dirs({}).value() == S{"/"});
     REQUIRE(
@@ -926,18 +915,22 @@ TEST_CASE("mutable_root_shadow_dirs", "[mount]") {
         uenv::mutable_root_shadow_dirs({"/uenv-unit-test-missing/x"}).value() ==
         S{"/"});
 
-    // a missing leaf: the path down to its parent
+    // a missing leaf: only its parent, not the ancestors of the parent
     REQUIRE(uenv::mutable_root_shadow_dirs({base / "a/b/new"}).value() ==
-            with_base({base / "a", base / "a/b"}));
+            S{"/", base / "a/b"});
 
-    // missing several levels deep: down to the deepest existing ancestor
+    // missing several levels deep: only the deepest existing ancestor
     REQUIRE(uenv::mutable_root_shadow_dirs({base / "a/x/y"}).value() ==
-            with_base({base / "a"}));
+            S{"/", base / "a"});
 
     // several mount points: the union, existing ones add nothing
     REQUIRE(uenv::mutable_root_shadow_dirs(
                 {base / "a/b/new", base / "c/new", base / "c"})
-                .value() == with_base({base / "a", base / "a/b", base / "c"}));
+                .value() == S{"/", base / "a/b", base / "c"});
+
+    // nested shadowed directories
+    REQUIRE(uenv::mutable_root_shadow_dirs({base / "a/new", base / "a/b/new"})
+                .value() == S{"/", base / "a", base / "a/b"});
 
     // a file in the path
     REQUIRE(!uenv::mutable_root_shadow_dirs({base / "file/new"}));

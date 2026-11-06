@@ -146,11 +146,13 @@ validate_mount_points(const mount_list& mounts,
 util::expected<std::filesystem::path, std::string>
 deepest_existing_ancestor(const std::filesystem::path& path);
 
-// The directories a mutable root rebuilds on its tmpfs ("shadows") so that
+// The directories a mutable root rebuilds on a tmpfs ("shadows") so that
 // every missing mount point in `dsts` can be created there without writing to
-// the host: "/", and each directory from "/" down to the deepest existing
-// ancestor of a missing mount point. Everything else in the mutable root is a
-// bind mount of the host. `dsts` must be canonical.
+// the host: "/", and the deepest existing ancestor of each missing mount
+// point. The directories between them are not rebuilt: each shadowed
+// directory is a tmpfs mounted over the host's copy, inside the bind mount of
+// its parent. Everything else in the mutable root is a bind mount of the host.
+// `dsts` must be canonical.
 util::expected<std::set<std::filesystem::path>, std::string>
 mutable_root_shadow_dirs(const std::set<std::filesystem::path>& dsts);
 

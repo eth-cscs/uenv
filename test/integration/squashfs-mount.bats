@@ -339,7 +339,7 @@ function require_fuse_backend() {
         assert_failure
         assert_output --partial "the bind-mount source $TMP/uenv-bats-no-such-src does not exist"
         # nothing was unshared or mounted
-        refute_output --partial "make mutable root"
+        refute_output --partial "mutable root:"
         refute_output --partial "become fake root"
     done
 }
@@ -422,7 +422,7 @@ function require_fuse_backend() {
         skip "needs a /usr/share/doc that the user can not write to"
     fi
 
-    # /usr and /usr/share are shadowed, everything else in them is the host's
+    # /usr/share is shadowed, everything else in it is the host's
     run squashfs-mount -r --tmpfs=/usr/share/uenv-bats-new -- \
         sh -c 'test -d /usr/share/doc && findmnt -n -o FSTYPE /usr/share/uenv-bats-new && touch /usr/share/uenv-bats-new/file'
     assert_success
@@ -466,6 +466,37 @@ function require_fuse_backend() {
     [[ "$stderr" == *"warning"*"$TMP is rebuilt in memory"*"mkdir -p $TMP/uenv-bats-new"* ]]
     [[ ! -e $TMP/uenv-bats-new ]]
     [[ ! -e $TMP/uenv-bats-lost ]]
+}
+
+@test "mutable root: only the deepest existing ancestor is shadowed" {
+    require_fuse_backend
+    mkdir -p $TMP/p/q
+
+    # $TMP/p/q is shadowed; $TMP/p and $TMP are still the host's, so a new
+    # file there is kept, while one directly in $TMP/p/q is not
+    run --separate-stderr squashfs-mount -v -r --tmpfs=$TMP/p/q/a/new -- \
+        sh -c "test -d $TMP/p/q/a/new && touch $TMP/p/kept $TMP/p/q/lost"
+    assert_success
+    [[ "$stderr" == *"mutable root: shadowing /, $TMP/p/q to create $TMP/p/q/a/new"* ]]
+    [[ -e $TMP/p/kept ]]
+    [[ ! -e $TMP/p/q/lost ]]
+    [[ ! -e $TMP/p/q/a ]]
+}
+
+@test "mutable root: an ancestor with many entries is not shadowed" {
+    require_fuse_backend
+    mkdir -p $TMP/big
+    (cd $TMP/big && mkdir $(seq -f 'd%g' 0 4100))
+
+    # $TMP/big has more than max_shadow_entries entries, but only $TMP/big/d0
+    # is shadowed to create the mount point below it
+    run squashfs-mount -r --tmpfs=$TMP/big/d0/new -- test -d $TMP/big/d0/new
+    assert_success
+
+    # the limit still applies to the shadowed directory itself
+    run squashfs-mount -r --tmpfs=$TMP/big/new -- true
+    assert_failure
+    assert_output --partial "the mutable root can not create a mount point in $TMP/big: it has more than 4096 entries"
 }
 
 @test "mutable root: nothing is printed without -v" {

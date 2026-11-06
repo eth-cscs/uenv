@@ -43,11 +43,13 @@ util::expected<void, std::string> mount_and_join_ns(
 // can be created before mounting onto them. The approach (a tmpfs root
 // assembled from bind mounts, then pivot_root) is the one bubblewrap uses;
 // Each directory in `shadow` (see uenv::mutable_root_shadow_dirs(); it must
-// contain "/") is recreated on the tmpfs, holding a bind mount of each of the
-// host's entries, a copy of each symlink, and the shadowed directories below
-// it. Everything else is a bind mount of the host, so writes there reach the
-// host as usual. Must be called after unshare_mount_map_root(), inside the
-// mount namespace that owns the mounts being set up.
+// contain "/") is recreated on a tmpfs, holding a bind mount of each of the
+// host's entries and a copy of each symlink: "/" as the new root, any other
+// as a tmpfs mounted over the host's copy of it. Everything else, including
+// the directories between "/" and a shadowed one, is a bind mount of the
+// host, so writes there reach the host as usual. Must be called after
+// unshare_mount_map_root(), inside the mount namespace that owns the mounts
+// being set up.
 //
 // Errors: a shadowed directory on an autofs mount (its entries are mounted
 // on demand, and a copy would only hold the ones mounted now), or with more

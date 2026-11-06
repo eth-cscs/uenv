@@ -266,12 +266,13 @@ check_no_autofs(const std::vector<mount_entry>& entries,
 }
 
 // Recreate the host directory `dir` (read through /oldroot) at /newroot/dir:
-// shadowed directories below it are recreated in turn, other directories are
-// bind mounted (appended to `bound`), symlinks are copied, and any other file
-// is bind mounted onto an empty file.
+// its directories are bind mounted (appended to `bound`), symlinks are
+// copied, and any other file is bind mounted onto an empty file. "/" is
+// recreated in /newroot itself. Any other `dir` is a tmpfs mounted over the
+// copy of the host's directory that a bind of one of its ancestors already put
+// at /newroot/dir, so its own ancestors stay the host's.
 util::expected<void, std::string>
 shadow_dir(const std::filesystem::path& dir,
-           const std::set<std::filesystem::path>& shadow,
            std::vector<std::filesystem::path>& bound) {
     namespace fs = std::filesystem;
     std::error_code ec;
@@ -279,13 +280,29 @@ shadow_dir(const std::filesystem::path& dir,
     const auto dst_dir = fs::path("/newroot") / dir.relative_path();
 
     if (dir != dir.root_path()) {
+        // the path to the mount point is in binds of the host, which may
+        // have changed since the mount points were validated: never follow a
+        // symlink to put the tmpfs somewhere else
+        auto path = fs::path("/newroot");
+        for (const auto& component : dir.relative_path()) {
+            path /= component;
+            if (!fs::is_directory(fs::symlink_status(path, ec)) || ec) {
+                return util::unexpected{
+                    fmt::format("unable to shadow {}: {} is not a directory",
+                                dir.string(), path.string())};
+            }
+        }
         const auto perms = fs::status(src_dir, ec).permissions();
-        if (!ec) {
-            fs::create_directory(dst_dir, ec);
+        if (ec) {
+            return util::unexpected{fmt::format("unable to shadow {}: {}",
+                                                dir.string(), ec.message())};
         }
-        if (!ec) {
-            fs::permissions(dst_dir, perms, ec);
+        if (auto r = uenv::mount("tmpfs", dst_dir.string(), "tmpfs",
+                                 MS_NOSUID | MS_NODEV | MS_SILENT, nullptr);
+            !r) {
+            return r;
         }
+        fs::permissions(dst_dir, perms, ec);
         if (ec) {
             return util::unexpected{fmt::format("unable to shadow {}: {}",
                                                 dir.string(), ec.message())};
@@ -310,11 +327,7 @@ shadow_dir(const std::filesystem::path& dir,
         if (ec) {
             break;
         }
-        if (type == fs::file_type::directory && shadow.contains(dir / name)) {
-            if (auto r = shadow_dir(dir / name, shadow, bound); !r) {
-                return r;
-            }
-        } else if (type == fs::file_type::symlink) {
+        if (type == fs::file_type::symlink) {
             const auto target = fs::read_symlink(src, ec);
             if (!ec) {
                 fs::create_symlink(target, dst, ec);
@@ -368,7 +381,6 @@ make_mutable_root(const std::set<std::filesystem::path>& shadow) {
         return util::unexpected(
             fmt::format("fs::current_path failed with {}", ec.message()));
     }
-    spdlog::info("make mutable root, shadowing {}", fmt::join(shadow, ", "));
 
     // Recursively make "/" a slave mount so that none of the bind/remount
     // activity below propagates back into the host's mount namespace.
@@ -428,11 +440,21 @@ make_mutable_root(const std::set<std::filesystem::path>& shadow) {
         return r;
     }
 
-    // "/" and the shadowed directories below it; a relative symlink target
-    // resolves against the new "/", which has the same entries
+    // "/", then the shadowed directories below it; a relative symlink target
+    // resolves against the new "/", which has the same entries. A std::set
+    // of paths is ordered component by component, so a shadowed directory is
+    // filled before any shadowed directory inside it is mounted over.
     std::vector<fs::path> bound;
-    if (auto r = shadow_dir("/", shadow, bound); !r) {
+    if (auto r = shadow_dir("/", bound); !r) {
         return r;
+    }
+    for (const auto& dir : shadow) {
+        if (dir == dir.root_path()) {
+            continue;
+        }
+        if (auto r = shadow_dir(dir, bound); !r) {
+            return r;
+        }
     }
 
     auto mountinfo = read_mountinfo();

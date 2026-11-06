@@ -15,6 +15,8 @@
 #include <unistd.h>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
+#include <fmt/std.h>
 extern "C" {
 #include <squashfuse/ll.h>
 }
@@ -715,6 +717,8 @@ util::expected<void, std::string> prepare_root(const mount_request& req) {
     if (!shadow) {
         return util::unexpected{shadow.error()};
     }
+    spdlog::info("mutable root: shadowing {} to create {}",
+                 fmt::join(*shadow, ", "), fmt::join(dst_dirs, ", "));
     return make_mutable_root(*shadow);
 }
 
