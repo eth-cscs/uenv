@@ -21,8 +21,7 @@ template <nothrow_move_constructible F> class defer_wrap {
     }
 
     defer_wrap(defer_wrap&& other) noexcept
-        : on_exit(std::move(other.on_exit)),
-          trigger(other.trigger) {
+        : on_exit(std::move(other.on_exit)), trigger(other.trigger) {
         other.release();
     }
 
