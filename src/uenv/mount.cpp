@@ -110,7 +110,7 @@ make_mount_pair(const mount_description& d) {
 }
 
 util::expected<std::vector<uenv::mount_pair>, std::string>
-validate_mount_list(const mount_list& input) {
+validate_mount_list(const mount_list& input, bool allow_shared_mount_points) {
     namespace fs = std::filesystem;
 
     if (input.empty()) {
@@ -129,15 +129,19 @@ validate_mount_list(const mount_list& input) {
     // starting to parse squashfs files and their meta data - WHICH WE DO NOT
     // WANT TO DO BECAUSE THIS CODE RUNS IN THE PRIVILAGED HELPER.
 
+    //
+    // The sort is stable: images that share a mount point keep the order in
+    // which they were given, which is the order in which they are layered
+    // (later images on top) when allow_shared_mount_points is set.
     std::vector<uenv::mount_pair> mounts{input};
-    std::sort(std::begin(mounts), std::end(mounts),
-              [](const auto& lhs, const auto& rhs) {
-                  return lhs.mount.compare(rhs.mount) < 0;
-              });
+    std::stable_sort(std::begin(mounts), std::end(mounts),
+                     [](const auto& lhs, const auto& rhs) {
+                         return lhs.mount.compare(rhs.mount) < 0;
+                     });
 
     auto is_child = [](const fs::path& parent, const fs::path& child) -> bool {
         auto rel = child.lexically_relative(parent);
-        return !rel.empty() && *rel.begin() != "..";
+        return !rel.empty() && rel != "." && *rel.begin() != "..";
     };
 
     auto mview = std::ranges::transform_view(
@@ -146,7 +150,7 @@ validate_mount_list(const mount_list& input) {
     // check whether there are two identical mount points.
     // take advantage of the list being sorted.
     if (auto it = std::adjacent_find(mview.begin(), mview.end());
-        it != mview.end()) {
+        !allow_shared_mount_points && it != mview.end()) {
         return util::unexpected{fmt::format(
             "the mount point {} is used to mount more than one squashfs", *it)};
     }
@@ -173,6 +177,11 @@ validate_mount_list(const mount_list& input) {
     }
     // iterate over the remaining mounts
     for (auto c = b + 1; c != e; ++c) {
+        // an image that shares its mount point with the previous one has
+        // already had that mount point checked
+        if (*c == *(c - 1)) {
+            continue;
+        }
         auto parent = std::find_if(
             b, c, [&c, is_child](const auto& it) { return is_child(it, *c); });
         if (parent == c) { // there is no parent
@@ -189,7 +198,8 @@ validate_mount_list(const mount_list& input) {
 }
 
 util::expected<mount_list, std::string>
-validate_mount_descriptions(const std::vector<mount_description>& input) {
+validate_mount_descriptions(const std::vector<mount_description>& input,
+                            bool allow_shared_mount_points) {
     mount_list mounts;
     for (auto desc : input) {
         if (auto mount = uenv::make_mount_pair(desc); !mount) {
@@ -201,17 +211,19 @@ validate_mount_descriptions(const std::vector<mount_description>& input) {
         }
     }
 
-    return validate_mount_list(mounts);
+    return validate_mount_list(mounts, allow_shared_mount_points);
 }
 
 util::expected<mount_list, std::string>
-parse_and_validate_mounts(const std::string& description) {
+parse_and_validate_mounts(const std::string& description,
+                          bool allow_shared_mount_points) {
     auto mount_descriptions = uenv::parse_mount_list(description);
     if (!mount_descriptions) {
         return util::unexpected{mount_descriptions.error().message()};
     }
 
-    return validate_mount_descriptions(mount_descriptions.value());
+    return validate_mount_descriptions(mount_descriptions.value(),
+                                       allow_shared_mount_points);
 }
 
 util::expected<void, std::string> mount(std::optional<std::string> source,

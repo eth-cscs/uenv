@@ -298,6 +298,18 @@ There is no runtime switch between them.
   a hook Slurm itself invokes as root, so `uenv::do_mount()` is called
   directly with the privilege the plugin already has. Neither path opens the
   image with that privilege — see the next section.
+
+  The setuid helper (only — the Slurm plugin and `uenv run/start` still
+  reject it) accepts several images at the same mount point
+  (`--sqfs=A:/ue,B:/ue`), and `do_mount()` stacks them as one read-only
+  overlayfs with the image given **last on top**. This relies on
+  `validate_mount_list` sorting with `std::stable_sort`. The layers are staged
+  on a private tmpfs mounted on the target itself, inside the unshared mount
+  namespace. The overlay is built detached (`fsopen`/`fsmount`), the tmpfs is
+  detached (overlay keeps private references to its layers), and the overlay
+  is then `move_mount`ed into place. Do not stage the layers in a
+  user-writable directory such as `/dev/shm/$USER`: root would be creating
+  paths there.
 - **`fuse`**: mounts via `squashfuse_ll` inside a fresh user + mount
   namespace, entirely unprivileged — no setuid bit needed
   (`src/uenv/mount_rootless.cpp`). Since Slurm can co-locate several tasks

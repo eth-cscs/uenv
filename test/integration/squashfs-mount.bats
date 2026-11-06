@@ -140,13 +140,63 @@ $my_uid"
     assert_success
 }
 
-# verify that two images on the same mount point is treated as an error
-@test "repeated mount point" {
+# images that share a mount point are stacked with a read-only overlayfs
+@test "shared mount point is an overlay" {
     SQFS_PATH=$SQFS_LIB/apptool/standalone
+    SQFS_MOUNTS=$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment
 
-    run squashfs-mount --sqfs=$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment -- true
-    assert_output --partial "the mount point /user-environment is used to mount more than one squashfs"
-    assert_failure
+    # the files of both images are visible
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- /user-environment/env/app/bin/app
+    assert_output "hello app"
+    assert_success
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- /user-environment/env/tool/bin/tool
+    assert_output "hello tool"
+    assert_success
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- ls /user-environment/modules
+    assert_line "app"
+    assert_line "tool"
+    assert_success
+
+    # one read-only overlay, and nothing left of the staging tmpfs or layers
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- findmnt --noheadings --raw --output TARGET,FSTYPE,OPTIONS
+    assert_line --regexp "^/user-environment overlay ro,nosuid,nodev"
+    refute_line --regexp "^/user-environment(/[0-9]+)? (tmpfs|squashfs) "
+    assert_success
+
+    # the mount list records every image
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- bash -c 'echo $UENV_MOUNT_LIST'
+    assert_output "$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment"
+    assert_success
+}
+
+# the image given last is on top
+@test "shared mount point precedence" {
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    APP=$SQFS_PATH/app42.squashfs
+    TOOL=$SQFS_PATH/tool.squashfs
+
+    run squashfs-mount --sqfs=$APP:/user-environment,$TOOL:/user-environment -- cat /user-environment/meta/env.json
+    assert_output --partial "A tool uenv for testing"
+    assert_success
+
+    run squashfs-mount --sqfs=$TOOL:/user-environment,$APP:/user-environment -- cat /user-environment/meta/env.json
+    assert_output --partial "A simple app uenv for testing"
+    assert_success
+}
+
+# an image can be mounted inside an overlay, and more than two can be stacked.
+# tool.squashfs at /user-environment/meta puts its own meta/ at meta/meta.
+@test "shared mount point with nested mount" {
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    APP42=$SQFS_PATH/app42.squashfs
+    APP43=$SQFS_PATH/app43.squashfs
+    TOOL=$SQFS_PATH/tool.squashfs
+
+    run squashfs-mount --sqfs=$TOOL:/user-environment/meta,$APP42:/user-environment,$APP43:/user-environment,$TOOL:/user-environment -- ls /user-environment/modules/app /user-environment/meta/meta/extra
+    assert_line "42.0"
+    assert_line "43.0"
+    assert_line "readme.txt"
+    assert_success
 }
 
 # verify that mounting an image inside another works

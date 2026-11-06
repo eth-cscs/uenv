@@ -37,7 +37,9 @@ struct opened_image {
 
 /// Open every image in `mount_entries` with the credentials currently in
 /// effect, preserving the input order (validate_mount_list has already sorted
-/// it so that parent mounts precede the mounts nested inside them).
+/// it so that parent mounts precede the mounts nested inside them, and images
+/// that share a mount point are adjacent, in the order in which they were
+/// given).
 ///
 /// Refuses to run when the effective user is root but the real user is not, to
 /// avoid opening a caller-named image with privileges the caller does not have.
@@ -45,6 +47,9 @@ util::expected<std::vector<opened_image>, std::string>
 open_images(const mount_list& mount_entries);
 
 /// mount images that have already been opened by open_images().
+///
+/// Images that share a mount point are mounted as one read-only overlayfs,
+/// with the image that comes last on top.
 /// NOTE: the mount namespace must have been unshared before calling this
 /// function.
 util::expected<void, std::string>

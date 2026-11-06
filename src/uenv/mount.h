@@ -29,12 +29,19 @@ using mount_list = std::vector<mount_pair>;
 
 // one shot from string description to sorted and validated inputs
 //
+// The result is sorted by mount point, so that a mount precedes any mount
+// nested inside it. The sort is stable: images that share a mount point keep
+// the order in which they were given. Sharing a mount point is an error unless
+// allow_shared_mount_points is set, in which case the caller stacks those
+// images (see uenv::do_mount in the kernel backend).
+//
 // auto mountvar ;
 // if (auto mountvar = env.get("UENV_MOUNT_LIST")) {
 //     auto mounts = parse_and_validate_mounts(mountvar.value());
 // }
 util::expected<mount_list, std::string>
-parse_and_validate_mounts(const std::string& description);
+parse_and_validate_mounts(const std::string& description,
+                          bool allow_shared_mount_points = false);
 
 /// wrapper to `mount` from `sys/mount.h`
 util::expected<void, std::string> mount(std::optional<std::string> source,

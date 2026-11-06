@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -14,6 +15,7 @@
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -250,17 +252,226 @@ attach_loop_device(const int sqfs_fd, const std::string& squashfs_file) {
         squashfs_file, max_acquire_attempts));
 }
 
+//
+// the new mount API (Linux >= 5.2)
+//
+// Called through syscall(2) rather than the glibc wrappers, which only exist
+// from glibc 2.36, and with the constants defined here, because <sys/mount.h>
+// and <linux/mount.h> conflict on older glibc. The values are kernel ABI.
+//
+
+constexpr unsigned fsopen_cloexec = 0x00000001;    // FSOPEN_CLOEXEC
+constexpr unsigned fsconfig_set_string = 1;        // FSCONFIG_SET_STRING
+constexpr unsigned fsconfig_cmd_create = 6;        // FSCONFIG_CMD_CREATE
+constexpr unsigned fsmount_cloexec = 0x00000001;   // FSMOUNT_CLOEXEC
+constexpr unsigned mount_attr_rdonly = 0x00000001; // MOUNT_ATTR_RDONLY
+constexpr unsigned mount_attr_nosuid = 0x00000002; // MOUNT_ATTR_NOSUID
+constexpr unsigned mount_attr_nodev = 0x00000004;  // MOUNT_ATTR_NODEV
+constexpr unsigned move_mount_f_empty_path =
+    0x00000004; // MOVE_MOUNT_F_EMPTY_PATH
+
+int sys_fsopen(const char* fsname, unsigned flags) {
+    return static_cast<int>(::syscall(SYS_fsopen, fsname, flags));
+}
+int sys_fsconfig(int fd, unsigned cmd, const char* key, const char* value) {
+    return static_cast<int>(::syscall(SYS_fsconfig, fd, cmd, key, value, 0));
+}
+int sys_fsmount(int fd, unsigned flags, unsigned attr_flags) {
+    return static_cast<int>(::syscall(SYS_fsmount, fd, flags, attr_flags));
+}
+int sys_move_mount(int from_dfd, const char* from_path, int to_dfd,
+                   const char* to_path, unsigned flags) {
+    return static_cast<int>(
+        ::syscall(SYS_move_mount, from_dfd, from_path, to_dfd, to_path, flags));
+}
+
+// Drain the messages the kernel logged on an fs_context, to explain why an
+// fsconfig() call failed: overlayfs reports most of its errors only there.
+std::string fs_context_log(int fsfd) {
+    std::string log;
+    std::array<char, 1024> buf{};
+    for (;;) {
+        const ssize_t n = read(fsfd, buf.data(), buf.size());
+        if (n <= 0) {
+            break;
+        }
+        if (!log.empty()) {
+            log += "; ";
+        }
+        log.append(buf.data(), static_cast<std::size_t>(n));
+    }
+    return log;
+}
+
+// Escape a path for use as one entry of overlayfs's "lowerdir" option, in
+// which ':' separates the layers and a backslash escapes.
+std::string escape_lowerdir(const std::string& path) {
+    std::string out;
+    out.reserve(path.size());
+    for (char c : path) {
+        if (c == ':' || c == '\\') {
+            out.push_back('\\');
+        }
+        out.push_back(c);
+    }
+    return out;
+}
+
+// Attach `image` to a loop device and mount it read-only at `target`.
+util::expected<void, std::string> mount_squashfs(const opened_image& image,
+                                                 const std::string& target) {
+    const std::string squashfs_file = image.sqfs;
+
+    auto loop = attach_loop_device(image.fd.get(), squashfs_file);
+    if (!loop) {
+        return util::unexpected(fmt::format("{}: {}", target, loop.error()));
+    }
+    // The mount takes its own reference to the loop device, after which
+    // the fd is no longer needed; if the mount fails, closing the fd
+    // drops the last reference and AUTOCLEAR detaches the device.
+    auto close_loop = util::defer([fd = loop->fd] { close(fd); });
+
+    if (::mount(loop->path.c_str(), target.c_str(), "squashfs",
+                MS_RDONLY | MS_NOSUID | MS_NODEV, nullptr) != 0) {
+        const int saved_errno = errno;
+        const char* hint =
+            saved_errno == EINVAL
+                ? " (bad superblock - corrupt or truncated squashfs?)"
+                : "";
+        return util::unexpected(
+            fmt::format("failed to mount {} at {} via {}: {}{}", squashfs_file,
+                        target, loop->path, strerror(saved_errno), hint));
+    }
+    return {};
+}
+
+// Mount two or more images at the same `target` as one read-only overlayfs,
+// with the last image of `images` on top.
+//
+// The layers have to be mounted somewhere before overlayfs can be given their
+// paths. Rather than a directory the user can see or write to (e.g. under
+// /dev/shm), they are staged on a private tmpfs mounted on `target` itself,
+// inside the mount namespace that was unshared for this process:
+//
+//  1. mount a tmpfs at target, and each layer i at target/i;
+//  2. create the overlay as a detached mount (fsopen/fsmount), which takes
+//     private references to each layer;
+//  3. detach the tmpfs, together with the layer mounts under it - the overlay
+//     keeps the layers, and with them the AUTOCLEAR loop devices, alive;
+//  4. move the overlay to target.
+//
+// Nothing is left behind, on any path: everything mounted here belongs to the
+// private mount namespace.
+util::expected<void, std::string>
+mount_overlay(std::span<const opened_image> images, const std::string& target) {
+    namespace fs = std::filesystem;
+
+    if (::mount("tmpfs", target.c_str(), "tmpfs",
+                MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=0700,size=1m") != 0) {
+        return util::unexpected(
+            fmt::format("unable to mount a tmpfs at {} to stage the overlay "
+                        "layers: {}",
+                        target, strerror(errno)));
+    }
+    // undo the staging mount if anything fails before it is detached
+    bool staged = true;
+    auto unstage = util::defer([&staged, &target] {
+        if (staged) {
+            umount2(target.c_str(), MNT_DETACH);
+        }
+    });
+
+    // lowerdir lists the layers top first: the last image is on top
+    std::string lowerdir;
+    for (std::size_t i = 0; i < images.size(); ++i) {
+        const auto layer = (fs::path(target) / std::to_string(i)).string();
+        if (mkdir(layer.c_str(), 0700) != 0) {
+            return util::unexpected(
+                fmt::format("unable to create the overlay layer {}: {}", layer,
+                            strerror(errno)));
+        }
+        if (auto r = mount_squashfs(images[i], layer); !r) {
+            return r;
+        }
+        spdlog::debug("mount_overlay: layer {} {} at {}", i, images[i].sqfs,
+                      layer);
+        lowerdir = lowerdir.empty() ? escape_lowerdir(layer)
+                                    : escape_lowerdir(layer) + ":" + lowerdir;
+    }
+
+    util::unique_fd fsfd{sys_fsopen("overlay", fsopen_cloexec)};
+    if (!fsfd) {
+        return util::unexpected(
+            fmt::format("fsopen overlay: {}", strerror(errno)));
+    }
+    auto configure =
+        [&fsfd](unsigned cmd, const char* key,
+                const char* value) -> util::expected<void, std::string> {
+        if (sys_fsconfig(fsfd.get(), cmd, key, value) != 0) {
+            const int saved_errno = errno;
+            auto log = fs_context_log(fsfd.get());
+            return util::unexpected(fmt::format(
+                "overlay {}: {}{}", key ? key : "create", strerror(saved_errno),
+                log.empty() ? "" : " (" + log + ")"));
+        }
+        return {};
+    };
+    spdlog::debug("mount_overlay: lowerdir={}", lowerdir);
+    if (auto r = configure(fsconfig_set_string, "source", "squashfs-mount");
+        !r) {
+        return r;
+    }
+    if (auto r = configure(fsconfig_set_string, "lowerdir", lowerdir.c_str());
+        !r) {
+        return r;
+    }
+    if (auto r = configure(fsconfig_cmd_create, nullptr, nullptr); !r) {
+        return r;
+    }
+
+    util::unique_fd mntfd{
+        sys_fsmount(fsfd.get(), fsmount_cloexec,
+                    mount_attr_rdonly | mount_attr_nosuid | mount_attr_nodev)};
+    if (!mntfd) {
+        return util::unexpected(
+            fmt::format("fsmount overlay: {}", strerror(errno)));
+    }
+
+    staged = false;
+    if (umount2(target.c_str(), MNT_DETACH) != 0) {
+        return util::unexpected(
+            fmt::format("unable to detach the overlay staging tmpfs at {}: {}",
+                        target, strerror(errno)));
+    }
+
+    if (sys_move_mount(mntfd.get(), "", AT_FDCWD, target.c_str(),
+                       move_mount_f_empty_path) != 0) {
+        return util::unexpected(fmt::format(
+            "unable to mount the overlay at {}: {}", target, strerror(errno)));
+    }
+
+    return {};
+}
+
 } // namespace
 
 util::expected<void, std::string>
 do_mount(const std::vector<opened_image>& images) {
-    if (images.size() == 0) {
-        return {};
-    }
+    // The images are sorted by mount point, so that a mount precedes any mount
+    // nested inside it, and images that share a mount point are adjacent, in
+    // the order in which they were given. Each run of images that share a
+    // mount point is mounted as one unit: a single image directly, several as
+    // an overlay.
+    const std::span<const opened_image> all{images};
+    for (std::size_t first = 0; first < all.size();) {
+        std::size_t last = first + 1;
+        while (last < all.size() && all[last].mount == all[first].mount) {
+            ++last;
+        }
+        const auto run = all.subspan(first, last - first);
+        first = last;
 
-    for (auto& entry : images) {
-        std::string mount_point = entry.mount;
-        std::string squashfs_file = entry.sqfs;
+        const std::string mount_point = run.front().mount;
 
         // Check the mount point exists inside the mount loop, because the
         // mount point may have been created inside a previous mount.
@@ -273,26 +484,10 @@ do_mount(const std::vector<opened_image>& images) {
                 ec ? ec.message() : "not a directory"));
         }
 
-        auto loop = attach_loop_device(entry.fd.get(), squashfs_file);
-        if (!loop) {
-            return util::unexpected(
-                fmt::format("{}: {}", mount_point, loop.error()));
-        }
-        // The mount takes its own reference to the loop device, after which
-        // the fd is no longer needed; if the mount fails, closing the fd
-        // drops the last reference and AUTOCLEAR detaches the device.
-        auto close_loop = util::defer([fd = loop->fd] { close(fd); });
-
-        if (::mount(loop->path.c_str(), mount_point.c_str(), "squashfs",
-                    MS_RDONLY | MS_NOSUID | MS_NODEV, nullptr) != 0) {
-            const int saved_errno = errno;
-            const char* hint =
-                saved_errno == EINVAL
-                    ? " (bad superblock - corrupt or truncated squashfs?)"
-                    : "";
-            return util::unexpected(fmt::format(
-                "failed to mount {} at {} via {}: {}{}", squashfs_file,
-                mount_point, loop->path, strerror(saved_errno), hint));
+        auto r = run.size() == 1 ? mount_squashfs(run.front(), mount_point)
+                                 : mount_overlay(run, mount_point);
+        if (!r) {
+            return r;
         }
     }
 
