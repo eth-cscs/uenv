@@ -140,9 +140,14 @@ $my_uid"
     assert_success
 }
 
-# images that share a mount point are staged on /.squashfs-mount-scratch,
-# which has to be created as root (the RPM and CI do)
-function require_overlay_scratch() {
+# Only the setuid (kernel) squashfs-mount stacks images that share a mount
+# point; the fuse build refuses them. The layers are staged on
+# /.squashfs-mount-scratch, which has to be created as root (the RPM and CI
+# do).
+function require_overlay() {
+    if [[ ! -u "$(command -v squashfs-mount)" ]]; then
+        skip "stacking images needs the setuid (kernel) squashfs-mount"
+    fi
     if [ ! -d /.squashfs-mount-scratch ]; then
         skip "create the overlay staging directory: sudo mkdir /.squashfs-mount-scratch"
     fi
@@ -150,7 +155,7 @@ function require_overlay_scratch() {
 
 # images that share a mount point are stacked with a read-only overlayfs
 @test "shared mount point is an overlay" {
-    require_overlay_scratch
+    require_overlay
     SQFS_PATH=$SQFS_LIB/apptool/standalone
     SQFS_MOUNTS=$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment
 
@@ -181,7 +186,7 @@ function require_overlay_scratch() {
 
 # the image given last is on top
 @test "shared mount point precedence" {
-    require_overlay_scratch
+    require_overlay
     SQFS_PATH=$SQFS_LIB/apptool/standalone
     APP=$SQFS_PATH/app42.squashfs
     TOOL=$SQFS_PATH/tool.squashfs
@@ -198,7 +203,7 @@ function require_overlay_scratch() {
 # an image can be mounted inside an overlay, and more than two can be stacked.
 # tool.squashfs at /user-environment/meta puts its own meta/ at meta/meta.
 @test "shared mount point with nested mount" {
-    require_overlay_scratch
+    require_overlay
     SQFS_PATH=$SQFS_LIB/apptool/standalone
     APP42=$SQFS_PATH/app42.squashfs
     APP43=$SQFS_PATH/app43.squashfs
@@ -213,12 +218,26 @@ function require_overlay_scratch() {
 
 # without the staging directory, a shared mount point is a clear error
 @test "shared mount point without staging directory" {
+    if [[ ! -u "$(command -v squashfs-mount)" ]]; then
+        skip "stacking images needs the setuid (kernel) squashfs-mount"
+    fi
     if [ -e /.squashfs-mount-scratch ]; then
         skip "/.squashfs-mount-scratch exists"
     fi
     SQFS_PATH=$SQFS_LIB/apptool/standalone
     run squashfs-mount --sqfs=$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment -- true
     assert_output --partial "needs the root-owned directory /.squashfs-mount-scratch"
+    assert_failure
+}
+
+# the fuse build does not stack images: a shared mount point is refused
+@test "shared mount point is refused without the setuid helper" {
+    if [[ -u "$(command -v squashfs-mount)" ]]; then
+        skip "squashfs-mount is installed setuid"
+    fi
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    run squashfs-mount --sqfs=$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment -- true
+    assert_output --partial "used to mount more than one squashfs"
     assert_failure
 }
 
