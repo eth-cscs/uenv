@@ -730,8 +730,7 @@ TEST_CASE("validate_mount_points", "[mount]") {
         REQUIRE(!r);
         REQUIRE(r.error() ==
                 fmt::format("the mount point {} does not exist: it is inside "
-                            "the --bind-mount {}:{}, where {} is not a "
-                            "directory",
+                            "the --bind-mount {}:{}, where {} does not exist",
                             (exists / "in-source").string(), src.string(),
                             exists.string(), (src / "in-source").string()));
         std::filesystem::create_directories(src / "in-source");

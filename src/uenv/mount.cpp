@@ -321,58 +321,40 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
     return providers;
 }
 
-namespace {
-// the mount points on the host that do not exist: those not below another
-// requested destination (which provides them, see mount_point_providers)
-std::vector<std::filesystem::path>
-missing_host_mount_points(const mount_list& mounts,
-                          const std::vector<bindmount_pair>& bind_mounts,
-                          const std::vector<tmpfs_tuple>& tmpfs) {
+util::expected<void, std::string>
+validate_mount_points(const mount_list& mounts,
+                      const std::vector<bindmount_pair>& bind_mounts,
+                      const std::vector<tmpfs_tuple>& tmpfs) {
     const auto destinations = all_destinations(mounts, bind_mounts, tmpfs);
-    std::vector<std::filesystem::path> result;
+
+    // a mount point must exist on the host, unless it is below another
+    // requested destination (which provides it, see mount_point_providers)
     for (const auto& path : destinations) {
         const bool provided =
             std::ranges::any_of(destinations, [&path](const auto& other) {
                 return other != path && util::is_child(path, other);
             });
-        if (!provided && !util::path_is_dir(path)) {
-            result.push_back(path);
+        if (provided) {
+            continue;
         }
-    }
-    return result;
-}
-} // namespace
-
-util::expected<void, std::string>
-validate_mount_points(const mount_list& mounts,
-                      const std::vector<bindmount_pair>& bind_mounts,
-                      const std::vector<tmpfs_tuple>& tmpfs) {
-    if (const auto missing =
-            missing_host_mount_points(mounts, bind_mounts, tmpfs);
-        !missing.empty()) {
-        return util::unexpected{fmt::format("the mount point {} does not exist",
-                                            missing.front().string())};
+        if (auto r = util::check_dir(path); !r) {
+            return util::unexpected{
+                fmt::format("the mount point {} {}", path.string(), r.error())};
+        }
     }
 
     // a bind-mount source is always the host's directory, also when it is
     // inside another destination
     for (const auto& b : bind_mounts) {
-        std::error_code ec;
-        const auto status = std::filesystem::status(b.src, ec);
-        if (!std::filesystem::exists(status)) {
-            return util::unexpected{fmt::format(
-                "the bind-mount source {} does not exist", b.src.string())};
-        }
-        if (!std::filesystem::is_directory(status)) {
-            return util::unexpected{fmt::format(
-                "the bind-mount source {} is not a directory", b.src.string())};
+        if (auto r = util::check_dir(b.src); !r) {
+            return util::unexpected{fmt::format("the bind-mount source {} {}",
+                                                b.src.string(), r.error())};
         }
     }
 
     // a mount point inside a --bind-mount is never created (that would write
     // into its source on the host), and is the same path below the bind's
     // source on the host, so it can be checked before anything is mounted
-    const auto destinations = all_destinations(mounts, bind_mounts, tmpfs);
     const auto first_bind = mounts.size();
     for (std::size_t i = 0; i < destinations.size(); ++i) {
         const auto k = innermost_enclosing(destinations, destinations[i], i);
@@ -381,12 +363,12 @@ validate_mount_points(const mount_list& mounts,
         }
         const auto& b = bind_mounts[*k - first_bind];
         const auto host = b.src / destinations[i].lexically_relative(b.dst);
-        if (!util::path_is_dir(host)) {
+        if (auto r = util::check_dir(host); !r) {
             return util::unexpected{fmt::format(
                 "the mount point {} does not exist: it is inside the "
-                "--bind-mount {}:{}, where {} is not a directory",
+                "--bind-mount {}:{}, where {} {}",
                 destinations[i].string(), b.src.string(), b.dst.string(),
-                host.string())};
+                host.string(), r.error())};
         }
     }
     return {};
