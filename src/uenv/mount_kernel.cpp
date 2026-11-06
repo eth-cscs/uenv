@@ -15,7 +15,6 @@
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
-#include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -252,71 +251,6 @@ attach_loop_device(const int sqfs_fd, const std::string& squashfs_file) {
         squashfs_file, max_acquire_attempts));
 }
 
-//
-// the new mount API (Linux >= 5.2)
-//
-// Called through syscall(2) rather than the glibc wrappers, which only exist
-// from glibc 2.36, and with the constants defined here, because <sys/mount.h>
-// and <linux/mount.h> conflict on older glibc. The values are kernel ABI.
-//
-
-constexpr unsigned fsopen_cloexec = 0x00000001;    // FSOPEN_CLOEXEC
-constexpr unsigned fsconfig_set_string = 1;        // FSCONFIG_SET_STRING
-constexpr unsigned fsconfig_cmd_create = 6;        // FSCONFIG_CMD_CREATE
-constexpr unsigned fsmount_cloexec = 0x00000001;   // FSMOUNT_CLOEXEC
-constexpr unsigned mount_attr_rdonly = 0x00000001; // MOUNT_ATTR_RDONLY
-constexpr unsigned mount_attr_nosuid = 0x00000002; // MOUNT_ATTR_NOSUID
-constexpr unsigned mount_attr_nodev = 0x00000004;  // MOUNT_ATTR_NODEV
-constexpr unsigned move_mount_f_empty_path =
-    0x00000004; // MOVE_MOUNT_F_EMPTY_PATH
-
-int sys_fsopen(const char* fsname, unsigned flags) {
-    return static_cast<int>(::syscall(SYS_fsopen, fsname, flags));
-}
-int sys_fsconfig(int fd, unsigned cmd, const char* key, const char* value) {
-    return static_cast<int>(::syscall(SYS_fsconfig, fd, cmd, key, value, 0));
-}
-int sys_fsmount(int fd, unsigned flags, unsigned attr_flags) {
-    return static_cast<int>(::syscall(SYS_fsmount, fd, flags, attr_flags));
-}
-int sys_move_mount(int from_dfd, const char* from_path, int to_dfd,
-                   const char* to_path, unsigned flags) {
-    return static_cast<int>(
-        ::syscall(SYS_move_mount, from_dfd, from_path, to_dfd, to_path, flags));
-}
-
-// Drain the messages the kernel logged on an fs_context, to explain why an
-// fsconfig() call failed: overlayfs reports most of its errors only there.
-std::string fs_context_log(int fsfd) {
-    std::string log;
-    std::array<char, 1024> buf{};
-    for (;;) {
-        const ssize_t n = read(fsfd, buf.data(), buf.size());
-        if (n <= 0) {
-            break;
-        }
-        if (!log.empty()) {
-            log += "; ";
-        }
-        log.append(buf.data(), static_cast<std::size_t>(n));
-    }
-    return log;
-}
-
-// Escape a path for use as one entry of overlayfs's "lowerdir" option, in
-// which ':' separates the layers and a backslash escapes.
-std::string escape_lowerdir(const std::string& path) {
-    std::string out;
-    out.reserve(path.size());
-    for (char c : path) {
-        if (c == ':' || c == '\\') {
-            out.push_back('\\');
-        }
-        out.push_back(c);
-    }
-    return out;
-}
-
 // Attach `image` to a loop device and mount it read-only at `target`.
 util::expected<void, std::string> mount_squashfs(const opened_image& image,
                                                  const std::string& target) {
@@ -331,6 +265,8 @@ util::expected<void, std::string> mount_squashfs(const opened_image& image,
     // drops the last reference and AUTOCLEAR detaches the device.
     auto close_loop = util::defer([fd = loop->fd] { close(fd); });
 
+    spdlog::debug("mount_squashfs: {} attached to {}, mounting at {}",
+                  squashfs_file, loop->path, target);
     if (::mount(loop->path.c_str(), target.c_str(), "squashfs",
                 MS_RDONLY | MS_NOSUID | MS_NODEV, nullptr) != 0) {
         const int saved_errno = errno;
@@ -345,46 +281,90 @@ util::expected<void, std::string> mount_squashfs(const opened_image& image,
     return {};
 }
 
+// The directory on which the layers of an overlay are staged.
+//
+// overlayfs takes its layers as paths, so each image has to be mounted
+// somewhere before the overlay can be created. That place must be a directory
+// that the calling user cannot write to or replace, because root mounts on it:
+// a user-writable location (e.g. /dev/shm/$USER) would let the user redirect
+// root's mounts with a symlink or a race. It is created at install time,
+// root-owned and empty, directly under / so that no other path component can
+// be controlled by anyone but root. Inside the private mount namespace a tmpfs
+// is mounted over it, so that nothing is ever written to the directory itself.
+constexpr const char* overlay_scratch = "/.squashfs-mount-scratch";
+
+// Check that overlay_scratch is safe for root to mount on: a real directory
+// (not a symlink), owned by root, and not writable by group or others. Its
+// only parent is /, so this is all a user could otherwise tamper with.
+util::expected<void, std::string> check_scratch() {
+    auto refuse = [](const std::string& reason) {
+        return util::unexpected(
+            fmt::format("stacking images at a shared mount point needs the "
+                        "root-owned directory {}: {}",
+                        overlay_scratch, reason));
+    };
+    struct stat st = {};
+    if (lstat(overlay_scratch, &st) != 0) {
+        return refuse(strerror(errno));
+    }
+    if (!S_ISDIR(st.st_mode)) {
+        return refuse("it is not a directory");
+    }
+    if (st.st_uid != 0) {
+        return refuse(fmt::format("it is owned by uid {}", st.st_uid));
+    }
+    if ((st.st_mode & (S_IWGRP | S_IWOTH)) != 0) {
+        return refuse("it is writable by group or others");
+    }
+    return {};
+}
+
 // Mount two or more images at the same `target` as one read-only overlayfs,
 // with the last image of `images` on top.
 //
-// The layers have to be mounted somewhere before overlayfs can be given their
-// paths. Rather than a directory the user can see or write to (e.g. under
-// /dev/shm), they are staged on a private tmpfs mounted on `target` itself,
-// inside the mount namespace that was unshared for this process:
+//  1. mount a private tmpfs at overlay_scratch;
+//  2. mount each image i at overlay_scratch/i;
+//  3. mount the overlay at target with a single mount(2);
+//  4. detach the tmpfs, together with the layer mounts under it: the overlay
+//     keeps private references to its layers, and with them the AUTOCLEAR loop
+//     devices, alive.
 //
-//  1. mount a tmpfs at target, and each layer i at target/i;
-//  2. create the overlay as a detached mount (fsopen/fsmount), which takes
-//     private references to each layer;
-//  3. detach the tmpfs, together with the layer mounts under it - the overlay
-//     keeps the layers, and with them the AUTOCLEAR loop devices, alive;
-//  4. move the overlay to target.
-//
-// Nothing is left behind, on any path: everything mounted here belongs to the
-// private mount namespace.
+// Everything mounted here belongs to the private mount namespace, and step 4
+// runs on every path, so nothing is left at overlay_scratch either way.
 util::expected<void, std::string>
 mount_overlay(std::span<const opened_image> images, const std::string& target) {
     namespace fs = std::filesystem;
 
-    if (::mount("tmpfs", target.c_str(), "tmpfs",
+    if (auto r = check_scratch(); !r) {
+        return r;
+    }
+
+    spdlog::debug("mount_overlay: stacking {} images at {}", images.size(),
+                  target);
+    spdlog::debug("mount_overlay: [1/4] mount staging tmpfs at {}",
+                  overlay_scratch);
+    if (::mount("tmpfs", overlay_scratch, "tmpfs",
                 MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=0700,size=1m") != 0) {
         return util::unexpected(
             fmt::format("unable to mount a tmpfs at {} to stage the overlay "
                         "layers: {}",
-                        target, strerror(errno)));
+                        overlay_scratch, strerror(errno)));
     }
-    // undo the staging mount if anything fails before it is detached
-    bool staged = true;
-    auto unstage = util::defer([&staged, &target] {
-        if (staged) {
-            umount2(target.c_str(), MNT_DETACH);
-        }
+    auto unstage = util::defer([] {
+        spdlog::debug("mount_overlay: [4/4] detach staging tmpfs and its "
+                      "layer mounts at {}",
+                      overlay_scratch);
+        umount2(overlay_scratch, MNT_DETACH);
     });
 
-    // lowerdir lists the layers top first: the last image is on top
+    // lowerdir lists the layers top first: the last image is on top. The
+    // layer paths are fixed, so they need no escaping.
     std::string lowerdir;
     for (std::size_t i = 0; i < images.size(); ++i) {
-        const auto layer = (fs::path(target) / std::to_string(i)).string();
+        const auto layer =
+            (fs::path(overlay_scratch) / std::to_string(i)).string();
+        spdlog::debug("mount_overlay: [2/4] layer {}: mkdir {}, mount {}", i,
+                      layer, images[i].sqfs);
         if (mkdir(layer.c_str(), 0700) != 0) {
             return util::unexpected(
                 fmt::format("unable to create the overlay layer {}: {}", layer,
@@ -393,62 +373,25 @@ mount_overlay(std::span<const opened_image> images, const std::string& target) {
         if (auto r = mount_squashfs(images[i], layer); !r) {
             return r;
         }
-        spdlog::debug("mount_overlay: layer {} {} at {}", i, images[i].sqfs,
-                      layer);
-        lowerdir = lowerdir.empty() ? escape_lowerdir(layer)
-                                    : escape_lowerdir(layer) + ":" + lowerdir;
+        lowerdir = lowerdir.empty() ? layer : layer + ":" + lowerdir;
     }
 
-    util::unique_fd fsfd{sys_fsopen("overlay", fsopen_cloexec)};
-    if (!fsfd) {
-        return util::unexpected(
-            fmt::format("fsopen overlay: {}", strerror(errno)));
+    const auto options = fmt::format("lowerdir={}", lowerdir);
+    spdlog::debug("mount_overlay: [3/4] mount overlay at {}, {} (leftmost is "
+                  "on top)",
+                  target, options);
+    if (::mount("overlay", target.c_str(), "overlay",
+                MS_RDONLY | MS_NOSUID | MS_NODEV, options.c_str()) != 0) {
+        const int saved_errno = errno;
+        const char* hint = saved_errno == EINVAL
+                               ? " (the kernel log has the overlayfs reason)"
+                               : "";
+        return util::unexpected(fmt::format("unable to mount the overlay at "
+                                            "{}: {}{}",
+                                            target, strerror(saved_errno),
+                                            hint));
     }
-    auto configure =
-        [&fsfd](unsigned cmd, const char* key,
-                const char* value) -> util::expected<void, std::string> {
-        if (sys_fsconfig(fsfd.get(), cmd, key, value) != 0) {
-            const int saved_errno = errno;
-            auto log = fs_context_log(fsfd.get());
-            return util::unexpected(fmt::format(
-                "overlay {}: {}{}", key ? key : "create", strerror(saved_errno),
-                log.empty() ? "" : " (" + log + ")"));
-        }
-        return {};
-    };
-    spdlog::debug("mount_overlay: lowerdir={}", lowerdir);
-    if (auto r = configure(fsconfig_set_string, "source", "squashfs-mount");
-        !r) {
-        return r;
-    }
-    if (auto r = configure(fsconfig_set_string, "lowerdir", lowerdir.c_str());
-        !r) {
-        return r;
-    }
-    if (auto r = configure(fsconfig_cmd_create, nullptr, nullptr); !r) {
-        return r;
-    }
-
-    util::unique_fd mntfd{
-        sys_fsmount(fsfd.get(), fsmount_cloexec,
-                    mount_attr_rdonly | mount_attr_nosuid | mount_attr_nodev)};
-    if (!mntfd) {
-        return util::unexpected(
-            fmt::format("fsmount overlay: {}", strerror(errno)));
-    }
-
-    staged = false;
-    if (umount2(target.c_str(), MNT_DETACH) != 0) {
-        return util::unexpected(
-            fmt::format("unable to detach the overlay staging tmpfs at {}: {}",
-                        target, strerror(errno)));
-    }
-
-    if (sys_move_mount(mntfd.get(), "", AT_FDCWD, target.c_str(),
-                       move_mount_f_empty_path) != 0) {
-        return util::unexpected(fmt::format(
-            "unable to mount the overlay at {}: {}", target, strerror(errno)));
-    }
+    spdlog::debug("mount_overlay: overlay mounted at {}", target);
 
     return {};
 }

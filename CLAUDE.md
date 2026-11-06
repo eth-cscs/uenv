@@ -303,13 +303,15 @@ There is no runtime switch between them.
   reject it) accepts several images at the same mount point
   (`--sqfs=A:/ue,B:/ue`), and `do_mount()` stacks them as one read-only
   overlayfs with the image given **last on top**. This relies on
-  `validate_mount_list` sorting with `std::stable_sort`. The layers are staged
-  on a private tmpfs mounted on the target itself, inside the unshared mount
-  namespace. The overlay is built detached (`fsopen`/`fsmount`), the tmpfs is
-  detached (overlay keeps private references to its layers), and the overlay
-  is then `move_mount`ed into place. Do not stage the layers in a
-  user-writable directory such as `/dev/shm/$USER`: root would be creating
-  paths there.
+  `validate_mount_list` sorting with `std::stable_sort`. Inside the unshared
+  mount namespace, the layers are staged on a private tmpfs mounted at
+  `/.squashfs-mount-scratch`. The overlay is then mounted on the target with a
+  plain `mount(2)`, and the tmpfs is detached, because overlay keeps private
+  references to its layers. That directory must exist, root-owned and not
+  writable by group or others: the RPM, `meson install` and CI create it, and
+  the helper checks it (`check_scratch()`) and refuses otherwise. Do not stage
+  the layers in a user-writable directory such as `/dev/shm/$USER`: root would
+  be mounting on paths the user can redirect.
 - **`fuse`**: mounts via `squashfuse_ll` inside a fresh user + mount
   namespace, entirely unprivileged — no setuid bit needed
   (`src/uenv/mount_rootless.cpp`). Since Slurm can co-locate several tasks

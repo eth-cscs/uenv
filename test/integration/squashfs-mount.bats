@@ -140,8 +140,17 @@ $my_uid"
     assert_success
 }
 
+# images that share a mount point are staged on /.squashfs-mount-scratch,
+# which has to be created as root (the RPM and CI do)
+function require_overlay_scratch() {
+    if [ ! -d /.squashfs-mount-scratch ]; then
+        skip "create the overlay staging directory: sudo mkdir /.squashfs-mount-scratch"
+    fi
+}
+
 # images that share a mount point are stacked with a read-only overlayfs
 @test "shared mount point is an overlay" {
+    require_overlay_scratch
     SQFS_PATH=$SQFS_LIB/apptool/standalone
     SQFS_MOUNTS=$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment
 
@@ -161,6 +170,7 @@ $my_uid"
     run squashfs-mount --sqfs=$SQFS_MOUNTS -- findmnt --noheadings --raw --output TARGET,FSTYPE,OPTIONS
     assert_line --regexp "^/user-environment overlay ro,nosuid,nodev"
     refute_line --regexp "^/user-environment(/[0-9]+)? (tmpfs|squashfs) "
+    refute_line --regexp "^/\\.squashfs-mount-scratch"
     assert_success
 
     # the mount list records every image
@@ -171,6 +181,7 @@ $my_uid"
 
 # the image given last is on top
 @test "shared mount point precedence" {
+    require_overlay_scratch
     SQFS_PATH=$SQFS_LIB/apptool/standalone
     APP=$SQFS_PATH/app42.squashfs
     TOOL=$SQFS_PATH/tool.squashfs
@@ -187,6 +198,7 @@ $my_uid"
 # an image can be mounted inside an overlay, and more than two can be stacked.
 # tool.squashfs at /user-environment/meta puts its own meta/ at meta/meta.
 @test "shared mount point with nested mount" {
+    require_overlay_scratch
     SQFS_PATH=$SQFS_LIB/apptool/standalone
     APP42=$SQFS_PATH/app42.squashfs
     APP43=$SQFS_PATH/app43.squashfs
@@ -197,6 +209,17 @@ $my_uid"
     assert_line "43.0"
     assert_line "readme.txt"
     assert_success
+}
+
+# without the staging directory, a shared mount point is a clear error
+@test "shared mount point without staging directory" {
+    if [ -e /.squashfs-mount-scratch ]; then
+        skip "/.squashfs-mount-scratch exists"
+    fi
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    run squashfs-mount --sqfs=$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment -- true
+    assert_output --partial "needs the root-owned directory /.squashfs-mount-scratch"
+    assert_failure
 }
 
 # verify that mounting an image inside another works

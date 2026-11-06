@@ -35,5 +35,6 @@ echo "$REQ" > "$CNF"
 %{_bindir}/uenv
 %{_bindir}/squashfs-mount
 %attr(4755, root, root) %{_bindir}/squashfs-mount
+%dir %attr(0755, root, root) /.squashfs-mount-scratch
 /usr/share/bash-completion/completions/uenv
 /usr/share/zsh/site-functions/_uenv
