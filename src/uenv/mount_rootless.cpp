@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,7 @@
 #include <unistd.h>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <fmt/std.h>
 extern "C" {
 #include <squashfuse/ll.h>
@@ -250,7 +252,8 @@ fuse_lowlevel_ops make_fuse_lowlevel_options() {
 
 // Every source of the requested mounts, taken from the host before anything
 // is mounted (see capture_sources): a squashfs image and a --bind-mount source
-// always refer to the host, never to another of the requested mounts.
+// always refer to the host, never to another of the requested mounts or to
+// the mutable root.
 struct captured_sources {
     // the open image of each --sqfs entry, in the order of the mounts
     std::vector<util::unique_fd> images;
@@ -447,6 +450,7 @@ struct mount_request {
     // a lexical stable sort of the destinations across all three, see
     // uenv::build_mount_order()
     const uenv::mount_order& order;
+    bool mutable_root;
     bool fuse_single_threaded;
 };
 
@@ -456,9 +460,10 @@ struct mount_request {
 //   before it can not hide it from the fuse daemon;
 // - make a detached, recursive copy of each --bind-mount source: the host's
 //   directory with its host submounts, but without any --sqfs, --tmpfs or
-//   --bind-mount. Each copy is made nosuid, recursively.
-// So this must be called after unshare_mount_map_root() and before any
-// mount. Inside the user namespace this process has no
+//   --bind-mount, and without the mutable root's tmpfs copies. Each copy is
+//   made nosuid, recursively.
+// So this must be called after unshare_mount_map_root() and before
+// prepare_root() or any mount. Inside the user namespace this process has no
 // more access to the host's files than the calling user.
 util::expected<captured_sources, std::string>
 capture_sources(const mount_request& req) {
@@ -520,10 +525,10 @@ capture_sources(const mount_request& req) {
 // is returned.
 //
 // A missing mount point is created just before it is mounted on, if the mount
-// that provides it allows (see uenv::mount_point_providers): only one inside
-// a --tmpfs. One on the host, inside a squashfs image or inside a
-// --bind-mount is never created: it must already exist on the host, in the
-// image, or in the bind mount's source.
+// that provides it allows (see uenv::mount_point_providers): one inside a
+// --tmpfs always, one on the host only with a mutable root. One inside a
+// squashfs image or a --bind-mount is never created: it must already exist
+// in the image, or in the bind mount's source.
 //
 // Every image and bind source comes from `sources` (see capture_sources),
 // taken from the host before anything was mounted.
@@ -557,9 +562,13 @@ apply_mounts(const mount_request& req, const captured_sources& sources) {
         const auto& e = req.order[i];
         const auto& dst =
             uenv::mount_destination(e, req.mounts, req.bind_mounts, req.tmpfs);
-        if (providers[i] && *providers[i] == uenv::mount_kind::tmpfs) {
+        const bool create = providers[i]
+                                ? *providers[i] == uenv::mount_kind::tmpfs
+                                : req.mutable_root;
+        if (create) {
             std::error_code ec;
-            // in a --tmpfs (see mount_point_providers)
+            // in a --tmpfs, or on the host with a mutable root
+            // (see mount_point_providers)
             std::filesystem::create_directories(dst, ec);
             if (ec) {
                 return fail(fmt::format("failed to create mount point {}: {}",
@@ -682,6 +691,37 @@ fork_mount_supervisor(const mount_request& req,
     return {};
 }
 
+// Called after unshare_mount_map_root() and capture_sources(), inside
+// the mount namespace the mounts will live in, before apply_mounts(). With a
+// mutable root, rebuild "/" (see make_mutable_root()), shadowing the path to
+// each missing mount point on the host so that apply_mounts() can create it in
+// tmpfs. Without one, every mount point on the host must already exist
+// (validate_mount_points), and there is nothing to do.
+util::expected<void, std::string> prepare_root(const mount_request& req) {
+    if (!req.mutable_root) {
+        return {};
+    }
+    // the mount points on the host's own file system: one inside another
+    // requested mount is provided by that mount, not by the rebuilt root
+    const auto providers = uenv::mount_point_providers(
+        req.mounts, req.bind_mounts, req.tmpfs, req.order);
+    std::set<std::filesystem::path> dst_dirs;
+    for (std::size_t i = 0; i < req.order.size(); ++i) {
+        if (providers[i]) {
+            continue;
+        }
+        dst_dirs.emplace(uenv::mount_destination(req.order[i], req.mounts,
+                                                 req.bind_mounts, req.tmpfs));
+    }
+    auto shadow = uenv::mutable_root_shadow_dirs(dst_dirs);
+    if (!shadow) {
+        return util::unexpected{shadow.error()};
+    }
+    spdlog::info("mutable root: shadowing {} to create {}",
+                 fmt::join(*shadow, ", "), fmt::join(dst_dirs, ", "));
+    return make_mutable_root(*shadow);
+}
+
 util::expected<void, std::string> unshare_and_mount(const mount_request& req) {
     if (auto r = unshare_mount_map_root(); !r) {
         return r;
@@ -690,6 +730,9 @@ util::expected<void, std::string> unshare_and_mount(const mount_request& req) {
     auto sources = capture_sources(req);
     if (!sources) {
         return util::unexpected(sources.error());
+    }
+    if (auto r = prepare_root(req); !r) {
+        return r;
     }
     if (auto r = apply_mounts(req, *sources); !r) {
         return util::unexpected(r.error());
@@ -701,7 +744,7 @@ util::expected<void, std::string> mount_and_join_ns(
     const std::string& tag, int ntasks, const uenv::mount_list& mounts,
     const std::vector<uenv::bindmount_pair>& bind_mounts,
     const std::vector<uenv::tmpfs_tuple>& tmpfs, const uenv::mount_order& order,
-    bool fuse_single_threaded, uid_t uid, gid_t gid) {
+    bool fuse_single_threaded, uid_t uid, gid_t gid, bool mutable_root) {
     // capture the caller's dumpable state before unshare_and_mount forces it
     // on, so that lock_down can restore it once the mounts are ready.
     // Any non-zero result (SUID_DUMP_USER or SUID_DUMP_ROOT) counts as
@@ -718,6 +761,7 @@ util::expected<void, std::string> mount_and_join_ns(
                             .bind_mounts = bind_mounts,
                             .tmpfs = tmpfs,
                             .order = order,
+                            .mutable_root = mutable_root,
                             .fuse_single_threaded = fuse_single_threaded};
 
     if (ntasks == 1) {
@@ -744,15 +788,19 @@ util::expected<void, std::string> mount_and_join_ns(
         if (!sources) {
             return util::unexpected(sources.error());
         }
+        if (auto r = prepare_root(req); !r) {
+            return r;
+        }
 
         // A supervisor process owns the mounts, not this process: this
         // process execs the user's command, and the leader is an arbitrary
         // rank, so tying the daemons here would take the mount away from
         // every other rank on the node when that one rank's command returns.
         if (req.mounts.empty()) {
-            // only --tmpfs and --bind-mount: kernel mounts, which live as long
-            // as the mount namespace does, and every follower joins it below.
-            // There is no daemon to own, so no supervisor.
+            // only --tmpfs, --bind-mount and the mutable root: kernel mounts,
+            // which live as long as the mount namespace does, and every
+            // follower joins it below. There is no daemon to own, so no
+            // supervisor.
             if (auto r = apply_mounts(req, *sources); !r) {
                 return util::unexpected(r.error());
             }

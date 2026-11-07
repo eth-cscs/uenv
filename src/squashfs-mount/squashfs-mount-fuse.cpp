@@ -29,6 +29,7 @@ struct squashfs_mount_args {
     int verbosity = 0;
     bool fuse_single_threaded = false;
     bool tasks_join = false;
+    bool mutable_root = false;
     std::optional<std::string> raw_mounts;
     std::optional<std::string> tmpfs;
     std::optional<std::string> bind_mounts;
@@ -81,6 +82,8 @@ int main(int argc, char** argv, char** envp) {
         "squashfs-mount", fmt::format("squashfs-mount {}", UENV_VERSION));
     builder.add_flag({'v', "verbose"}, &squashfs_mount_args::verbosity,
                      "enable verbose output");
+    builder.add_flag({'r', "mutable-root"}, &squashfs_mount_args::mutable_root,
+                     "mutable root");
     builder.add_flag("version", &squashfs_mount_args::print_version,
                      "print version");
     builder.add_flag("fuse-single", &squashfs_mount_args::fuse_single_threaded,
@@ -126,6 +129,7 @@ int main(int argc, char** argv, char** envp) {
     const int verbosity = args.verbosity;
     const bool fuse_single_threaded = args.fuse_single_threaded;
     const bool tasks_join = args.tasks_join;
+    const bool mutable_root = args.mutable_root;
     const auto& raw_mounts = args.raw_mounts;
     const auto& commands = args.commands;
 
@@ -198,12 +202,26 @@ int main(int argc, char** argv, char** envp) {
         error_and_exit("{}", bind_mounts.error());
     }
 
-    // a mount point on the host must exist; one inside a --tmpfs is created
-    // when it is mounted on.
-    if (auto r =
-            uenv::validate_mount_points(mounts, *bind_mounts, *tmpfs, false);
+    // a mount point on the host must exist, unless a mutable root creates it;
+    // one inside a --tmpfs is created when it is mounted on.
+    if (auto r = uenv::validate_mount_points(mounts, *bind_mounts, *tmpfs,
+                                             mutable_root);
         !r) {
         error_and_exit("{}", r.error());
+    }
+    // printed whatever the log level: the command's writes are affected
+    if (mutable_root) {
+        for (const auto& [path, dir] :
+             uenv::writable_shadowed_dirs(mounts, *bind_mounts, *tmpfs)) {
+            fmt::print(stderr,
+                       "{}: the mount point {} does not exist, so {} is "
+                       "rebuilt in memory to create it: new files written "
+                       "directly in {} are lost on exit, and saving a file "
+                       "there by renaming over it fails. Run `mkdir -p {}` "
+                       "first to avoid this.\n",
+                       ::color::yellow("warning"), path.string(), dir.string(),
+                       dir.string(), path.string());
+        }
     }
 
     auto mount_order = uenv::build_mount_order(mounts, *bind_mounts, *tmpfs);
@@ -211,7 +229,8 @@ int main(int argc, char** argv, char** envp) {
         error_and_exit("{}", mount_order.error());
     }
 
-    if (!mounts.empty() || !tmpfs->empty() || !bind_mounts->empty()) {
+    if (!mounts.empty() || !tmpfs->empty() || !bind_mounts->empty() ||
+        mutable_root) {
         auto join_ctx = uenv::local_join_context(calling_env, tasks_join);
         if (!join_ctx) {
             error_and_exit("{}", join_ctx.error());
@@ -221,7 +240,7 @@ int main(int argc, char** argv, char** envp) {
 
         if (auto r = uenv::rootless::mount_and_join_ns(
                 join_ctx->tag, join_ctx->ntasks, mounts, *bind_mounts, *tmpfs,
-                *mount_order, fuse_single_threaded, uid, gid);
+                *mount_order, fuse_single_threaded, uid, gid, mutable_root);
             !r) {
             error_and_exit("mount failed: {}", r.error());
         }

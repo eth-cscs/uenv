@@ -1,5 +1,8 @@
 #pragma once
 
+#include <filesystem>
+#include <set>
+
 #include "uenv/mount.h"
 
 namespace uenv {
@@ -34,7 +37,29 @@ util::expected<void, std::string> mount_and_join_ns(
     const std::string& tag, int ntasks, const uenv::mount_list& mounts,
     const std::vector<uenv::bindmount_pair>& bind_mounts,
     const std::vector<uenv::tmpfs_tuple>& tmpfs, const uenv::mount_order& order,
-    bool fuse_single_threaded, uid_t uid, gid_t gid);
+    bool fuse_single_threaded, uid_t uid, gid_t gid, bool mutable_root);
+
+// Rebuild "/" on a tmpfs, so that mount points which do not exist on the host
+// can be created before mounting onto them. The approach (a tmpfs root
+// assembled from bind mounts, then pivot_root) is the one bubblewrap uses;
+// Each directory in `shadow` (see uenv::mutable_root_shadow_dirs(); it must
+// contain "/") is recreated on a tmpfs, holding a bind mount of each of the
+// host's entries and a copy of each symlink: "/" as the new root, any other
+// as a tmpfs mounted over the host's copy of it. Everything else, including
+// the directories between "/" and a shadowed one, is a bind mount of the
+// host, so writes there reach the host as usual. Must be called after
+// unshare_mount_map_root(), inside the mount namespace that owns the mounts
+// being set up.
+//
+// Errors: a shadowed directory on an autofs mount (its entries are mounted
+// on demand, and a copy would only hold the ones mounted now), or with more
+// than max_shadow_entries entries.
+//
+// Only implemented for the rootless/fuse backend -- the setuid kernel
+// backend does not compile this file in.
+inline constexpr std::size_t max_shadow_entries = 4096;
+util::expected<void, std::string>
+make_mutable_root(const std::set<std::filesystem::path>& shadow);
 
 } // namespace rootless
 } // namespace uenv
