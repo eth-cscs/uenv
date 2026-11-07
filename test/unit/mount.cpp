@@ -59,6 +59,54 @@ TEST_CASE("validate_mounts", "[mount]") {
     }
 }
 
+TEST_CASE("validate_mounts shared mount points", "[mount]") {
+    auto sqfs_root = util::make_temp_dir().value();
+    auto sqfs_1 = sqfs_root / "sqfs1.squashfs";
+    auto sqfs_2 = sqfs_root / "sqfs2.squashfs";
+    auto sqfs_3 = sqfs_root / "sqfs3.squashfs";
+    for (auto f : {sqfs_1, sqfs_2, sqfs_3}) {
+        std::ofstream{f} << "hsqsx";
+    }
+    auto mount_x = util::make_temp_dir().value();
+    auto mount_y = util::make_temp_dir().value();
+    // make mount_y sort after mount_x whatever names the temp dirs get
+    if (mount_y < mount_x) {
+        std::swap(mount_x, mount_y);
+    }
+
+    const auto shared = fmt::format("{}:{},{}:{},{}:{}", sqfs_3, mount_y,
+                                    sqfs_2, mount_x, sqfs_1, mount_x);
+
+    SECTION("rejected by default") {
+        auto result = uenv::parse_and_validate_mounts(shared);
+        REQUIRE(!result);
+        REQUIRE_THAT(result.error(), Catch::Matchers::ContainsSubstring(
+                                         "more than one squashfs"));
+    }
+
+    SECTION("allowed on request, keeping the order given") {
+        auto result = uenv::parse_and_validate_mounts(shared, true);
+        REQUIRE(result);
+        REQUIRE(result->size() == 3);
+        // sorted by mount point; images that share one keep their order
+        REQUIRE(result->at(0).sqfs == sqfs_2);
+        REQUIRE(result->at(0).mount == mount_x);
+        REQUIRE(result->at(1).sqfs == sqfs_1);
+        REQUIRE(result->at(1).mount == mount_x);
+        REQUIRE(result->at(2).sqfs == sqfs_3);
+        REQUIRE(result->at(2).mount == mount_y);
+    }
+
+    SECTION("a shared mount point must still exist") {
+        auto missing = mount_x / "missing";
+        auto result = uenv::parse_and_validate_mounts(
+            fmt::format("{}:{},{}:{}", sqfs_1, missing, sqfs_2, missing), true);
+        REQUIRE(!result);
+        REQUIRE_THAT(result.error(),
+                     Catch::Matchers::ContainsSubstring("does not exist"));
+    }
+}
+
 TEST_CASE("validate_mounts error messages", "[mount]") {
     namespace fs = std::filesystem;
 

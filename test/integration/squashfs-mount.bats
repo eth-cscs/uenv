@@ -140,12 +140,139 @@ $my_uid"
     assert_success
 }
 
-# verify that two images on the same mount point is treated as an error
-@test "repeated mount point" {
-    SQFS_PATH=$SQFS_LIB/apptool/standalone
+# Only the setuid (kernel) squashfs-mount stacks images that share a mount
+# point; the fuse build refuses them. The layers are staged on
+# /.squashfs-mount-scratch, which has to be created as root (the RPM and CI
+# do).
+function require_overlay() {
+    if [[ ! -u "$(command -v squashfs-mount)" ]]; then
+        skip "stacking images needs the setuid (kernel) squashfs-mount"
+    fi
+    if [ ! -d /.squashfs-mount-scratch ]; then
+        skip "create the overlay staging directory: sudo mkdir /.squashfs-mount-scratch"
+    fi
+}
 
+# images that share a mount point are stacked with a read-only overlayfs
+@test "shared mount point is an overlay" {
+    require_overlay
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    SQFS_MOUNTS=$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment
+
+    # the files of both images are visible
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- /user-environment/env/app/bin/app
+    assert_output "hello app"
+    assert_success
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- /user-environment/env/tool/bin/tool
+    assert_output "hello tool"
+    assert_success
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- ls /user-environment/modules
+    assert_line "app"
+    assert_line "tool"
+    assert_success
+
+    # one read-only overlay, and nothing left of the staging tmpfs or layers
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- findmnt --noheadings --raw --output TARGET,FSTYPE,OPTIONS
+    assert_line --regexp "^/user-environment overlay ro,nosuid,nodev"
+    refute_line --regexp "^/user-environment(/[0-9]+)? (tmpfs|squashfs) "
+    refute_line --regexp "^/\\.squashfs-mount-scratch"
+    assert_success
+
+    # the mount list records every image
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- bash -c 'echo $UENV_MOUNT_LIST'
+    assert_output "$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment"
+    assert_success
+}
+
+# the image given last is on top
+@test "shared mount point precedence" {
+    require_overlay
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    APP=$SQFS_PATH/app42.squashfs
+    TOOL=$SQFS_PATH/tool.squashfs
+
+    run squashfs-mount --sqfs=$APP:/user-environment,$TOOL:/user-environment -- cat /user-environment/meta/env.json
+    assert_output --partial "A tool uenv for testing"
+    assert_success
+
+    run squashfs-mount --sqfs=$TOOL:/user-environment,$APP:/user-environment -- cat /user-environment/meta/env.json
+    assert_output --partial "A simple app uenv for testing"
+    assert_success
+}
+
+# an image can be mounted inside an overlay, and more than two can be stacked.
+# tool.squashfs at /user-environment/meta puts its own meta/ at meta/meta.
+@test "shared mount point with nested mount" {
+    require_overlay
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    APP42=$SQFS_PATH/app42.squashfs
+    APP43=$SQFS_PATH/app43.squashfs
+    TOOL=$SQFS_PATH/tool.squashfs
+
+    run squashfs-mount --sqfs=$TOOL:/user-environment/meta,$APP42:/user-environment,$APP43:/user-environment,$TOOL:/user-environment -- ls /user-environment/modules/app /user-environment/meta/meta/extra
+    assert_line "42.0"
+    assert_line "43.0"
+    assert_line "readme.txt"
+    assert_success
+}
+
+# two mount points, each with its own overlay: the staging directory is reused
+# for the second overlay once the first is mounted and its staging detached
+@test "two shared mount points" {
+    require_overlay
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    APP42=$SQFS_PATH/app42.squashfs
+    APP43=$SQFS_PATH/app43.squashfs
+    TOOL=$SQFS_PATH/tool.squashfs
+    SQFS_MOUNTS=$APP42:/user-environment,$TOOL:/user-environment,$TOOL:/user-tools,$APP43:/user-tools
+
+    # each overlay has the files of its own two images
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- ls /user-environment/modules/app /user-tools/modules/app
+    assert_line "42.0"
+    assert_line "43.0"
+    assert_success
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- ls /user-environment/modules /user-tools/modules
+    assert_line "tool"
+    assert_success
+
+    # the image given last is on top, per mount point
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- cat /user-environment/meta/env.json
+    assert_output --partial "A tool uenv for testing"
+    assert_success
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- cat /user-tools/meta/env.json
+    assert_output --partial "A simple app uenv for testing"
+    assert_success
+
+    # two read-only overlays, and nothing left of either staging tmpfs
+    run squashfs-mount --sqfs=$SQFS_MOUNTS -- findmnt --noheadings --raw --output TARGET,FSTYPE,OPTIONS
+    assert_line --regexp "^/user-environment overlay ro,nosuid,nodev"
+    assert_line --regexp "^/user-tools overlay ro,nosuid,nodev"
+    refute_line --regexp "^/\\.squashfs-mount-scratch"
+    assert_success
+}
+
+# without the staging directory, a shared mount point is a clear error
+@test "shared mount point without staging directory" {
+    if [[ ! -u "$(command -v squashfs-mount)" ]]; then
+        skip "stacking images needs the setuid (kernel) squashfs-mount"
+    fi
+    if [ -e /.squashfs-mount-scratch ]; then
+        skip "/.squashfs-mount-scratch exists"
+    fi
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
     run squashfs-mount --sqfs=$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment -- true
-    assert_output --partial "the mount point /user-environment is used to mount more than one squashfs"
+    assert_output --partial "needs the root-owned directory /.squashfs-mount-scratch"
+    assert_failure
+}
+
+# the fuse build does not stack images: a shared mount point is refused
+@test "shared mount point is refused without the setuid helper" {
+    if [[ -u "$(command -v squashfs-mount)" ]]; then
+        skip "squashfs-mount is installed setuid"
+    fi
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    run squashfs-mount --sqfs=$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment -- true
+    assert_output --partial "used to mount more than one squashfs"
     assert_failure
 }
 
