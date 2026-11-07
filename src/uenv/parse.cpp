@@ -1,5 +1,6 @@
 #include <charconv>
 #include <climits>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -68,6 +69,10 @@ util::expected<T, parse_error> parse_int(lex::lexer& L) {
 
 util::expected<std::uint32_t, parse_error> parse_uint32(lex::lexer& L) {
     return parse_int<std::uint32_t>(L);
+}
+
+util::expected<std::uint64_t, parse_error> parse_uint64(lex::lexer& L) {
+    return parse_int<std::uint64_t>(L);
 }
 
 // all of the symbols that can occur in a path.
@@ -350,6 +355,38 @@ parse_mount_description(lex::lexer& L) {
     return result;
 }
 
+util::expected<tmpfs_tuple, parse_error>
+parse_tmpfs_description(lex::lexer& L) {
+    tmpfs_tuple result;
+
+    PARSE(L, path, result.mount);
+    // size is optional
+    if (L.current_kind() == lex::tok::colon) {
+        // eat the colon
+        L.next();
+
+        PARSE(L, uint64, result.size);
+    }
+    return result;
+}
+
+util::expected<bindmount_pair, parse_error>
+parse_bindmount_description(lex::lexer& L) {
+    bindmount_pair result;
+    PARSE(L, path, result.src);
+    if (L.current_kind() != lex::tok::colon) {
+        return util::unexpected{
+            parse_error(L.string(),
+                        fmt::format("expected a ':' separating the bind-mount "
+                                    "src and dest, found '{}'",
+                                    L.peek().spelling),
+                        L.peek())};
+    }
+    L.next();
+    PARSE(L, path, result.dst);
+    return result;
+}
+
 /* Public interface.
  * These are the high level functions for parsing raw strings passed to the
  * command line.
@@ -520,6 +557,60 @@ parse_mount_list(const std::string& arg) {
             L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
     }
     return mounts;
+}
+
+// shared by parse_tmpfs and parse_bindmounts: both parse the optional value
+// of a CLI option, a comma-separated list of items, mirroring
+// parse_mount_list's grammar for --sqfs so that all three CLI options accept
+// the same list syntax.
+template <typename T, typename ParseItem>
+util::expected<std::vector<T>, parse_error>
+parse_arg_list(std::string_view what, const std::optional<std::string>& arg,
+               ParseItem&& parse_item) {
+    std::vector<T> result;
+    if (!arg) {
+        return result;
+    }
+    const std::string sanitised = util::strip(*arg);
+    spdlog::trace("{} sanitized `{}`", what, sanitised);
+    auto L = lex::lexer(sanitised);
+    while (true) {
+        auto item = parse_item(L);
+        if (!item) {
+            return util::unexpected(std::move(item.error()));
+        }
+        result.push_back(std::move(*item));
+
+        if (L.peek() != lex::tok::comma) {
+            break;
+        }
+        // eat the comma
+        L.next();
+
+        // handle trailing comma elegantly
+        if (L.peek() == lex::tok::end) {
+            break;
+        }
+    }
+    // if parsing finished and the string has not been consumed,
+    // and invalid token was encountered
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
+        return util::unexpected(parse_error{
+            L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
+    }
+    return result;
+}
+
+util::expected<std::vector<tmpfs_tuple>, parse_error>
+parse_tmpfs_list(const std::optional<std::string>& arg) {
+    return parse_arg_list<tmpfs_tuple>("parse_tmpfs", arg,
+                                       parse_tmpfs_description);
+}
+
+util::expected<std::vector<bindmount_pair>, parse_error>
+parse_bindmount_list(const std::optional<std::string>& arg) {
+    return parse_arg_list<bindmount_pair>("parse_bindmounts", arg,
+                                          parse_bindmount_description);
 }
 
 util::expected<uenv_registry_entry, parse_error>

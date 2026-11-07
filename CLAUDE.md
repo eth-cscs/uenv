@@ -307,6 +307,17 @@ There is no runtime switch between them.
   namespaces with `setns()` rather than each mounting independently. That
   rendezvous is what the next section documents.
 
+  `squashfs-mount` on this backend also takes `--tmpfs` and `--bind-mount`.
+  A missing mount point is only ever created inside a `--tmpfs`; one on the
+  host must already exist. Every source is taken from the host before anything is
+  mounted (`capture_sources()`): each image is opened by fd, and each bind
+  source is a detached `open_tree(OPEN_TREE_CLONE)` copy. A bind source inside
+  an `--sqfs` destination is therefore the *host's* directory, not the
+  image's. Because of that, the mount order is just the lexical order of the
+  destinations (`uenv::build_mount_order()`), and a mount point inside a bind
+  can be checked on the host up front (`validate_mount_points()`). This needs
+  Linux 5.12 or later (`mount_setattr`).
+
 ### Who opens the image (kernel backend)
 
 Both privileged entry points — the setuid helper and the root SPANK hook —
@@ -445,6 +456,10 @@ because what the mount should die with differs.
   It also detaches stdio once the mounts are up, so a process outliving the
   ranks can never hold the step's stdout/stderr pipes open. Mount failures are
   reported before that point.
+
+  A step with only `--tmpfs`/`--bind-mount` and no `--sqfs` forks no
+  supervisor: the leader mounts in-process, because kernel mounts live as long
+  as the mount namespace, which every follower has joined.
 
   Because that termination mechanism is Slurm's rather than uenv's, the leader
   checks for it instead of assuming it: `util::cgroup_is_slurm_managed()`
@@ -602,6 +617,15 @@ Do not use banner-style section comments with trailing dashes
 //
 // section
 //
+```
+
+All C++ is formatted with clang-format, using `.clang-format` at the repository
+root (`subprojects/` and `extern/barkeep` are excluded by `.clang-format-ignore`).
+CI checks this (`.github/workflows/clang_format.yml`) and fails the PR on any
+difference, so format every changed file before committing:
+
+```bash
+clang-format -i <changed .cpp/.h files>
 ```
 
 ### Error Handling
