@@ -762,3 +762,31 @@ hello app"
         -- sh -c "touch $TMP/dst/sub/file && test ! -e $TMP/bindsrc/sub/file"
     assert_success
 }
+
+# The stackinator build sandbox:
+#   squashfs-mount --bind-mount /dev/shm/store:/user-environment --tmpfs ~ -- <build>
+# what the build writes to /user-environment must outlive the sandbox, in the
+# bind source; what it writes to ~ must not reach the real home.
+@test "stackinator sandbox: writes to a --bind-mount persist, writes to a --tmpfs home do not" {
+    require_fuse_backend
+    mkdir -p $TMP/store $TMP/user-environment $TMP/home
+    echo host > $TMP/home/existing
+
+    run env HOME=$TMP/home squashfs-mount \
+        --bind-mount=$TMP/store:$TMP/user-environment \
+        --tmpfs=$TMP/home \
+        -- sh -c "echo built > $TMP/user-environment/out \
+                  && echo scratch > \$HOME/scratch \
+                  && test ! -e \$HOME/existing \
+                  && cat $TMP/user-environment/out"
+    assert_success
+    assert_output "built"
+
+    # after the sandbox: the write to the bind mount persists in its source,
+    [ "$(cat $TMP/store/out)" = "built" ]
+    # the host mount point is untouched,
+    [ ! -e $TMP/user-environment/out ]
+    # and the tmpfs home was thrown away, leaving the real one intact
+    [ ! -e $TMP/home/scratch ]
+    [ "$(cat $TMP/home/existing)" = "host" ]
+}
