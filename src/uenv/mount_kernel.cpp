@@ -348,9 +348,7 @@ mount_overlay(std::span<const opened_image> images, const std::string& target) {
                         "layers: {}",
                         overlay_scratch, strerror(errno)));
     }
-    auto unstage = util::defer([] {
-        umount2(overlay_scratch, MNT_DETACH);
-    });
+    auto unstage = util::defer([] { umount2(overlay_scratch, MNT_DETACH); });
 
     // lowerdir lists the layers top first: the last image is on top. The
     // layer paths are fixed, so they need no escaping.
