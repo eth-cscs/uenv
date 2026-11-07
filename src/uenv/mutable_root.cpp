@@ -1,10 +1,10 @@
 #include <algorithm>
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <memory>
 #include <set>
 #include <string>
 #include <string_view>
@@ -62,8 +62,8 @@ unsigned long parse_vfs_flags(std::string_view options) {
 }
 
 struct mount_node {
-    int id{-1};
-    int parent_id{-1};
+    std::uint32_t id{};
+    std::uint32_t parent_id{};
     std::filesystem::path mountpoint;
     unsigned long flags{0};
     bool covered{false};
@@ -80,21 +80,10 @@ void collect_mounts(const std::vector<mount_node>& nodes, std::size_t idx,
     }
 }
 
-// A single flattened entry of /proc/self/mountinfo, independent of any
-// particular root - the raw material `mounts_under()` builds a per-root
-// subtree from. Kept separate from `mount_node` (which additionally carries
-// the `covered`/`children` bookkeeping) so that one parse can serve multiple
-// `mounts_under()` queries.
-struct mount_entry {
-    int id{-1};
-    int parent_id{-1};
-    std::filesystem::path mountpoint;
-    std::string fstype;
-    unsigned long flags{0};
-};
-
-// Read and parse /oldroot/proc/self/mountinfo
-util::expected<std::vector<mount_entry>, std::string> read_mountinfo() {
+// Read and parse /oldroot/proc/self/mountinfo: the flat mount table, the raw
+// material `mounts_under()` builds a per-root subtree from, so that one read
+// can serve several `mounts_under()` queries.
+util::expected<std::vector<mountinfo_entry>, std::string> read_mountinfo() {
     const auto contents = util::read_file("/oldroot/proc/self/mountinfo");
     if (!contents) {
         return util::unexpected{contents.error()};
@@ -105,17 +94,7 @@ util::expected<std::vector<mount_entry>, std::string> read_mountinfo() {
             fmt::format("unable to parse /proc/self/mountinfo: {}",
                         table.error().message())};
     }
-
-    std::vector<mount_entry> entries;
-    entries.reserve(table->size());
-    for (auto& m : *table) {
-        entries.push_back({.id = static_cast<int>(m.id),
-                           .parent_id = static_cast<int>(m.parent_id),
-                           .mountpoint = std::move(m.mountpoint),
-                           .fstype = std::move(m.fstype),
-                           .flags = parse_vfs_flags(m.vfs_options)});
-    }
-    return entries;
+    return std::move(*table);
 }
 
 // Build the list of (mountpoint, current flags) for `root` and every mount
@@ -126,17 +105,20 @@ util::expected<std::vector<mount_entry>, std::string> read_mountinfo() {
 // itself exposes.
 util::expected<std::vector<std::pair<std::filesystem::path, unsigned long>>,
                std::string>
-mounts_under(const std::vector<mount_entry>& entries,
+mounts_under(const std::vector<mountinfo_entry>& entries,
              const std::filesystem::path& root) {
     std::vector<mount_node> nodes;
-    std::unordered_map<int, std::size_t> id_to_index;
     nodes.reserve(entries.size());
     for (const auto& e : entries) {
-        id_to_index[e.id] = nodes.size();
         nodes.push_back({.id = e.id,
                          .parent_id = e.parent_id,
                          .mountpoint = e.mountpoint,
-                         .flags = e.flags});
+                         .flags = parse_vfs_flags(e.vfs_options)});
+    }
+    std::unordered_map<std::uint32_t, std::size_t> index_of_id;
+    index_of_id.reserve(nodes.size());
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        index_of_id[nodes[i].id] = i;
     }
 
     // If the same path is mounted more than once, the last one in mountinfo
@@ -157,12 +139,11 @@ mounts_under(const std::vector<mount_entry>& entries,
         if (i == root_idx || !util::is_child(nodes[i].mountpoint, root)) {
             continue;
         }
-        auto pit = id_to_index.find(nodes[i].parent_id);
-        if (pit == id_to_index.end()) {
+        auto it = index_of_id.find(nodes[i].parent_id);
+        if (it == index_of_id.end()) {
             continue;
         }
-        mount_node& parent = nodes[pit->second];
-
+        mount_node& parent = nodes[it->second];
         if (parent.mountpoint == nodes[i].mountpoint) {
             parent.covered = true;
         }
@@ -201,7 +182,7 @@ mounts_under(const std::vector<mount_entry>& entries,
 // it would be a no-op. Remount failure is logged and skipped rather than
 // aborting make_mutable_root.
 util::expected<void, std::string>
-apply_nosuid_recursive(const std::vector<mount_entry>& entries,
+apply_nosuid_recursive(const std::vector<mountinfo_entry>& entries,
                        const std::filesystem::path& dst) {
     auto mounts = mounts_under(entries, dst);
     if (!mounts) {
@@ -228,7 +209,7 @@ apply_nosuid_recursive(const std::vector<mount_entry>& entries,
 // now. `entries` is the mount table read after the first pivot_root, where
 // the host's mounts are under /oldroot.
 util::expected<void, std::string>
-check_no_autofs(const std::vector<mount_entry>& entries,
+check_no_autofs(const std::vector<mountinfo_entry>& entries,
                 const std::set<std::filesystem::path>& shadow) {
     for (const auto& dir : shadow) {
         if (dir == dir.root_path()) {
@@ -238,7 +219,7 @@ check_no_autofs(const std::vector<mount_entry>& entries,
             std::filesystem::path("/oldroot") / dir.relative_path();
         // the mount that dir is on: the innermost one, and of several at the
         // same path, the last one (the one the kernel exposes)
-        const mount_entry* mount = nullptr;
+        const mountinfo_entry* mount = nullptr;
         std::ptrdiff_t depth = 0;
         for (const auto& e : entries) {
             if (!util::is_child(host, e.mountpoint)) {
