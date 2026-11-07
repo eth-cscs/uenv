@@ -88,7 +88,7 @@ open_images(const mount_list& mount_entries) {
                                                 "{}: {}",
                                                 entry.sqfs, strerror(errno)));
         }
-        spdlog::debug("open_images: opened {} as uid {}", entry.sqfs,
+        spdlog::trace("open_images: opened {} as uid {}", entry.sqfs,
                       ids->real.uid);
         images.push_back(opened_image{
             .fd = std::move(fd), .sqfs = entry.sqfs, .mount = entry.mount});
@@ -265,7 +265,7 @@ util::expected<void, std::string> mount_squashfs(const opened_image& image,
     // drops the last reference and AUTOCLEAR detaches the device.
     auto close_loop = util::defer([fd = loop->fd] { close(fd); });
 
-    spdlog::debug("mount_squashfs: {} attached to {}, mounting at {}",
+    spdlog::trace("mount_squashfs: {} attached to {}, mounting at {}",
                   squashfs_file, loop->path, target);
     if (::mount(loop->path.c_str(), target.c_str(), "squashfs",
                 MS_RDONLY | MS_NOSUID | MS_NODEV, nullptr) != 0) {
@@ -339,10 +339,8 @@ mount_overlay(std::span<const opened_image> images, const std::string& target) {
         return r;
     }
 
-    spdlog::debug("mount_overlay: stacking {} images at {}", images.size(),
+    spdlog::trace("mount_overlay: stacking {} images at {}", images.size(),
                   target);
-    spdlog::debug("mount_overlay: [1/4] mount staging tmpfs at {}",
-                  overlay_scratch);
     if (::mount("tmpfs", overlay_scratch, "tmpfs",
                 MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=0700,size=1m") != 0) {
         return util::unexpected(
@@ -351,9 +349,6 @@ mount_overlay(std::span<const opened_image> images, const std::string& target) {
                         overlay_scratch, strerror(errno)));
     }
     auto unstage = util::defer([] {
-        spdlog::debug("mount_overlay: [4/4] detach staging tmpfs and its "
-                      "layer mounts at {}",
-                      overlay_scratch);
         umount2(overlay_scratch, MNT_DETACH);
     });
 
@@ -363,8 +358,6 @@ mount_overlay(std::span<const opened_image> images, const std::string& target) {
     for (std::size_t i = 0; i < images.size(); ++i) {
         const auto layer =
             (fs::path(overlay_scratch) / std::to_string(i)).string();
-        spdlog::debug("mount_overlay: [2/4] layer {}: mkdir {}, mount {}", i,
-                      layer, images[i].sqfs);
         if (mkdir(layer.c_str(), 0700) != 0) {
             return util::unexpected(
                 fmt::format("unable to create the overlay layer {}: {}", layer,
@@ -377,9 +370,6 @@ mount_overlay(std::span<const opened_image> images, const std::string& target) {
     }
 
     const auto options = fmt::format("lowerdir={}", lowerdir);
-    spdlog::debug("mount_overlay: [3/4] mount overlay at {}, {} (leftmost is "
-                  "on top)",
-                  target, options);
     if (::mount("overlay", target.c_str(), "overlay",
                 MS_RDONLY | MS_NOSUID | MS_NODEV, options.c_str()) != 0) {
         const int saved_errno = errno;
@@ -391,7 +381,7 @@ mount_overlay(std::span<const opened_image> images, const std::string& target) {
                                             target, strerror(saved_errno),
                                             hint));
     }
-    spdlog::debug("mount_overlay: overlay mounted at {}", target);
+    spdlog::trace("mount_overlay: overlay mounted at {}", target);
 
     return {};
 }
