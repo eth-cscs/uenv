@@ -26,6 +26,8 @@ source_url = https://github.com/vasi/squashfuse/releases/download/0.6.2/squashfu
 source_filename = squashfuse-0.6.2.tar.gz
 source_hash = 267f2852d6e20147eb1e21931f9d0fe7634a66612f1ede27e15fa60e56ce0eac
 patch_directory = squashfuse
+# enable kernel readdir caching (FOPEN_CACHE_DIR) in sqfs_ll_op_opendir
+diff_files = squashfuse_cache_readdir.patch
 
 [provide]
 squashfuse_ll = squashfuse_ll_dep
