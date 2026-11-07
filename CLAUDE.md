@@ -307,9 +307,13 @@ There is no runtime switch between them.
   namespaces with `setns()` rather than each mounting independently. That
   rendezvous is what the next section documents.
 
-  `squashfs-mount` on this backend also takes `--tmpfs` and `--bind-mount`.
-  A missing mount point is only ever created inside a `--tmpfs`; one on the
-  host must already exist. Every source is taken from the host before anything is
+  `squashfs-mount` on this backend also takes `--tmpfs`, `--bind-mount` and
+  `-r` (mutable root). A missing mount point is created inside a `--tmpfs`,
+  and on the host only with `-r`, never inside a `--sqfs` or a `--bind-mount`.
+  With `-r`, `/` is rebuilt on a tmpfs from bind mounts of the host
+  (`make_mutable_root()` in `src/uenv/mutable_root.cpp`), shadowing only the
+  deepest existing ancestor of each missing host mount point
+  (`uenv::mutable_root_shadow_dirs()`). Every source is taken from the host before anything is
   mounted (`capture_sources()`): each image is opened by fd, and each bind
   source is a detached `open_tree(OPEN_TREE_CLONE)` copy. A bind source inside
   an `--sqfs` destination is therefore the *host's* directory, not the
@@ -457,7 +461,7 @@ because what the mount should die with differs.
   ranks can never hold the step's stdout/stderr pipes open. Mount failures are
   reported before that point.
 
-  A step with only `--tmpfs`/`--bind-mount` and no `--sqfs` forks no
+  A step with only `--tmpfs`/`--bind-mount`/`-r` and no `--sqfs` forks no
   supervisor: the leader mounts in-process, because kernel mounts live as long
   as the mount namespace, which every follower has joined.
 

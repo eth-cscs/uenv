@@ -270,7 +270,7 @@ $my_gid"
 }
 
 #
-# --bind-mount and --tmpfs
+# --bind-mount, --tmpfs and -r/--mutable-root
 #
 # Both flags exist only in the fuse/rootless backend: the kernel backend's
 # parser does not define them at all, and passing them there is a plain
@@ -279,7 +279,15 @@ $my_gid"
 # installed setuid (that bit only distinguishes kernel builds that *are*
 # installed from ones that are not).
 #
-# A mount point on the host must exist: only one inside a --tmpfs is created.
+# Without -r, a mount point on the host must exist: only one inside a --tmpfs
+# is created. With -r, a missing one on the host is created too, in the
+# mutable root.
+#
+# Mount points that don't exist use fresh top-level names, or a directory the
+# user can't write to such as /usr/share: with -r, a missing mount point under
+# a directory the user can write to (e.g. $TMP) prints a warning, because what
+# the command writes next to it is lost. Nothing created in the mutable root
+# touches the real host filesystem.
 #
 
 function require_fuse_backend() {
@@ -289,7 +297,16 @@ function require_fuse_backend() {
     fi
 }
 
-@test "a --sqfs mount point that does not exist is refused" {
+@test "mutable root: --sqfs mounts on a mount point that does not exist" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+
+    run squashfs-mount -r --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-mutable-root-mount -- /uenv-bats-mutable-root-mount/env/app/bin/app
+    assert_output "hello app"
+    assert_success
+}
+
+@test "without -r, a --sqfs mount point that does not exist is refused" {
     require_fuse_backend
     SQFS_PATH=$SQFS_LIB/apptool/standalone
 
@@ -308,7 +325,7 @@ function require_fuse_backend() {
     assert_success
 }
 
-@test "a --bind-mount destination that does not exist is refused" {
+@test "without -r, a --bind-mount destination that does not exist is refused" {
     require_fuse_backend
     mkdir -p $TMP/bindsrc
 
@@ -321,11 +338,199 @@ function require_fuse_backend() {
     require_fuse_backend
     mkdir -p $TMP/binddst
 
-    run squashfs-mount -vvv --bind-mount=$TMP/uenv-bats-no-such-src:$TMP/binddst -- true
+    for r in "" "-r"; do
+        run squashfs-mount -vvv $r --bind-mount=$TMP/uenv-bats-no-such-src:$TMP/binddst -- true
+        assert_failure
+        assert_output --partial "the bind-mount source $TMP/uenv-bats-no-such-src does not exist"
+        # nothing was unshared or mounted
+        refute_output --partial "mutable root:"
+        refute_output --partial "become fake root"
+    done
+}
+
+@test "mutable root: --bind-mount to a destination that does not exist" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc
+    echo "bind-mount-content" > $TMP/bindsrc/file.txt
+
+    run squashfs-mount -r --bind-mount=$TMP/bindsrc:/uenv-bats-mutable-root-bind -- cat /uenv-bats-mutable-root-bind/file.txt
+    assert_output "bind-mount-content"
+    assert_success
+}
+
+@test "mutable root: top-level symlinks stay symlinks" {
+    require_fuse_backend
+    local link
+    link=$(find / -maxdepth 1 -type l -print -quit)
+    if [[ -z "$link" ]]; then
+        skip "no symlink directly under / on this host"
+    fi
+
+    run squashfs-mount -r --tmpfs=/uenv-bats-mutable-root-tmpfs -- \
+        sh -c "test -L $link && readlink $link"
+    assert_success
+    assert_output "$(readlink "$link")"
+}
+
+# The host's "/" can not be changed, so build a copy of it with a symlink to a
+# file and a dangling symlink, pivot_root into it in an outer user and mount
+# namespace, and run squashfs-mount -r there. pivot_root, not chroot: a
+# chrooted process can not create the nested user namespace.
+@test "mutable root: symlinks in / to a file or to nothing" {
+    require_fuse_backend
+    if ! command -v unshare >/dev/null || ! command -v pivot_root >/dev/null; then
+        skip "unshare or pivot_root is not available"
+    fi
+    if ! unshare -rm true 2>/dev/null; then
+        skip "unprivileged user namespaces are not available"
+    fi
+
+    local root=$TMP/fake-root
+    mkdir -p $root
+    echo "file-link-content" > $TMP/link-target.txt
+
+    run unshare -rm bash -c '
+        set -e
+        root=$1; target=$2; shift 2
+        mount -t tmpfs tmpfs "$root"
+        for e in /*; do
+            if [[ -L "$e" ]]; then
+                ln -s "$(readlink "$e")" "$root$e"
+            elif [[ -d "$e" ]]; then
+                mkdir "$root$e"
+                mount --rbind "$e" "$root$e"
+            else
+                touch "$root$e"
+                mount --bind "$e" "$root$e"
+            fi
+        done
+        ln -s "${target#/}" "$root/uenv-bats-file-link"
+        ln -s does-not-exist "$root/uenv-bats-dangling-link"
+        cd "$root"
+        mkdir uenv-bats-oldroot
+        pivot_root . uenv-bats-oldroot
+        umount -l /uenv-bats-oldroot
+        rmdir /uenv-bats-oldroot
+        exec "$@"' \
+        _ $root $TMP/link-target.txt \
+        $(command -v squashfs-mount) -r --tmpfs=/uenv-bats-mutable-root-tmpfs -- \
+        sh -c 'cat /uenv-bats-file-link && readlink /uenv-bats-dangling-link'
+    assert_success
+    assert_line --index 0 "file-link-content"
+    assert_line --index 1 "does-not-exist"
+}
+
+@test "mutable root: a missing mount point keeps the rest of its parent directories" {
+    require_fuse_backend
+    if [[ ! -d /usr/share/doc ]] || [[ -w /usr/share ]]; then
+        skip "needs a /usr/share/doc that the user can not write to"
+    fi
+
+    # /usr/share is shadowed, everything else in it is the host's
+    run squashfs-mount -r --tmpfs=/usr/share/uenv-bats-new -- \
+        sh -c 'test -d /usr/share/doc && findmnt -n -o FSTYPE /usr/share/uenv-bats-new && touch /usr/share/uenv-bats-new/file'
+    assert_success
+    assert_output "tmpfs"
+}
+
+@test "mutable root: a directory next to a shadowed one is still the host's" {
+    require_fuse_backend
+    if [[ -w /usr/share ]]; then
+        skip "/usr/share is writable by the user"
+    fi
+
+    run squashfs-mount -r --tmpfs=/usr/share/uenv-bats-new -- \
+        sh -c 'findmnt -n -o TARGET /usr/share/doc'
+    assert_success
+    assert_output "/usr/share/doc"
+}
+
+@test "mutable root: a bind source inside a shadowed directory" {
+    require_fuse_backend
+    if [[ ! -d /usr/share/doc ]] || [[ -w /usr/share ]]; then
+        skip "needs a /usr/share/doc that the user can not write to"
+    fi
+
+    run squashfs-mount -r --bind-mount=/usr/share/doc:/usr/share/uenv-bats-doc -- \
+        sh -c 'ls /usr/share/uenv-bats-doc'
+    assert_success
+    assert_output "$(ls /usr/share/doc)"
+}
+
+@test "mutable root: a missing mount point in a writable directory warns" {
+    require_fuse_backend
+    mkdir -p $TMP/bindsrc
+
+    # $TMP is shadowed: its entries are still there, the mount point is
+    # created in tmpfs, and a new file directly in $TMP is not kept
+    run --separate-stderr squashfs-mount -r --tmpfs=$TMP/uenv-bats-new -- \
+        sh -c "test -d $TMP/bindsrc && findmnt -n -o FSTYPE $TMP/uenv-bats-new && touch $TMP/uenv-bats-lost"
+    assert_success
+    assert_output "tmpfs"
+    [[ "$stderr" == *"warning"*"$TMP is rebuilt in memory"*"mkdir -p $TMP/uenv-bats-new"* ]]
+    [[ ! -e $TMP/uenv-bats-new ]]
+    [[ ! -e $TMP/uenv-bats-lost ]]
+}
+
+@test "mutable root: only the deepest existing ancestor is shadowed" {
+    require_fuse_backend
+    mkdir -p $TMP/p/q
+
+    # $TMP/p/q is shadowed; $TMP/p and $TMP are still the host's, so a new
+    # file there is kept, while one directly in $TMP/p/q is not
+    run --separate-stderr squashfs-mount -v -r --tmpfs=$TMP/p/q/a/new -- \
+        sh -c "test -d $TMP/p/q/a/new && touch $TMP/p/kept $TMP/p/q/lost"
+    assert_success
+    [[ "$stderr" == *"mutable root: shadowing /, $TMP/p/q to create $TMP/p/q/a/new"* ]]
+    [[ -e $TMP/p/kept ]]
+    [[ ! -e $TMP/p/q/lost ]]
+    [[ ! -e $TMP/p/q/a ]]
+}
+
+@test "mutable root: an ancestor with many entries is not shadowed" {
+    require_fuse_backend
+    mkdir -p $TMP/big
+    (cd $TMP/big && mkdir $(seq -f 'd%g' 0 4100))
+
+    # $TMP/big has more than max_shadow_entries entries, but only $TMP/big/d0
+    # is shadowed to create the mount point below it
+    run squashfs-mount -r --tmpfs=$TMP/big/d0/new -- test -d $TMP/big/d0/new
+    assert_success
+
+    # the limit still applies to the shadowed directory itself
+    run squashfs-mount -r --tmpfs=$TMP/big/new -- true
     assert_failure
-    assert_output --partial "the bind-mount source $TMP/uenv-bats-no-such-src does not exist"
-    # nothing was unshared or mounted
-    refute_output --partial "become fake root"
+    assert_output --partial "the mutable root can not create a mount point in $TMP/big: it has more than 4096 entries"
+}
+
+@test "mutable root: nothing is printed without -v" {
+    require_fuse_backend
+    if [[ -w /usr/share ]]; then
+        skip "/usr/share is writable by the user"
+    fi
+
+    run --separate-stderr squashfs-mount -r --tmpfs=/usr/share/uenv-bats-quiet -- true
+    assert_success
+    [[ -z "$stderr" ]]
+}
+
+@test "mutable root: --sqfs, --bind-mount and a command with its own flags together" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/bindsrc
+    echo "bind-mount-content" > $TMP/bindsrc/file.txt
+
+    # regression test: --bind-mount used to swallow the "--" that separates
+    # squashfs-mount's own options from the exec'd command, so a command
+    # using its own short option (here `sh -c`) was misparsed as an
+    # unrecognized option of squashfs-mount itself.
+    run squashfs-mount -r \
+        --sqfs=$SQFS_PATH/app42.squashfs:/uenv-bats-combo-mount \
+        --bind-mount=$TMP/bindsrc:/uenv-bats-combo-bind \
+        -- sh -c "cat /uenv-bats-combo-bind/file.txt && /uenv-bats-combo-mount/env/app/bin/app"
+    assert_output "bind-mount-content
+hello app"
+    assert_success
 }
 
 @test "--bind-mount cannot be repeated: use a comma separated list" {
@@ -474,13 +679,16 @@ hello app"
 
     mkdir -p $TMP/sqfs-missing
 
-    # the image is read only, so the mount point can not be created in it
-    run squashfs-mount \
-        --sqfs=$SQFS_PATH/app42.squashfs:$TMP/sqfs-missing \
-        --tmpfs=$TMP/sqfs-missing/not-in-image \
-        -- true
-    assert_failure
-    assert_output --partial "$TMP/sqfs-missing/not-in-image"
+    # the image is read only, so the mount point can not be created in it,
+    # with or without a mutable root
+    for r in "" "-r"; do
+        run squashfs-mount $r \
+            --sqfs=$SQFS_PATH/app42.squashfs:$TMP/sqfs-missing \
+            --tmpfs=$TMP/sqfs-missing/not-in-image \
+            -- true
+        assert_failure
+        assert_output --partial "$TMP/sqfs-missing/not-in-image"
+    done
 }
 
 @test "--tmpfs above an --sqfs mount point is fine" {
@@ -500,7 +708,8 @@ hello app"
 }
 
 # A --bind-mount source is always the host's directory, as it was before
-# anything was mounted: never another --sqfs, --tmpfs or --bind-mount.
+# anything was mounted: never another --sqfs, --tmpfs or --bind-mount, nor the
+# mutable root's tmpfs copies.
 
 @test "a --bind-mount whose source is inside an --sqfs mount point binds the host's directory" {
     require_fuse_backend
@@ -562,6 +771,22 @@ hello app"
     assert_output ""
 }
 
+@test "mutable root: writes through a --bind-mount of a shadowed directory reach the host" {
+    require_fuse_backend
+    mkdir -p $TMP/proj $TMP/work
+    rm -rf $TMP/proj/scratch
+
+    # $TMP/proj is shadowed to create $TMP/proj/scratch, but the bind at
+    # $TMP/work is of the host's $TMP/proj
+    run squashfs-mount -r \
+        --tmpfs=$TMP/proj/scratch \
+        --bind-mount=$TMP/proj:$TMP/work \
+        -- sh -c "touch $TMP/work/out.dat && test ! -e $TMP/work/scratch"
+    assert_success
+    [[ -f $TMP/proj/out.dat ]]
+    [[ ! -e $TMP/proj/scratch ]]
+}
+
 # A squashfs image is always the host's file too: it is opened before
 # anything is mounted, so a --tmpfs or --bind-mount over its directory can not
 # hide it.
@@ -591,6 +816,21 @@ hello app"
         --sqfs=$TMP/imgs/app42.squashfs:$TMP/ue \
         --bind-mount=$TMP/bindsrc:$TMP/imgs \
         -- sh -c "$TMP/ue/env/app/bin/app && ls -A $TMP/imgs"
+    assert_success
+    assert_output "hello app"
+}
+
+@test "mutable root: an --sqfs image in a shadowed directory is mounted" {
+    require_fuse_backend
+    SQFS_PATH=$SQFS_LIB/apptool/standalone
+    mkdir -p $TMP/imgs
+    rm -rf $TMP/imgs/ue
+    cp $SQFS_PATH/app42.squashfs $TMP/imgs/
+
+    # $TMP/imgs is shadowed to create the mount point $TMP/imgs/ue
+    run --separate-stderr squashfs-mount -r \
+        --sqfs=$TMP/imgs/app42.squashfs:$TMP/imgs/ue \
+        -- $TMP/imgs/ue/env/app/bin/app
     assert_success
     assert_output "hello app"
 }
@@ -679,7 +919,7 @@ hello app"
 }
 
 # A --tmpfs is empty and always writable: a mount point nested in it does not
-# exist until it is created there.
+# exist until it is created there, with or without -r.
 
 @test "a --bind-mount nested in a --tmpfs is mounted, whether or not its destination exists on the host" {
     require_fuse_backend
@@ -742,14 +982,17 @@ hello app"
     require_fuse_backend
     mkdir -p $TMP/bindsrc $TMP/bind-provider
 
-    # creating the mount point would write into $TMP/bindsrc on the host
-    run squashfs-mount \
-        --bind-mount=$TMP/bindsrc:$TMP/bind-provider \
-        --tmpfs=$TMP/bind-provider/new \
-        -- true
-    assert_failure
-    assert_output --partial "the mount point $TMP/bind-provider/new is inside the --bind-mount $TMP/bindsrc:$TMP/bind-provider"
-    [ ! -e $TMP/bindsrc/new ]
+    # creating the mount point would write into $TMP/bindsrc on the host, so
+    # a mutable root does not create it either
+    for r in "" "-r"; do
+        run squashfs-mount $r \
+            --bind-mount=$TMP/bindsrc:$TMP/bind-provider \
+            --tmpfs=$TMP/bind-provider/new \
+            -- true
+        assert_failure
+        assert_output --partial "the mount point $TMP/bind-provider/new is inside the --bind-mount $TMP/bindsrc:$TMP/bind-provider"
+        [ ! -e $TMP/bindsrc/new ]
+    done
 }
 
 @test "a mount point inside a --bind-mount is the directory below its source on the host" {
