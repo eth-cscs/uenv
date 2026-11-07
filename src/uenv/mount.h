@@ -105,6 +105,10 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
 // not be checked before it is mounted. Paths must be in canonical form
 // (canonical_mount_path).
 //
+// Errors, in this order: two entries with an identical destination (the same
+// error as build_mount_order), then the first mount point or source that
+// fails one of the checks below.
+//
 // A mount point on the host must exist.
 //
 // Every --bind-mount source must be an existing directory on the host, also

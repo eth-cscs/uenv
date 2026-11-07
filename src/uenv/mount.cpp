@@ -192,22 +192,72 @@ parse_and_canonical_bindmount_list(const std::optional<std::string>& arg) {
 }
 
 namespace {
-// The index of the innermost of `dsts` that `path` lies strictly below,
-// skipping `self`: the one with the most components.
-std::optional<std::size_t>
-innermost_enclosing(const std::vector<std::filesystem::path>& dsts,
-                    const std::filesystem::path& path, std::size_t self) {
-    std::optional<std::size_t> result;
-    std::size_t depth = 0;
-    for (std::size_t k = 0; k < dsts.size(); ++k) {
-        if (k == self || dsts[k] == path || !util::is_child(path, dsts[k])) {
-            continue;
+// One --sqfs, --bind-mount or --tmpfs destination, and the entry it belongs to.
+struct destination {
+    const std::filesystem::path* path;
+    mount_kind kind;
+    // index into the mounts, bind_mounts or tmpfs vector, per `kind`
+    std::size_t index;
+};
+
+// Every --sqfs, --bind-mount and --tmpfs destination, in lexical order (see
+// build_mount_order). An error if two of them are identical, so that nothing
+// downstream has to handle a path that encloses itself.
+util::expected<std::vector<destination>, std::string>
+sorted_destinations(const mount_list& mounts,
+                    const std::vector<bindmount_pair>& bind_mounts,
+                    const std::vector<tmpfs_tuple>& tmpfs) {
+    std::vector<destination> result;
+    result.reserve(mounts.size() + bind_mounts.size() + tmpfs.size());
+    for (std::size_t i = 0; i < mounts.size(); ++i) {
+        result.push_back({&mounts[i].mount, mount_kind::sqfs, i});
+    }
+    for (std::size_t i = 0; i < bind_mounts.size(); ++i) {
+        result.push_back({&bind_mounts[i].dst, mount_kind::bind_mount, i});
+    }
+    for (std::size_t i = 0; i < tmpfs.size(); ++i) {
+        result.push_back({&tmpfs[i].mount, mount_kind::tmpfs, i});
+    }
+
+    std::stable_sort(result.begin(), result.end(),
+                     [](const auto& lhs, const auto& rhs) {
+                         return lhs.path->compare(*rhs.path) < 0;
+                     });
+
+    for (std::size_t i = 1; i < result.size(); ++i) {
+        if (*result[i - 1].path == *result[i].path) {
+            return util::unexpected{fmt::format(
+                "the destination {} is used by more than one --sqfs/"
+                "--bind-mount/--tmpfs",
+                result[i].path->string())};
         }
-        const auto d = static_cast<std::size_t>(
-            std::distance(dsts[k].begin(), dsts[k].end()));
-        if (!result || d > depth) {
-            result = k;
-            depth = d;
+    }
+    return result;
+}
+
+// The index of the innermost entry of `d` that d[i] lies strictly below, if
+// any. `d` must be in lexical order without duplicates (sorted_destinations):
+// then every destination that encloses d[i] comes before it, and the deeper
+// of two enclosing destinations comes after the shallower one, so the first
+// enclosing destination found scanning backwards from i is the innermost.
+std::optional<std::size_t>
+innermost_enclosing(const std::vector<destination>& d, std::size_t i) {
+    for (std::size_t k = i; k-- > 0;) {
+        if (util::is_child(*d[i].path, *d[k].path)) {
+            return k;
+        }
+    }
+    return std::nullopt;
+}
+
+// for each entry of `d`, the innermost other destination that encloses it,
+// or nullopt if it is on the host (see mount_point_providers)
+std::vector<std::optional<destination>>
+enclosing_destinations(const std::vector<destination>& d) {
+    std::vector<std::optional<destination>> result(d.size());
+    for (std::size_t i = 0; i < d.size(); ++i) {
+        if (auto k = innermost_enclosing(d, i)) {
+            result[i] = d[*k];
         }
     }
     return result;
@@ -218,36 +268,9 @@ util::expected<mount_order, std::string>
 build_mount_order(const mount_list& mounts,
                   const std::vector<bindmount_pair>& bind_mounts,
                   const std::vector<tmpfs_tuple>& tmpfs) {
-    struct entry {
-        std::filesystem::path dst;
-        mount_kind kind;
-        std::size_t index;
-    };
-
-    std::vector<entry> entries;
-    entries.reserve(mounts.size() + bind_mounts.size() + tmpfs.size());
-    for (std::size_t i = 0; i < mounts.size(); ++i) {
-        entries.push_back({mounts[i].mount, mount_kind::sqfs, i});
-    }
-    for (std::size_t i = 0; i < bind_mounts.size(); ++i) {
-        entries.push_back({bind_mounts[i].dst, mount_kind::bind_mount, i});
-    }
-    for (std::size_t i = 0; i < tmpfs.size(); ++i) {
-        entries.push_back({tmpfs[i].mount, mount_kind::tmpfs, i});
-    }
-
-    std::stable_sort(entries.begin(), entries.end(),
-                     [](const auto& lhs, const auto& rhs) {
-                         return lhs.dst.compare(rhs.dst) < 0;
-                     });
-
-    for (std::size_t i = 1; i < entries.size(); ++i) {
-        if (entries[i - 1].dst == entries[i].dst) {
-            return util::unexpected{fmt::format(
-                "the destination {} is used by more than one --sqfs/"
-                "--bind-mount/--tmpfs",
-                entries[i].dst.string())};
-        }
+    const auto destinations = sorted_destinations(mounts, bind_mounts, tmpfs);
+    if (!destinations) {
+        return util::unexpected{destinations.error()};
     }
 
     // Each entry is mounted after the mount that provides its mount point,
@@ -257,33 +280,12 @@ build_mount_order(const mount_list& mounts,
     // taken from the host before anything is mounted (see capture_sources in
     // mount_rootless.cpp).
     mount_order order;
-    order.reserve(entries.size());
-    for (const auto& e : entries) {
-        order.push_back({e.kind, e.index});
+    order.reserve(destinations->size());
+    for (const auto& d : *destinations) {
+        order.push_back({d.kind, d.index});
     }
     return order;
 }
-
-namespace {
-// the destination of every --sqfs, --bind-mount and --tmpfs entry
-std::vector<std::filesystem::path>
-all_destinations(const mount_list& mounts,
-                 const std::vector<bindmount_pair>& bind_mounts,
-                 const std::vector<tmpfs_tuple>& tmpfs) {
-    std::vector<std::filesystem::path> result;
-    result.reserve(mounts.size() + bind_mounts.size() + tmpfs.size());
-    for (const auto& m : mounts) {
-        result.push_back(m.mount);
-    }
-    for (const auto& b : bind_mounts) {
-        result.push_back(b.dst);
-    }
-    for (const auto& t : tmpfs) {
-        result.push_back(t.mount);
-    }
-    return result;
-}
-} // namespace
 
 const std::filesystem::path&
 mount_destination(const mount_order_entry& e, const mount_list& mounts,
@@ -303,19 +305,19 @@ mount_destination(const mount_order_entry& e, const mount_list& mounts,
 std::vector<std::optional<mount_kind>> mount_point_providers(
     const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
     const std::vector<tmpfs_tuple>& tmpfs, const mount_order& order) {
-    auto dst = [&](const mount_order_entry& e) -> const std::filesystem::path& {
-        return mount_destination(e, mounts, bind_mounts, tmpfs);
-    };
-
-    std::vector<std::filesystem::path> dsts;
-    dsts.reserve(order.size());
+    // `order` comes from build_mount_order: lexical, without duplicates
+    std::vector<destination> destinations;
+    destinations.reserve(order.size());
     for (const auto& e : order) {
-        dsts.push_back(dst(e));
+        destinations.push_back(
+            {&mount_destination(e, mounts, bind_mounts, tmpfs), e.kind,
+             e.index});
     }
     std::vector<std::optional<mount_kind>> providers(order.size());
+    const auto enclosing = enclosing_destinations(destinations);
     for (std::size_t i = 0; i < order.size(); ++i) {
-        if (auto j = innermost_enclosing(dsts, dsts[i], i)) {
-            providers[i] = order[*j].kind;
+        if (enclosing[i]) {
+            providers[i] = enclosing[i]->kind;
         }
     }
     return providers;
@@ -325,18 +327,21 @@ util::expected<void, std::string>
 validate_mount_points(const mount_list& mounts,
                       const std::vector<bindmount_pair>& bind_mounts,
                       const std::vector<tmpfs_tuple>& tmpfs) {
-    const auto destinations = all_destinations(mounts, bind_mounts, tmpfs);
+    // two entries with the same destination are reported before any path is
+    // checked: that error does not depend on what is on the host
+    const auto destinations = sorted_destinations(mounts, bind_mounts, tmpfs);
+    if (!destinations) {
+        return util::unexpected{destinations.error()};
+    }
+    const auto enclosing = enclosing_destinations(*destinations);
 
     // a mount point must exist on the host, unless it is below another
     // requested destination (which provides it, see mount_point_providers)
-    for (const auto& path : destinations) {
-        const bool provided =
-            std::ranges::any_of(destinations, [&path](const auto& other) {
-                return other != path && util::is_child(path, other);
-            });
-        if (provided) {
+    for (std::size_t i = 0; i < destinations->size(); ++i) {
+        if (enclosing[i]) {
             continue;
         }
+        const auto& path = *(*destinations)[i].path;
         if (auto r = util::check_dir(path); !r) {
             return util::unexpected{
                 fmt::format("the mount point {} {}", path.string(), r.error())};
@@ -355,20 +360,19 @@ validate_mount_points(const mount_list& mounts,
     // a mount point inside a --bind-mount is never created (that would write
     // into its source on the host), and is the same path below the bind's
     // source on the host, so it can be checked before anything is mounted
-    const auto first_bind = mounts.size();
-    for (std::size_t i = 0; i < destinations.size(); ++i) {
-        const auto k = innermost_enclosing(destinations, destinations[i], i);
-        if (!k || *k < first_bind || *k >= first_bind + bind_mounts.size()) {
+    for (std::size_t i = 0; i < destinations->size(); ++i) {
+        if (!enclosing[i] || enclosing[i]->kind != mount_kind::bind_mount) {
             continue;
         }
-        const auto& b = bind_mounts[*k - first_bind];
-        const auto host = b.src / destinations[i].lexically_relative(b.dst);
+        const auto& path = *(*destinations)[i].path;
+        const auto& b = bind_mounts[enclosing[i]->index];
+        const auto host = b.src / path.lexically_relative(b.dst);
         if (auto r = util::check_dir(host); !r) {
-            return util::unexpected{fmt::format(
-                "the mount point {} does not exist: it is inside the "
-                "--bind-mount {}:{}, where {} {}",
-                destinations[i].string(), b.src.string(), b.dst.string(),
-                host.string(), r.error())};
+            return util::unexpected{
+                fmt::format("the mount point {} is inside the "
+                            "--bind-mount {}:{}, where {} {}",
+                            path.string(), b.src.string(), b.dst.string(),
+                            host.string(), r.error())};
         }
     }
     return {};
@@ -445,7 +449,7 @@ validate_mount_list(const mount_list& input, bool mount_points_must_exist) {
             }
         } else {
             spdlog::warn("the mount {} is inside another mount {}", *c,
-                         *(c - 1));
+                         *parent);
         }
     }
 

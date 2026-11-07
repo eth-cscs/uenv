@@ -748,7 +748,7 @@ hello app"
         --tmpfs=$TMP/bind-provider/new \
         -- true
     assert_failure
-    assert_output --partial "the mount point $TMP/bind-provider/new does not exist: it is inside the --bind-mount $TMP/bindsrc:$TMP/bind-provider"
+    assert_output --partial "the mount point $TMP/bind-provider/new is inside the --bind-mount $TMP/bindsrc:$TMP/bind-provider"
     [ ! -e $TMP/bindsrc/new ]
 }
 

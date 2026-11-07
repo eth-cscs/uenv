@@ -681,6 +681,18 @@ TEST_CASE("validate_mount_points", "[mount]") {
     REQUIRE(uenv::validate_mount_points({}, {{src, exists}},
                                         {{base, std::nullopt}}));
 
+    // a duplicate destination is reported before any path is checked
+    {
+        auto r = uenv::validate_mount_points(
+            {mount_pair{.sqfs = "/img.squashfs", .mount = missing}},
+            {{missing, missing}}, {});
+        REQUIRE(!r);
+        REQUIRE(r.error() ==
+                fmt::format("the destination {} is used by more than one "
+                            "--sqfs/--bind-mount/--tmpfs",
+                            missing.string()));
+    }
+
     // a mount point missing on the host is an error, whatever kind of mount
     // it is for
     {
@@ -729,10 +741,21 @@ TEST_CASE("validate_mount_points", "[mount]") {
             {}, {{src, exists}}, {{exists / "in-source", std::nullopt}});
         REQUIRE(!r);
         REQUIRE(r.error() ==
-                fmt::format("the mount point {} does not exist: it is inside "
+                fmt::format("the mount point {} is inside "
                             "the --bind-mount {}:{}, where {} does not exist",
                             (exists / "in-source").string(), src.string(),
                             exists.string(), (src / "in-source").string()));
+        // the reason is the one check_dir gives, not always "does not exist"
+        std::ofstream(src / "in-source").close();
+        r = uenv::validate_mount_points({}, {{src, exists}},
+                                        {{exists / "in-source", std::nullopt}});
+        REQUIRE(!r);
+        REQUIRE(r.error() ==
+                fmt::format("the mount point {} is inside the --bind-mount "
+                            "{}:{}, where {} is not a directory",
+                            (exists / "in-source").string(), src.string(),
+                            exists.string(), (src / "in-source").string()));
+        std::filesystem::remove(src / "in-source");
         std::filesystem::create_directories(src / "in-source");
         REQUIRE(uenv::validate_mount_points(
             {}, {{src, exists}}, {{exists / "in-source", std::nullopt}}));
