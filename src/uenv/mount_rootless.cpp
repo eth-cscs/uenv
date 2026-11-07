@@ -749,7 +749,14 @@ util::expected<void, std::string> mount_and_join_ns(
         // process execs the user's command, and the leader is an arbitrary
         // rank, so tying the daemons here would take the mount away from
         // every other rank on the node when that one rank's command returns.
-        if (!daemon_process_will_cleanup()) {
+        if (req.mounts.empty()) {
+            // only --tmpfs and --bind-mount: kernel mounts, which live as long
+            // as the mount namespace does, and every follower joins it below.
+            // There is no daemon to own, so no supervisor.
+            if (auto r = apply_mounts(req, *sources); !r) {
+                return util::unexpected(r.error());
+            }
+        } else if (!daemon_process_will_cleanup()) {
             spdlog::warn(
                 "squashfuse daemon will not get cleaned up automatically.");
             if (auto r = apply_mounts(req, *sources); !r) {

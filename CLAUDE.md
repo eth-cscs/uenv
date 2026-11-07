@@ -457,6 +457,10 @@ because what the mount should die with differs.
   ranks can never hold the step's stdout/stderr pipes open. Mount failures are
   reported before that point.
 
+  A step with only `--tmpfs`/`--bind-mount` and no `--sqfs` forks no
+  supervisor: the leader mounts in-process, because kernel mounts live as long
+  as the mount namespace, which every follower has joined.
+
   Because that termination mechanism is Slurm's rather than uenv's, the leader
   checks for it instead of assuming it: `util::cgroup_is_slurm_managed()`
   (`src/util/cgroup.h`) looks for Slurm's `/job_<id>/` component in
