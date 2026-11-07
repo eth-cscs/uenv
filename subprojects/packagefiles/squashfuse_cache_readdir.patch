@@ -1,0 +1,14 @@
+--- a/ll.c
++++ b/ll.c
+@@ -124,6 +124,11 @@
+ 			fuse_reply_err(req, ENOTDIR);
+ 		} else {
+ 			fi->fh = (intptr_t)lli;
++			/* the image is read-only: let the kernel cache readdir results
++			 * (FOPEN_CACHE_DIR) and keep them across opendir calls, so that
++			 * repeated traversals don't round-trip READDIR to userspace */
++			fi->cache_readdir = 1;
++			fi->keep_cache = 1;
+ 			update_open_refcount(1);
+ 			fuse_reply_open(req, fi);
+ 			return;
