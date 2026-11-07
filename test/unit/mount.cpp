@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -677,15 +678,15 @@ TEST_CASE("validate_mount_points", "[mount]") {
     // mount points that exist on the host
     REQUIRE(uenv::validate_mount_points(
         {mount_pair{.sqfs = "/img.squashfs", .mount = exists}}, {{src, base}},
-        {}));
+        {}, false));
     REQUIRE(uenv::validate_mount_points({}, {{src, exists}},
-                                        {{base, std::nullopt}}));
+                                        {{base, std::nullopt}}, false));
 
     // a duplicate destination is reported before any path is checked
     {
         auto r = uenv::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = missing}},
-            {{missing, missing}}, {});
+            {{missing, missing}}, {}, false);
         REQUIRE(!r);
         REQUIRE(r.error() ==
                 fmt::format("the destination {} is used by more than one "
@@ -696,41 +697,44 @@ TEST_CASE("validate_mount_points", "[mount]") {
     // a mount point missing on the host is an error, whatever kind of mount
     // it is for
     {
-        auto r = uenv::validate_mount_points({}, {}, {{missing, std::nullopt}});
+        auto r = uenv::validate_mount_points({}, {}, {{missing, std::nullopt}},
+                                             false);
         REQUIRE(!r);
         REQUIRE(r.error() == fmt::format("the mount point {} does not exist",
                                          missing.string()));
-        REQUIRE(!uenv::validate_mount_points({}, {{src, missing}}, {}));
+        REQUIRE(!uenv::validate_mount_points({}, {{src, missing}}, {}, false));
         REQUIRE(!uenv::validate_mount_points(
-            {mount_pair{.sqfs = "/img.squashfs", .mount = missing}}, {}, {}));
+            {mount_pair{.sqfs = "/img.squashfs", .mount = missing}}, {}, {},
+            false));
         // also one several levels deep, or under a file
         REQUIRE(!uenv::validate_mount_points(
-            {}, {}, {{missing / "new/deeper", std::nullopt}}));
+            {}, {}, {{missing / "new/deeper", std::nullopt}}, false));
         std::ofstream(base / "file").close();
         REQUIRE(!uenv::validate_mount_points(
-            {}, {}, {{base / "file/new", std::nullopt}}));
+            {}, {}, {{base / "file/new", std::nullopt}}, false));
     }
 
     // a missing mount point inside a --tmpfs or --sqfs is provided by that
     // mount, and is not checked on the host
     {
         const std::vector<tmpfs_tuple> tmpfs = {{exists, std::nullopt}};
-        REQUIRE(
-            uenv::validate_mount_points({}, {{src, exists / "new"}}, tmpfs));
+        REQUIRE(uenv::validate_mount_points({}, {{src, exists / "new"}}, tmpfs,
+                                            false));
         REQUIRE(uenv::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = exists / "new"}}, {},
-            tmpfs));
+            tmpfs, false));
         REQUIRE(uenv::validate_mount_points(
-            {}, {}, {{exists, std::nullopt}, {exists / "new", std::nullopt}}));
+            {}, {}, {{exists, std::nullopt}, {exists / "new", std::nullopt}},
+            false));
         REQUIRE(uenv::validate_mount_points(
             {}, {{src, exists / "new/x"}},
-            {{exists, std::nullopt}, {exists / "new", std::nullopt}}));
+            {{exists, std::nullopt}, {exists / "new", std::nullopt}}, false));
     }
     {
         const uenv::mount_list mounts = {
             mount_pair{.sqfs = "/img.squashfs", .mount = exists}};
         REQUIRE(uenv::validate_mount_points(
-            mounts, {}, {{exists / "in-image", std::nullopt}}));
+            mounts, {}, {{exists / "in-image", std::nullopt}}, false));
     }
 
     // a mount point inside a --bind-mount is the path below its source on
@@ -738,7 +742,7 @@ TEST_CASE("validate_mount_points", "[mount]") {
     {
         std::filesystem::remove_all(src / "in-source");
         auto r = uenv::validate_mount_points(
-            {}, {{src, exists}}, {{exists / "in-source", std::nullopt}});
+            {}, {{src, exists}}, {{exists / "in-source", std::nullopt}}, false);
         REQUIRE(!r);
         REQUIRE(r.error() ==
                 fmt::format("the mount point {} is inside "
@@ -747,8 +751,8 @@ TEST_CASE("validate_mount_points", "[mount]") {
                             exists.string(), (src / "in-source").string()));
         // the reason is the one check_dir gives, not always "does not exist"
         std::ofstream(src / "in-source").close();
-        r = uenv::validate_mount_points({}, {{src, exists}},
-                                        {{exists / "in-source", std::nullopt}});
+        r = uenv::validate_mount_points(
+            {}, {{src, exists}}, {{exists / "in-source", std::nullopt}}, false);
         REQUIRE(!r);
         REQUIRE(r.error() ==
                 fmt::format("the mount point {} is inside the --bind-mount "
@@ -758,50 +762,272 @@ TEST_CASE("validate_mount_points", "[mount]") {
         std::filesystem::remove(src / "in-source");
         std::filesystem::create_directories(src / "in-source");
         REQUIRE(uenv::validate_mount_points(
-            {}, {{src, exists}}, {{exists / "in-source", std::nullopt}}));
+            {}, {{src, exists}}, {{exists / "in-source", std::nullopt}},
+            false));
         // only the innermost provider counts: a --tmpfs inside the bind
         // provides what is below it
         REQUIRE(uenv::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs",
                         .mount = exists / "in-source/new"}},
-            {{src, exists}}, {{exists / "in-source", std::nullopt}}));
+            {{src, exists}}, {{exists / "in-source", std::nullopt}}, false));
         // and the provider is the bind, not the host path it covers
         std::filesystem::create_directories(exists / "host-only");
         REQUIRE(!uenv::validate_mount_points(
-            {}, {{src, exists}}, {{exists / "host-only", std::nullopt}}));
+            {}, {{src, exists}}, {{exists / "host-only", std::nullopt}},
+            false));
         std::filesystem::remove_all(src / "in-source");
     }
 
     // but the provider itself has to exist
     REQUIRE(!uenv::validate_mount_points({}, {{src, missing / "new"}},
-                                         {{missing, std::nullopt}}));
+                                         {{missing, std::nullopt}}, false));
 
     // a bind-mount source on the host must be an existing directory
     {
-        auto r = uenv::validate_mount_points({}, {{missing, exists}}, {});
+        auto r =
+            uenv::validate_mount_points({}, {{missing, exists}}, {}, false);
         REQUIRE(!r);
         REQUIRE(r.error() ==
                 fmt::format("the bind-mount source {} does not exist",
                             missing.string()));
         std::ofstream(base / "src-file").close();
         REQUIRE(!uenv::validate_mount_points({}, {{base / "src-file", exists}},
-                                             {}));
+                                             {}, false));
         // inside another destination: still the host's directory, checked
         REQUIRE(!uenv::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = exists}},
-            {{exists / "in-image", src}}, {}));
+            {{exists / "in-image", src}}, {}, false));
         REQUIRE(!uenv::validate_mount_points({}, {{exists / "in-tmpfs", src}},
-                                             {{exists, std::nullopt}}));
+                                             {{exists, std::nullopt}}, false));
         std::filesystem::create_directories(exists / "on-host");
         REQUIRE(uenv::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = exists}},
-            {{exists / "on-host", src}}, {}));
+            {{exists / "on-host", src}}, {}, false));
         REQUIRE(uenv::validate_mount_points({}, {{exists / "on-host", src}},
-                                            {{exists, std::nullopt}}));
+                                            {{exists, std::nullopt}}, false));
         // inside its own destination: the host path, checked
         REQUIRE(!uenv::validate_mount_points({}, {{exists / "missing", exists}},
-                                             {}));
+                                             {}, false));
     }
+
+    std::filesystem::remove_all(base);
+}
+
+TEST_CASE("validate_mount_points with a mutable root", "[mount]") {
+    using uenv::bindmount_pair;
+    using uenv::mount_pair;
+    using uenv::tmpfs_tuple;
+
+    auto base =
+        std::filesystem::weakly_canonical(util::make_temp_dir().value());
+    std::filesystem::create_directories(base / "exists");
+    const auto exists = base / "exists";
+    const auto missing = base / "missing";
+    const auto src = base / "src";
+    std::filesystem::create_directories(src);
+
+    // a missing mount point on the host is created, for every kind of mount,
+    // also several levels deep, and also directly below "/"
+    REQUIRE(
+        uenv::validate_mount_points({}, {}, {{missing, std::nullopt}}, true));
+    REQUIRE(uenv::validate_mount_points({}, {{src, missing}}, {}, true));
+    REQUIRE(uenv::validate_mount_points(
+        {mount_pair{.sqfs = "/img.squashfs", .mount = missing}}, {}, {}, true));
+    REQUIRE(uenv::validate_mount_points(
+        {}, {}, {{missing / "new/deeper", std::nullopt}}, true));
+    REQUIRE(uenv::validate_mount_points(
+        {}, {}, {{"/uenv-unit-test-missing/a", std::nullopt}}, true));
+
+    // a duplicate destination is still an error
+    REQUIRE(!uenv::validate_mount_points(
+        {mount_pair{.sqfs = "/img.squashfs", .mount = missing}},
+        {{src, missing}}, {}, true));
+
+    // a file in the path can never become a directory, and a mount point
+    // that exists but is not a directory is refused as without -r
+    std::ofstream(base / "file").close();
+    {
+        auto r = uenv::validate_mount_points(
+            {}, {}, {{base / "file/new", std::nullopt}}, true);
+        REQUIRE(!r);
+        REQUIRE(r.error() ==
+                fmt::format("the mount point {} can not be created: {} is not "
+                            "a directory",
+                            (base / "file/new").string(),
+                            (base / "file").string()));
+        r = uenv::validate_mount_points({}, {}, {{base / "file", std::nullopt}},
+                                        true);
+        REQUIRE(!r);
+        REQUIRE(r.error() == fmt::format("the mount point {} is not a "
+                                         "directory",
+                                         (base / "file").string()));
+    }
+
+    if (::geteuid() != 0) {
+        // the deepest existing ancestor may be read only: it is shadowed
+        const auto ro = base / "read-only";
+        std::filesystem::create_directories(ro);
+        std::filesystem::permissions(ro,
+                                     std::filesystem::perms::owner_read |
+                                         std::filesystem::perms::owner_exec);
+        REQUIRE(uenv::validate_mount_points(
+            {}, {}, {{ro / "new/deeper", std::nullopt}}, true));
+        std::filesystem::permissions(ro, std::filesystem::perms::owner_all);
+
+        // a mount point that can't be examined is not "missing": refused
+        const auto closed = base / "closed";
+        std::filesystem::create_directories(closed / "inner");
+        std::filesystem::permissions(closed, std::filesystem::perms::none);
+        for (const auto& p : {closed / "inner", closed / "new"}) {
+            auto r =
+                uenv::validate_mount_points({}, {}, {{p, std::nullopt}}, true);
+            CAPTURE(p);
+            REQUIRE(!r);
+            REQUIRE_THAT(r.error(), Catch::Matchers::ContainsSubstring(
+                                        "can't be accessed"));
+        }
+        std::filesystem::permissions(closed, std::filesystem::perms::owner_all);
+    }
+
+    // a mount point provided by another mount is not checked on the host
+    REQUIRE(uenv::validate_mount_points(
+        {}, {{src, exists / "new/x"}},
+        {{exists, std::nullopt}, {exists / "new", std::nullopt}}, true));
+
+    // a mount point inside a --bind-mount is never created, also with -r
+    {
+        auto r = uenv::validate_mount_points(
+            {}, {{src, exists}}, {{exists / "in-source", std::nullopt}}, true);
+        REQUIRE(!r);
+        REQUIRE(r.error() ==
+                fmt::format("the mount point {} is inside "
+                            "the --bind-mount {}:{}, where {} does not exist",
+                            (exists / "in-source").string(), src.string(),
+                            exists.string(), (src / "in-source").string()));
+    }
+
+    // a bind-mount source must exist, also with -r
+    {
+        auto r = uenv::validate_mount_points({}, {{missing, exists}}, {}, true);
+        REQUIRE(!r);
+        REQUIRE(r.error() ==
+                fmt::format("the bind-mount source {} does not exist",
+                            missing.string()));
+        REQUIRE(!uenv::validate_mount_points({}, {{base / "file", exists}}, {},
+                                             true));
+    }
+
+    std::filesystem::remove_all(base);
+}
+
+TEST_CASE("writable_shadowed_dirs", "[mount]") {
+    using uenv::bindmount_pair;
+    using uenv::mount_pair;
+    using P =
+        std::vector<std::pair<std::filesystem::path, std::filesystem::path>>;
+
+    auto base =
+        std::filesystem::weakly_canonical(util::make_temp_dir().value());
+    std::filesystem::create_directories(base / "exists");
+
+    // a missing mount point under a writable directory, several levels deep:
+    // reported with its deepest existing ancestor
+    REQUIRE(
+        uenv::writable_shadowed_dirs({}, {}, {{base / "new", std::nullopt}}) ==
+        P{{base / "new", base}});
+    REQUIRE(uenv::writable_shadowed_dirs(
+                {mount_pair{.sqfs = "/img", .mount = base / "exists/a/b"}}, {},
+                {}) == P{{base / "exists/a/b", base / "exists"}});
+
+    // existing, below "/" only, or provided by another mount: nothing
+    REQUIRE(uenv::writable_shadowed_dirs({}, {{"/src", base / "exists"}}, {})
+                .empty());
+    REQUIRE(uenv::writable_shadowed_dirs(
+                {}, {}, {{"/uenv-unit-test-missing/x", std::nullopt}})
+                .empty());
+    REQUIRE(uenv::writable_shadowed_dirs({}, {{"/src", base / "exists/new"}},
+                                         {{base / "exists", std::nullopt}})
+                .empty());
+
+    // a directory the caller can not write to
+    if (::geteuid() != 0) {
+        const auto ro = base / "read-only";
+        std::filesystem::create_directories(ro);
+        std::filesystem::permissions(ro,
+                                     std::filesystem::perms::owner_read |
+                                         std::filesystem::perms::owner_exec);
+        REQUIRE(
+            uenv::writable_shadowed_dirs({}, {}, {{ro / "new", std::nullopt}})
+                .empty());
+        std::filesystem::permissions(ro, std::filesystem::perms::owner_all);
+    }
+
+    std::filesystem::remove_all(base);
+}
+
+TEST_CASE("deepest_existing_ancestor", "[mount]") {
+    auto base =
+        std::filesystem::weakly_canonical(util::make_temp_dir().value());
+    std::filesystem::create_directories(base / "a/b");
+    std::ofstream(base / "a/file").close();
+    std::filesystem::create_symlink("does-not-exist", base / "a/dangling");
+
+    REQUIRE(uenv::deepest_existing_ancestor(base / "a/b").value() ==
+            base / "a/b");
+    REQUIRE(uenv::deepest_existing_ancestor(base / "a/b/c").value() ==
+            base / "a/b");
+    REQUIRE(uenv::deepest_existing_ancestor(base / "a/x/y/z").value() ==
+            base / "a");
+    REQUIRE(
+        uenv::deepest_existing_ancestor("/uenv-unit-test-missing/x").value() ==
+        "/");
+    REQUIRE(uenv::deepest_existing_ancestor("/").value() == "/");
+
+    // a file or a dangling symlink in the path
+    REQUIRE(!uenv::deepest_existing_ancestor(base / "a/file/x"));
+    REQUIRE(!uenv::deepest_existing_ancestor(base / "a/dangling/x"));
+
+    std::filesystem::remove_all(base);
+}
+
+TEST_CASE("mutable_root_shadow_dirs", "[mount]") {
+    using S = std::set<std::filesystem::path>;
+    auto base =
+        std::filesystem::weakly_canonical(util::make_temp_dir().value());
+    std::filesystem::create_directories(base / "a/b");
+    std::filesystem::create_directories(base / "c");
+    std::ofstream(base / "file").close();
+
+    // nothing to create: only "/"
+    REQUIRE(uenv::mutable_root_shadow_dirs({}).value() == S{"/"});
+    REQUIRE(
+        uenv::mutable_root_shadow_dirs({base / "a/b", base / "c"}).value() ==
+        S{"/"});
+
+    // a new top-level name only needs "/"
+    REQUIRE(
+        uenv::mutable_root_shadow_dirs({"/uenv-unit-test-missing/x"}).value() ==
+        S{"/"});
+
+    // a missing leaf: only its parent, not the ancestors of the parent
+    REQUIRE(uenv::mutable_root_shadow_dirs({base / "a/b/new"}).value() ==
+            S{"/", base / "a/b"});
+
+    // missing several levels deep: only the deepest existing ancestor
+    REQUIRE(uenv::mutable_root_shadow_dirs({base / "a/x/y"}).value() ==
+            S{"/", base / "a"});
+
+    // several mount points: the union, existing ones add nothing
+    REQUIRE(uenv::mutable_root_shadow_dirs(
+                {base / "a/b/new", base / "c/new", base / "c"})
+                .value() == S{"/", base / "a/b", base / "c"});
+
+    // nested shadowed directories
+    REQUIRE(uenv::mutable_root_shadow_dirs({base / "a/new", base / "a/b/new"})
+                .value() == S{"/", base / "a", base / "a/b"});
+
+    // a file in the path
+    REQUIRE(!uenv::mutable_root_shadow_dirs({base / "file/new"}));
 
     std::filesystem::remove_all(base);
 }

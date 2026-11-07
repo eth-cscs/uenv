@@ -3,8 +3,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <set>
 #include <string>
 #include <sys/types.h>
+#include <utility>
 #include <vector>
 
 #include <fmt/core.h>
@@ -105,8 +107,8 @@ mount_destination(const mount_order_entry& e, const mount_list& mounts,
 //
 // The provider decides whether a missing mount point can be created: in a
 // --tmpfs always (it is empty, writable and private to the mount namespace),
-// and never on the host, in a squashfs image (read only) or in a bind mount
-// (which would write into its source on the host).
+// on the host only with a mutable root, and never in a squashfs image (read
+// only) or a bind mount (which would write into its source on the host).
 std::vector<std::optional<mount_kind>> mount_point_providers(
     const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
     const std::vector<tmpfs_tuple>& tmpfs, const mount_order& order);
@@ -121,18 +123,57 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
 // error as build_mount_order), then the first mount point or source that
 // fails one of the checks below.
 //
-// A mount point on the host must exist.
+// A mount point on the host must be an existing directory. With
+// `mutable_root`, one that does not exist is allowed: it is created in the
+// mutable root, on the tmpfs copy of its deepest existing ancestor (see
+// mutable_root_shadow_dirs), so it is only an error if that ancestor can't
+// be found (deepest_existing_ancestor). A mount point that exists but is not
+// a directory, or can't be accessed, is an error with or without it.
 //
-// Every --bind-mount source must be an existing directory on the host, also
-// one inside another requested destination: a bind source is always the
-// host's directory (see build_mount_order). So a mount point whose innermost
-// provider is a --bind-mount is checked too, at the same path below the
-// bind's source: it is never created, as that would write into the source on
-// the host.
+// Every --bind-mount source must be an existing directory on the host, with
+// or without `mutable_root`, also one inside another requested destination:
+// a bind source is always the host's directory (see build_mount_order). So
+// a mount point whose innermost provider is a --bind-mount is checked too,
+// at the same path below the bind's source: it is never created, mutable
+// root or not, as that would write into the source on the host.
 util::expected<void, std::string>
 validate_mount_points(const mount_list& mounts,
                       const std::vector<bindmount_pair>& bind_mounts,
-                      const std::vector<tmpfs_tuple>& tmpfs);
+                      const std::vector<tmpfs_tuple>& tmpfs, bool mutable_root);
+
+// The deepest ancestor of `path` that exists (`path` itself if it exists).
+// Every existing component must be a directory, so a regular file or a
+// dangling symlink in the path is an error, as is a component that can't be
+// examined. `path` must be in the form given by canonical_mount_path
+// (weakly_canonical): its existing prefix then has no symlinks, and the only
+// one left is a dangling symlink, which weakly_canonical can't resolve.
+// Components are read with symlink_status so that this symlink is reported,
+// rather than treated as missing. A symlink to a directory in a
+// non-canonical path is rejected.
+util::expected<std::filesystem::path, std::string>
+deepest_existing_ancestor(const std::filesystem::path& path);
+
+// The directories a mutable root rebuilds on a tmpfs ("shadows") so that
+// every missing mount point in `dsts` can be created there without writing to
+// the host: "/", and the deepest existing ancestor of each missing mount
+// point. The directories between them are not rebuilt: each shadowed
+// directory is a tmpfs mounted over the host's copy, inside the bind mount of
+// its parent. Everything else in the mutable root is a bind mount of the host.
+// `dsts` must be canonical.
+util::expected<std::set<std::filesystem::path>, std::string>
+mutable_root_shadow_dirs(const std::set<std::filesystem::path>& dsts);
+
+// With a mutable root: each missing mount point on the host whose deepest
+// existing ancestor, other than "/", is writable by the caller, paired with
+// that ancestor. The ancestor is shadowed in tmpfs, so for the command, new
+// files written directly in it are lost on exit, and a file in it can not be
+// replaced by renaming another over it (EBUSY: it is a bind mount), as editors
+// and shell history do. Callers warn about these. Call it after
+// validate_mount_points: entries that fail validation are left out.
+std::vector<std::pair<std::filesystem::path, std::filesystem::path>>
+writable_shadowed_dirs(const mount_list& mounts,
+                       const std::vector<bindmount_pair>& bind_mounts,
+                       const std::vector<tmpfs_tuple>& tmpfs);
 
 // one shot from string description to sorted and validated inputs
 //

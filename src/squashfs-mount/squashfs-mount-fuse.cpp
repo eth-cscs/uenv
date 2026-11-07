@@ -200,7 +200,8 @@ int main(int argc, char** argv, char** envp) {
 
     // a mount point on the host must exist; one inside a --tmpfs is created
     // when it is mounted on.
-    if (auto r = uenv::validate_mount_points(mounts, *bind_mounts, *tmpfs);
+    if (auto r =
+            uenv::validate_mount_points(mounts, *bind_mounts, *tmpfs, false);
         !r) {
         error_and_exit("{}", r.error());
     }

@@ -6,10 +6,12 @@
 #include <fstream>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <string>
 #include <vector>
 
 #include <sys/mount.h>
+#include <unistd.h>
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -323,10 +325,18 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
     return providers;
 }
 
-util::expected<void, std::string>
-validate_mount_points(const mount_list& mounts,
-                      const std::vector<bindmount_pair>& bind_mounts,
-                      const std::vector<tmpfs_tuple>& tmpfs) {
+namespace {
+// whether `path` does not exist, as opposed to existing or not being possible
+// to examine (which check_dir reports)
+bool does_not_exist(const std::filesystem::path& path) {
+    const auto type = util::path_type(path);
+    return type && *type == std::filesystem::file_type::not_found;
+}
+} // namespace
+
+util::expected<void, std::string> validate_mount_points(
+    const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
+    const std::vector<tmpfs_tuple>& tmpfs, bool mutable_root) {
     // two entries with the same destination are reported before any path is
     // checked: that error does not depend on what is on the host
     const auto destinations = sorted_destinations(mounts, bind_mounts, tmpfs);
@@ -336,12 +346,19 @@ validate_mount_points(const mount_list& mounts,
     const auto enclosing = enclosing_destinations(*destinations);
 
     // a mount point must exist on the host, unless it is below another
-    // requested destination (which provides it, see mount_point_providers)
+    // requested destination (which provides it, see mount_point_providers),
+    // or a mutable root can create it
     for (std::size_t i = 0; i < destinations->size(); ++i) {
         if (enclosing[i]) {
             continue;
         }
         const auto& path = *(*destinations)[i].path;
+        if (mutable_root && does_not_exist(path)) {
+            if (auto r = deepest_existing_ancestor(path); !r) {
+                return util::unexpected{r.error()};
+            }
+            continue;
+        }
         if (auto r = util::check_dir(path); !r) {
             return util::unexpected{
                 fmt::format("the mount point {} {}", path.string(), r.error())};
@@ -376,6 +393,77 @@ validate_mount_points(const mount_list& mounts,
         }
     }
     return {};
+}
+
+std::vector<std::pair<std::filesystem::path, std::filesystem::path>>
+writable_shadowed_dirs(const mount_list& mounts,
+                       const std::vector<bindmount_pair>& bind_mounts,
+                       const std::vector<tmpfs_tuple>& tmpfs) {
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> result;
+    const auto destinations = sorted_destinations(mounts, bind_mounts, tmpfs);
+    if (!destinations) {
+        return result;
+    }
+    const auto enclosing = enclosing_destinations(*destinations);
+    for (std::size_t i = 0; i < destinations->size(); ++i) {
+        const auto& path = *(*destinations)[i].path;
+        if (enclosing[i] || !does_not_exist(path)) {
+            continue;
+        }
+        auto ancestor = deepest_existing_ancestor(path);
+        if (ancestor && *ancestor != ancestor->root_path() &&
+            ::access(ancestor->c_str(), W_OK) == 0) {
+            result.emplace_back(path, *ancestor);
+        }
+    }
+    return result;
+}
+
+util::expected<std::filesystem::path, std::string>
+deepest_existing_ancestor(const std::filesystem::path& path) {
+    namespace fs = std::filesystem;
+    fs::path result = path.root_path();
+    for (const auto& component : path.relative_path()) {
+        const auto next = result / component;
+        std::error_code ec;
+        const auto status = fs::symlink_status(next, ec);
+        if (status.type() == fs::file_type::not_found) {
+            break;
+        }
+        if (ec) {
+            return util::unexpected{
+                fmt::format("the mount point {} can not be created: {} can't "
+                            "be accessed: {}",
+                            path.string(), next.string(), ec.message())};
+        }
+        if (!fs::is_directory(status)) {
+            return util::unexpected{
+                fmt::format("the mount point {} can not be created: {} is not "
+                            "a directory",
+                            path.string(), next.string())};
+        }
+        result = next;
+    }
+    return result;
+}
+
+util::expected<std::set<std::filesystem::path>, std::string>
+mutable_root_shadow_dirs(const std::set<std::filesystem::path>& dsts) {
+    std::set<std::filesystem::path> result = {"/"};
+    for (const auto& dst : dsts) {
+        // an existing mount point needs no shadow; one that exists but is not
+        // a directory, or can't be examined, was refused by
+        // validate_mount_points, and mounting on it fails if that changed
+        if (!does_not_exist(dst)) {
+            continue;
+        }
+        auto ancestor = deepest_existing_ancestor(dst);
+        if (!ancestor) {
+            return util::unexpected{ancestor.error()};
+        }
+        result.insert(*ancestor);
+    }
+    return result;
 }
 
 util::expected<std::vector<uenv::mount_pair>, std::string>
