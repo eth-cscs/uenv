@@ -228,13 +228,14 @@ util::expected<void, std::string> lock_down(const bool dumps_allowed) {
 // trip. If the kernel supports it, answer OPENDIR with ENOSYS: the kernel then
 // stops sending OPENDIR/RELEASEDIR altogether and caches readdir results as if
 // opendir had returned FOPEN_KEEP_CACHE | FOPEN_CACHE_DIR.
-static bool no_opendir = false;
+namespace {
+bool no_opendir = false;
 
-static void uenv_ll_op_init(void*, struct fuse_conn_info* conn) {
+void uenv_ll_op_init(void*, struct fuse_conn_info* conn) {
     no_opendir = conn->capable & FUSE_CAP_NO_OPENDIR_SUPPORT;
 }
 
-static void uenv_ll_op_opendir(fuse_req_t req, fuse_ino_t ino,
+void uenv_ll_op_opendir(fuse_req_t req, fuse_ino_t ino,
                                struct fuse_file_info* fi) {
     if (no_opendir) {
         fuse_reply_err(req, ENOSYS);
@@ -243,7 +244,7 @@ static void uenv_ll_op_opendir(fuse_req_t req, fuse_ino_t ino,
     sqfs_ll_op_opendir(req, ino, fi);
 }
 
-static void uenv_ll_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
+void uenv_ll_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
                                off_t off, struct fuse_file_info* fi) {
     if (fi->fh) {
         sqfs_ll_op_readdir(req, ino, size, off, fi);
@@ -281,7 +282,7 @@ fuse_lowlevel_ops make_fuse_lowlevel_options() {
 
     return options;
 }
-
+} // namespace
 // Mount a squashfs image in the background (forked process), unmount the image
 // when the parent process exits (shell is closed).
 // Adapted from `squashfuse_ll` written by Dave Vasilevsky <dave@vasilevsky.ca>
