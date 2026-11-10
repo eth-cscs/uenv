@@ -224,14 +224,51 @@ util::expected<void, std::string> lock_down(const bool dumps_allowed) {
     _exit(1);
 }
 
+// The image is read-only, so directory handles carry no state worth a round
+// trip. If the kernel supports it, answer OPENDIR with ENOSYS: the kernel then
+// stops sending OPENDIR/RELEASEDIR altogether and caches readdir results as if
+// opendir had returned FOPEN_KEEP_CACHE | FOPEN_CACHE_DIR.
+namespace {
+bool no_opendir = false;
+
+void uenv_ll_op_init(void*, struct fuse_conn_info* conn) {
+    no_opendir = conn->capable & FUSE_CAP_NO_OPENDIR_SUPPORT;
+}
+
+void uenv_ll_op_opendir(fuse_req_t req, fuse_ino_t ino,
+                               struct fuse_file_info* fi) {
+    if (no_opendir) {
+        fuse_reply_err(req, ENOSYS);
+        return;
+    }
+    sqfs_ll_op_opendir(req, ino, fi);
+}
+
+void uenv_ll_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
+                               off_t off, struct fuse_file_info* fi) {
+    if (fi->fh) {
+        sqfs_ll_op_readdir(req, ino, size, off, fi);
+        return;
+    }
+    // no handle from opendir: look up the inode for this request.
+    // sqfs_ll_op_readdir replies before returning, so a stack handle is fine.
+    sqfs_ll_i lli;
+    if (sqfs_ll_iget(req, &lli, ino) != SQFS_OK) {
+        return; // sqfs_ll_iget already replied ENOENT
+    }
+    fi->fh = (intptr_t)&lli;
+    sqfs_ll_op_readdir(req, ino, size, off, fi);
+}
+
 fuse_lowlevel_ops make_fuse_lowlevel_options() {
     fuse_lowlevel_ops options;
     memset(&options, 0, sizeof(fuse_lowlevel_ops));
 
+    options.init = uenv_ll_op_init;
     options.getattr = sqfs_ll_op_getattr;
-    options.opendir = sqfs_ll_op_opendir;
+    options.opendir = uenv_ll_op_opendir;
     options.releasedir = sqfs_ll_op_releasedir;
-    options.readdir = sqfs_ll_op_readdir;
+    options.readdir = uenv_ll_op_readdir;
     options.lookup = sqfs_ll_op_lookup;
     options.open = sqfs_ll_op_open;
     options.create = sqfs_ll_op_create;
@@ -245,7 +282,7 @@ fuse_lowlevel_ops make_fuse_lowlevel_options() {
 
     return options;
 }
-
+} // namespace
 // Mount a squashfs image in the background (forked process), unmount the image
 // when the parent process exits (shell is closed).
 // Adapted from `squashfuse_ll` written by Dave Vasilevsky <dave@vasilevsky.ca>
