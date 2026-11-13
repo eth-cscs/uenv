@@ -283,8 +283,27 @@ do_mount(const std::vector<opened_image>& images) {
         // drops the last reference and AUTOCLEAR detaches the device.
         auto close_loop = util::defer([fd = loop->fd] { close(fd); });
 
-        if (::mount(loop->path.c_str(), mount_point.c_str(), "squashfs",
-                    MS_RDONLY | MS_NOSUID | MS_NODEV, nullptr) != 0) {
+        // Ask for parallel decompression: the default (threads=single) has
+        // one decompressor per mount behind a mutex, which serialises every
+        // page-cache miss when many ranks on a node read the image at once.
+        // "multi" adds decompressors only under contention, whereas
+        // "percpu" would allocate one per CPU for every mount.
+        //
+        // threads= needs Linux >= 6.2 built with
+        // CONFIG_SQUASHFS_CHOICE_DECOMP_BY_MOUNT; anywhere else the option is
+        // rejected with EINVAL, so retry once without it. A corrupt image
+        // fails the retry too, so the error reported below is still accurate.
+        const auto flags = MS_RDONLY | MS_NOSUID | MS_NODEV;
+        int rc = ::mount(loop->path.c_str(), mount_point.c_str(), "squashfs",
+                         flags, "threads=multi");
+        if (rc != 0 && errno == EINVAL) {
+            spdlog::debug("mount {}: threads=multi rejected, retrying with "
+                          "the kernel's default decompressor",
+                          mount_point);
+            rc = ::mount(loop->path.c_str(), mount_point.c_str(), "squashfs",
+                         flags, nullptr);
+        }
+        if (rc != 0) {
             const int saved_errno = errno;
             const char* hint =
                 saved_errno == EINVAL
