@@ -298,6 +298,20 @@ There is no runtime switch between them.
   a hook Slurm itself invokes as root, so `uenv::do_mount()` is called
   directly with the privilege the plugin already has. Neither path opens the
   image with that privilege — see the next section.
+
+  The setuid helper (only — the Slurm plugin and `uenv run/start` still
+  reject it) accepts several images at the same mount point
+  (`--sqfs=A:/ue,B:/ue`), and `do_mount()` stacks them as one read-only
+  overlayfs with the image given **last on top**. This relies on
+  `validate_mount_list` sorting with `std::stable_sort`. Inside the unshared
+  mount namespace, the layers are staged on a private tmpfs mounted at
+  `/.squashfs-mount-scratch`. The overlay is then mounted on the target with a
+  plain `mount(2)`, and the tmpfs is detached, because overlay keeps private
+  references to its layers. That directory must exist, root-owned and not
+  writable by group or others: the RPM, `meson install` and CI create it, and
+  the helper checks it (`check_scratch()`) and refuses otherwise. Do not stage
+  the layers in a user-writable directory such as `/dev/shm/$USER`: root would
+  be mounting on paths the user can redirect.
 - **`fuse`**: mounts via `squashfuse_ll` inside a fresh user + mount
   namespace, entirely unprivileged — no setuid bit needed
   (`src/uenv/mount_rootless.cpp`). Since Slurm can co-locate several tasks

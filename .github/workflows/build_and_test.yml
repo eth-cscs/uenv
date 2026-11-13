@@ -116,7 +116,9 @@ jobs:
       - name: Stage
         run: sudo ./meson/meson install -Cbuild --destdir=$PWD/staging --no-rebuild --skip-subprojects
       - name: create mount points for tests
-        run: sudo mkdir /user-tools /user-environment
+        # /.squashfs-mount-scratch stays root-owned: squashfs-mount refuses to
+        # stage overlay layers on a directory anyone else can write to
+        run: sudo mkdir /user-tools /user-environment /.squashfs-mount-scratch
       - name: verify zot is available for registry tests
         # the zot binary is fetched at build time by test/integration/install-zot,
         # which tolerates a failed download so local/offline builds still work (the

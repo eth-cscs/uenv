@@ -184,7 +184,10 @@ int main(int argc, char** argv, char** envp) {
 
     uenv::mount_list mounts;
     if (raw_mounts) {
-        auto r = uenv::parse_and_validate_mounts(*raw_mounts);
+        // images that share a mount point are stacked with overlayfs, the
+        // last one given on top (see uenv::do_mount)
+        auto r = uenv::parse_and_validate_mounts(
+            *raw_mounts, /*allow_shared_mount_points=*/true);
         if (!r) {
             error_and_exit("{}", r.error());
         }

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -87,7 +88,7 @@ open_images(const mount_list& mount_entries) {
                                                 "{}: {}",
                                                 entry.sqfs, strerror(errno)));
         }
-        spdlog::debug("open_images: opened {} as uid {}", entry.sqfs,
+        spdlog::trace("open_images: opened {} as uid {}", entry.sqfs,
                       ids->real.uid);
         images.push_back(opened_image{
             .fd = std::move(fd), .sqfs = entry.sqfs, .mount = entry.mount});
@@ -250,17 +251,158 @@ attach_loop_device(const int sqfs_fd, const std::string& squashfs_file) {
         squashfs_file, max_acquire_attempts));
 }
 
+// Attach `image` to a loop device and mount it read-only at `target`.
+util::expected<void, std::string> mount_squashfs(const opened_image& image,
+                                                 const std::string& target) {
+    const std::string squashfs_file = image.sqfs;
+
+    auto loop = attach_loop_device(image.fd.get(), squashfs_file);
+    if (!loop) {
+        return util::unexpected(fmt::format("{}: {}", target, loop.error()));
+    }
+    // The mount takes its own reference to the loop device, after which
+    // the fd is no longer needed; if the mount fails, closing the fd
+    // drops the last reference and AUTOCLEAR detaches the device.
+    auto close_loop = util::defer([fd = loop->fd] { close(fd); });
+
+    spdlog::trace("mount_squashfs: {} attached to {}, mounting at {}",
+                  squashfs_file, loop->path, target);
+    if (::mount(loop->path.c_str(), target.c_str(), "squashfs",
+                MS_RDONLY | MS_NOSUID | MS_NODEV, nullptr) != 0) {
+        const int saved_errno = errno;
+        const char* hint =
+            saved_errno == EINVAL
+                ? " (bad superblock - corrupt or truncated squashfs?)"
+                : "";
+        return util::unexpected(
+            fmt::format("failed to mount {} at {} via {}: {}{}", squashfs_file,
+                        target, loop->path, strerror(saved_errno), hint));
+    }
+    return {};
+}
+
+// The directory on which the layers of an overlay are staged.
+//
+// overlayfs takes its layers as paths, so each image has to be mounted
+// somewhere before the overlay can be created. That place must be a directory
+// that the calling user cannot write to or replace, because root mounts on it:
+// a user-writable location (e.g. /dev/shm/$USER) would let the user redirect
+// root's mounts with a symlink or a race. It is created at install time,
+// root-owned and empty, directly under / so that no other path component can
+// be controlled by anyone but root. Inside the private mount namespace a tmpfs
+// is mounted over it, so that nothing is ever written to the directory itself.
+constexpr const char* overlay_scratch = "/.squashfs-mount-scratch";
+
+// Check that overlay_scratch is safe for root to mount on: a real directory
+// (not a symlink), owned by root, and not writable by group or others. Its
+// only parent is /, so this is all a user could otherwise tamper with.
+util::expected<void, std::string> check_scratch() {
+    auto refuse = [](const std::string& reason) {
+        return util::unexpected(
+            fmt::format("stacking images at a shared mount point needs the "
+                        "root-owned directory {}: {}",
+                        overlay_scratch, reason));
+    };
+    struct stat st = {};
+    if (lstat(overlay_scratch, &st) != 0) {
+        return refuse(strerror(errno));
+    }
+    if (!S_ISDIR(st.st_mode)) {
+        return refuse("it is not a directory");
+    }
+    if (st.st_uid != 0) {
+        return refuse(fmt::format("it is owned by uid {}", st.st_uid));
+    }
+    if ((st.st_mode & (S_IWGRP | S_IWOTH)) != 0) {
+        return refuse("it is writable by group or others");
+    }
+    return {};
+}
+
+// Mount two or more images at the same `target` as one read-only overlayfs,
+// with the last image of `images` on top.
+//
+//  1. mount a private tmpfs at overlay_scratch;
+//  2. mount each image i at overlay_scratch/i;
+//  3. mount the overlay at target with a single mount(2);
+//  4. detach the tmpfs, together with the layer mounts under it: the overlay
+//     keeps private references to its layers, and with them the AUTOCLEAR loop
+//     devices, alive.
+//
+// Everything mounted here belongs to the private mount namespace, and step 4
+// runs on every path, so nothing is left at overlay_scratch either way.
+util::expected<void, std::string>
+mount_overlay(std::span<const opened_image> images, const std::string& target) {
+    namespace fs = std::filesystem;
+
+    if (auto r = check_scratch(); !r) {
+        return r;
+    }
+
+    spdlog::trace("mount_overlay: stacking {} images at {}", images.size(),
+                  target);
+    if (::mount("tmpfs", overlay_scratch, "tmpfs",
+                MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=0700,size=1m") != 0) {
+        return util::unexpected(
+            fmt::format("unable to mount a tmpfs at {} to stage the overlay "
+                        "layers: {}",
+                        overlay_scratch, strerror(errno)));
+    }
+    auto unstage = util::defer([] { umount2(overlay_scratch, MNT_DETACH); });
+
+    // lowerdir lists the layers top first: the last image is on top. The
+    // layer paths are fixed, so they need no escaping.
+    std::string lowerdir;
+    for (std::size_t i = 0; i < images.size(); ++i) {
+        const auto layer =
+            (fs::path(overlay_scratch) / std::to_string(i)).string();
+        if (mkdir(layer.c_str(), 0700) != 0) {
+            return util::unexpected(
+                fmt::format("unable to create the overlay layer {}: {}", layer,
+                            strerror(errno)));
+        }
+        if (auto r = mount_squashfs(images[i], layer); !r) {
+            return r;
+        }
+        lowerdir = lowerdir.empty() ? layer : layer + ":" + lowerdir;
+    }
+
+    const auto options = fmt::format("lowerdir={}", lowerdir);
+    if (::mount("overlay", target.c_str(), "overlay",
+                MS_RDONLY | MS_NOSUID | MS_NODEV, options.c_str()) != 0) {
+        const int saved_errno = errno;
+        const char* hint = saved_errno == EINVAL
+                               ? " (the kernel log has the overlayfs reason)"
+                               : "";
+        return util::unexpected(fmt::format("unable to mount the overlay at "
+                                            "{}: {}{}",
+                                            target, strerror(saved_errno),
+                                            hint));
+    }
+    spdlog::trace("mount_overlay: overlay mounted at {}", target);
+
+    return {};
+}
+
 } // namespace
 
 util::expected<void, std::string>
 do_mount(const std::vector<opened_image>& images) {
-    if (images.size() == 0) {
-        return {};
-    }
+    // The images are sorted by mount point, so that a mount precedes any mount
+    // nested inside it, and images that share a mount point are adjacent, in
+    // the order in which they were given. Each run of images that share a
+    // mount point is mounted as one unit: a single image directly, several as
+    // an overlay.
+    const std::span<const opened_image> all{images};
+    for (std::size_t first = 0; first < all.size();) {
+        std::size_t last = first + 1;
+        while (last < all.size() && all[last].mount == all[first].mount) {
+            ++last;
+        }
+        const auto run = all.subspan(first, last - first);
+        first = last;
 
-    for (auto& entry : images) {
-        std::string mount_point = entry.mount;
-        std::string squashfs_file = entry.sqfs;
+        const std::string mount_point = run.front().mount;
 
         // Check the mount point exists inside the mount loop, because the
         // mount point may have been created inside a previous mount.
@@ -273,26 +415,10 @@ do_mount(const std::vector<opened_image>& images) {
                 ec ? ec.message() : "not a directory"));
         }
 
-        auto loop = attach_loop_device(entry.fd.get(), squashfs_file);
-        if (!loop) {
-            return util::unexpected(
-                fmt::format("{}: {}", mount_point, loop.error()));
-        }
-        // The mount takes its own reference to the loop device, after which
-        // the fd is no longer needed; if the mount fails, closing the fd
-        // drops the last reference and AUTOCLEAR detaches the device.
-        auto close_loop = util::defer([fd = loop->fd] { close(fd); });
-
-        if (::mount(loop->path.c_str(), mount_point.c_str(), "squashfs",
-                    MS_RDONLY | MS_NOSUID | MS_NODEV, nullptr) != 0) {
-            const int saved_errno = errno;
-            const char* hint =
-                saved_errno == EINVAL
-                    ? " (bad superblock - corrupt or truncated squashfs?)"
-                    : "";
-            return util::unexpected(fmt::format(
-                "failed to mount {} at {} via {}: {}{}", squashfs_file,
-                mount_point, loop->path, strerror(saved_errno), hint));
+        auto r = run.size() == 1 ? mount_squashfs(run.front(), mount_point)
+                                 : mount_overlay(run, mount_point);
+        if (!r) {
+            return r;
         }
     }
 

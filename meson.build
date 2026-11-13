@@ -282,6 +282,13 @@ if uenv_squashfs_mount
                                 cpp_args: ['-DVERSION="@0@"'.format(version)],
                                 install_mode: squashfs_mount_install_mode,
                                 install: true)
+    if not use_fuse
+        # root-owned, empty directory on which the kernel helper stages the
+        # layers of an overlay (images that share a mount point), see
+        # overlay_scratch in src/uenv/mount_kernel.cpp
+        install_emptydir('/.squashfs-mount-scratch',
+                         install_mode: ['rwxr-xr-x', 'root', 'root'])
+    endif
 endif
 
 if get_option('tests').enabled()
