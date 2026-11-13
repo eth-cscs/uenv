@@ -30,6 +30,8 @@ struct squashfs_mount_args {
     bool fuse_single_threaded = false;
     bool tasks_join = false;
     std::optional<std::string> raw_mounts;
+    std::optional<std::string> tmpfs;
+    std::optional<std::string> bind_mounts;
     std::optional<std::vector<std::string>> commands;
 };
 
@@ -87,13 +89,29 @@ int main(int argc, char** argv, char** envp) {
                      "join namespaces of tasks on the same node");
     builder
         .add_option("sqfs", &squashfs_mount_args::raw_mounts,
-                    "comma separated list of squashfs files to mount")
+                    "squashfs images to mount at DST")
+        .metavar("IMG:DST,...")
         .complete(argparse::completion::custom("mount_list"));
+    builder
+        .add_option("tmpfs", &squashfs_mount_args::tmpfs,
+                    "tmpfs mounts at DST (SIZE in bytes)")
+        .metavar("DST[:SIZE],...")
+        .complete(argparse::completion::directory());
+    builder
+        .add_option("bind-mount", &squashfs_mount_args::bind_mounts,
+                    "bind mount host directory SRC at DST (SRC is never "
+                    "another mount)")
+        .metavar("SRC:DST,...")
+        .complete(argparse::completion::path());
     builder
         .add_rest("commands", &squashfs_mount_args::commands,
                   "the command to run, including with arguments")
         .complete(argparse::completion::command());
     const argparse::program<squashfs_mount_args> cli(std::move(builder));
+    if (auto valid = cli.validate(); !valid) {
+        error_and_exit("internal error in the command line interface: {}",
+                       valid.error());
+    }
 
     const auto command_line = cli.parse(argc, argv);
     if (!command_line) {
@@ -149,9 +167,13 @@ int main(int argc, char** argv, char** envp) {
     // validate the mount points
     //
 
+    // whether the mount points exist is checked below, by
+    // validate_mount_points, once the --tmpfs and --bind-mount entries are
+    // known too: a --sqfs mount point inside a --tmpfs is not on the host.
     uenv::mount_list mounts;
     if (raw_mounts) {
-        auto r = uenv::parse_and_validate_mounts(*raw_mounts);
+        auto r = uenv::parse_and_validate_mounts(*raw_mounts,
+                                                 false /* mounts must exist */);
         if (!r) {
             error_and_exit("{}", r.error());
         }
@@ -163,7 +185,32 @@ int main(int argc, char** argv, char** envp) {
     spdlog::info("uenv_mount_list {}", uenv_mount_list);
     spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
 
-    if (!mounts.empty()) {
+    //
+    // parse tmpfs and bind-mount args, convert to canonical form
+    //
+    auto tmpfs = uenv::parse_and_canonical_tmpfs_list(args.tmpfs);
+    if (!tmpfs) {
+        error_and_exit("{}", tmpfs.error());
+    }
+    auto bind_mounts =
+        uenv::parse_and_canonical_bindmount_list(args.bind_mounts);
+    if (!bind_mounts) {
+        error_and_exit("{}", bind_mounts.error());
+    }
+
+    // a mount point on the host must exist; one inside a --tmpfs is created
+    // when it is mounted on.
+    if (auto r = uenv::validate_mount_points(mounts, *bind_mounts, *tmpfs);
+        !r) {
+        error_and_exit("{}", r.error());
+    }
+
+    auto mount_order = uenv::build_mount_order(mounts, *bind_mounts, *tmpfs);
+    if (!mount_order) {
+        error_and_exit("{}", mount_order.error());
+    }
+
+    if (!mounts.empty() || !tmpfs->empty() || !bind_mounts->empty()) {
         auto join_ctx = uenv::local_join_context(calling_env, tasks_join);
         if (!join_ctx) {
             error_and_exit("{}", join_ctx.error());
@@ -172,13 +219,14 @@ int main(int argc, char** argv, char** envp) {
                       join_ctx->ntasks, join_ctx->tag);
 
         if (auto r = uenv::rootless::mount_and_join_ns(
-                join_ctx->tag, join_ctx->ntasks, mounts, fuse_single_threaded,
-                uid, gid);
+                join_ctx->tag, join_ctx->ntasks, mounts, *bind_mounts, *tmpfs,
+                *mount_order, fuse_single_threaded, uid, gid);
             !r) {
-            error_and_exit("mount failed {}", r.error());
+            error_and_exit("mount failed: {}", r.error());
         }
     } else {
-        spdlog::warn("nothing mounted (no --sqfs flag provided)");
+        spdlog::warn("nothing mounted (no --sqfs, --tmpfs or --bind-mount flag "
+                     "provided)");
     }
 
     //
