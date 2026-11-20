@@ -236,7 +236,7 @@ void uenv_ll_op_init(void*, struct fuse_conn_info* conn) {
 }
 
 void uenv_ll_op_opendir(fuse_req_t req, fuse_ino_t ino,
-                               struct fuse_file_info* fi) {
+                        struct fuse_file_info* fi) {
     if (no_opendir) {
         fuse_reply_err(req, ENOSYS);
         return;
@@ -244,8 +244,8 @@ void uenv_ll_op_opendir(fuse_req_t req, fuse_ino_t ino,
     sqfs_ll_op_opendir(req, ino, fi);
 }
 
-void uenv_ll_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
-                               off_t off, struct fuse_file_info* fi) {
+void uenv_ll_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
+                        struct fuse_file_info* fi) {
     if (fi->fh) {
         sqfs_ll_op_readdir(req, ino, size, off, fi);
         return;
