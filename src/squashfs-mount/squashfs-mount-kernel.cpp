@@ -123,7 +123,8 @@ int main(int argc, char** argv, char** envp) {
                      "print version");
     builder
         .add_option("sqfs", &squashfs_mount_args::raw_mounts,
-                    "comma separated list of squashfs files to mount")
+                    "squashfs images to mount at DST")
+        .metavar("IMG:DST,...")
         .complete(argparse::completion::custom("mount_list"));
     builder
         .add_rest("commands", &squashfs_mount_args::commands,
