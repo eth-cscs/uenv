@@ -1,3 +1,4 @@
+#include <atomic>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
@@ -224,14 +225,53 @@ util::expected<void, std::string> lock_down(const bool dumps_allowed) {
     _exit(1);
 }
 
+namespace {
+
+// The image is read-only, so directory handles carry no state worth a round
+// trip. If the kernel supports it, answer OPENDIR with ENOSYS: the kernel then
+// stops sending OPENDIR/RELEASEDIR altogether and caches readdir results as if
+// opendir had returned FOPEN_KEEP_CACHE | FOPEN_CACHE_DIR. Otherwise reply to
+// OPENDIR with those flags and no handle. RELEASEDIR then has nothing to
+// free, so it is left to libfuse, which replies with success.
+
+// Set by init and read by opendir, which the session loop runs on other
+// threads.
+std::atomic<bool> no_opendir{false};
+
+void uenv_ll_op_init(void*, struct fuse_conn_info* conn) {
+    no_opendir = conn->capable & FUSE_CAP_NO_OPENDIR_SUPPORT;
+}
+
+void uenv_ll_op_opendir(fuse_req_t req, fuse_ino_t, struct fuse_file_info* fi) {
+    if (no_opendir) {
+        fuse_reply_err(req, ENOSYS);
+        return;
+    }
+    fi->cache_readdir = 1;
+    fi->keep_cache = 1;
+    fuse_reply_open(req, fi);
+}
+
+void uenv_ll_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
+                        struct fuse_file_info* fi) {
+    // no handle from opendir: look up the inode for this request.
+    // sqfs_ll_op_readdir replies before returning, so a stack handle is fine.
+    sqfs_ll_i lli;
+    if (sqfs_ll_iget(req, &lli, ino) != SQFS_OK) {
+        return; // sqfs_ll_iget already replied ENOENT
+    }
+    fi->fh = (intptr_t)&lli;
+    sqfs_ll_op_readdir(req, ino, size, off, fi);
+}
+
 fuse_lowlevel_ops make_fuse_lowlevel_options() {
     fuse_lowlevel_ops options;
     memset(&options, 0, sizeof(fuse_lowlevel_ops));
 
+    options.init = uenv_ll_op_init;
     options.getattr = sqfs_ll_op_getattr;
-    options.opendir = sqfs_ll_op_opendir;
-    options.releasedir = sqfs_ll_op_releasedir;
-    options.readdir = sqfs_ll_op_readdir;
+    options.opendir = uenv_ll_op_opendir;
+    options.readdir = uenv_ll_op_readdir;
     options.lookup = sqfs_ll_op_lookup;
     options.open = sqfs_ll_op_open;
     options.create = sqfs_ll_op_create;
@@ -245,6 +285,8 @@ fuse_lowlevel_ops make_fuse_lowlevel_options() {
 
     return options;
 }
+
+} // namespace
 
 // Mount a squashfs image in the background (forked process), unmount the image
 // when the parent process exits (shell is closed).
