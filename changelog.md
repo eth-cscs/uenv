@@ -1,5 +1,9 @@
 # Changelog
 
+## 10.2.2
+
+- #202 [improvement] `kernel` mounting requests parallel squashfs decompression (`threads=multi`)
+
 ## 10.2.1
 
 - #198 [improvement] remove cscs site-specific default repo location
