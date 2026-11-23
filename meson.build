@@ -112,7 +112,8 @@ if use_fuse
     ).get_variable('squashfuse_ll_dep')
 
     # fuse3 is a dynamic dependency.
-    fuse_dep = dependency('fuse3', required: true)
+    # 3.5.0 provides FUSE_CAP_NO_OPENDIR_SUPPORT and fuse_file_info::cache_readdir.
+    fuse_dep = dependency('fuse3', version: '>=3.5.0', required: true)
 endif
 
 # the lib dependency is all of the common funtionality shared between the CLI
