@@ -2,7 +2,7 @@
 
 ## 10.2.2
 
-- #203 [improvement] `fuse` cache directory listsings
+- #203 [improvement] `fuse` cache directory listings
 - #202 [improvement] `kernel` mounting requests parallel squashfs decompression (`threads=multi`)
 
 ## 10.2.1

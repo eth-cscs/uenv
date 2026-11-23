@@ -1,3 +1,4 @@
+#include <atomic>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
@@ -224,14 +225,18 @@ util::expected<void, std::string> lock_down(const bool dumps_allowed) {
     _exit(1);
 }
 
+namespace {
+
 // The image is read-only, so directory handles carry no state worth a round
 // trip. If the kernel supports it, answer OPENDIR with ENOSYS: the kernel then
 // stops sending OPENDIR/RELEASEDIR altogether and caches readdir results as if
 // opendir had returned FOPEN_KEEP_CACHE | FOPEN_CACHE_DIR. Otherwise reply to
 // OPENDIR with those flags and no handle. RELEASEDIR then has nothing to
 // free, so it is left to libfuse, which replies with success.
-namespace {
-bool no_opendir = false;
+
+// Set by init and read by opendir, which the session loop runs on other
+// threads.
+std::atomic<bool> no_opendir{false};
 
 void uenv_ll_op_init(void*, struct fuse_conn_info* conn) {
     no_opendir = conn->capable & FUSE_CAP_NO_OPENDIR_SUPPORT;
@@ -280,7 +285,9 @@ fuse_lowlevel_ops make_fuse_lowlevel_options() {
 
     return options;
 }
+
 } // namespace
+
 // Mount a squashfs image in the background (forked process), unmount the image
 // when the parent process exits (shell is closed).
 // Adapted from `squashfuse_ll` written by Dave Vasilevsky <dave@vasilevsky.ca>
