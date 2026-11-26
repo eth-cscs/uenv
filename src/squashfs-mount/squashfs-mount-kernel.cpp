@@ -180,19 +180,19 @@ int main(int argc, char** argv, char** envp) {
     uenv::init_log(console_log_level);
 
     //
-    // validate the mount points
+    // parse the mounts, then validate and order them
     //
 
-    uenv::mount_list mounts;
-    if (raw_mounts) {
-        auto r = uenv::parse_and_validate_mounts(*raw_mounts);
-        if (!r) {
-            error_and_exit("{}", r.error());
-        }
-        mounts = r.value();
+    const auto request = uenv::parse_mount_request(raw_mounts);
+    if (!request) {
+        error_and_exit("{}", request.error());
+    }
+    const auto plan = uenv::make_mount_plan(request.value());
+    if (!plan) {
+        error_and_exit("{}", plan.error());
     }
     const std::string uenv_mount_list =
-        fmt::format("{}", fmt::join(mounts, ","));
+        fmt::format("{}", fmt::join(plan->mounts, ","));
 
     spdlog::info("uenv_mount_list {}", uenv_mount_list);
     spdlog::info("commands ['{}']", fmt::join(*commands, "', '"));
@@ -205,8 +205,8 @@ int main(int argc, char** argv, char** envp) {
     // privilege is reclaimed, and it is these descriptors - not the paths -
     // that are bound to the loop devices further down.
     std::vector<uenv::opened_image> images;
-    if (!mounts.empty()) {
-        auto r = uenv::open_images(mounts);
+    if (!plan->mounts.empty()) {
+        auto r = uenv::open_images(plan.value());
         if (!r) {
             error_and_exit("{}", r.error());
         }

@@ -117,17 +117,21 @@ util::expected<void, std::string> init_post_opt_remote(spank_t sp) {
     // itself stays root.
     util::expected<std::vector<uenv::opened_image>, std::string> images =
         util::unexpected("the uenv images were not opened");
-    if (auto result =
-            util::run_as_user(job.value(),
-                              [&images, &mount_var]() {
-                                  auto mounts = uenv::parse_and_validate_mounts(
-                                      mount_var.value());
-                                  if (!mounts) {
-                                      images = util::unexpected(mounts.error());
-                                      return;
-                                  }
-                                  images = uenv::open_images(mounts.value());
-                              });
+    if (auto result = util::run_as_user(
+            job.value(),
+            [&images, &mount_var]() {
+                auto request = uenv::parse_mount_request(mount_var.value());
+                if (!request) {
+                    images = util::unexpected(request.error());
+                    return;
+                }
+                auto plan = uenv::make_mount_plan(request.value());
+                if (!plan) {
+                    images = util::unexpected(plan.error());
+                    return;
+                }
+                images = uenv::open_images(plan.value());
+            });
         !result) {
         return util::unexpected(
             fmt::format("unable to open the uenv images as the job user: {}",

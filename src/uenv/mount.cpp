@@ -5,7 +5,6 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
-#include <ranges>
 #include <string>
 #include <vector>
 
@@ -17,7 +16,6 @@
 #include <spdlog/spdlog.h>
 
 #include <uenv/mount.h>
-#include <uenv/parse.h>
 #include <util/expected.h>
 #include <util/fs.h>
 
@@ -45,7 +43,6 @@ canonical_mount_path(const std::filesystem::path& p) {
     }
     return result;
 }
-} // namespace
 
 // A mount_description has string descriptions of the squashfs file path and
 // mount path taken from parsing a CLI argument or environment variable.
@@ -134,64 +131,32 @@ make_mount_pair(const mount_description& d) {
     return mount_pair{.sqfs = sqfs, .mount = *mount};
 }
 
-namespace {
-util::expected<std::vector<tmpfs_tuple>, std::string>
-canonical_tmpfs_list(std::vector<tmpfs_tuple> tmpfs) {
-    for (auto& t : tmpfs) {
-        auto mount = canonical_mount_path(t.mount);
-        if (!mount) {
-            return util::unexpected{fmt::format("invalid mount point {} ({})",
-                                                t.mount.string(),
-                                                mount.error())};
-        }
-        t.mount = std::move(*mount);
-    }
-    return tmpfs;
-}
-
-util::expected<std::vector<bindmount_pair>, std::string>
-canonical_bindmount_list(std::vector<bindmount_pair> bind_mounts) {
-    for (auto& b : bind_mounts) {
-        auto src = canonical_mount_path(b.src);
-        if (!src) {
-            return util::unexpected{
-                fmt::format("invalid bind-mount source {} ({})", b.src.string(),
-                            src.error())};
-        }
-        auto dst = canonical_mount_path(b.dst);
-        if (!dst) {
-            return util::unexpected{
-                fmt::format("invalid bind-mount destination {} ({})",
-                            b.dst.string(), dst.error())};
-        }
-        b.src = std::move(*src);
-        b.dst = std::move(*dst);
-    }
-    return bind_mounts;
-}
-} // namespace
-
-util::expected<std::vector<tmpfs_tuple>, std::string>
-parse_and_canonical_tmpfs_list(const std::optional<std::string>& arg) {
-    auto parsed = parse_tmpfs_list(arg);
-    if (!parsed) {
+util::expected<tmpfs_mount, std::string>
+make_tmpfs_mount(const tmpfs_description& d) {
+    auto mount = canonical_mount_path(d.mount);
+    if (!mount) {
         return util::unexpected{
-            fmt::format("failed to parse tmpfs: {}", parsed.error().message())};
+            fmt::format("invalid mount point {} ({})", d.mount, mount.error())};
     }
-    return canonical_tmpfs_list(std::move(*parsed));
+    return tmpfs_mount{.mount = std::move(mount.value()), .size = d.size};
 }
 
-util::expected<std::vector<bindmount_pair>, std::string>
-parse_and_canonical_bindmount_list(const std::optional<std::string>& arg) {
-    auto parsed = parse_bindmount_list(arg);
-    if (!parsed) {
-        return util::unexpected{fmt::format("failed to parse bind mounts: {}",
-                                            parsed.error().message())};
+util::expected<bindmount_pair, std::string>
+make_bindmount_pair(const bindmount_description& d) {
+    auto src = canonical_mount_path(d.src);
+    if (!src) {
+        return util::unexpected{fmt::format("invalid bind-mount source {} ({})",
+                                            d.src, src.error())};
     }
-    return canonical_bindmount_list(std::move(*parsed));
+    auto dst = canonical_mount_path(d.dst);
+    if (!dst) {
+        return util::unexpected{fmt::format(
+            "invalid bind-mount destination {} ({})", d.dst, dst.error())};
+    }
+    return bindmount_pair{.src = std::move(src.value()),
+                          .dst = std::move(dst.value())};
 }
 
-namespace {
 // One --sqfs, --bind-mount or --tmpfs destination, and the entry it belongs to.
 struct destination {
     const std::filesystem::path* path;
@@ -206,7 +171,7 @@ struct destination {
 util::expected<std::vector<destination>, std::string>
 sorted_destinations(const mount_list& mounts,
                     const std::vector<bindmount_pair>& bind_mounts,
-                    const std::vector<tmpfs_tuple>& tmpfs) {
+                    const std::vector<tmpfs_mount>& tmpfs) {
     std::vector<destination> result;
     result.reserve(mounts.size() + bind_mounts.size() + tmpfs.size());
     for (std::size_t i = 0; i < mounts.size(); ++i) {
@@ -262,35 +227,89 @@ enclosing_destinations(const std::vector<destination>& d) {
     }
     return result;
 }
-} // namespace
 
-util::expected<mount_order, std::string>
-build_mount_order(const mount_list& mounts,
-                  const std::vector<bindmount_pair>& bind_mounts,
-                  const std::vector<tmpfs_tuple>& tmpfs) {
-    const auto destinations = sorted_destinations(mounts, bind_mounts, tmpfs);
-    if (!destinations) {
-        return util::unexpected{destinations.error()};
-    }
-
-    // Each entry is mounted after the mount that provides its mount point,
-    // which the lexical order already guarantees: paths compare component by
-    // component, so a destination sorts before every destination below it. A
-    // --bind-mount source or a squashfs image adds no constraint: each is
-    // taken from the host before anything is mounted (see capture_sources in
-    // mount_rootless.cpp).
+// The order to mount `destinations` (from sorted_destinations) in. Each entry
+// is mounted after the mount that provides its mount point, which the lexical
+// order already guarantees: paths compare component by component, so a
+// destination sorts before every destination below it. A --bind-mount source
+// or a squashfs image adds no constraint: each is taken from the host before
+// anything is mounted (see capture_sources in mount_rootless.cpp, and
+// open_images in mount_kernel.cpp).
+mount_order mount_order_of(const std::vector<destination>& destinations) {
     mount_order order;
-    order.reserve(destinations->size());
-    for (const auto& d : *destinations) {
+    order.reserve(destinations.size());
+    for (const auto& d : destinations) {
         order.push_back({d.kind, d.index});
     }
     return order;
 }
 
+// The checks of validate_mount_points, on `destinations` from
+// sorted_destinations.
+util::expected<void, std::string>
+check_mount_points(const std::vector<destination>& destinations,
+                   const std::vector<bindmount_pair>& bind_mounts) {
+    const auto enclosing = enclosing_destinations(destinations);
+
+    // a mount point must exist on the host, unless it is below another
+    // requested destination (which provides it, see mount_point_providers)
+    for (std::size_t i = 0; i < destinations.size(); ++i) {
+        if (enclosing[i]) {
+            continue;
+        }
+        const auto& path = *destinations[i].path;
+        if (auto r = util::check_dir(path); !r) {
+            return util::unexpected{
+                fmt::format("the mount point {} {}", path.string(), r.error())};
+        }
+    }
+
+    // a bind-mount source is always the host's directory, also when it is
+    // inside another destination
+    for (const auto& b : bind_mounts) {
+        if (auto r = util::check_dir(b.src); !r) {
+            return util::unexpected{fmt::format("the bind-mount source {} {}",
+                                                b.src.string(), r.error())};
+        }
+    }
+
+    // a mount point inside a --bind-mount is never created (that would write
+    // into its source on the host), and is the same path below the bind's
+    // source on the host, so it can be checked before anything is mounted
+    for (std::size_t i = 0; i < destinations.size(); ++i) {
+        if (!enclosing[i] || enclosing[i]->kind != mount_kind::bind_mount) {
+            continue;
+        }
+        const auto& path = *destinations[i].path;
+        const auto& b = bind_mounts[enclosing[i]->index];
+        const auto host = b.src / path.lexically_relative(b.dst);
+        if (auto r = util::check_dir(host); !r) {
+            return util::unexpected{
+                fmt::format("the mount point {} is inside the "
+                            "--bind-mount {}:{}, where {} {}",
+                            path.string(), b.src.string(), b.dst.string(),
+                            host.string(), r.error())};
+        }
+    }
+    return {};
+}
+} // namespace
+
+util::expected<mount_order, std::string>
+build_mount_order(const mount_list& mounts,
+                  const std::vector<bindmount_pair>& bind_mounts,
+                  const std::vector<tmpfs_mount>& tmpfs) {
+    const auto destinations = sorted_destinations(mounts, bind_mounts, tmpfs);
+    if (!destinations) {
+        return util::unexpected{destinations.error()};
+    }
+    return mount_order_of(destinations.value());
+}
+
 const std::filesystem::path&
 mount_destination(const mount_order_entry& e, const mount_list& mounts,
                   const std::vector<bindmount_pair>& bind_mounts,
-                  const std::vector<tmpfs_tuple>& tmpfs) {
+                  const std::vector<tmpfs_mount>& tmpfs) {
     switch (e.kind) {
     case mount_kind::sqfs:
         return mounts.at(e.index).mount;
@@ -304,7 +323,7 @@ mount_destination(const mount_order_entry& e, const mount_list& mounts,
 
 std::vector<std::optional<mount_kind>> mount_point_providers(
     const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
-    const std::vector<tmpfs_tuple>& tmpfs, const mount_order& order) {
+    const std::vector<tmpfs_mount>& tmpfs, const mount_order& order) {
     // `order` comes from build_mount_order: lexical, without duplicates
     std::vector<destination> destinations;
     destinations.reserve(order.size());
@@ -326,163 +345,76 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
 util::expected<void, std::string>
 validate_mount_points(const mount_list& mounts,
                       const std::vector<bindmount_pair>& bind_mounts,
-                      const std::vector<tmpfs_tuple>& tmpfs) {
+                      const std::vector<tmpfs_mount>& tmpfs) {
     // two entries with the same destination are reported before any path is
     // checked: that error does not depend on what is on the host
     const auto destinations = sorted_destinations(mounts, bind_mounts, tmpfs);
     if (!destinations) {
         return util::unexpected{destinations.error()};
     }
-    const auto enclosing = enclosing_destinations(*destinations);
-
-    // a mount point must exist on the host, unless it is below another
-    // requested destination (which provides it, see mount_point_providers)
-    for (std::size_t i = 0; i < destinations->size(); ++i) {
-        if (enclosing[i]) {
-            continue;
-        }
-        const auto& path = *(*destinations)[i].path;
-        if (auto r = util::check_dir(path); !r) {
-            return util::unexpected{
-                fmt::format("the mount point {} {}", path.string(), r.error())};
-        }
-    }
-
-    // a bind-mount source is always the host's directory, also when it is
-    // inside another destination
-    for (const auto& b : bind_mounts) {
-        if (auto r = util::check_dir(b.src); !r) {
-            return util::unexpected{fmt::format("the bind-mount source {} {}",
-                                                b.src.string(), r.error())};
-        }
-    }
-
-    // a mount point inside a --bind-mount is never created (that would write
-    // into its source on the host), and is the same path below the bind's
-    // source on the host, so it can be checked before anything is mounted
-    for (std::size_t i = 0; i < destinations->size(); ++i) {
-        if (!enclosing[i] || enclosing[i]->kind != mount_kind::bind_mount) {
-            continue;
-        }
-        const auto& path = *(*destinations)[i].path;
-        const auto& b = bind_mounts[enclosing[i]->index];
-        const auto host = b.src / path.lexically_relative(b.dst);
-        if (auto r = util::check_dir(host); !r) {
-            return util::unexpected{
-                fmt::format("the mount point {} is inside the "
-                            "--bind-mount {}:{}, where {} {}",
-                            path.string(), b.src.string(), b.dst.string(),
-                            host.string(), r.error())};
-        }
-    }
-    return {};
+    return check_mount_points(destinations.value(), bind_mounts);
 }
 
-util::expected<std::vector<uenv::mount_pair>, std::string>
-validate_mount_list(const mount_list& input, bool mount_points_must_exist) {
-    namespace fs = std::filesystem;
+util::expected<mount_plan, std::string>
+make_mount_plan(const mount_request& request) {
+    mount_plan plan;
 
-    if (input.empty()) {
-        return input;
-    }
-
-    // Iterate over the mount points and verify whether they exist.
-    // There is a wrinkle: a mount point may be "inside" another mount
-    // point, and thus rely on the other mount first being mounted before it
-    // can be mounted. We first sort the mount entries so that they can be
-    // mounted like this, and only check for existance of "root" mounts that
-    // are not inside another mount.
-    //
-    // Note that we do not check for the existance of mount points that have
-    // to be provided by another mount. This would be very tricky, without
-    // starting to parse squashfs files and their meta data - WHICH WE DO NOT
-    // WANT TO DO BECAUSE THIS CODE RUNS IN THE PRIVILAGED HELPER.
-
-    std::vector<uenv::mount_pair> mounts{input};
-    std::sort(std::begin(mounts), std::end(mounts),
-              [](const auto& lhs, const auto& rhs) {
-                  return lhs.mount.compare(rhs.mount) < 0;
-              });
-
-    auto mview = std::ranges::transform_view(
-        mounts, [](const auto& in) -> const fs::path& { return in.mount; });
-
-    // check whether there are two identical mount points.
-    // take advantage of the list being sorted.
-    if (auto it = std::adjacent_find(mview.begin(), mview.end());
-        it != mview.end()) {
-        return util::unexpected{fmt::format(
-            "the mount point {} is used to mount more than one squashfs", *it)};
-    }
-
-    const auto b = std::begin(mview);
-    const auto e = std::cend(mview);
-
-    // Check that a mount point is an existing directory. The throwing
-    // overloads of std::filesystem must not be used here: a mount point
-    // that cannot be examined (EACCES on a parent, ENAMETOOLONG, a stale
-    // network file system) would terminate the process.
-    auto check_mount_point =
-        [](const fs::path& p) -> util::expected<void, std::string> {
-        if (auto r = util::check_dir(p); !r) {
+    plan.mounts.reserve(request.sqfs.size());
+    for (const auto& d : request.sqfs) {
+        auto m = make_mount_pair(d);
+        if (!m) {
             return util::unexpected{
-                fmt::format("the mount path {} {}", p.string(), r.error())};
+                fmt::format("invalid squashfs mount {}:{} - {}", d.sqfs_path,
+                            d.mount_path, m.error())};
         }
-        return {};
-    };
-
-    // check whether the first mount point exists
-    if (mount_points_must_exist) {
-        if (auto ok = check_mount_point(*b); !ok) {
-            return util::unexpected{ok.error()};
-        }
+        plan.mounts.push_back(std::move(m.value()));
     }
-    // iterate over the remaining mounts
-    for (auto c = b + 1; c != e; ++c) {
-        auto parent = std::find_if(
-            b, c, [&c](const auto& it) { return util::is_child(*c, it); });
-        if (parent == c) { // there is no parent
-            if (mount_points_must_exist) {
-                if (auto ok = check_mount_point(*c); !ok) {
-                    return util::unexpected{ok.error()};
-                }
+    // parents before the images mounted inside them: the kernel backend
+    // mounts the images in this order
+    std::stable_sort(plan.mounts.begin(), plan.mounts.end(),
+                     [](const auto& lhs, const auto& rhs) {
+                         return lhs.mount.compare(rhs.mount) < 0;
+                     });
+    for (std::size_t i = 1; i < plan.mounts.size(); ++i) {
+        for (std::size_t k = 0; k < i; ++k) {
+            if (util::is_child(plan.mounts[i].mount, plan.mounts[k].mount)) {
+                spdlog::warn("the mount {} is inside another mount {}",
+                             plan.mounts[i].mount, plan.mounts[k].mount);
+                break;
             }
-        } else {
-            spdlog::warn("the mount {} is inside another mount {}", *c,
-                         *parent);
         }
     }
 
-    return mounts;
-}
-
-util::expected<mount_list, std::string>
-validate_mount_descriptions(const std::vector<mount_description>& input,
-                            bool mount_points_must_exist) {
-    mount_list mounts;
-    for (auto desc : input) {
-        if (auto mount = uenv::make_mount_pair(desc); !mount) {
-            return util::unexpected{
-                fmt::format("invalid squashfs mount {}:{} - {}", desc.sqfs_path,
-                            desc.mount_path, mount.error())};
-        } else {
-            mounts.push_back(mount.value());
+    plan.bind_mounts.reserve(request.bind_mounts.size());
+    for (const auto& d : request.bind_mounts) {
+        auto b = make_bindmount_pair(d);
+        if (!b) {
+            return util::unexpected{b.error()};
         }
+        plan.bind_mounts.push_back(std::move(b.value()));
     }
 
-    return validate_mount_list(mounts, mount_points_must_exist);
-}
-
-util::expected<mount_list, std::string>
-parse_and_validate_mounts(const std::string& description,
-                          bool mount_points_must_exist) {
-    auto mount_descriptions = uenv::parse_mount_list(description);
-    if (!mount_descriptions) {
-        return util::unexpected{mount_descriptions.error().message()};
+    plan.tmpfs.reserve(request.tmpfs.size());
+    for (const auto& d : request.tmpfs) {
+        auto t = make_tmpfs_mount(d);
+        if (!t) {
+            return util::unexpected{t.error()};
+        }
+        plan.tmpfs.push_back(std::move(t.value()));
     }
 
-    return validate_mount_descriptions(mount_descriptions.value(),
-                                       mount_points_must_exist);
+    const auto destinations =
+        sorted_destinations(plan.mounts, plan.bind_mounts, plan.tmpfs);
+    if (!destinations) {
+        return util::unexpected{destinations.error()};
+    }
+    if (auto r = check_mount_points(destinations.value(), plan.bind_mounts);
+        !r) {
+        return util::unexpected{r.error()};
+    }
+    plan.order = mount_order_of(destinations.value());
+
+    return plan;
 }
 
 util::expected<void, std::string> mount(std::optional<std::string> source,

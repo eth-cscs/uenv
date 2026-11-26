@@ -318,6 +318,15 @@ There is no runtime switch between them.
   can be checked on the host up front (`validate_mount_points()`). This needs
   Linux 5.12 or later (`mount_setattr`).
 
+  Both backends describe what to mount the same way. The parsers
+  (`parse_mount_request()` in `src/uenv/parse.h`) turn the command line or
+  `UENV_MOUNT_LIST` into a `mount_request`: paths as written, nothing
+  examined. `uenv::make_mount_plan()` (`src/uenv/mount.h`) turns that into a
+  `mount_plan`: canonical paths, validated, with the order to mount in. Raw
+  strings never reach `mount.cpp`, and nothing but a `mount_plan` reaches a
+  backend. The kernel backend only produces requests with `--sqfs` entries,
+  and `open_images()` refuses a plan that has any other kind.
+
 ### Who opens the image (kernel backend)
 
 Both privileged entry points — the setuid helper and the root SPANK hook —
@@ -335,9 +344,9 @@ could be swapped, because the path is never re-opened. `open_images()` enforces
 this rather than documenting it: it refuses to run when the effective user is
 root and the real user is not.
 
-`parse_and_validate_mounts()` runs inside the same unprivileged window at both
-sites. That is deliberate and must not be moved back above the elevation: as
-root, its `weakly_canonical`/`is_regular_file`/`file_size`/magic-read sequence
+`make_mount_plan()` (`src/uenv/mount.cpp`), which validates the mount list, runs
+inside the same unprivileged window at both sites. That is deliberate and must
+not be moved back above the elevation: as root, its `weakly_canonical`/`is_regular_file`/`file_size`/magic-read sequence
 is an existence/type/first-4-bytes oracle for arbitrary paths.
 
 Every change to a process's uids and gids, and the read-back verification of

@@ -145,7 +145,7 @@ $my_uid"
     SQFS_PATH=$SQFS_LIB/apptool/standalone
 
     run squashfs-mount --sqfs=$SQFS_PATH/app42.squashfs:/user-environment,$SQFS_PATH/tool.squashfs:/user-environment -- true
-    assert_output --partial "the mount point /user-environment is used to mount more than one squashfs"
+    assert_output --partial "the destination /user-environment is used by more than one --sqfs"
     assert_failure
 }
 

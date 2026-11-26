@@ -19,6 +19,10 @@ util::expected<view_description, parse_error>
 parse_view_description(lex::lexer& L);
 util::expected<mount_description, parse_error> parse_mount_entry(lex::lexer& L);
 util::expected<repo_label, parse_error> parse_repo_label(lex::lexer& L);
+util::expected<std::vector<tmpfs_description>, parse_error>
+parse_tmpfs_list(const std::string& arg);
+util::expected<std::vector<bindmount_description>, parse_error>
+parse_bindmount_list(const std::string& arg);
 } // namespace uenv
 
 TEST_CASE("parse names", "[parse]") {
@@ -376,14 +380,13 @@ TEST_CASE("parse mount", "[parse]") {
 // "validate_mount_points" in mount.cpp
 TEST_CASE("parse tmpfs", "[parse]") {
     {
-        // no arguments: nothing to mount, not an error
-        auto result = uenv::parse_tmpfs_list({});
-        REQUIRE(result);
-        REQUIRE(result->empty());
+        // a list has at least one item: an option that was not given is
+        // handled by parse_mount_request
+        REQUIRE(!uenv::parse_tmpfs_list(""));
     }
     {
         // size is optional
-        auto result = uenv::parse_tmpfs_list({"/scratch"});
+        auto result = uenv::parse_tmpfs_list("/scratch");
         REQUIRE(result);
         REQUIRE(result->size() == 1);
         auto t = (*result)[0];
@@ -391,7 +394,7 @@ TEST_CASE("parse tmpfs", "[parse]") {
         REQUIRE(!t.size);
     }
     {
-        auto result = uenv::parse_tmpfs_list({"/scratch:1024"});
+        auto result = uenv::parse_tmpfs_list("/scratch:1024");
         REQUIRE(result);
         REQUIRE(result->size() == 1);
         auto t = (*result)[0];
@@ -400,32 +403,32 @@ TEST_CASE("parse tmpfs", "[parse]") {
     }
     {
         // a path has to start with '/' or '.'
-        auto result = uenv::parse_tmpfs_list({"scratch"});
+        auto result = uenv::parse_tmpfs_list("scratch");
         REQUIRE(!result);
     }
     {
         // size must be an integer
-        auto result = uenv::parse_tmpfs_list({"/scratch:big"});
+        auto result = uenv::parse_tmpfs_list("/scratch:big");
         REQUIRE(!result);
         REQUIRE(result.error().loc == 9u);
     }
     {
         // trailing input after the size is rejected
-        auto result = uenv::parse_tmpfs_list({"/scratch:1024:extra"});
+        auto result = uenv::parse_tmpfs_list("/scratch:1024:extra");
         REQUIRE(!result);
     }
     {
-        // paths are returned as written: parse_and_canonical_tmpfs_list
+        // paths are returned as written: uenv::make_mount_plan
         // (mount.cpp) normalises them, so the parser does not touch the file
         // system
-        auto result = uenv::parse_tmpfs_list({"/scratch/./sub/../"});
+        auto result = uenv::parse_tmpfs_list("/scratch/./sub/../");
         REQUIRE(result);
         REQUIRE((*result)[0].mount == "/scratch/./sub/../");
     }
     {
         // a mount point that does not exist is not an error here
         auto result = uenv::parse_tmpfs_list(
-            {"/this-uenv-test-top-does-not-exist/sub/dir"});
+            "/this-uenv-test-top-does-not-exist/sub/dir");
         REQUIRE(result);
         REQUIRE((*result)[0].mount ==
                 "/this-uenv-test-top-does-not-exist/sub/dir");
@@ -433,7 +436,7 @@ TEST_CASE("parse tmpfs", "[parse]") {
     {
         // --tmpfs takes a comma-separated list, the same list syntax --sqfs
         // uses
-        auto result = uenv::parse_tmpfs_list({"/scratch:1024,/data"});
+        auto result = uenv::parse_tmpfs_list("/scratch:1024,/data");
         REQUIRE(result);
         REQUIRE(result->size() == 2);
         REQUIRE((*result)[0].mount == "/scratch");
@@ -443,7 +446,7 @@ TEST_CASE("parse tmpfs", "[parse]") {
     }
     {
         // a trailing comma is tolerated, as with --sqfs
-        auto result = uenv::parse_tmpfs_list({"/scratch,"});
+        auto result = uenv::parse_tmpfs_list("/scratch,");
         REQUIRE(result);
         REQUIRE(result->size() == 1);
         REQUIRE((*result)[0].mount == "/scratch");
@@ -452,13 +455,12 @@ TEST_CASE("parse tmpfs", "[parse]") {
 
 TEST_CASE("parse bind mounts", "[parse]") {
     {
-        // no arguments: nothing to mount, not an error
-        auto result = uenv::parse_bindmount_list({});
-        REQUIRE(result);
-        REQUIRE(result->empty());
+        // a list has at least one item: an option that was not given is
+        // handled by parse_mount_request
+        REQUIRE(!uenv::parse_bindmount_list(""));
     }
     {
-        auto result = uenv::parse_bindmount_list({"/host/dir:/container"});
+        auto result = uenv::parse_bindmount_list("/host/dir:/container");
         REQUIRE(result);
         REQUIRE(result->size() == 1);
         auto b = (*result)[0];
@@ -467,13 +469,13 @@ TEST_CASE("parse bind mounts", "[parse]") {
     }
     {
         // the ':' separating src and dst is required
-        auto result = uenv::parse_bindmount_list({"/host/dir"});
+        auto result = uenv::parse_bindmount_list("/host/dir");
         REQUIRE(!result);
         // the error points at the end of the input, where ':' was expected
         REQUIRE(result.error().loc == 9u);
     }
     {
-        auto result = uenv::parse_bindmount_list({"/host/dir,"});
+        auto result = uenv::parse_bindmount_list("/host/dir,");
         REQUIRE(!result);
         REQUIRE(result.error().detail ==
                 "expected a ':' separating the bind-mount src and dest, "
@@ -481,20 +483,19 @@ TEST_CASE("parse bind mounts", "[parse]") {
     }
     {
         // a path has to start with '/' or '.'
-        auto result = uenv::parse_bindmount_list({"host/dir:/container"});
+        auto result = uenv::parse_bindmount_list("host/dir:/container");
         REQUIRE(!result);
     }
     {
         // trailing input after dst is rejected
-        auto result =
-            uenv::parse_bindmount_list({"/host/dir:/container:extra"});
+        auto result = uenv::parse_bindmount_list("/host/dir:/container:extra");
         REQUIRE(!result);
     }
     {
         // --bind-mount takes a comma-separated list, the same list syntax
         // --sqfs uses
         auto result = uenv::parse_bindmount_list(
-            {"/host/a:/container-a,/host/b:/container-b"});
+            "/host/a:/container-a,/host/b:/container-b");
         REQUIRE(result);
         REQUIRE(result->size() == 2);
         REQUIRE((*result)[0].src == "/host/a");
@@ -504,7 +505,7 @@ TEST_CASE("parse bind mounts", "[parse]") {
     }
     {
         // a trailing comma is tolerated, as with --sqfs
-        auto result = uenv::parse_bindmount_list({"/host/a:/container-a,"});
+        auto result = uenv::parse_bindmount_list("/host/a:/container-a,");
         REQUIRE(result);
         REQUIRE(result->size() == 1);
         REQUIRE((*result)[0].src == "/host/a");

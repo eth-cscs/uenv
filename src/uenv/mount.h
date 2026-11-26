@@ -13,17 +13,51 @@
 
 namespace uenv {
 
+//
+// mounts as written on the command line or in UENV_MOUNT_LIST
+//
+// These are the output of the parsers in parse.h. Paths are strings, exactly
+// as they were given: nothing has been resolved or checked.
+//
+
 struct mount_description {
     std::string sqfs_path;
     std::string mount_path;
 };
+
+struct bindmount_description {
+    std::string src;
+    std::string dst;
+};
+
+struct tmpfs_description {
+    std::string mount;
+    std::optional<std::uint64_t> size;
+};
+
+// every mount that was requested: the values of --sqfs (or UENV_MOUNT_LIST),
+// --bind-mount and --tmpfs
+struct mount_request {
+    std::vector<mount_description> sqfs;
+    std::vector<bindmount_description> bind_mounts;
+    std::vector<tmpfs_description> tmpfs;
+};
+
+//
+// mounts that are ready to be mounted
+//
+// Every path is in canonical form: absolute (a relative path is resolved
+// against the working directory), lexically normal, with symlinks in the part
+// that exists resolved, and without a trailing separator. That is the one
+// spelling that paths are compared in by the functions below.
+//
 
 struct mount_pair {
     std::filesystem::path sqfs;
     std::filesystem::path mount;
 };
 
-struct tmpfs_tuple {
+struct tmpfs_mount {
     std::filesystem::path mount;
     std::optional<std::uint64_t> size;
 };
@@ -33,21 +67,7 @@ struct bindmount_pair {
     std::filesystem::path dst;
 };
 
-// convert a description to a mount_pair that has a validated squashfs path
-util::expected<mount_pair, std::string>
-make_mount_pair(const mount_description& description);
-
 using mount_list = std::vector<mount_pair>;
-
-// Parse the value of --tmpfs or --bind-mount (parse_tmpfs_list and
-// parse_bindmount_list), and put the mount points, sources and destinations in
-// canonical form (see canonical_mount_path), the same as --sqfs mount points
-// (make_mount_pair). Whether they exist is checked by validate_mount_points,
-// once every --sqfs, --bind-mount and --tmpfs entry is known.
-util::expected<std::vector<tmpfs_tuple>, std::string>
-parse_and_canonical_tmpfs_list(const std::optional<std::string>& arg);
-util::expected<std::vector<bindmount_pair>, std::string>
-parse_and_canonical_bindmount_list(const std::optional<std::string>& arg);
 
 // Which CLI flag a mount_order_entry's payload came from.
 enum class mount_kind { sqfs, bind_mount, tmpfs };
@@ -72,18 +92,17 @@ using mount_order = std::vector<mount_order_entry>;
 // anything is mounted, also when it lies inside another destination (see
 // capture_sources in mount_rootless.cpp).
 //
-// Errors: two entries with an identical destination (mirrors the duplicate
-// mount-point check in validate_mount_list for --sqfs).
+// Errors: two entries with an identical destination.
 util::expected<mount_order, std::string>
 build_mount_order(const mount_list& mounts,
                   const std::vector<bindmount_pair>& bind_mounts,
-                  const std::vector<tmpfs_tuple>& tmpfs);
+                  const std::vector<tmpfs_mount>& tmpfs);
 
 // the destination of the --sqfs, --bind-mount or --tmpfs entry `e` refers to
 const std::filesystem::path&
 mount_destination(const mount_order_entry& e, const mount_list& mounts,
                   const std::vector<bindmount_pair>& bind_mounts,
-                  const std::vector<tmpfs_tuple>& tmpfs);
+                  const std::vector<tmpfs_mount>& tmpfs);
 
 // For each entry of `order`, the kind of the requested mount that provides
 // its mount point: the innermost other --sqfs, --bind-mount or --tmpfs
@@ -97,7 +116,7 @@ mount_destination(const mount_order_entry& e, const mount_list& mounts,
 // (which would write into its source on the host).
 std::vector<std::optional<mount_kind>> mount_point_providers(
     const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
-    const std::vector<tmpfs_tuple>& tmpfs, const mount_order& order);
+    const std::vector<tmpfs_mount>& tmpfs, const mount_order& order);
 
 // Check the mount point of every --sqfs, --bind-mount and --tmpfs entry that
 // is on the host, or inside a --bind-mount. One inside a --sqfs or --tmpfs
@@ -120,17 +139,40 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
 util::expected<void, std::string>
 validate_mount_points(const mount_list& mounts,
                       const std::vector<bindmount_pair>& bind_mounts,
-                      const std::vector<tmpfs_tuple>& tmpfs);
+                      const std::vector<tmpfs_mount>& tmpfs);
 
-// one shot from string description to sorted and validated inputs
+// Everything that is to be mounted, validated and in the order to mount it.
+struct mount_plan {
+    // sorted by mount point, so that an image is before the images that are
+    // mounted inside it
+    mount_list mounts;
+    std::vector<bindmount_pair> bind_mounts;
+    std::vector<tmpfs_mount> tmpfs;
+    // the order to mount the entries of the three lists above in
+    // (build_mount_order)
+    mount_order order;
+};
+
+// Turn the mounts that were requested into the mounts to perform:
+// - every path is put in canonical form;
+// - every squashfs image is checked: it is a regular file that the caller can
+//   read, and it starts with the squashfs magic number;
+// - no two entries have the same destination, and every mount point and
+//   bind-mount source that can be checked before mounting is an existing
+//   directory (validate_mount_points);
+// - the entries are ordered so that each is mounted after the mount that
+//   provides its mount point (build_mount_order).
 //
-// auto mountvar ;
-// if (auto mountvar = env.get("UENV_MOUNT_LIST")) {
-//     auto mounts = parse_and_validate_mounts(mountvar.value());
-// }
-util::expected<mount_list, std::string>
-parse_and_validate_mounts(const std::string& description,
-                          bool mount_points_must_exist = true);
+// The same function serves both mount backends. The kernel backend has no
+// --bind-mount or --tmpfs, so its requests only have sqfs entries.
+//
+// This examines paths that the caller named, so it must run with the
+// credentials of the calling user. Both privileged callers of the kernel
+// backend (the setuid helper and the Slurm plugin) do so: do not move it above
+// a privilege elevation, where it would report on paths that the user can not
+// see.
+util::expected<mount_plan, std::string>
+make_mount_plan(const mount_request& request);
 
 /// wrapper to `mount` from `sys/mount.h`
 util::expected<void, std::string> mount(std::optional<std::string> source,

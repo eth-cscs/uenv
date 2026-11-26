@@ -481,14 +481,9 @@ do_sqfs_ll_mount(const mount_pair& entry, const captured_sources& sources,
     return pid;
 }
 
-// Everything the caller asked to be mounted, and the order to mount it in.
-struct mount_request {
-    const uenv::mount_list& mounts;
-    const std::vector<uenv::bindmount_pair>& bind_mounts;
-    const std::vector<uenv::tmpfs_tuple>& tmpfs;
-    // a lexical stable sort of the destinations across all three, see
-    // uenv::build_mount_order()
-    const uenv::mount_order& order;
+// What to mount (the entries of the plan, in the order it gives) and how.
+struct mount_job {
+    const uenv::mount_plan& plan;
     bool fuse_single_threaded;
 };
 
@@ -503,10 +498,10 @@ struct mount_request {
 // mount. Inside the user namespace this process has no
 // more access to the host's files than the calling user.
 util::expected<captured_sources, std::string>
-capture_sources(const mount_request& req) {
+capture_sources(const mount_job& req) {
     captured_sources sources;
-    sources.images.reserve(req.mounts.size());
-    for (const auto& m : req.mounts) {
+    sources.images.reserve(req.plan.mounts.size());
+    for (const auto& m : req.plan.mounts) {
         util::unique_fd fd(::open(m.sqfs.c_str(), O_RDONLY | O_CLOEXEC));
         if (fd.get() < 0) {
             return util::unexpected(
@@ -524,8 +519,8 @@ capture_sources(const mount_request& req) {
         }
         sources.images.push_back(std::move(fd));
     }
-    sources.binds.reserve(req.bind_mounts.size());
-    for (const auto& b : req.bind_mounts) {
+    sources.binds.reserve(req.plan.bind_mounts.size());
+    for (const auto& b : req.plan.bind_mounts) {
         // AT_RECURSIVE: a mount inherited from the parent namespace is locked
         // to its submounts, and can only be copied together with them
         util::unique_fd fd(
@@ -554,8 +549,8 @@ capture_sources(const mount_request& req) {
     return sources;
 }
 
-// Mount every --sqfs, --bind-mount and --tmpfs entry in `req.order`, so that a
-// parent destination is always mounted before anything nested under it,
+// Mount every --sqfs, --bind-mount and --tmpfs entry in `req.plan.order`, so
+// that a parent destination is always mounted before anything nested under it,
 // whichever flag either came from: a --tmpfs or --bind-mount can land inside
 // a squashfs image, and a squashfs image inside a --tmpfs. Each squashfs image
 // is mounted by its own fuse daemon, PDEATHSIG-tied to this process, whose pid
@@ -573,7 +568,7 @@ capture_sources(const mount_request& req) {
 // On failure the daemons started so far are killed: whoever waits on the
 // caller's readiness (see supervisor_main) would otherwise wait on them too.
 util::expected<std::vector<pid_t>, std::string>
-apply_mounts(const mount_request& req, const captured_sources& sources) {
+apply_mounts(const mount_job& req, const captured_sources& sources) {
     std::vector<pid_t> daemons;
     auto fail = [&daemons](std::string msg)
         -> util::expected<std::vector<pid_t>, std::string> {
@@ -583,22 +578,24 @@ apply_mounts(const mount_request& req, const captured_sources& sources) {
         return util::unexpected(std::move(msg));
     };
 
-    if (req.order.size() !=
-        req.mounts.size() + req.bind_mounts.size() + req.tmpfs.size()) {
+    if (req.plan.order.size() != req.plan.mounts.size() +
+                                     req.plan.bind_mounts.size() +
+                                     req.plan.tmpfs.size()) {
         return fail(fmt::format(
             "internal error: mount ordering has {} entries but there are {} "
             "sqfs/bind-mount/tmpfs entries to apply",
-            req.order.size(),
-            req.mounts.size() + req.bind_mounts.size() + req.tmpfs.size()));
+            req.plan.order.size(),
+            req.plan.mounts.size() + req.plan.bind_mounts.size() +
+                req.plan.tmpfs.size()));
     }
 
     const auto providers = uenv::mount_point_providers(
-        req.mounts, req.bind_mounts, req.tmpfs, req.order);
+        req.plan.mounts, req.plan.bind_mounts, req.plan.tmpfs, req.plan.order);
 
-    for (std::size_t i = 0; i < req.order.size(); ++i) {
-        const auto& e = req.order[i];
-        const auto& dst =
-            uenv::mount_destination(e, req.mounts, req.bind_mounts, req.tmpfs);
+    for (std::size_t i = 0; i < req.plan.order.size(); ++i) {
+        const auto& e = req.plan.order[i];
+        const auto& dst = uenv::mount_destination(
+            e, req.plan.mounts, req.plan.bind_mounts, req.plan.tmpfs);
         if (providers[i] && *providers[i] == uenv::mount_kind::tmpfs) {
             std::error_code ec;
             // in a --tmpfs (see mount_point_providers)
@@ -611,7 +608,7 @@ apply_mounts(const mount_request& req, const captured_sources& sources) {
 
         switch (e.kind) {
         case uenv::mount_kind::sqfs: {
-            auto pid = do_sqfs_ll_mount(req.mounts.at(e.index), sources,
+            auto pid = do_sqfs_ll_mount(req.plan.mounts.at(e.index), sources,
                                         e.index, req.fuse_single_threaded);
             if (!pid) {
                 return fail(pid.error());
@@ -620,7 +617,7 @@ apply_mounts(const mount_request& req, const captured_sources& sources) {
             break;
         }
         case uenv::mount_kind::bind_mount: {
-            const auto& entry = req.bind_mounts.at(e.index);
+            const auto& entry = req.plan.bind_mounts.at(e.index);
             spdlog::trace("move_mount({}, {})", entry.src.string(),
                           entry.dst.string());
             if (::move_mount(sources.binds.at(e.index).get(), "", AT_FDCWD,
@@ -632,7 +629,7 @@ apply_mounts(const mount_request& req, const captured_sources& sources) {
             break;
         }
         case uenv::mount_kind::tmpfs: {
-            const auto& entry = req.tmpfs.at(e.index);
+            const auto& entry = req.plan.tmpfs.at(e.index);
             if (auto r = uenv::mount_tmpfs(entry.mount, entry.size); !r) {
                 return fail(fmt::format("tmpfs mount at {} failed: {}",
                                         entry.mount.string(), r.error()));
@@ -647,8 +644,7 @@ apply_mounts(const mount_request& req, const captured_sources& sources) {
 
 // Mount everything in `req` (forking one squashfuse daemon per image), report
 // readiness to the task that forked this process, then sleep until killed.
-[[noreturn]] void supervisor_main(util::ready_fork& rf,
-                                  const mount_request& req,
+[[noreturn]] void supervisor_main(util::ready_fork& rf, const mount_job& req,
                                   const captured_sources& sources) {
     // Deliberately no PR_SET_PDEATHSIG: this process must outlive the task
     // that forked it, which goes on to exec the user's command.
@@ -712,8 +708,7 @@ apply_mounts(const mount_request& req, const captured_sources& sources) {
 // image mounted. Must be called after unshare_mount_map_root(), so that the
 // supervisor and its daemons live in the namespaces the mounts belong to.
 util::expected<void, std::string>
-fork_mount_supervisor(const mount_request& req,
-                      const captured_sources& sources) {
+fork_mount_supervisor(const mount_job& req, const captured_sources& sources) {
     auto pid = util::fork_and_wait_ready(
         [&](util::ready_fork& rf) { supervisor_main(rf, req, sources); });
     if (!pid) {
@@ -724,7 +719,7 @@ fork_mount_supervisor(const mount_request& req,
     return {};
 }
 
-util::expected<void, std::string> unshare_and_mount(const mount_request& req) {
+util::expected<void, std::string> unshare_and_mount(const mount_job& req) {
     if (auto r = unshare_mount_map_root(); !r) {
         return r;
     }
@@ -739,11 +734,10 @@ util::expected<void, std::string> unshare_and_mount(const mount_request& req) {
     return {};
 }
 
-util::expected<void, std::string> mount_and_join_ns(
-    const std::string& tag, int ntasks, const uenv::mount_list& mounts,
-    const std::vector<uenv::bindmount_pair>& bind_mounts,
-    const std::vector<uenv::tmpfs_tuple>& tmpfs, const uenv::mount_order& order,
-    bool fuse_single_threaded, uid_t uid, gid_t gid) {
+util::expected<void, std::string>
+mount_and_join_ns(const std::string& tag, int ntasks,
+                  const uenv::mount_plan& plan, bool fuse_single_threaded,
+                  uid_t uid, gid_t gid) {
     // capture the caller's dumpable state before unshare_and_mount forces it
     // on, so that lock_down can restore it once the mounts are ready.
     // Any non-zero result (SUID_DUMP_USER or SUID_DUMP_ROOT) counts as
@@ -756,11 +750,8 @@ util::expected<void, std::string> mount_and_join_ns(
     }
     const bool dumps_allowed = dumpable != 0;
 
-    const mount_request req{.mounts = mounts,
-                            .bind_mounts = bind_mounts,
-                            .tmpfs = tmpfs,
-                            .order = order,
-                            .fuse_single_threaded = fuse_single_threaded};
+    const mount_job req{.plan = plan,
+                        .fuse_single_threaded = fuse_single_threaded};
 
     if (ntasks == 1) {
         // no peers to join, just mount and drop privileges
@@ -791,7 +782,7 @@ util::expected<void, std::string> mount_and_join_ns(
         // process execs the user's command, and the leader is an arbitrary
         // rank, so tying the daemons here would take the mount away from
         // every other rank on the node when that one rank's command returns.
-        if (req.mounts.empty()) {
+        if (req.plan.mounts.empty()) {
             // only --tmpfs and --bind-mount: kernel mounts, which live as long
             // as the mount namespace does, and every follower joins it below.
             // There is no daemon to own, so no supervisor.

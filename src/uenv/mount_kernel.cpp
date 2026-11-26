@@ -53,7 +53,13 @@ util::expected<void, std::string> unshare_mount_namespace() {
 //
 
 util::expected<std::vector<opened_image>, std::string>
-open_images(const mount_list& mount_entries) {
+open_images(const mount_plan& plan) {
+    if (!plan.bind_mounts.empty() || !plan.tmpfs.empty()) {
+        return util::unexpected("--bind-mount and --tmpfs are not supported by "
+                                "the kernel mount backend");
+    }
+    const mount_list& mount_entries = plan.mounts;
+
     // Precondition: the calling thread has the identity of the user whose
     // images these are. An effective uid of 0 with a different real uid means
     // that privilege has not been dropped, and opening the images would bypass
@@ -73,7 +79,7 @@ open_images(const mount_list& mount_entries) {
 
     for (auto& entry : mount_entries) {
         // O_NOFOLLOW rejects a final-component symlink swap. entry.sqfs is the
-        // already-canonicalized path (see make_mount_pair), so under honest
+        // already-canonicalized path (see make_mount_plan), so under honest
         // use the final component is a regular file and O_NOFOLLOW never
         // triggers. This guarantees that the open is made with the
         // caller's credentials, a symlink the caller can create points only
@@ -149,7 +155,7 @@ attach_loop_device(const int sqfs_fd, const std::string& squashfs_file) {
     // Binding the fd we validated, rather than re-opening the path, closes the
     // time-of-check/time-of-use gap that would otherwise let the path be
     // swapped between validation and bind.
-    // make_mount_pair performs the same checks earlier by path to give
+    // make_mount_plan performs the same checks earlier by path to give
     // user-friendly error messages for accidental user errors.
     // This check ensures that nothing nefarious is going on, and is the
     // authoritative validation of a caller-provided fd.

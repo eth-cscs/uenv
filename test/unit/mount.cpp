@@ -18,7 +18,19 @@
 #include <util/defer.h>
 #include <util/fs.h>
 
-// namespace fs = std::filesystem;
+namespace {
+// from the values of --sqfs, --bind-mount and --tmpfs to the mounts to perform
+util::expected<uenv::mount_plan, std::string>
+plan_mounts(const std::optional<std::string>& sqfs,
+            const std::optional<std::string>& bind_mounts = {},
+            const std::optional<std::string>& tmpfs = {}) {
+    auto request = uenv::parse_mount_request(sqfs, bind_mounts, tmpfs);
+    if (!request) {
+        return util::unexpected{request.error()};
+    }
+    return uenv::make_mount_plan(request.value());
+}
+} // namespace
 
 TEST_CASE("validate_mounts", "[mount]") {
     // create some "fake" squashfs images
@@ -52,7 +64,7 @@ TEST_CASE("validate_mounts", "[mount]") {
              fmt::format("{}:{},{}:{},{}:{},{}:{}", sqfs_1, mount, sqfs_2,
                          mount_a, sqfs_3, mount_a_b, sqfs_4, mount_b),
          }) {
-        REQUIRE(uenv::parse_and_validate_mounts(input));
+        REQUIRE(plan_mounts(input));
     }
     // invalid inputs
     for (auto input : {
@@ -61,7 +73,7 @@ TEST_CASE("validate_mounts", "[mount]") {
              // two mount points: the second does not exist
              fmt::format("{}:{},{}:{}", sqfs_1, mount_other, sqfs_2, mount_a),
          }) {
-        REQUIRE(!uenv::parse_and_validate_mounts(input));
+        REQUIRE(!plan_mounts(input));
     }
 }
 
@@ -70,7 +82,7 @@ TEST_CASE("build_mount_order", "[mount]") {
     using uenv::mount_kind;
     using uenv::mount_order_entry;
     using uenv::mount_pair;
-    using uenv::tmpfs_tuple;
+    using uenv::tmpfs_mount;
 
     auto require_order = [](const uenv::mount_order& order,
                             const std::vector<mount_order_entry>& expected) {
@@ -87,7 +99,7 @@ TEST_CASE("build_mount_order", "[mount]") {
     {
         const std::vector<bindmount_pair> bind_mounts = {{"/src", "/c"},
                                                          {"/src", "/a"}};
-        const std::vector<tmpfs_tuple> tmpfs = {{"/b", std::nullopt}};
+        const std::vector<tmpfs_mount> tmpfs = {{"/b", std::nullopt}};
         auto order = uenv::build_mount_order({}, bind_mounts, tmpfs);
         REQUIRE(order);
         require_order(*order, {
@@ -103,7 +115,7 @@ TEST_CASE("build_mount_order", "[mount]") {
     {
         const std::vector<bindmount_pair> bind_mounts = {
             {"/src", "/parent/child"}};
-        const std::vector<tmpfs_tuple> tmpfs = {{"/parent", std::nullopt}};
+        const std::vector<tmpfs_mount> tmpfs = {{"/parent", std::nullopt}};
         auto order = uenv::build_mount_order({}, bind_mounts, tmpfs);
         REQUIRE(order);
         require_order(*order, {
@@ -113,7 +125,7 @@ TEST_CASE("build_mount_order", "[mount]") {
     }
     {
         const std::vector<bindmount_pair> bind_mounts = {{"/src", "/parent"}};
-        const std::vector<tmpfs_tuple> tmpfs = {
+        const std::vector<tmpfs_mount> tmpfs = {
             {"/parent/child", std::nullopt}};
         auto order = uenv::build_mount_order({}, bind_mounts, tmpfs);
         REQUIRE(order);
@@ -127,7 +139,7 @@ TEST_CASE("build_mount_order", "[mount]") {
     // rejected, rather than picking a winner
     {
         const std::vector<bindmount_pair> bind_mounts = {{"/src", "/same"}};
-        const std::vector<tmpfs_tuple> tmpfs = {{"/same", std::nullopt}};
+        const std::vector<tmpfs_mount> tmpfs = {{"/same", std::nullopt}};
         REQUIRE(!uenv::build_mount_order({}, bind_mounts, tmpfs));
     }
 
@@ -136,7 +148,7 @@ TEST_CASE("build_mount_order", "[mount]") {
     {
         const std::vector<bindmount_pair> bind_mounts = {{"/src1", "/same"},
                                                          {"/src2", "/same"}};
-        const std::vector<tmpfs_tuple> tmpfs = {};
+        const std::vector<tmpfs_mount> tmpfs = {};
         REQUIRE(!uenv::build_mount_order({}, bind_mounts, tmpfs));
     }
 
@@ -150,7 +162,7 @@ TEST_CASE("build_mount_order", "[mount]") {
         };
         const std::vector<bindmount_pair> bind_mounts = {
             {"/src", "/user-environment/linux"}};
-        const std::vector<tmpfs_tuple> tmpfs = {
+        const std::vector<tmpfs_mount> tmpfs = {
             {"/user-environment/scratch", std::nullopt},
             {"/data", std::nullopt}};
         auto order = uenv::build_mount_order(mounts, bind_mounts, tmpfs);
@@ -184,7 +196,7 @@ TEST_CASE("build_mount_order", "[mount]") {
         const uenv::mount_list mounts = {
             mount_pair{.sqfs = "/img/a.squashfs", .mount = "/same"},
         };
-        const std::vector<tmpfs_tuple> tmpfs = {{"/same", std::nullopt}};
+        const std::vector<tmpfs_mount> tmpfs = {{"/same", std::nullopt}};
         REQUIRE(!uenv::build_mount_order(mounts, {}, tmpfs));
     }
 }
@@ -197,7 +209,7 @@ TEST_CASE("build_mount_order: bind-mount sources do not change the order",
     using uenv::mount_kind;
     using uenv::mount_order_entry;
     using uenv::mount_pair;
-    using uenv::tmpfs_tuple;
+    using uenv::tmpfs_mount;
 
     auto require_order = [](const uenv::mount_order& order,
                             const std::vector<mount_order_entry>& expected) {
@@ -227,7 +239,7 @@ TEST_CASE("build_mount_order: bind-mount sources do not change the order",
     {
         const std::vector<bindmount_pair> bind_mounts = {
             {"/scratch/data", "/a"}};
-        const std::vector<tmpfs_tuple> tmpfs = {{"/scratch", std::nullopt}};
+        const std::vector<tmpfs_mount> tmpfs = {{"/scratch", std::nullopt}};
         auto order = uenv::build_mount_order({}, bind_mounts, tmpfs);
         REQUIRE(order);
         require_order(*order, {
@@ -277,7 +289,7 @@ namespace {
 struct mount_input {
     uenv::mount_list mounts;
     std::vector<uenv::bindmount_pair> bind_mounts;
-    std::vector<uenv::tmpfs_tuple> tmpfs;
+    std::vector<uenv::tmpfs_mount> tmpfs;
 
     uenv::mount_order all_entries() const {
         uenv::mount_order result;
@@ -454,64 +466,64 @@ TEST_CASE("build_mount_order: generated inputs", "[mount]") {
     REQUIRE(ninputs > 10000);
 }
 
-// parse_and_canonical_tmpfs_list and parse_and_canonical_bindmount_list put
-// paths in the same canonical form as --sqfs mount points
-// (uenv::canonical_mount_path): absolute, lexically normal and without a
-// trailing separator, so that the mount order and the duplicate check
-// (uenv::build_mount_order) compare like with like.
-TEST_CASE("canonical tmpfs and bind-mount lists", "[mount]") {
+// make_mount_plan puts every path in the same canonical form: absolute,
+// lexically normal and without a trailing separator, so that the mount order
+// and the duplicate check compare like with like.
+TEST_CASE("make_mount_plan: canonical paths", "[mount]") {
     namespace fs = std::filesystem;
-    auto tmpdir = fs::weakly_canonical(fs::temp_directory_path() /
-                                       "uenv-parse-normalise-test");
+    auto tmpdir = fs::weakly_canonical(util::make_temp_dir().value());
     fs::create_directories(tmpdir / "sub");
+    fs::create_directories(tmpdir / "src");
+    const auto dir = tmpdir.string();
 
     // a trailing separator is dropped
     {
-        auto result =
-            uenv::parse_and_canonical_tmpfs_list({tmpdir.string() + "/"});
-        REQUIRE(result);
-        REQUIRE((*result)[0].mount == tmpdir);
+        auto plan = plan_mounts({}, {}, dir + "/");
+        REQUIRE(plan);
+        REQUIRE(plan->tmpfs.at(0).mount == tmpdir);
     }
     {
-        auto result = uenv::parse_and_canonical_bindmount_list(
-            {"/host/dir/:" + tmpdir.string() + "/"});
-        REQUIRE(result);
-        REQUIRE((*result)[0].src == "/host/dir");
-        REQUIRE((*result)[0].dst == tmpdir);
+        auto plan = plan_mounts({}, dir + "/src/:" + dir + "/sub/");
+        REQUIRE(plan);
+        REQUIRE(plan->bind_mounts.at(0).src == tmpdir / "src");
+        REQUIRE(plan->bind_mounts.at(0).dst == tmpdir / "sub");
     }
-    // also after a part of the path that does not exist
+    // also after a part of the path that does not exist (which is fine for a
+    // mount point inside a --tmpfs)
     {
-        auto result = uenv::parse_and_canonical_tmpfs_list(
-            {tmpdir.string() + "/missing/deeper/"});
-        REQUIRE(result);
-        REQUIRE((*result)[0].mount == tmpdir / "missing" / "deeper");
+        auto plan = plan_mounts({}, {}, dir + "," + dir + "/missing/deeper/");
+        REQUIRE(plan);
+        REQUIRE(plan->tmpfs.at(1).mount == tmpdir / "missing" / "deeper");
     }
     // "." and ".." components are resolved
     {
-        auto result = uenv::parse_and_canonical_tmpfs_list(
-            {tmpdir.string() + "/./sub/.."});
-        REQUIRE(result);
-        REQUIRE((*result)[0].mount == tmpdir);
+        auto plan = plan_mounts({}, {}, dir + "/./sub/..");
+        REQUIRE(plan);
+        REQUIRE(plan->tmpfs.at(0).mount == tmpdir);
     }
     {
-        auto result = uenv::parse_and_canonical_bindmount_list(
-            {"/host/dir:" + tmpdir.string() + "/sub/../sub/."});
-        REQUIRE(result);
-        REQUIRE((*result)[0].dst == tmpdir / "sub");
+        auto plan =
+            plan_mounts({}, dir + "/sub/../src/.:" + dir + "/src/../sub/.");
+        REQUIRE(plan);
+        REQUIRE(plan->bind_mounts.at(0).src == tmpdir / "src");
+        REQUIRE(plan->bind_mounts.at(0).dst == tmpdir / "sub");
     }
-    // a path relative to the working directory is made absolute, as a
-    // --sqfs mount point is
+    // a path relative to the working directory is made absolute, for a
+    // --sqfs mount point, a --tmpfs and a --bind-mount alike
     {
+        std::ofstream{tmpdir / "img.squashfs"} << "hsqsx";
+        fs::create_directories(tmpdir / "mnt");
+        fs::create_directories(tmpdir / "dst");
         auto cwd = fs::current_path();
         fs::current_path(tmpdir);
-        auto tmpfs = uenv::parse_and_canonical_tmpfs_list({"./sub"});
-        auto binds = uenv::parse_and_canonical_bindmount_list({"./sub:."});
+        auto plan = plan_mounts("./img.squashfs:./mnt", "./src:./dst", "./sub");
         fs::current_path(cwd);
-        REQUIRE(tmpfs);
-        REQUIRE((*tmpfs)[0].mount == tmpdir / "sub");
-        REQUIRE(binds);
-        REQUIRE((*binds)[0].src == tmpdir / "sub");
-        REQUIRE((*binds)[0].dst == tmpdir);
+        REQUIRE(plan);
+        REQUIRE(plan->mounts.at(0).sqfs == tmpdir / "img.squashfs");
+        REQUIRE(plan->mounts.at(0).mount == tmpdir / "mnt");
+        REQUIRE(plan->tmpfs.at(0).mount == tmpdir / "sub");
+        REQUIRE(plan->bind_mounts.at(0).src == tmpdir / "src");
+        REQUIRE(plan->bind_mounts.at(0).dst == tmpdir / "dst");
     }
 
     fs::remove_all(tmpdir);
@@ -519,93 +531,112 @@ TEST_CASE("canonical tmpfs and bind-mount lists", "[mount]") {
 
 // Destinations are compared as written: the order and the duplicate check
 // only work if every destination is spelled the same way, i.e. absolute,
-// lexically normal and without a trailing separator. These go through
-// parse_and_canonical_tmpfs_list and parse_and_canonical_bindmount_list, which
-// is where that spelling is fixed.
-TEST_CASE("build_mount_order: normalised destinations", "[mount]") {
+// lexically normal and without a trailing separator.
+TEST_CASE("make_mount_plan: order and duplicates", "[mount]") {
     using uenv::mount_kind;
 
     auto base =
         std::filesystem::weakly_canonical(util::make_temp_dir().value());
     std::filesystem::create_directories(base / "a" / "b");
     std::filesystem::create_directories(base / "z");
+    std::filesystem::create_directories(base / "host");
     auto sqfs = base / "img.squashfs";
     std::ofstream{sqfs} << "hsqsx";
+    const auto dir = base.string();
+    const auto host = dir + "/host";
 
     // a trailing separator: "<base>/a/" and "<base>/a" are the same mount
     // point, so using both is a duplicate
     {
-        auto tmpfs = uenv::parse_and_canonical_tmpfs_list(
-            fmt::format("{}/", (base / "a").string()));
-        REQUIRE(tmpfs);
-        auto binds = uenv::parse_and_canonical_bindmount_list(
-            fmt::format("/host:{}", (base / "a").string()));
-        REQUIRE(binds);
-        REQUIRE(!uenv::build_mount_order({}, *binds, *tmpfs));
+        auto plan = plan_mounts({}, host + ":" + dir + "/a", dir + "/a/");
+        REQUIRE(!plan);
+        REQUIRE_THAT(plan.error(), Catch::Matchers::ContainsSubstring(
+                                       "is used by more than one"));
     }
 
     // "." and ".." components: "<base>/a/./b" and "<base>/a/b" are the same
-    {
-        auto tmpfs = uenv::parse_and_canonical_tmpfs_list(
-            fmt::format("{}/a/./b", base.string()));
-        REQUIRE(tmpfs);
-        auto binds = uenv::parse_and_canonical_bindmount_list(
-            fmt::format("/host:{}/z/../a/b", base.string()));
-        REQUIRE(binds);
-        REQUIRE(!uenv::build_mount_order({}, *binds, *tmpfs));
-    }
+    REQUIRE(!plan_mounts({}, host + ":" + dir + "/z/../a/b", dir + "/a/./b"));
 
     // "<base>/z/../a" is the parent of "<base>/a/b", although it sorts after
     // it as written
     {
-        auto tmpfs = uenv::parse_and_canonical_tmpfs_list(
-            fmt::format("{}/z/../a", base.string()));
-        REQUIRE(tmpfs);
-        auto binds = uenv::parse_and_canonical_bindmount_list(
-            fmt::format("/host:{}/a/b", base.string()));
-        REQUIRE(binds);
-        auto order = uenv::build_mount_order({}, *binds, *tmpfs);
-        REQUIRE(order);
-        REQUIRE(order->size() == 2);
-        REQUIRE((*order)[0].kind == mount_kind::tmpfs);
-        REQUIRE((*order)[1].kind == mount_kind::bind_mount);
+        auto plan = plan_mounts({}, host + ":" + dir + "/a/b", dir + "/z/../a");
+        REQUIRE(plan);
+        REQUIRE(plan->order.size() == 2);
+        REQUIRE(plan->order[0].kind == mount_kind::tmpfs);
+        REQUIRE(plan->order[1].kind == mount_kind::bind_mount);
     }
 
     // a --sqfs mount point is normalised the same way: "<base>/a/" duplicates
     // a --tmpfs at "<base>/a"
     {
-        auto mounts = uenv::parse_and_validate_mounts(
-            fmt::format("{}:{}/", sqfs.string(), (base / "a").string()));
-        REQUIRE(mounts);
-        REQUIRE(mounts->size() == 1);
-        REQUIRE((*mounts)[0].mount == base / "a");
-        auto tmpfs =
-            uenv::parse_and_canonical_tmpfs_list((base / "a").string());
-        REQUIRE(tmpfs);
-        REQUIRE(!uenv::build_mount_order(*mounts, {}, *tmpfs));
+        auto plan = plan_mounts(sqfs.string() + ":" + dir + "/a/");
+        REQUIRE(plan);
+        REQUIRE(plan->mounts.size() == 1);
+        REQUIRE(plan->mounts[0].mount == base / "a");
+        REQUIRE(
+            !plan_mounts(sqfs.string() + ":" + dir + "/a/", {}, dir + "/a"));
     }
+
+    // two images at the same mount point
+    REQUIRE(
+        !plan_mounts(fmt::format("{0}:{1}/a,{0}:{1}/a/", sqfs.string(), dir)));
 
     // a symlinked spelling: "<base>/link/a" is "<base>/real/a" when
     // link -> real, for a --sqfs mount point and a --tmpfs alike
     {
         std::filesystem::create_directories(base / "real" / "a");
         std::filesystem::create_directory_symlink("real", base / "link");
-        auto mounts = uenv::parse_and_validate_mounts(fmt::format(
-            "{}:{}", sqfs.string(), (base / "link" / "a").string()));
-        REQUIRE(mounts);
-        auto tmpfs = uenv::parse_and_canonical_tmpfs_list(
-            (base / "real" / "a").string());
-        REQUIRE(tmpfs);
-        REQUIRE(!uenv::build_mount_order(*mounts, {}, *tmpfs));
-
+        REQUIRE(plan_mounts(sqfs.string() + ":" + dir + "/link/a"));
+        REQUIRE(!plan_mounts(sqfs.string() + ":" + dir + "/link/a", {},
+                             dir + "/real/a"));
         // and the other way round
-        mounts = uenv::parse_and_validate_mounts(fmt::format(
-            "{}:{}", sqfs.string(), (base / "real" / "a").string()));
-        REQUIRE(mounts);
-        tmpfs = uenv::parse_and_canonical_tmpfs_list(
-            (base / "link" / "a").string());
-        REQUIRE(tmpfs);
-        REQUIRE(!uenv::build_mount_order(*mounts, {}, *tmpfs));
+        REQUIRE(!plan_mounts(sqfs.string() + ":" + dir + "/real/a", {},
+                             dir + "/link/a"));
+    }
+
+    // the images are sorted by mount point, whatever order they were given
+    // in, and the order covers every entry
+    {
+        auto plan = plan_mounts(
+            fmt::format("{0}:{1}/a/b,{0}:{1}/a", sqfs.string(), dir), {},
+            dir + "/z");
+        REQUIRE(plan);
+        REQUIRE(plan->mounts.at(0).mount == base / "a");
+        REQUIRE(plan->mounts.at(1).mount == base / "a" / "b");
+        REQUIRE(plan->order.size() == 3);
+        REQUIRE(plan->order[0].kind == mount_kind::sqfs);
+        REQUIRE(plan->order[0].index == 0);
+        REQUIRE(plan->order[1].kind == mount_kind::sqfs);
+        REQUIRE(plan->order[1].index == 1);
+        REQUIRE(plan->order[2].kind == mount_kind::tmpfs);
+    }
+
+    // a mount point that is missing on the host is an error, unless it is
+    // inside a --tmpfs
+    REQUIRE(!plan_mounts(sqfs.string() + ":" + dir + "/z/new"));
+    REQUIRE(plan_mounts(sqfs.string() + ":" + dir + "/z/new", {}, dir + "/z"));
+
+    // a bind-mount source has to exist
+    REQUIRE(!plan_mounts({}, dir + "/absent:" + dir + "/z"));
+
+    // parse errors say which option they are from
+    {
+        auto plan = plan_mounts({}, {}, "relative:big");
+        REQUIRE(!plan);
+        REQUIRE_THAT(plan.error(), Catch::Matchers::ContainsSubstring(
+                                       "failed to parse tmpfs"));
+        plan = plan_mounts({}, dir + "/host", {});
+        REQUIRE(!plan);
+        REQUIRE_THAT(plan.error(), Catch::Matchers::ContainsSubstring(
+                                       "failed to parse bind mounts"));
+    }
+
+    // nothing requested is an empty plan
+    {
+        auto plan = plan_mounts({});
+        REQUIRE(plan);
+        REQUIRE(plan->order.empty());
     }
 
     std::filesystem::remove_all(base);
@@ -615,12 +646,12 @@ TEST_CASE("mount_point_providers", "[mount]") {
     using uenv::bindmount_pair;
     using uenv::mount_kind;
     using uenv::mount_pair;
-    using uenv::tmpfs_tuple;
+    using uenv::tmpfs_mount;
 
     // the provider of each entry, in mount order
     auto providers = [](const uenv::mount_list& mounts,
                         const std::vector<bindmount_pair>& bind_mounts,
-                        const std::vector<tmpfs_tuple>& tmpfs) {
+                        const std::vector<tmpfs_mount>& tmpfs) {
         auto order = uenv::build_mount_order(mounts, bind_mounts, tmpfs);
         REQUIRE(order);
         return uenv::mount_point_providers(mounts, bind_mounts, tmpfs, *order);
@@ -662,7 +693,7 @@ TEST_CASE("mount_point_providers", "[mount]") {
 TEST_CASE("validate_mount_points", "[mount]") {
     using uenv::bindmount_pair;
     using uenv::mount_pair;
-    using uenv::tmpfs_tuple;
+    using uenv::tmpfs_mount;
 
     auto base =
         std::filesystem::weakly_canonical(util::make_temp_dir().value());
@@ -714,7 +745,7 @@ TEST_CASE("validate_mount_points", "[mount]") {
     // a missing mount point inside a --tmpfs or --sqfs is provided by that
     // mount, and is not checked on the host
     {
-        const std::vector<tmpfs_tuple> tmpfs = {{exists, std::nullopt}};
+        const std::vector<tmpfs_mount> tmpfs = {{exists, std::nullopt}};
         REQUIRE(
             uenv::validate_mount_points({}, {{src, exists / "new"}}, tmpfs));
         REQUIRE(uenv::validate_mount_points(
@@ -815,7 +846,7 @@ TEST_CASE("validate_mounts error messages", "[mount]") {
     auto mount = util::make_temp_dir().value();
 
     auto validate = [&sqfs](const fs::path& m) {
-        return uenv::parse_and_validate_mounts(fmt::format("{}:{}", sqfs, m));
+        return plan_mounts(fmt::format("{}:{}", sqfs, m));
     };
 
     // fs::status sets its error code for a path that does not exist: that
@@ -838,7 +869,7 @@ TEST_CASE("validate_mounts error messages", "[mount]") {
 
     // a mount point that can't be examined must be an error, not an
     // exception, and the error must give the reason. (It is caught when the
-    // path is resolved, before validate_mount_list examines it. A path
+    // path is resolved, before the mount point is examined. A path
     // component longer than NAME_MAX can't be used here: the parser of the
     // mount list rejects it before the file system is touched.)
     SECTION("mount point that can't be examined") {

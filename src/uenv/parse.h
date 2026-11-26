@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,20 +31,25 @@ parse_env_view_description(const std::string& arg);
 util::expected<std::vector<uenv_description>, parse_error>
 parse_uenv_args(const std::string& arg);
 
+// parse the value of --sqfs or UENV_MOUNT_LIST: a comma-separated list of at
+// least one <sqfs>:<mount> item (an empty string is an error). Paths are
+// returned as written.
 util::expected<std::vector<mount_description>, parse_error>
 parse_mount_list(const std::string& arg);
 
-// parse the value of the --tmpfs CLI option: a comma-separated list of
-// <mount>[:<size>] items, the same list syntax --sqfs uses. Mount points are
-// returned as written: see parse_and_canonical_tmpfs_list.
-util::expected<std::vector<tmpfs_tuple>, parse_error>
-parse_tmpfs_list(const std::optional<std::string>& arg);
-
-// parse the value of the --bind-mount CLI option: a comma-separated list of
-// <src>:<dst> items, the same list syntax --sqfs uses. Paths are returned as
-// written: see parse_and_canonical_bindmount_list.
-util::expected<std::vector<bindmount_pair>, parse_error>
-parse_bindmount_list(const std::optional<std::string>& arg);
+// Parse everything that describes the mounts to perform: the value of --sqfs
+// (or of UENV_MOUNT_LIST), of --bind-mount and of --tmpfs. An option that was
+// not given contributes no entries.
+//
+// --bind-mount is a list of <src>:<dst> items and --tmpfs a list of
+// <mount>[:<size>] items, with the same list syntax as --sqfs.
+//
+// Paths are returned as written, and nothing on the file system is examined:
+// uenv::make_mount_plan (mount.h) turns the result into the mounts to perform.
+util::expected<mount_request, std::string>
+parse_mount_request(const std::optional<std::string>& sqfs,
+                    const std::optional<std::string>& bind_mounts = {},
+                    const std::optional<std::string>& tmpfs = {});
 
 util::expected<uenv_date, parse_error> parse_uenv_date(const std::string& arg);
 
