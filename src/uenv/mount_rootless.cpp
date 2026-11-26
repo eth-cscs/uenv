@@ -310,11 +310,17 @@ util::expected<pid_t, std::string> do_sqfs_ll_mount(const mount_pair& entry,
         // do not listen for SIGINT (ctrl+c)
         signal(SIGINT, SIG_IGN);
 
-        // setup dummy fuse_args to make sqfs_ll_open happy
+        // setup fuse_args: a dummy program name to make sqfs_ll_open happy,
+        // and a read-only mount. On a writable mount the kernel invalidates
+        // an inode's cached atime after every READ and READDIR, so the next
+        // stat of that inode costs a GETATTR; a read-only mount keeps the
+        // cached attributes valid.
         std::string dummy{"dummy"};
-        std::vector<char*> dummy_args{const_cast<char*>(dummy.c_str()),
-                                      nullptr};
-        fuse_args args{.argc = 1, .argv = dummy_args.data(), .allocated = 0};
+        std::string read_only{"-oro"};
+        std::vector<char*> fuse_argv{const_cast<char*>(dummy.c_str()),
+                                     const_cast<char*>(read_only.c_str()),
+                                     nullptr};
+        fuse_args args{.argc = 2, .argv = fuse_argv.data(), .allocated = 0};
 
         // define squashfs file system operations
         auto sqfs_ll_ops = make_fuse_lowlevel_options();
