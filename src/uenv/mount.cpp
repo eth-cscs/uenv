@@ -295,6 +295,26 @@ check_mount_points(const std::vector<destination>& destinations,
 }
 } // namespace
 
+//
+// The two steps of make_mount_plan on canonical entries. They are not part of
+// the interface in mount.h: the unit tests declare them.
+//
+namespace impl {
+
+// Order --sqfs, --bind-mount and --tmpfs entries so that each is mounted
+// after the mount that provides its mount point (parents before children),
+// regardless of which flag was used for which or what order they were given
+// on the command line. A --bind-mount or --tmpfs can therefore be placed
+// inside a squashfs image, and a squashfs image inside a --tmpfs.
+//
+// The order is the lexical order of the destinations, which already puts
+// parents first: paths compare component by component, so a path sorts
+// before every path below it. Nothing else constrains the order: a
+// --bind-mount source or a squashfs image is always the host's, taken before
+// anything is mounted, also when it lies inside another destination (see
+// capture_sources in mount_rootless.cpp).
+//
+// Errors: two entries with an identical destination.
 util::expected<mount_order, std::string>
 build_mount_order(const mount_list& mounts,
                   const std::vector<bindmount_pair>& bind_mounts,
@@ -305,6 +325,8 @@ build_mount_order(const mount_list& mounts,
     }
     return mount_order_of(destinations.value());
 }
+
+} // namespace impl
 
 const std::filesystem::path&
 mount_destination(const mount_order_entry& e, const mount_list& mounts,
@@ -342,6 +364,26 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
     return providers;
 }
 
+namespace impl {
+
+// Check the mount point of every --sqfs, --bind-mount and --tmpfs entry that
+// is on the host, or inside a --bind-mount. One inside a --sqfs or --tmpfs
+// destination is provided by that mount (see mount_point_providers), and can
+// not be checked before it is mounted. Paths must be in canonical form
+// (canonical_mount_path).
+//
+// Errors, in this order: two entries with an identical destination (the same
+// error as build_mount_order), then the first mount point or source that
+// fails one of the checks below.
+//
+// A mount point on the host must exist.
+//
+// Every --bind-mount source must be an existing directory on the host, also
+// one inside another requested destination: a bind source is always the
+// host's directory (see build_mount_order). So a mount point whose innermost
+// provider is a --bind-mount is checked too, at the same path below the
+// bind's source: it is never created, as that would write into the source on
+// the host.
 util::expected<void, std::string>
 validate_mount_points(const mount_list& mounts,
                       const std::vector<bindmount_pair>& bind_mounts,
@@ -354,6 +396,8 @@ validate_mount_points(const mount_list& mounts,
     }
     return check_mount_points(destinations.value(), bind_mounts);
 }
+
+} // namespace impl
 
 util::expected<mount_plan, std::string>
 make_mount_plan(const mount_request& request) {

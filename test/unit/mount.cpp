@@ -18,6 +18,18 @@
 #include <util/defer.h>
 #include <util/fs.h>
 
+// the steps of uenv::make_mount_plan, which are not declared in mount.h
+namespace uenv::impl {
+util::expected<mount_order, std::string>
+build_mount_order(const mount_list& mounts,
+                  const std::vector<bindmount_pair>& bind_mounts,
+                  const std::vector<tmpfs_mount>& tmpfs);
+util::expected<void, std::string>
+validate_mount_points(const mount_list& mounts,
+                      const std::vector<bindmount_pair>& bind_mounts,
+                      const std::vector<tmpfs_mount>& tmpfs);
+} // namespace uenv::impl
+
 namespace {
 // from the values of --sqfs, --bind-mount and --tmpfs to the mounts to perform
 util::expected<uenv::mount_plan, std::string>
@@ -100,7 +112,7 @@ TEST_CASE("build_mount_order", "[mount]") {
         const std::vector<bindmount_pair> bind_mounts = {{"/src", "/c"},
                                                          {"/src", "/a"}};
         const std::vector<tmpfs_mount> tmpfs = {{"/b", std::nullopt}};
-        auto order = uenv::build_mount_order({}, bind_mounts, tmpfs);
+        auto order = uenv::impl::build_mount_order({}, bind_mounts, tmpfs);
         REQUIRE(order);
         require_order(*order, {
                                   {mount_kind::bind_mount, 1}, // /a
@@ -116,7 +128,7 @@ TEST_CASE("build_mount_order", "[mount]") {
         const std::vector<bindmount_pair> bind_mounts = {
             {"/src", "/parent/child"}};
         const std::vector<tmpfs_mount> tmpfs = {{"/parent", std::nullopt}};
-        auto order = uenv::build_mount_order({}, bind_mounts, tmpfs);
+        auto order = uenv::impl::build_mount_order({}, bind_mounts, tmpfs);
         REQUIRE(order);
         require_order(*order, {
                                   {mount_kind::tmpfs, 0},      // /parent
@@ -127,7 +139,7 @@ TEST_CASE("build_mount_order", "[mount]") {
         const std::vector<bindmount_pair> bind_mounts = {{"/src", "/parent"}};
         const std::vector<tmpfs_mount> tmpfs = {
             {"/parent/child", std::nullopt}};
-        auto order = uenv::build_mount_order({}, bind_mounts, tmpfs);
+        auto order = uenv::impl::build_mount_order({}, bind_mounts, tmpfs);
         REQUIRE(order);
         require_order(*order, {
                                   {mount_kind::bind_mount, 0}, // /parent
@@ -140,7 +152,7 @@ TEST_CASE("build_mount_order", "[mount]") {
     {
         const std::vector<bindmount_pair> bind_mounts = {{"/src", "/same"}};
         const std::vector<tmpfs_mount> tmpfs = {{"/same", std::nullopt}};
-        REQUIRE(!uenv::build_mount_order({}, bind_mounts, tmpfs));
+        REQUIRE(!uenv::impl::build_mount_order({}, bind_mounts, tmpfs));
     }
 
     // an identical destination used twice within the same vector is also
@@ -149,7 +161,7 @@ TEST_CASE("build_mount_order", "[mount]") {
         const std::vector<bindmount_pair> bind_mounts = {{"/src1", "/same"},
                                                          {"/src2", "/same"}};
         const std::vector<tmpfs_mount> tmpfs = {};
-        REQUIRE(!uenv::build_mount_order({}, bind_mounts, tmpfs));
+        REQUIRE(!uenv::impl::build_mount_order({}, bind_mounts, tmpfs));
     }
 
     // --sqfs takes part in the same order: a --tmpfs or --bind-mount inside
@@ -165,7 +177,7 @@ TEST_CASE("build_mount_order", "[mount]") {
         const std::vector<tmpfs_mount> tmpfs = {
             {"/user-environment/scratch", std::nullopt},
             {"/data", std::nullopt}};
-        auto order = uenv::build_mount_order(mounts, bind_mounts, tmpfs);
+        auto order = uenv::impl::build_mount_order(mounts, bind_mounts, tmpfs);
         REQUIRE(order);
         require_order(
             *order, {
@@ -183,7 +195,7 @@ TEST_CASE("build_mount_order", "[mount]") {
             mount_pair{.sqfs = "/img/b.squashfs", .mount = "/a/b"},
             mount_pair{.sqfs = "/img/a.squashfs", .mount = "/a"},
         };
-        auto order = uenv::build_mount_order(mounts, {}, {});
+        auto order = uenv::impl::build_mount_order(mounts, {}, {});
         REQUIRE(order);
         require_order(*order, {
                                   {mount_kind::sqfs, 1}, // /a
@@ -197,7 +209,7 @@ TEST_CASE("build_mount_order", "[mount]") {
             mount_pair{.sqfs = "/img/a.squashfs", .mount = "/same"},
         };
         const std::vector<tmpfs_mount> tmpfs = {{"/same", std::nullopt}};
-        REQUIRE(!uenv::build_mount_order(mounts, {}, tmpfs));
+        REQUIRE(!uenv::impl::build_mount_order(mounts, {}, tmpfs));
     }
 }
 
@@ -227,7 +239,7 @@ TEST_CASE("build_mount_order: bind-mount sources do not change the order",
         };
         const std::vector<bindmount_pair> bind_mounts = {
             {"/user-environment/env", "/opt/env"}};
-        auto order = uenv::build_mount_order(mounts, bind_mounts, {});
+        auto order = uenv::impl::build_mount_order(mounts, bind_mounts, {});
         REQUIRE(order);
         require_order(*order, {
                                   {mount_kind::bind_mount, 0}, // /opt/env
@@ -240,7 +252,7 @@ TEST_CASE("build_mount_order: bind-mount sources do not change the order",
         const std::vector<bindmount_pair> bind_mounts = {
             {"/scratch/data", "/a"}};
         const std::vector<tmpfs_mount> tmpfs = {{"/scratch", std::nullopt}};
-        auto order = uenv::build_mount_order({}, bind_mounts, tmpfs);
+        auto order = uenv::impl::build_mount_order({}, bind_mounts, tmpfs);
         REQUIRE(order);
         require_order(*order, {
                                   {mount_kind::bind_mount, 0}, // /a
@@ -252,7 +264,7 @@ TEST_CASE("build_mount_order: bind-mount sources do not change the order",
     {
         const std::vector<bindmount_pair> bind_mounts = {{"/b/x", "/a"},
                                                          {"/a/y", "/b"}};
-        auto order = uenv::build_mount_order({}, bind_mounts, {});
+        auto order = uenv::impl::build_mount_order({}, bind_mounts, {});
         REQUIRE(order);
         require_order(*order, {
                                   {mount_kind::bind_mount, 0}, // /a
@@ -268,7 +280,7 @@ TEST_CASE("build_mount_order: bind-mount sources do not change the order",
         };
         const std::vector<bindmount_pair> bind_mounts = {
             {"/opt/env/x", "/opt"}};
-        auto order = uenv::build_mount_order(mounts, bind_mounts, {});
+        auto order = uenv::impl::build_mount_order(mounts, bind_mounts, {});
         REQUIRE(order);
         require_order(*order, {
                                   {mount_kind::bind_mount, 0}, // /opt
@@ -279,7 +291,7 @@ TEST_CASE("build_mount_order: bind-mount sources do not change the order",
     // a source inside its own destination
     {
         const std::vector<bindmount_pair> bind_mounts = {{"/d/sub", "/d"}};
-        REQUIRE(uenv::build_mount_order({}, bind_mounts, {}));
+        REQUIRE(uenv::impl::build_mount_order({}, bind_mounts, {}));
     }
 }
 
@@ -310,7 +322,7 @@ struct mount_input {
     }
 
     util::expected<uenv::mount_order, std::string> order() const {
-        return uenv::build_mount_order(mounts, bind_mounts, tmpfs);
+        return uenv::impl::build_mount_order(mounts, bind_mounts, tmpfs);
     }
 };
 
@@ -652,7 +664,7 @@ TEST_CASE("mount_point_providers", "[mount]") {
     auto providers = [](const uenv::mount_list& mounts,
                         const std::vector<bindmount_pair>& bind_mounts,
                         const std::vector<tmpfs_mount>& tmpfs) {
-        auto order = uenv::build_mount_order(mounts, bind_mounts, tmpfs);
+        auto order = uenv::impl::build_mount_order(mounts, bind_mounts, tmpfs);
         REQUIRE(order);
         return uenv::mount_point_providers(mounts, bind_mounts, tmpfs, *order);
     };
@@ -706,15 +718,15 @@ TEST_CASE("validate_mount_points", "[mount]") {
     std::filesystem::create_directories(src / "exists");
 
     // mount points that exist on the host
-    REQUIRE(uenv::validate_mount_points(
+    REQUIRE(uenv::impl::validate_mount_points(
         {mount_pair{.sqfs = "/img.squashfs", .mount = exists}}, {{src, base}},
         {}));
-    REQUIRE(uenv::validate_mount_points({}, {{src, exists}},
-                                        {{base, std::nullopt}}));
+    REQUIRE(uenv::impl::validate_mount_points({}, {{src, exists}},
+                                              {{base, std::nullopt}}));
 
     // a duplicate destination is reported before any path is checked
     {
-        auto r = uenv::validate_mount_points(
+        auto r = uenv::impl::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = missing}},
             {{missing, missing}}, {});
         REQUIRE(!r);
@@ -727,18 +739,19 @@ TEST_CASE("validate_mount_points", "[mount]") {
     // a mount point missing on the host is an error, whatever kind of mount
     // it is for
     {
-        auto r = uenv::validate_mount_points({}, {}, {{missing, std::nullopt}});
+        auto r = uenv::impl::validate_mount_points({}, {},
+                                                   {{missing, std::nullopt}});
         REQUIRE(!r);
         REQUIRE(r.error() == fmt::format("the mount point {} does not exist",
                                          missing.string()));
-        REQUIRE(!uenv::validate_mount_points({}, {{src, missing}}, {}));
-        REQUIRE(!uenv::validate_mount_points(
+        REQUIRE(!uenv::impl::validate_mount_points({}, {{src, missing}}, {}));
+        REQUIRE(!uenv::impl::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = missing}}, {}, {}));
         // also one several levels deep, or under a file
-        REQUIRE(!uenv::validate_mount_points(
+        REQUIRE(!uenv::impl::validate_mount_points(
             {}, {}, {{missing / "new/deeper", std::nullopt}}));
         std::ofstream(base / "file").close();
-        REQUIRE(!uenv::validate_mount_points(
+        REQUIRE(!uenv::impl::validate_mount_points(
             {}, {}, {{base / "file/new", std::nullopt}}));
     }
 
@@ -746,21 +759,21 @@ TEST_CASE("validate_mount_points", "[mount]") {
     // mount, and is not checked on the host
     {
         const std::vector<tmpfs_mount> tmpfs = {{exists, std::nullopt}};
-        REQUIRE(
-            uenv::validate_mount_points({}, {{src, exists / "new"}}, tmpfs));
-        REQUIRE(uenv::validate_mount_points(
+        REQUIRE(uenv::impl::validate_mount_points({}, {{src, exists / "new"}},
+                                                  tmpfs));
+        REQUIRE(uenv::impl::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = exists / "new"}}, {},
             tmpfs));
-        REQUIRE(uenv::validate_mount_points(
+        REQUIRE(uenv::impl::validate_mount_points(
             {}, {}, {{exists, std::nullopt}, {exists / "new", std::nullopt}}));
-        REQUIRE(uenv::validate_mount_points(
+        REQUIRE(uenv::impl::validate_mount_points(
             {}, {{src, exists / "new/x"}},
             {{exists, std::nullopt}, {exists / "new", std::nullopt}}));
     }
     {
         const uenv::mount_list mounts = {
             mount_pair{.sqfs = "/img.squashfs", .mount = exists}};
-        REQUIRE(uenv::validate_mount_points(
+        REQUIRE(uenv::impl::validate_mount_points(
             mounts, {}, {{exists / "in-image", std::nullopt}}));
     }
 
@@ -768,7 +781,7 @@ TEST_CASE("validate_mount_points", "[mount]") {
     // the host, so it is checked, and never created
     {
         std::filesystem::remove_all(src / "in-source");
-        auto r = uenv::validate_mount_points(
+        auto r = uenv::impl::validate_mount_points(
             {}, {{src, exists}}, {{exists / "in-source", std::nullopt}});
         REQUIRE(!r);
         REQUIRE(r.error() ==
@@ -778,8 +791,8 @@ TEST_CASE("validate_mount_points", "[mount]") {
                             exists.string(), (src / "in-source").string()));
         // the reason is the one check_dir gives, not always "does not exist"
         std::ofstream(src / "in-source").close();
-        r = uenv::validate_mount_points({}, {{src, exists}},
-                                        {{exists / "in-source", std::nullopt}});
+        r = uenv::impl::validate_mount_points(
+            {}, {{src, exists}}, {{exists / "in-source", std::nullopt}});
         REQUIRE(!r);
         REQUIRE(r.error() ==
                 fmt::format("the mount point {} is inside the --bind-mount "
@@ -788,50 +801,50 @@ TEST_CASE("validate_mount_points", "[mount]") {
                             exists.string(), (src / "in-source").string()));
         std::filesystem::remove(src / "in-source");
         std::filesystem::create_directories(src / "in-source");
-        REQUIRE(uenv::validate_mount_points(
+        REQUIRE(uenv::impl::validate_mount_points(
             {}, {{src, exists}}, {{exists / "in-source", std::nullopt}}));
         // only the innermost provider counts: a --tmpfs inside the bind
         // provides what is below it
-        REQUIRE(uenv::validate_mount_points(
+        REQUIRE(uenv::impl::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs",
                         .mount = exists / "in-source/new"}},
             {{src, exists}}, {{exists / "in-source", std::nullopt}}));
         // and the provider is the bind, not the host path it covers
         std::filesystem::create_directories(exists / "host-only");
-        REQUIRE(!uenv::validate_mount_points(
+        REQUIRE(!uenv::impl::validate_mount_points(
             {}, {{src, exists}}, {{exists / "host-only", std::nullopt}}));
         std::filesystem::remove_all(src / "in-source");
     }
 
     // but the provider itself has to exist
-    REQUIRE(!uenv::validate_mount_points({}, {{src, missing / "new"}},
-                                         {{missing, std::nullopt}}));
+    REQUIRE(!uenv::impl::validate_mount_points({}, {{src, missing / "new"}},
+                                               {{missing, std::nullopt}}));
 
     // a bind-mount source on the host must be an existing directory
     {
-        auto r = uenv::validate_mount_points({}, {{missing, exists}}, {});
+        auto r = uenv::impl::validate_mount_points({}, {{missing, exists}}, {});
         REQUIRE(!r);
         REQUIRE(r.error() ==
                 fmt::format("the bind-mount source {} does not exist",
                             missing.string()));
         std::ofstream(base / "src-file").close();
-        REQUIRE(!uenv::validate_mount_points({}, {{base / "src-file", exists}},
-                                             {}));
+        REQUIRE(!uenv::impl::validate_mount_points(
+            {}, {{base / "src-file", exists}}, {}));
         // inside another destination: still the host's directory, checked
-        REQUIRE(!uenv::validate_mount_points(
+        REQUIRE(!uenv::impl::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = exists}},
             {{exists / "in-image", src}}, {}));
-        REQUIRE(!uenv::validate_mount_points({}, {{exists / "in-tmpfs", src}},
-                                             {{exists, std::nullopt}}));
+        REQUIRE(!uenv::impl::validate_mount_points(
+            {}, {{exists / "in-tmpfs", src}}, {{exists, std::nullopt}}));
         std::filesystem::create_directories(exists / "on-host");
-        REQUIRE(uenv::validate_mount_points(
+        REQUIRE(uenv::impl::validate_mount_points(
             {mount_pair{.sqfs = "/img.squashfs", .mount = exists}},
             {{exists / "on-host", src}}, {}));
-        REQUIRE(uenv::validate_mount_points({}, {{exists / "on-host", src}},
-                                            {{exists, std::nullopt}}));
+        REQUIRE(uenv::impl::validate_mount_points(
+            {}, {{exists / "on-host", src}}, {{exists, std::nullopt}}));
         // inside its own destination: the host path, checked
-        REQUIRE(!uenv::validate_mount_points({}, {{exists / "missing", exists}},
-                                             {}));
+        REQUIRE(!uenv::impl::validate_mount_points(
+            {}, {{exists / "missing", exists}}, {}));
     }
 
     std::filesystem::remove_all(base);

@@ -79,25 +79,6 @@ struct mount_order_entry {
 };
 using mount_order = std::vector<mount_order_entry>;
 
-// Order --sqfs, --bind-mount and --tmpfs entries so that each is mounted
-// after the mount that provides its mount point (parents before children),
-// regardless of which flag was used for which or what order they were given
-// on the command line. A --bind-mount or --tmpfs can therefore be placed
-// inside a squashfs image, and a squashfs image inside a --tmpfs.
-//
-// The order is the lexical order of the destinations, which already puts
-// parents first: paths compare component by component, so a path sorts
-// before every path below it. Nothing else constrains the order: a
-// --bind-mount source or a squashfs image is always the host's, taken before
-// anything is mounted, also when it lies inside another destination (see
-// capture_sources in mount_rootless.cpp).
-//
-// Errors: two entries with an identical destination.
-util::expected<mount_order, std::string>
-build_mount_order(const mount_list& mounts,
-                  const std::vector<bindmount_pair>& bind_mounts,
-                  const std::vector<tmpfs_mount>& tmpfs);
-
 // the destination of the --sqfs, --bind-mount or --tmpfs entry `e` refers to
 const std::filesystem::path&
 mount_destination(const mount_order_entry& e, const mount_list& mounts,
@@ -107,8 +88,8 @@ mount_destination(const mount_order_entry& e, const mount_list& mounts,
 // For each entry of `order`, the kind of the requested mount that provides
 // its mount point: the innermost other --sqfs, --bind-mount or --tmpfs
 // destination that it lies strictly below, or nullopt if it lies on the
-// host's own file system. With `order` from build_mount_order, the provider
-// is always mounted before the entry it provides.
+// host's own file system. With `order` from a mount_plan, the provider is
+// always mounted before the entry it provides.
 //
 // The provider decides whether a missing mount point can be created: in a
 // --tmpfs always (it is empty, writable and private to the mount namespace),
@@ -118,29 +99,6 @@ std::vector<std::optional<mount_kind>> mount_point_providers(
     const mount_list& mounts, const std::vector<bindmount_pair>& bind_mounts,
     const std::vector<tmpfs_mount>& tmpfs, const mount_order& order);
 
-// Check the mount point of every --sqfs, --bind-mount and --tmpfs entry that
-// is on the host, or inside a --bind-mount. One inside a --sqfs or --tmpfs
-// destination is provided by that mount (see mount_point_providers), and can
-// not be checked before it is mounted. Paths must be in canonical form
-// (canonical_mount_path).
-//
-// Errors, in this order: two entries with an identical destination (the same
-// error as build_mount_order), then the first mount point or source that
-// fails one of the checks below.
-//
-// A mount point on the host must exist.
-//
-// Every --bind-mount source must be an existing directory on the host, also
-// one inside another requested destination: a bind source is always the
-// host's directory (see build_mount_order). So a mount point whose innermost
-// provider is a --bind-mount is checked too, at the same path below the
-// bind's source: it is never created, as that would write into the source on
-// the host.
-util::expected<void, std::string>
-validate_mount_points(const mount_list& mounts,
-                      const std::vector<bindmount_pair>& bind_mounts,
-                      const std::vector<tmpfs_mount>& tmpfs);
-
 // Everything that is to be mounted, validated and in the order to mount it.
 struct mount_plan {
     // sorted by mount point, so that an image is before the images that are
@@ -148,8 +106,11 @@ struct mount_plan {
     mount_list mounts;
     std::vector<bindmount_pair> bind_mounts;
     std::vector<tmpfs_mount> tmpfs;
-    // the order to mount the entries of the three lists above in
-    // (build_mount_order)
+    // The order to mount the entries of the three lists above in: each after
+    // the mount that provides its mount point (parents before children),
+    // whichever option it came from and whatever order they were given in. A
+    // --bind-mount or --tmpfs can therefore be placed inside a squashfs
+    // image, and a squashfs image inside a --tmpfs.
     mount_order order;
 };
 
@@ -159,9 +120,10 @@ struct mount_plan {
 //   read, and it starts with the squashfs magic number;
 // - no two entries have the same destination, and every mount point and
 //   bind-mount source that can be checked before mounting is an existing
-//   directory (validate_mount_points);
+//   directory. One inside a --sqfs or --tmpfs destination is provided by
+//   that mount, and can not be checked before it is mounted;
 // - the entries are ordered so that each is mounted after the mount that
-//   provides its mount point (build_mount_order).
+//   provides its mount point.
 //
 // The same function serves both mount backends. The kernel backend has no
 // --bind-mount or --tmpfs, so its requests only have sqfs entries.

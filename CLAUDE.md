@@ -314,8 +314,8 @@ There is no runtime switch between them.
   source is a detached `open_tree(OPEN_TREE_CLONE)` copy. A bind source inside
   an `--sqfs` destination is therefore the *host's* directory, not the
   image's. Because of that, the mount order is just the lexical order of the
-  destinations (`uenv::build_mount_order()`), and a mount point inside a bind
-  can be checked on the host up front (`validate_mount_points()`). This needs
+  destinations, and a mount point inside a bind can be checked on the host up
+  front (both in `uenv::make_mount_plan()`). This needs
   Linux 5.12 or later (`mount_setattr`).
 
   Both backends describe what to mount the same way. The parsers
