@@ -508,12 +508,15 @@ capture_sources(const mount_job& req) {
     captured_sources sources;
     sources.images.reserve(req.plan.mounts.size());
     for (const auto& m : req.plan.mounts) {
-        util::unique_fd fd(::open(m.sqfs.c_str(), O_RDONLY | O_CLOEXEC));
-        if (fd.get() < 0) {
+        // checked on the descriptor that the fuse daemon reads, and opened
+        // without blocking if the path names a FIFO
+        auto image = uenv::open_squashfs(m.sqfs);
+        if (!image) {
             return util::unexpected(
                 fmt::format("unable to open the squashfs image {}: {}",
-                            m.sqfs.string(), strerror(errno)));
+                            m.sqfs.string(), image.error()));
         }
+        util::unique_fd fd = std::move(image.value());
         // keep it clear of fds 0-2, which fuse_daemonize() clobbers
         if (fd.get() <= STDERR_FILENO) {
             fd.reset(::fcntl(fd.get(), F_DUPFD_CLOEXEC, STDERR_FILENO + 1));

@@ -3,12 +3,15 @@
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include <fcntl.h>
 #include <sys/mount.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -22,7 +25,7 @@
 namespace uenv {
 
 namespace {
-// The one spelling every --sqfs, --tmpfs and --bind-mount path is compared in:
+// The canonical form for every --sqfs, --tmpfs and --bind-mount path:
 // absolute (a relative path is resolved against the working directory),
 // lexically normal, with symlinks in the part that exists resolved, and
 // without a trailing separator. The mount order and its duplicate check
@@ -78,54 +81,13 @@ make_mount_pair(const mount_description& d) {
             fmt::format("invalid squashfs {} ({})", d.sqfs_path, ec.message())};
     }
 
-    // Distinguish "cannot look at it" from "is not a regular file". fs::status
-    // reports EACCES through `ec` and then is_regular_file(status) is false, so
-    // folding the two together would report a file the caller may not read - or
-    // whose directory they may not traverse - as "is not a regular file". That
-    // is now the ordinary outcome for an image the caller has no access to,
-    // because these checks run with the caller's credentials, so the
-    // diagnosis has to be accurate.
-    const auto status = fs::status(sqfs, ec);
-    if (ec) {
+    // Open the image and check it on the descriptor, which is then closed:
+    // the backends open the image again when they mount it. Give the reason
+    // for a failure: "unable to read" on its own sends users looking for a
+    // corrupt image when they have no permission to read it.
+    if (auto fd = open_squashfs(sqfs); !fd) {
         return util::unexpected{fmt::format("unable to read squashfs {} ({})",
-                                            sqfs.string(), ec.message())};
-    }
-    if (!fs::is_regular_file(status)) {
-        return util::unexpected{fmt::format(
-            "invalid squashfs {} (is not a regular file)", sqfs.string())};
-    }
-
-    // A valid squashfs file contains the magic string "hsqs" in the first 4
-    // bytes. Use the error_code overload: the throwing one would terminate the
-    // setuid helper, which has no handler, if the file went away or became
-    // unreadable after the check above.
-    if (fs::file_size(sqfs, ec) < 4 || ec) {
-        return util::unexpected{fmt::format(
-            "unable to read squashfs {} (not a valid squashfs file)",
-            sqfs.string())};
-    }
-    // Note that a file the caller has no access to gets this far: its metadata
-    // is readable whenever the containing directory can be traversed, so it is
-    // the open below - not the checks above - that reports the refusal. Say
-    // why it failed: "unable to read" on its own sends users looking for a
-    // corrupt image rather than a permission problem.
-    errno = 0;
-    if (auto file = std::ifstream{sqfs, std::ios::binary}) {
-        std::array<char, 4> magic{};
-        file.read(reinterpret_cast<char*>(magic.data()), magic.size());
-
-        // Compare against little-endian 'hsqs'
-        if (!(magic[0] == 'h' && magic[1] == 's' && magic[2] == 'q' &&
-              magic[3] == 's')) {
-            return util::unexpected{fmt::format(
-                "unable to read squashfs {} (not a valid squashfs file)",
-                sqfs.string())};
-        }
-    } else {
-        const int open_errno = errno;
-        return util::unexpected{fmt::format(
-            "unable to read squashfs {}{}", sqfs.string(),
-            open_errno ? fmt::format(" ({})", strerror(open_errno)) : "")};
+                                            sqfs.string(), fd.error())};
     }
 
     return mount_pair{.sqfs = sqfs, .mount = *mount};
@@ -459,6 +421,56 @@ make_mount_plan(const mount_request& request) {
     plan.order = mount_order_of(destinations.value());
 
     return plan;
+}
+
+util::expected<void, std::string> check_squashfs_fd(int fd) {
+    struct stat st = {};
+    if (::fstat(fd, &st) != 0) {
+        return util::unexpected{std::string{strerror(errno)}};
+    }
+    if (!S_ISREG(st.st_mode)) {
+        return util::unexpected{std::string{"is not a regular file"}};
+    }
+
+    // a squashfs image starts with the magic number "hsqs"
+    constexpr std::string_view squashfs_magic{"hsqs"};
+    std::array<char, 4> magic{};
+    ssize_t n = 0;
+    do {
+        n = ::pread(fd, magic.data(), magic.size(), 0);
+    } while (n < 0 && errno == EINTR);
+    if (n < 0) {
+        return util::unexpected{std::string{strerror(errno)}};
+    }
+    if (n != static_cast<ssize_t>(magic.size()) ||
+        std::string_view{magic.data(), magic.size()} != squashfs_magic) {
+        return util::unexpected{std::string{"not a valid squashfs file"}};
+    }
+    return {};
+}
+
+util::expected<util::unique_fd, std::string>
+open_squashfs(const std::filesystem::path& path, int flags) {
+    // O_NONBLOCK: the open of a FIFO for reading returns at once instead of
+    // waiting for a writer. It has no effect on the open of a regular file.
+    // O_NOCTTY: a terminal does not become the controlling terminal.
+    util::unique_fd fd{::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK |
+                                                O_NOCTTY | flags)};
+    if (!fd) {
+        return util::unexpected{std::string{strerror(errno)}};
+    }
+    if (auto r = check_squashfs_fd(fd.get()); !r) {
+        return util::unexpected{r.error()};
+    }
+
+    // O_NONBLOCK was for the open: the descriptor is a regular file's, and is
+    // handed on as an ordinary blocking one
+    const int status_flags = ::fcntl(fd.get(), F_GETFL);
+    if (status_flags < 0 ||
+        ::fcntl(fd.get(), F_SETFL, status_flags & ~O_NONBLOCK) != 0) {
+        return util::unexpected{std::string{strerror(errno)}};
+    }
+    return fd;
 }
 
 util::expected<void, std::string> mount(std::optional<std::string> source,

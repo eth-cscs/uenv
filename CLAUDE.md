@@ -346,8 +346,18 @@ root and the real user is not.
 
 `make_mount_plan()` (`src/uenv/mount.cpp`), which validates the mount list, runs
 inside the same unprivileged window at both sites. That is deliberate and must
-not be moved back above the elevation: as root, its `weakly_canonical`/`is_regular_file`/`file_size`/magic-read sequence
-is an existence/type/first-4-bytes oracle for arbitrary paths.
+not be moved back above the elevation: as root, its `weakly_canonical`, open,
+`fstat` and magic-read sequence is an existence/type/first-4-bytes oracle for
+arbitrary paths.
+
+Every open of a user-named image goes through `uenv::open_squashfs()`
+(`src/uenv/mount.cpp`): the check in `make_mount_plan()`, `open_images()`, and
+the FUSE backend's `capture_sources()`. It opens with `O_NONBLOCK` and checks
+the image on the descriptor. Do not replace it with a plain `open()` or a
+stream: opening a FIFO for reading blocks until it has a writer, and a user can
+swap a FIFO in for an image after any check that is made by path. On the kernel
+backend that open runs inside `slurmstepd`, where a hook that never returns
+leaves a step that Slurm can not clean up.
 
 Every change to a process's uids and gids, and the read-back verification of
 each change, lives in `src/util/privilege.{h,cpp}`: `util::ids` is a uid/gid

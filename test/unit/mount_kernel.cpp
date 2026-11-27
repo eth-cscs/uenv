@@ -10,6 +10,7 @@
 // bypasses exactly what is under test, so those cases skip.
 
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <filesystem>
@@ -22,6 +23,7 @@
 
 #include <uenv/mount.h>
 #include <uenv/mount_kernel.h>
+#include <util/defer.h>
 #include <util/fs.h>
 
 namespace fs = std::filesystem;
@@ -129,6 +131,37 @@ TEST_CASE("open_images refuses an image that does not exist",
     auto images = uenv::open_images(one_mount(root / "absent.squashfs", mount));
     REQUIRE(!images.has_value());
     REQUIRE(images.error().find("No such file") != std::string::npos);
+}
+
+// The image is opened inside slurmstepd by the Slurm plugin, and an open that
+// never returns leaves a step that Slurm can not clean up. Opening a FIFO for
+// reading blocks until it has a writer, so open_images must not wait for one.
+TEST_CASE("open_images refuses a FIFO without blocking", "[mount][kernel]") {
+    auto root = util::make_temp_dir().value();
+    auto fifo = root / "fifo.squashfs";
+    REQUIRE(mkfifo(fifo.c_str(), 0600) == 0);
+    auto mount = util::make_temp_dir().value();
+
+    // an open that blocks would hang the tests: stop them instead
+    alarm(30);
+    auto disarm = util::defer([]() { alarm(0); });
+
+    auto images = uenv::open_images(one_mount(fifo, mount));
+    REQUIRE(!images.has_value());
+    REQUIRE(images.error().find("is not a regular file") != std::string::npos);
+}
+
+TEST_CASE("open_images refuses a file that is not a squashfs image",
+          "[mount][kernel]") {
+    auto root = util::make_temp_dir().value();
+    auto file = root / "other.squashfs";
+    std::ofstream{file} << "not an image";
+    auto mount = util::make_temp_dir().value();
+
+    auto images = uenv::open_images(one_mount(file, mount));
+    REQUIRE(!images.has_value());
+    REQUIRE(images.error().find("not a valid squashfs file") !=
+            std::string::npos);
 }
 
 TEST_CASE("do_mount reports a mount point that can't be examined",

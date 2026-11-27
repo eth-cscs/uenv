@@ -6,6 +6,8 @@
 #include <tuple>
 #include <vector>
 
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <catch2/catch_all.hpp>
@@ -43,6 +45,111 @@ plan_mounts(const std::optional<std::string>& sqfs,
     return uenv::make_mount_plan(request.value());
 }
 } // namespace
+
+// open_squashfs is what every open of a user-named image goes through: the
+// check in make_mount_plan, and the open that each backend mounts from.
+TEST_CASE("open_squashfs", "[mount]") {
+    using Catch::Matchers::ContainsSubstring;
+    namespace fs = std::filesystem;
+
+    const auto dir = util::make_temp_dir().value();
+    const auto image = dir / "image.squashfs";
+    std::ofstream{image} << "hsqsx";
+
+    // an image, as a path and as a mount in a plan
+    auto as_mount = [&dir](const fs::path& sqfs) {
+        return plan_mounts(fmt::format("{}:{}", sqfs.string(), dir.string()));
+    };
+
+    SECTION("an image") {
+        auto fd = uenv::open_squashfs(image);
+        REQUIRE(fd);
+        REQUIRE(uenv::check_squashfs_fd(fd->get()));
+        // O_NONBLOCK is only for the open: the descriptor is a blocking one
+        const int flags = fcntl(fd->get(), F_GETFL);
+        REQUIRE(flags >= 0);
+        REQUIRE((flags & O_NONBLOCK) == 0);
+        // and is not inherited by the command that is exec'd
+        REQUIRE((fcntl(fd->get(), F_GETFD) & FD_CLOEXEC) != 0);
+
+        REQUIRE(as_mount(image));
+    }
+
+    SECTION("a file that does not exist") {
+        auto fd = uenv::open_squashfs(dir / "absent.squashfs");
+        REQUIRE(!fd);
+        REQUIRE_THAT(fd.error(), ContainsSubstring("No such file"));
+        REQUIRE(!as_mount(dir / "absent.squashfs"));
+    }
+
+    SECTION("a directory") {
+        auto fd = uenv::open_squashfs(dir);
+        REQUIRE(!fd);
+        REQUIRE(fd.error() == "is not a regular file");
+
+        auto plan = as_mount(dir);
+        REQUIRE(!plan);
+        REQUIRE_THAT(plan.error(), ContainsSubstring("is not a regular file"));
+    }
+
+    SECTION("a file that is shorter than the magic number") {
+        const auto file = dir / "short.squashfs";
+        std::ofstream{file} << "hsq";
+        auto fd = uenv::open_squashfs(file);
+        REQUIRE(!fd);
+        REQUIRE(fd.error() == "not a valid squashfs file");
+        REQUIRE(!as_mount(file));
+    }
+
+    SECTION("an empty file") {
+        const auto file = dir / "empty.squashfs";
+        std::ofstream{file};
+        REQUIRE(!uenv::open_squashfs(file));
+        REQUIRE(!as_mount(file));
+    }
+
+    SECTION("a file with the wrong magic number") {
+        const auto file = dir / "other.squashfs";
+        std::ofstream{file} << "sqshxxxxxxxx";
+        auto fd = uenv::open_squashfs(file);
+        REQUIRE(!fd);
+        REQUIRE(fd.error() == "not a valid squashfs file");
+
+        auto plan = as_mount(file);
+        REQUIRE(!plan);
+        REQUIRE_THAT(plan.error(),
+                     ContainsSubstring("not a valid squashfs file"));
+    }
+
+    SECTION("a symlink to an image") {
+        const auto link = dir / "link.squashfs";
+        fs::create_symlink(image, link);
+        REQUIRE(uenv::open_squashfs(link));
+        // unless the caller asks for it not to be followed
+        REQUIRE(!uenv::open_squashfs(link, O_NOFOLLOW));
+        REQUIRE(uenv::open_squashfs(image, O_NOFOLLOW));
+    }
+
+    // Opening a FIFO for reading blocks until it has a writer. A user can put
+    // a FIFO where an image was, so the open must not wait for one: on the
+    // kernel backend it is made inside slurmstepd.
+    SECTION("a FIFO is refused without blocking") {
+        const auto fifo = dir / "fifo.squashfs";
+        REQUIRE(mkfifo(fifo.c_str(), 0600) == 0);
+
+        // an open that blocks would hang the tests: stop them instead
+        alarm(30);
+        auto disarm = util::defer([]() { alarm(0); });
+
+        auto fd = uenv::open_squashfs(fifo);
+        REQUIRE(!fd);
+        REQUIRE(fd.error() == "is not a regular file");
+
+        auto plan = as_mount(fifo);
+        REQUIRE(!plan);
+        REQUIRE_THAT(plan.error(), ContainsSubstring("is not a regular file"));
+    }
+}
 
 TEST_CASE("validate_mounts", "[mount]") {
     // create some "fake" squashfs images

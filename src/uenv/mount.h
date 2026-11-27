@@ -10,6 +10,7 @@
 #include <fmt/core.h>
 
 #include <util/expected.h>
+#include <util/unique_fd.h>
 
 namespace uenv {
 
@@ -135,6 +136,27 @@ struct mount_plan {
 // see.
 util::expected<mount_plan, std::string>
 make_mount_plan(const mount_request& request);
+
+// Check that `fd` is a squashfs image: a regular file that starts with the
+// squashfs magic number. The error is the reason, without the name of the
+// file.
+util::expected<void, std::string> check_squashfs_fd(int fd);
+
+// Open a squashfs image for reading, and check it (check_squashfs_fd) on the
+// descriptor that is returned: what was checked is what the caller goes on to
+// use, whatever happens to `path` afterwards.
+//
+// The open does not block, whatever `path` names: opening a FIFO would
+// otherwise wait until it has a writer, which the callers that run inside
+// slurmstepd can not afford. Nor can a terminal become the controlling
+// terminal of the process. The descriptor that is returned is an ordinary
+// blocking one.
+//
+// `flags` are added to those of the open (O_NOFOLLOW, for example). The error
+// is the reason, without the path. The image is opened with the credentials
+// that are in effect: see make_mount_plan.
+util::expected<util::unique_fd, std::string>
+open_squashfs(const std::filesystem::path& path, int flags = 0);
 
 /// wrapper to `mount` from `sys/mount.h`
 util::expected<void, std::string> mount(std::optional<std::string> source,
