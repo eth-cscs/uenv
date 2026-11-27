@@ -31,10 +31,17 @@ namespace {
 // without a trailing separator. The mount order and its duplicate check
 // (build_mount_order) rely on every path having been through this.
 util::expected<std::filesystem::path, std::string>
-canonical_mount_path(const std::filesystem::path& p) {
+canonical_path(const std::filesystem::path& p) {
     namespace fs = std::filesystem;
     std::error_code ec;
-    auto result = fs::weakly_canonical(p, ec);
+    // weakly_canonical alone leaves a relative path relative when its first
+    // component does not exist. The two errors are checked separately: an
+    // empty path is an error of absolute, and the second call resets ec.
+    const auto absolute = fs::absolute(p, ec);
+    if (ec) {
+        return util::unexpected{ec.message()};
+    }
+    auto result = fs::weakly_canonical(absolute, ec);
     if (ec) {
         return util::unexpected{ec.message()};
     }
@@ -66,36 +73,33 @@ canonical_mount_path(const std::filesystem::path& p) {
 // oracle for arbitrary paths.
 util::expected<mount_pair, std::string>
 make_mount_pair(const mount_description& d) {
-    namespace fs = std::filesystem;
-
-    std::error_code ec{};
-    const auto mount = canonical_mount_path(d.mount_path);
+    const auto mount = canonical_path(d.mount_path);
     if (!mount) {
         return util::unexpected{fmt::format("invalid mount point {} ({})",
                                             d.mount_path, mount.error())};
     }
 
-    const auto sqfs = fs::weakly_canonical(fs::path(d.sqfs_path), ec);
-    if (ec) {
+    const auto sqfs = canonical_path(d.sqfs_path);
+    if (!sqfs) {
         return util::unexpected{
-            fmt::format("invalid squashfs {} ({})", d.sqfs_path, ec.message())};
+            fmt::format("invalid squashfs {} ({})", d.sqfs_path, sqfs.error())};
     }
 
     // Open the image and check it on the descriptor, which is then closed:
     // the backends open the image again when they mount it. Give the reason
     // for a failure: "unable to read" on its own sends users looking for a
     // corrupt image when they have no permission to read it.
-    if (auto fd = open_squashfs(sqfs); !fd) {
+    if (auto fd = open_squashfs(sqfs.value()); !fd) {
         return util::unexpected{fmt::format("unable to read squashfs {} ({})",
-                                            sqfs.string(), fd.error())};
+                                            sqfs->string(), fd.error())};
     }
 
-    return mount_pair{.sqfs = sqfs, .mount = *mount};
+    return mount_pair{.sqfs = sqfs.value(), .mount = mount.value()};
 }
 
 util::expected<tmpfs_mount, std::string>
 make_tmpfs_mount(const tmpfs_description& d) {
-    auto mount = canonical_mount_path(d.mount);
+    auto mount = canonical_path(d.mount);
     if (!mount) {
         return util::unexpected{
             fmt::format("invalid mount point {} ({})", d.mount, mount.error())};
@@ -105,12 +109,12 @@ make_tmpfs_mount(const tmpfs_description& d) {
 
 util::expected<bindmount_pair, std::string>
 make_bindmount_pair(const bindmount_description& d) {
-    auto src = canonical_mount_path(d.src);
+    auto src = canonical_path(d.src);
     if (!src) {
         return util::unexpected{fmt::format("invalid bind-mount source {} ({})",
                                             d.src, src.error())};
     }
-    auto dst = canonical_mount_path(d.dst);
+    auto dst = canonical_path(d.dst);
     if (!dst) {
         return util::unexpected{fmt::format(
             "invalid bind-mount destination {} ({})", d.dst, dst.error())};
@@ -332,7 +336,7 @@ namespace impl {
 // is on the host, or inside a --bind-mount. One inside a --sqfs or --tmpfs
 // destination is provided by that mount (see mount_point_providers), and can
 // not be checked before it is mounted. Paths must be in canonical form
-// (canonical_mount_path).
+// (canonical_path).
 //
 // Errors, in this order: two entries with an identical destination (the same
 // error as build_mount_order), then the first mount point or source that

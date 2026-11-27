@@ -644,6 +644,46 @@ TEST_CASE("make_mount_plan: canonical paths", "[mount]") {
         REQUIRE(plan->bind_mounts.at(0).src == tmpdir / "src");
         REQUIRE(plan->bind_mounts.at(0).dst == tmpdir / "dst");
     }
+    // also when the path starts with a directory that does not exist (the
+    // first case puts it inside a --tmpfs, where it need not exist)
+    {
+        auto cwd = fs::current_path();
+        fs::current_path(tmpdir);
+        auto plan = plan_mounts({}, {}, ".,.absent/deeper");
+        auto parent = plan_mounts({}, {}, ".absent/../sub");
+        auto self = plan_mounts({}, {}, ".absent/..");
+        auto image = plan_mounts(".absent/../img.squashfs:.absent/../mnt");
+        // the same directory, spelled in two ways, is a duplicate
+        auto duplicate = plan_mounts({}, {}, ".absent/../sub," + dir + "/sub");
+        // a destination inside a --tmpfs that was given as a relative path is
+        // provided by the tmpfs: it does not have to exist on the host
+        auto nested =
+            plan_mounts({}, dir + "/src:" + dir + "/sub/new", ".absent/../sub");
+        fs::current_path(cwd);
+
+        REQUIRE(plan);
+        REQUIRE(plan->tmpfs.at(1).mount == tmpdir / ".absent" / "deeper");
+        REQUIRE(parent);
+        REQUIRE(parent->tmpfs.at(0).mount == tmpdir / "sub");
+        REQUIRE(self);
+        REQUIRE(self->tmpfs.at(0).mount == tmpdir);
+        REQUIRE(image);
+        REQUIRE(image->mounts.at(0).sqfs == tmpdir / "img.squashfs");
+        REQUIRE(image->mounts.at(0).mount == tmpdir / "mnt");
+        REQUIRE(!duplicate);
+        REQUIRE(nested);
+        REQUIRE(nested->order.size() == 2u);
+        REQUIRE(nested->order.at(0).kind == uenv::mount_kind::tmpfs);
+    }
+    // an empty path is an error. The parsers do not produce one.
+    {
+        REQUIRE(!uenv::make_mount_plan(
+            {.sqfs = {}, .bind_mounts = {}, .tmpfs = {{"", std::nullopt}}}));
+        REQUIRE(!uenv::make_mount_plan(
+            {.sqfs = {}, .bind_mounts = {{"", dir}}, .tmpfs = {}}));
+        REQUIRE(!uenv::make_mount_plan(
+            {.sqfs = {{"", dir}}, .bind_mounts = {}, .tmpfs = {}}));
+    }
 
     fs::remove_all(tmpdir);
 }
