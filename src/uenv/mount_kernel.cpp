@@ -1,4 +1,3 @@
-#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -13,7 +12,6 @@
 #include <linux/loop.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
-#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -53,7 +51,13 @@ util::expected<void, std::string> unshare_mount_namespace() {
 //
 
 util::expected<std::vector<opened_image>, std::string>
-open_images(const mount_list& mount_entries) {
+open_images(const mount_plan& plan) {
+    if (!plan.bind_mounts.empty() || !plan.tmpfs.empty()) {
+        return util::unexpected("--bind-mount and --tmpfs are not supported by "
+                                "the kernel mount backend");
+    }
+    const mount_list& mount_entries = plan.mounts;
+
     // Precondition: the calling thread has the identity of the user whose
     // images these are. An effective uid of 0 with a different real uid means
     // that privilege has not been dropped, and opening the images would bypass
@@ -71,26 +75,29 @@ open_images(const mount_list& mount_entries) {
     std::vector<opened_image> images;
     images.reserve(mount_entries.size());
 
-    for (auto& entry : mount_entries) {
+    for (const auto& entry : mount_entries) {
+        // open_squashfs checks the image on the descriptor that is bound to
+        // the loop device, and does not block if the path names a FIFO.
+        //
         // O_NOFOLLOW rejects a final-component symlink swap. entry.sqfs is the
-        // already-canonicalized path (see make_mount_pair), so under honest
+        // already-canonicalized path (see make_mount_plan), so under honest
         // use the final component is a regular file and O_NOFOLLOW never
         // triggers. This guarantees that the open is made with the
         // caller's credentials, a symlink the caller can create points only
         // at things the caller could have named directly, but it costs
         // nothing and mirrors util-linux's loopdev symlink-attack fix
         // (LOOPDEV_FL_NOFOLLOW, advisory GHSA-qq4x-vfq4-9h9g).
-        util::unique_fd fd{
-            open(entry.sqfs.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW)};
+        auto fd = open_squashfs(entry.sqfs, O_NOFOLLOW);
         if (!fd) {
-            return util::unexpected(fmt::format("unable to open the uenv image "
-                                                "{}: {}",
-                                                entry.sqfs, strerror(errno)));
+            return util::unexpected(
+                fmt::format("unable to open the uenv image {}: {}", entry.sqfs,
+                            fd.error()));
         }
         spdlog::debug("open_images: opened {} as uid {}", entry.sqfs,
                       ids->real.uid);
-        images.push_back(opened_image{
-            .fd = std::move(fd), .sqfs = entry.sqfs, .mount = entry.mount});
+        images.push_back(opened_image{.fd = std::move(fd.value()),
+                                      .sqfs = entry.sqfs,
+                                      .mount = entry.mount});
     }
 
     return images;
@@ -149,27 +156,12 @@ attach_loop_device(const int sqfs_fd, const std::string& squashfs_file) {
     // Binding the fd we validated, rather than re-opening the path, closes the
     // time-of-check/time-of-use gap that would otherwise let the path be
     // swapped between validation and bind.
-    // make_mount_pair performs the same checks earlier by path to give
-    // user-friendly error messages for accidental user errors.
-    // This check ensures that nothing nefarious is going on, and is the
-    // authoritative validation of a caller-provided fd.
-    struct stat st = {};
-    if (fstat(sqfs_fd, &st) != 0) {
+    // open_images made the same check when it opened the image. It is made
+    // again here because this function binds whatever descriptor it is
+    // given: it is the authoritative validation of a caller-provided fd.
+    if (auto r = check_squashfs_fd(sqfs_fd); !r) {
         return util::unexpected(
-            fmt::format("stat {}: {}", squashfs_file, strerror(errno)));
-    }
-    if (!S_ISREG(st.st_mode)) {
-        return util::unexpected(
-            fmt::format("{} is not a regular file", squashfs_file));
-    }
-    // A valid squashfs file starts with the little-endian magic "hsqs".
-    std::array<char, 4> magic = {};
-    if (pread(sqfs_fd, magic.data(), magic.size(), 0) !=
-            static_cast<ssize_t>(magic.size()) ||
-        !(magic[0] == 'h' && magic[1] == 's' && magic[2] == 'q' &&
-          magic[3] == 's')) {
-        return util::unexpected(
-            fmt::format("{} is not a valid squashfs file", squashfs_file));
+            fmt::format("{}: {}", squashfs_file, r.error()));
     }
 
     constexpr int max_acquire_attempts = 16;

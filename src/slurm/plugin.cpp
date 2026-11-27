@@ -472,11 +472,13 @@ int init_post_opt_local_allocator(spank_t sp [[maybe_unused]]) {
     if (pass_through) {
         // verify that the mounts provided by UENV_MOUNT_LIST are valid
         const auto mount_var = calling_environment.get("UENV_MOUNT_LIST");
-        if (auto mount_list =
-                uenv::parse_and_validate_mounts(mount_var.value());
-            !mount_list) {
-            slurm_error("invalid UENV_MOUNT_LIST: %s",
-                        mount_list.error().c_str());
+        const auto request = uenv::parse_mount_request(mount_var.value());
+        if (!request) {
+            slurm_error("invalid UENV_MOUNT_LIST: %s", request.error().c_str());
+            return -ESPANK_ERROR;
+        }
+        if (auto plan = uenv::make_mount_plan(request.value()); !plan) {
+            slurm_error("invalid UENV_MOUNT_LIST: %s", plan.error().c_str());
             return -ESPANK_ERROR;
         }
 

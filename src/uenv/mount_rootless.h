@@ -26,9 +26,13 @@ namespace rootless {
 // once it is safe to do so, so a caller that started out non-dumpable ends
 // up non-dumpable again, and one that started out dumpable stays dumpable --
 // callers do not need their own policy for this.
+// `plan` (see uenv::make_mount_plan()) gives what to mount and the order to
+// mount it in: a parent is always mounted before anything nested under it. A
+// bind mount's source is always the host's directory, never another of the
+// requested mounts.
 util::expected<void, std::string>
 mount_and_join_ns(const std::string& tag, int ntasks,
-                  const uenv::mount_list& mounts, bool fuse_single_threaded,
+                  const uenv::mount_plan& plan, bool fuse_single_threaded,
                   uid_t uid, gid_t gid);
 
 } // namespace rootless

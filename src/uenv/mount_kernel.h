@@ -35,14 +35,17 @@ struct opened_image {
     std::filesystem::path mount;
 };
 
-/// Open every image in `mount_entries` with the credentials currently in
-/// effect, preserving the input order (validate_mount_list has already sorted
-/// it so that parent mounts precede the mounts nested inside them).
+/// Open every image in `plan.mounts` with the credentials currently in
+/// effect, preserving its order (make_mount_plan has sorted it so that parent
+/// mounts precede the mounts nested inside them).
+///
+/// This backend only mounts squashfs images: a plan that has --bind-mount or
+/// --tmpfs entries is an error.
 ///
 /// Refuses to run when the effective user is root but the real user is not, to
 /// avoid opening a caller-named image with privileges the caller does not have.
 util::expected<std::vector<opened_image>, std::string>
-open_images(const mount_list& mount_entries);
+open_images(const mount_plan& plan);
 
 /// mount images that have already been opened by open_images().
 /// NOTE: the mount namespace must have been unshared before calling this

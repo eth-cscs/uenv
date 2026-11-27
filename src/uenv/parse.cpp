@@ -1,5 +1,6 @@
 #include <charconv>
 #include <climits>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -68,6 +69,10 @@ util::expected<T, parse_error> parse_int(lex::lexer& L) {
 
 util::expected<std::uint32_t, parse_error> parse_uint32(lex::lexer& L) {
     return parse_int<std::uint32_t>(L);
+}
+
+util::expected<std::uint64_t, parse_error> parse_uint64(lex::lexer& L) {
+    return parse_int<std::uint64_t>(L);
 }
 
 // all of the symbols that can occur in a path.
@@ -350,6 +355,38 @@ parse_mount_description(lex::lexer& L) {
     return result;
 }
 
+util::expected<tmpfs_description, parse_error>
+parse_tmpfs_description(lex::lexer& L) {
+    tmpfs_description result;
+
+    PARSE(L, path, result.mount);
+    // size is optional
+    if (L.current_kind() == lex::tok::colon) {
+        // eat the colon
+        L.next();
+
+        PARSE(L, uint64, result.size);
+    }
+    return result;
+}
+
+util::expected<bindmount_description, parse_error>
+parse_bindmount_description(lex::lexer& L) {
+    bindmount_description result;
+    PARSE(L, path, result.src);
+    if (L.current_kind() != lex::tok::colon) {
+        return util::unexpected{
+            parse_error(L.string(),
+                        fmt::format("expected a ':' separating the bind-mount "
+                                    "src and dest, found '{}'",
+                                    L.peek().spelling),
+                        L.peek())};
+    }
+    L.next();
+    PARSE(L, path, result.dst);
+    return result;
+}
+
 /* Public interface.
  * These are the high level functions for parsing raw strings passed to the
  * command line.
@@ -490,17 +527,23 @@ parse_uenv_description(const std::string& in) {
     return result;
 }
 
-util::expected<std::vector<mount_description>, parse_error>
-parse_mount_list(const std::string& arg) {
+// shared by parse_mount_list, parse_tmpfs_list and parse_bindmount_list: a
+// comma-separated list of at least one item, so that --sqfs, --tmpfs and
+// --bind-mount accept the same list syntax.
+template <typename T, typename ParseItem>
+util::expected<std::vector<T>, parse_error>
+parse_arg_list(std::string_view what, const std::string& arg,
+               ParseItem&& parse_item) {
+    std::vector<T> result;
     const std::string sanitised = util::strip(arg);
+    spdlog::trace("{} sanitized `{}`", what, sanitised);
     auto L = lex::lexer(sanitised);
-    std::vector<mount_description> mounts;
-
-    spdlog::trace("parsing uenv mount list {}", arg);
     while (true) {
-        mount_description mnt;
-        PARSE(L, mount_description, mnt);
-        mounts.push_back(std::move(mnt));
+        auto item = parse_item(L);
+        if (!item) {
+            return util::unexpected(std::move(item.error()));
+        }
+        result.push_back(std::move(*item));
 
         if (L.peek() != lex::tok::comma) {
             break;
@@ -515,11 +558,70 @@ parse_mount_list(const std::string& arg) {
     }
     // if parsing finished and the string has not been consumed,
     // and invalid token was encountered
-    if (const auto t = L.peek(); t != lex::tok::end) {
+    if (const auto t = L.peek(); t.kind != lex::tok::end) {
         return util::unexpected(parse_error{
             L.string(), fmt::format("unexpected symbol {}", t.spelling), t});
     }
-    return mounts;
+    return result;
+}
+
+util::expected<std::vector<mount_description>, parse_error>
+parse_mount_list(const std::string& arg) {
+    return parse_arg_list<mount_description>("parse_mount_list", arg,
+                                             parse_mount_description);
+}
+
+// The lists of --tmpfs and --bind-mount are only parsed as part of a
+// mount_request, so they are not declared in parse.h (the unit tests declare
+// them).
+
+// <mount>[:<size>] items
+util::expected<std::vector<tmpfs_description>, parse_error>
+parse_tmpfs_list(const std::string& arg) {
+    return parse_arg_list<tmpfs_description>("parse_tmpfs", arg,
+                                             parse_tmpfs_description);
+}
+
+// <src>:<dst> items
+util::expected<std::vector<bindmount_description>, parse_error>
+parse_bindmount_list(const std::string& arg) {
+    return parse_arg_list<bindmount_description>("parse_bindmounts", arg,
+                                                 parse_bindmount_description);
+}
+
+util::expected<mount_request, std::string>
+parse_mount_request(const std::optional<std::string>& sqfs,
+                    const std::optional<std::string>& bind_mounts,
+                    const std::optional<std::string>& tmpfs) {
+    mount_request request;
+
+    if (sqfs) {
+        auto r = parse_mount_list(sqfs.value());
+        if (!r) {
+            return util::unexpected{r.error().message()};
+        }
+        request.sqfs = std::move(r.value());
+    }
+
+    if (bind_mounts) {
+        auto r = parse_bindmount_list(bind_mounts.value());
+        if (!r) {
+            return util::unexpected{fmt::format(
+                "failed to parse bind mounts: {}", r.error().message())};
+        }
+        request.bind_mounts = std::move(r.value());
+    }
+
+    if (tmpfs) {
+        auto r = parse_tmpfs_list(tmpfs.value());
+        if (!r) {
+            return util::unexpected{
+                fmt::format("failed to parse tmpfs: {}", r.error().message())};
+        }
+        request.tmpfs = std::move(r.value());
+    }
+
+    return request;
 }
 
 util::expected<uenv_registry_entry, parse_error>

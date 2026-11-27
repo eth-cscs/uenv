@@ -10,6 +10,7 @@
 // bypasses exactly what is under test, so those cases skip.
 
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <filesystem>
@@ -22,6 +23,7 @@
 
 #include <uenv/mount.h>
 #include <uenv/mount_kernel.h>
+#include <util/defer.h>
 #include <util/fs.h>
 
 namespace fs = std::filesystem;
@@ -33,8 +35,14 @@ void write_image(const fs::path& path) {
     std::ofstream{path} << "hsqsx";
 }
 
-uenv::mount_list one_mount(const fs::path& sqfs, const fs::path& mount) {
-    return uenv::mount_list{uenv::mount_pair{.sqfs = sqfs, .mount = mount}};
+uenv::mount_plan plan_of(uenv::mount_list mounts) {
+    uenv::mount_plan plan;
+    plan.mounts = std::move(mounts);
+    return plan;
+}
+
+uenv::mount_plan one_mount(const fs::path& sqfs, const fs::path& mount) {
+    return plan_of({uenv::mount_pair{.sqfs = sqfs, .mount = mount}});
 }
 
 } // namespace
@@ -49,12 +57,12 @@ TEST_CASE("open_images opens readable images", "[mount][kernel]") {
     auto mount_b = util::make_temp_dir().value();
 
     auto images = uenv::open_images(
-        uenv::mount_list{uenv::mount_pair{.sqfs = first, .mount = mount_a},
-                         uenv::mount_pair{.sqfs = second, .mount = mount_b}});
+        plan_of({uenv::mount_pair{.sqfs = first, .mount = mount_a},
+                 uenv::mount_pair{.sqfs = second, .mount = mount_b}}));
     REQUIRE(images.has_value());
     REQUIRE(images->size() == 2);
 
-    // the order of the mount list is preserved: validate_mount_list has
+    // the order of the mount list is preserved: make_mount_plan has
     // already sorted it so that a parent mount precedes anything nested
     // inside it, and do_mount relies on that order.
     REQUIRE(images->at(0).sqfs == first);
@@ -125,6 +133,37 @@ TEST_CASE("open_images refuses an image that does not exist",
     REQUIRE(images.error().find("No such file") != std::string::npos);
 }
 
+// The image is opened inside slurmstepd by the Slurm plugin, and an open that
+// never returns leaves a step that Slurm can not clean up. Opening a FIFO for
+// reading blocks until it has a writer, so open_images must not wait for one.
+TEST_CASE("open_images refuses a FIFO without blocking", "[mount][kernel]") {
+    auto root = util::make_temp_dir().value();
+    auto fifo = root / "fifo.squashfs";
+    REQUIRE(mkfifo(fifo.c_str(), 0600) == 0);
+    auto mount = util::make_temp_dir().value();
+
+    // an open that blocks would hang the tests: stop them instead
+    alarm(30);
+    auto disarm = util::defer([]() { alarm(0); });
+
+    auto images = uenv::open_images(one_mount(fifo, mount));
+    REQUIRE(!images.has_value());
+    REQUIRE(images.error().find("is not a regular file") != std::string::npos);
+}
+
+TEST_CASE("open_images refuses a file that is not a squashfs image",
+          "[mount][kernel]") {
+    auto root = util::make_temp_dir().value();
+    auto file = root / "other.squashfs";
+    std::ofstream{file} << "not an image";
+    auto mount = util::make_temp_dir().value();
+
+    auto images = uenv::open_images(one_mount(file, mount));
+    REQUIRE(!images.has_value());
+    REQUIRE(images.error().find("not a valid squashfs file") !=
+            std::string::npos);
+}
+
 TEST_CASE("do_mount reports a mount point that can't be examined",
           "[mount][kernel]") {
     auto root = util::make_temp_dir().value();
@@ -145,8 +184,25 @@ TEST_CASE("do_mount reports a mount point that can't be examined",
     REQUIRE(result.error().find("File name too long") != std::string::npos);
 }
 
-TEST_CASE("parse_and_validate_mounts reports a permission error as such",
-          "[mount]") {
+TEST_CASE("open_images refuses --bind-mount and --tmpfs entries",
+          "[mount][kernel]") {
+    auto root = util::make_temp_dir().value();
+    auto sqfs = root / "image.squashfs";
+    write_image(sqfs);
+    auto mount = util::make_temp_dir().value();
+
+    auto with_tmpfs = one_mount(sqfs, mount);
+    with_tmpfs.tmpfs.push_back({.mount = root, .size = std::nullopt});
+    auto images = uenv::open_images(with_tmpfs);
+    REQUIRE(!images.has_value());
+    REQUIRE(images.error().find("not supported") != std::string::npos);
+
+    auto with_bind = one_mount(sqfs, mount);
+    with_bind.bind_mounts.push_back({.src = root, .dst = root});
+    REQUIRE(!uenv::open_images(with_bind).has_value());
+}
+
+TEST_CASE("make_mount_plan reports a permission error as such", "[mount]") {
     if (geteuid() == 0) {
         SKIP("running as root: file modes are bypassed");
     }
@@ -156,8 +212,10 @@ TEST_CASE("parse_and_validate_mounts reports a permission error as such",
     fs::permissions(sqfs, fs::perms::none);
     auto mount = util::make_temp_dir().value();
 
-    auto mounts =
-        uenv::parse_and_validate_mounts(fmt::format("{}:{}", sqfs, mount));
+    auto mounts = uenv::make_mount_plan(
+        {.sqfs = {{.sqfs_path = sqfs.string(), .mount_path = mount.string()}},
+         .bind_mounts = {},
+         .tmpfs = {}});
     REQUIRE(!mounts.has_value());
     // an image the caller may not read is not the same thing as an image that
     // is not a regular file, and saying so sends users hunting for the wrong

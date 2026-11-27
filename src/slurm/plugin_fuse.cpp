@@ -6,6 +6,7 @@
 
 #include <uenv/log.h>
 #include <uenv/mount_rootless.h>
+#include <uenv/parse.h>
 #include <util/expected.h>
 
 #include "environ.h"
@@ -64,14 +65,20 @@ int task_init(spank_t sp) {
     // note that it is very important to carefully validate the mount_list
     // * check that the squashfs files exist and can be read by the user
     // * check that the mount points exist
-    auto mounts = uenv::parse_and_validate_mounts(mount_var.value());
-    if (!mounts) {
-        slurm_error("%s", mounts.error().c_str());
+    // bind mounts and tmpfs mounts are not exposed to the slurm plugin
+    const auto request = uenv::parse_mount_request(mount_var.value());
+    if (!request) {
+        slurm_error("%s", request.error().c_str());
+        return -ESPANK_ERROR;
+    }
+    const auto plan = uenv::make_mount_plan(request.value());
+    if (!plan) {
+        slurm_error("%s", plan.error().c_str());
         return -ESPANK_ERROR;
     }
 
     if (auto r = uenv::rootless::mount_and_join_ns(
-            barrier_tag, static_cast<int>(ntasks), mounts.value(),
+            barrier_tag, static_cast<int>(ntasks), plan.value(),
             false /*use multi threaded fuse*/, uid, gid);
         !r) {
         slurm_error("%s", r.error().c_str());
